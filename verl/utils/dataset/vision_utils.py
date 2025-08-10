@@ -22,7 +22,7 @@ from qwen_vl_utils import fetch_image, fetch_video
 
 def process_image(image: dict | Image.Image | str) -> Image.Image:
     if isinstance(image, str):
-        image = {"type": "image", "image": image}
+        image = {"type": "image", "image": image, "min_pixels": 65536, "max_pixels": 524288}
 
     if isinstance(image, Image.Image):
         return image.convert("RGB")
