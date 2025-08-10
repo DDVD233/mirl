@@ -258,6 +258,15 @@ class RLHFDataset(Dataset):
         else:
             raise ValueError("No modality found.")
 
+        if 'reward_model' not in row_dict:
+            if 'answer' in row_dict:
+                answer = row_dict['answer']
+            elif 'ground_truth' in row_dict:
+                answer = row_dict['ground_truth']
+            else:
+                raise ValueError("No answer or ground_truth found in the row_dict.")
+            row_dict['reward_model'] = {'ground_truth': answer}
+
         messages = self._build_messages(row_dict)
         model_inputs = {}
 
