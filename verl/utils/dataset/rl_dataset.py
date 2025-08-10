@@ -199,6 +199,8 @@ class RLHFDataset(Dataset):
 
         if self.image_key in example or self.video_key in example:
             for message in messages:
+                if isinstance(message, str):
+                    message = {"role": "user", "content": message}
                 content = message["content"]
                 content_list = []
                 segments = re.split("(<image>|<video>)", content)
