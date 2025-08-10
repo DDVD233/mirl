@@ -27,11 +27,13 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 from enum import Enum
 from pprint import pprint
-from typing import Optional
+from typing import Optional, Dict
 
 import numpy as np
 import ray
 import torch
+import ujson
+import wandb
 from omegaconf import OmegaConf, open_dict
 from torch.utils.data import Dataset, Sampler
 from torchdata.stateful_dataloader import StatefulDataLoader
@@ -61,6 +63,7 @@ from verl.utils.rollout_skip import RolloutSkip
 from verl.utils.seqlen_balancing import get_seqlen_balanced_partitions, log_seqlen_unbalance
 from verl.utils.torch_functional import masked_mean
 from verl.utils.tracking import ValidationGenerationsLogger
+from examples.reward_function.evaluation import compute_metrics_by_data_source
 
 WorkerType = type[Worker]
 
@@ -635,6 +638,15 @@ class RayPPOTrainer:
         sample_gts = []
         sample_scores = []
         sample_turns = []
+        sample_datasets, sample_datapaths = [], []
+
+        # New lists for metric calculation
+        all_predictions = []
+        all_ground_truths = []
+        all_data_sources = []
+        all_demographics = []
+        all_datasets = []
+        data_source_lst = []
 
         for test_data in self.val_dataloader:
             test_batch = DataProto.from_single_dict(test_data)
@@ -658,6 +670,9 @@ class RayPPOTrainer:
                 item.non_tensor_batch.get("reward_model", {}).get("ground_truth", None) for item in test_batch
             ]
             sample_gts.extend(ground_truths)
+            data_sources = test_batch.non_tensor_batch.get("data_source", ["unknown"] * len(input_texts))
+            datasets = test_batch.non_tensor_batch.get("dataset", ["unknown"] * len(input_texts))
+            demographics = test_batch.non_tensor_batch.get("demo", ["unknown"] * len(input_texts))
 
             batch_keys_to_pop = ["input_ids", "attention_mask", "position_ids"]
             non_tensor_batch_keys_to_pop = ["raw_prompt_ids"]
@@ -708,6 +723,16 @@ class RayPPOTrainer:
             output_texts = [self.tokenizer.decode(ids, skip_special_tokens=True) for ids in output_ids]
             sample_outputs.extend(output_texts)
 
+            # Collect for metrics calculation
+            all_predictions.extend(output_texts)
+            all_ground_truths.extend(ground_truths)
+            all_data_sources.extend(data_sources)
+            all_datasets.extend(datasets)
+            all_demographics.extend(demographics)
+            data_source_lst.append(
+                test_batch.non_tensor_batch.get("data_source", ["unknown"] * len(input_texts))
+            )
+
             test_batch = test_batch.union(test_output_gen_batch)
             test_batch.meta_info["validate"] = True
 
@@ -733,6 +758,14 @@ class RayPPOTrainer:
             data_source_lst.append(test_batch.non_tensor_batch.get("data_source", ["unknown"] * reward_tensor.shape[0]))
 
         self._maybe_log_val_generations(inputs=sample_inputs, outputs=sample_outputs, scores=sample_scores)
+
+        self.save_generations(sample_datapaths, sample_datasets, sample_inputs, sample_gts, sample_outputs,
+                              sample_scores)
+
+        # Per data source metrics
+        metrics = compute_metrics_by_data_source(all_predictions, all_ground_truths,
+                                                 all_data_sources, all_datasets, all_demographics)
+        wandb.log(metrics, step=self.global_steps)
 
         # dump generations
         val_data_dir = self.config.trainer.get("validation_data_dir", None)
@@ -776,6 +809,32 @@ class RayPPOTrainer:
             metric_dict["val-aux/num_turns/mean"] = sample_turns.mean()
 
         return metric_dict
+
+    def save_generations(self, sample_datapaths, sample_datasets, sample_inputs, sample_labels, sample_outputs,
+                         sample_scores):
+        generation_save_folder = os.path.join(self.config.trainer.save_checkpoint_path,
+                                              f"global_step_{self.global_steps}")
+        if not os.path.exists(generation_save_folder):
+            os.makedirs(generation_save_folder, exist_ok=True)
+        with open(os.path.join(generation_save_folder, "generations.jsonl"), "w") as f:
+            for i in range(len(sample_inputs)):
+                try:
+                    short_answer = sample_outputs[i].split("boxed{")[1].split("}")[0]
+                except IndexError:
+                    short_answer = ''
+                answer_is_correct = short_answer == sample_labels[i]
+                f.write(
+                    ujson.dumps({
+                        "input": sample_inputs[i],
+                        "generations": sample_outputs[i],
+                        "short_answer": short_answer,
+                        "answer_is_correct": answer_is_correct,
+                        "label": sample_labels[i],
+                        "score": sample_scores[i],
+                        "dataset": sample_datasets[i],
+                        "datapath": sample_datapaths[i],
+                    }) + "\n"
+                )
 
     def init_workers(self):
         """Initialize distributed training workers using Ray backend.

@@ -216,6 +216,36 @@ class RLHFDataset(Dataset):
         messages = self._build_messages(row_dict)
         model_inputs = {}
 
+        is_timeseries = False
+        vision_path = row_dict['images'][0] if 'images' in row_dict and len(row_dict['images']) != 0 else None
+        if vision_path is None:  # this may be video
+            vision_path = row_dict['videos'][0] if 'videos' in row_dict and len(row_dict['videos']) != 0 else None
+        if vision_path is None:  # this may be time series only
+            vision_path = row_dict['time_series'][0] if 'time_series' in row_dict and len(
+                row_dict['time_series']) != 0 else ''
+            is_timeseries = True
+        prompt_str = row_dict[self.prompt_key]
+
+        if 'How long will the patient stay in the hospital?' in prompt_str:
+            row_dict["data_source"] = "multimodal"
+            row_dict["dataset"] = "los_prediction"
+        elif 'Will the patient survive for at least 48 hours?' in prompt_str:
+            row_dict["data_source"] = "multimodal"
+            row_dict["dataset"] = "48_ihm"
+        elif len(vision_path) != 0:
+            try:
+                row_dict["data_source"] = vision_path.split("/")[0]
+                row_dict["dataset"] = vision_path.split("/")[1]
+            except IndexError:
+                row_dict["data_source"] = "unknown"
+                row_dict["dataset"] = "unknown"
+                print(f"Failed to parse vision path: {vision_path}. The annotation is {example}. Using default values.")
+        elif is_timeseries:
+            row_dict["data_source"] = "ecg"
+            # dataset already set in json
+        else:
+            raise ValueError("No modality found.")
+
         if self.processor is not None:
             from verl.utils.dataset.vision_utils import process_image, process_video
 
@@ -223,16 +253,16 @@ class RLHFDataset(Dataset):
             multi_modal_data = {}
 
             images = None
-            if self.image_key in row_dict and row_dict.get(self.image_key, None) is not None:
-                images = [process_image(image) for image in row_dict.pop(self.image_key)]
+            if self.image_key in row_dict and row_dict.get(self.image_key, None) is not None and len(row_dict[self.image_key]) > 0:
+                images = [process_image(image) for image in row_dict.get(self.image_key)]
 
                 # due to the image key is "image" instead of "images" in vllm, we need to use "image" here
                 # link: https://github.com/vllm-project/vllm/blob/3c545c0c3b98ee642373a308197d750d0e449403/vllm/multimodal/parse.py#L205
                 multi_modal_data["image"] = images
 
             videos = None
-            if self.video_key in row_dict and row_dict.get(self.video_key, None) is not None:
-                videos = [process_video(video) for video in row_dict.pop(self.video_key)]
+            if self.video_key in row_dict and row_dict.get(self.video_key, None) is not None and len(row_dict[self.video_key]) > 0:
+                videos = [process_video(video) for video in row_dict.get(self.video_key)]
 
                 # due to the video key is "video" instead of "videos" in vllm, we need to use "video" here
                 # link: https://github.com/vllm-project/vllm/blob/3c545c0c3b98ee642373a308197d750d0e449403/vllm/multimodal/parse.py#L205
