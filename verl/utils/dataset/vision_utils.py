@@ -20,7 +20,10 @@ from PIL import Image
 from qwen_vl_utils import fetch_image, fetch_video
 
 
-def process_image(image: dict | Image.Image) -> Image.Image:
+def process_image(image: dict | Image.Image | str) -> Image.Image:
+    if isinstance(image, str):
+        image = {"type": "image", "image": image}
+
     if isinstance(image, Image.Image):
         return image.convert("RGB")
 
@@ -70,6 +73,8 @@ def process_video(
 
     Add video sample FPS in a future MR
     """
+    if isinstance(video, str):
+        video = {"type": "video", "video": video}
 
     if not isinstance(video, dict) or "video" not in video:
         raise NotImplementedError(VIDEO_FORMAT_HELP)
