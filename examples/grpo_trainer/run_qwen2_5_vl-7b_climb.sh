@@ -39,6 +39,7 @@ python3 -m verl.trainer.main_ppo \
     algorithm.use_kl_in_reward=False \
     custom_reward_function.path=examples/reward_function/medical.py \
     custom_reward_function.name=medical_compute_score_batch \
+    reward_model.reward_manager=batch \
     trainer.critic_warmup=0 \
     trainer.logger='["console","wandb"]' \
     trainer.project_name='verl_climb' \

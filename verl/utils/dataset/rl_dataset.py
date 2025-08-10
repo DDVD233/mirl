@@ -226,8 +226,10 @@ class RLHFDataset(Dataset):
                 for segment in segments:
                     if segment == "<image>":
                         content_list.append({"type": "image"})
+                        logger.info("Adding image tag to content list.")
                     elif segment == "<video>":
                         content_list.append({"type": "video"})
+                        logger.info("Adding video tag to content list.")
                     else:
                         content_list.append({"type": "text", "text": segment})
 
