@@ -366,28 +366,24 @@ def medical_compute_score(predict_str: str, ground_truth: str, segmentation_mask
     return scores
 
 
-def medical_compute_score_batch(batch_inputs: List[Dict]) -> List[Dict[str, float]]:
+def medical_compute_score_batch(data_sources: List[str], solution_strs: List[str], ground_truths: List[str], extra_infos: List[str], **kwargs) -> List[Dict[str, float]]:
     """
     Compute medical scoring for batch inputs including standard score, bounding box IoU, and format score.
 
     Args:
-        batch_inputs: List of dictionaries containing:
-            - response: The model's prediction string
-            - response_length: Length of the response
-            - ground_truth: The ground truth string
-            - segmentation_mask: Ground truth segmentation mask tensor (optional)
-            - bbox: Ground truth bounding box (optional)
+        data_sources: List of data sources (e.g., file paths or identifiers)
+        solution_strs: List of model prediction strings
+        ground_truths: List of ground truth strings
+        extra_infos: List of extra information (e.g., segmentation masks, bounding boxes)
 
     Returns:
         List of score dictionaries
     """
     batch_scores = []
 
-    for i, input_dict in enumerate(batch_inputs):
-        predict_str = input_dict["response"]
-        ground_truth = input_dict["ground_truth"]
-        segmentation_mask = input_dict.get("segmentation_mask")
-        bbox = input_dict.get("bbox")
+    for data_source, predict_str, ground_truth, extra_info in zip(data_sources, solution_strs, ground_truths, extra_infos):
+        segmentation_mask = None
+        bbox = None
 
         # Calculate standard score
         answer = extract_boxed_content(predict_str)
