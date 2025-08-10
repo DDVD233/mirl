@@ -205,6 +205,7 @@ class RLHFDataset(Dataset):
             for message in messages:
                 if isinstance(message, str):
                     message = {"role": "user", "content": message}
+                print(message)
                 content = message["content"]
                 content_list = []
                 segments = re.split("(<image>|<video>)", content)
