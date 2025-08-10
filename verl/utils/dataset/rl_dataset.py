@@ -202,10 +202,12 @@ class RLHFDataset(Dataset):
             messages = [messages]
 
         if self.image_key in example or self.video_key in example:
+            new_messages = []
             for message in messages:
-                if isinstance(message, str):
-                    message = {"role": "user", "content": message}
-                content = message["content"]
+                new_message = copy.deepcopy(message)
+                if isinstance(new_message, str):
+                    new_message = {"role": "user", "content": new_message}
+                content = new_message["content"]
 
                 image_count = len(example.get(self.image_key, []))
                 video_count = len(example.get(self.video_key, []))
@@ -230,9 +232,16 @@ class RLHFDataset(Dataset):
                         content_list.append({"type": "video"})
                     else:
                         content_list.append({"type": "text", "text": segment})
-                message["content"] = content_list
-        print(messages)
-        return messages
+                new_message["content"] = content_list
+                new_messages.append(new_message)
+        else:
+            new_messages = copy.deepcopy(messages)
+            if isinstance(new_messages, str):
+                new_messages = [{"role": "user", "content": new_messages}]
+            elif isinstance(new_messages, list) and isinstance(new_messages[0], str):
+                new_messages = [{"role": "user", "content": new_messages}]
+        print(new_messages)
+        return new_messages
 
     def __getitem__(self, item):
         """
