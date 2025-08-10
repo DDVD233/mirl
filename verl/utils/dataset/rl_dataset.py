@@ -205,8 +205,21 @@ class RLHFDataset(Dataset):
             for message in messages:
                 if isinstance(message, str):
                     message = {"role": "user", "content": message}
-                print(message)
                 content = message["content"]
+
+                image_count = len(example.get(self.image_key, []))
+                video_count = len(example.get(self.video_key, []))
+                image_tag_count = content.count("<image>")
+                video_tag_count = content.count("<video>")
+                if image_tag_count < image_count:
+                    content = "<image>" * (image_count - image_tag_count) + content
+                    logger.warning("<image> tag count is less than image count, adding missing <image> tags."
+                                   " content: %s", content)
+                if video_tag_count < video_count:
+                    content = "<video>" * (video_count - video_tag_count) + content
+                    logger.warning("<video> tag count is less than video count, adding missing <video> tags."
+                                 " content: %s", content)
+
                 content_list = []
                 segments = re.split("(<image>|<video>)", content)
                 segments = [item for item in segments if item != ""]
