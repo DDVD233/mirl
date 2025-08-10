@@ -222,8 +222,6 @@ class RLHFDataset(Dataset):
 
                 content_list = []
                 segments = re.split("(<image>|<video>)", content)
-                print(content)
-                print(segments)
                 segments = [item for item in segments if item != ""]
                 for segment in segments:
                     if segment == "<image>":
@@ -233,6 +231,7 @@ class RLHFDataset(Dataset):
                     else:
                         content_list.append({"type": "text", "text": segment})
                 message["content"] = content_list
+        print(messages)
         return messages
 
     def __getitem__(self, item):
