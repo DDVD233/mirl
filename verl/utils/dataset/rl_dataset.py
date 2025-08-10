@@ -194,6 +194,8 @@ class RLHFDataset(Dataset):
 
     def _build_messages(self, example: dict):
         messages: list = example.get(self.prompt_key)
+        if isinstance(messages, str):
+            messages = [messages]
 
         if self.image_key in example or self.video_key in example:
             for message in messages:
