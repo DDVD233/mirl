@@ -79,7 +79,7 @@ def process_video(
     Add video sample FPS in a future MR
     """
     if isinstance(video, str):
-        video = {"type": "video", "video": video}
+        video = {"type": "video", "video": video, "min_pixels": 65536, "max_pixels": 524288}
 
     if not isinstance(video, dict) or "video" not in video:
         raise NotImplementedError(VIDEO_FORMAT_HELP)
