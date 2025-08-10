@@ -193,7 +193,7 @@ class RLHFDataset(Dataset):
         return len(self.dataframe)
 
     def _build_messages(self, example: dict):
-        messages: list = example.pop(self.prompt_key)
+        messages: list = example.get(self.prompt_key)
 
         if self.image_key in example or self.video_key in example:
             for message in messages:
@@ -218,8 +218,6 @@ class RLHFDataset(Dataset):
         Note that we also return the raw_input_ids so that it can be combined with other chat template
         """
         row_dict: dict = self.dataframe[item]
-        messages = self._build_messages(row_dict)
-        model_inputs = {}
 
         is_timeseries = False
         vision_path = row_dict['images'][0] if 'images' in row_dict and len(row_dict['images']) != 0 else None
@@ -244,12 +242,16 @@ class RLHFDataset(Dataset):
             except IndexError:
                 row_dict["data_source"] = "unknown"
                 row_dict["dataset"] = "unknown"
-                print(f"Failed to parse vision path: {vision_path}. The annotation is {example}. Using default values.")
+                print(
+                    f"Failed to parse vision path: {vision_path}. The annotation is {row_dict}. Using default values.")
         elif is_timeseries:
             row_dict["data_source"] = "ecg"
             # dataset already set in json
         else:
             raise ValueError("No modality found.")
+
+        messages = self._build_messages(row_dict)
+        model_inputs = {}
 
         if self.processor is not None:
             from verl.utils.dataset.vision_utils import process_image, process_video

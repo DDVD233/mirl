@@ -12,6 +12,7 @@ python3 -m verl.trainer.main_ppo \
     data.truncation='left' \
     data.image_key=images \
     data.video_key=videos \
+    data.prompt_key=problem \
     actor_rollout_ref.model.path=Qwen/Qwen2.5-VL-7B-Instruct \
     actor_rollout_ref.actor.optim.lr=1e-6 \
     actor_rollout_ref.model.use_remove_padding=True \
