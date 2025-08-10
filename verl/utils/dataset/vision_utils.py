@@ -31,7 +31,12 @@ def process_image(image: dict | Image.Image | str) -> Image.Image:
         assert "image" not in image, "Cannot have both `bytes` and `image`"
         image["image"] = Image.open(BytesIO(image["bytes"]))
 
-    return fetch_image(image)
+    try:
+        return fetch_image(image)
+    except Exception as e:
+        print(e)
+        dummy_image = Image.new("RGB", (224, 224))
+        return process_image(dummy_image)
 
 
 VIDEO_FORMAT_HELP = """Currently, we only support the video formats introduced in qwen2-vl.
@@ -93,8 +98,12 @@ def process_video(
                 video["min_frames"] = fps_min_frames
             if fps_max_frames is not None:
                 video["max_frames"] = fps_max_frames
-
-    return fetch_video(video)
+    try:
+        return fetch_video(video)
+    except Exception as e:
+        print(e)
+        dummy_video = torch.zeros((1, 3, 224, 224), dtype=torch.uint8)
+        return dummy_video
 
 
 def process_multi_modal_inputs_for_minicpmo(input_ids, attention_mask, position_ids, cu_seqlens, multi_modal_inputs):

@@ -107,6 +107,10 @@ class RLHFDataset(Dataset):
         self.return_full_prompt = config.get("return_full_prompt", False)
         self.truncation = config.get("truncation", "error")
         self.filter_overlong_prompts = config.get("filter_overlong_prompts", True)
+        if isinstance(data_files, str):
+            self.base_dir = os.path.dirname(os.path.abspath(data_files))
+        else:
+            self.base_dir = os.path.dirname(os.path.abspath(data_files[0]))
 
         self.num_workers = config.get("filter_overlong_prompts_workers", max(1, os.cpu_count() // 4))
         self.num_workers = min(self.num_workers, os.cpu_count())
@@ -265,7 +269,11 @@ class RLHFDataset(Dataset):
 
             images = None
             if self.image_key in row_dict and row_dict.get(self.image_key, None) is not None and len(row_dict[self.image_key]) > 0:
-                images = [process_image(image) for image in row_dict.get(self.image_key)]
+                # images = [process_image(image) for image in row_dict.get(self.image_key)]
+                images = []
+                for image in row_dict.get(self.image_key):
+                    image = os.path.join(self.base_dir, image) if isinstance(image, str) else image
+                    images.append(process_image(image))
 
                 # due to the image key is "image" instead of "images" in vllm, we need to use "image" here
                 # link: https://github.com/vllm-project/vllm/blob/3c545c0c3b98ee642373a308197d750d0e449403/vllm/multimodal/parse.py#L205
@@ -273,7 +281,11 @@ class RLHFDataset(Dataset):
 
             videos = None
             if self.video_key in row_dict and row_dict.get(self.video_key, None) is not None and len(row_dict[self.video_key]) > 0:
-                videos = [process_video(video) for video in row_dict.get(self.video_key)]
+                # videos = [process_video(video) for video in row_dict.get(self.video_key)]
+                videos = []
+                for video in row_dict.get(self.video_key):
+                    video = os.path.join(self.base_dir, video) if isinstance(video, str) else video
+                    videos.append(process_video(video))
 
                 # due to the video key is "video" instead of "videos" in vllm, we need to use "video" here
                 # link: https://github.com/vllm-project/vllm/blob/3c545c0c3b98ee642373a308197d750d0e449403/vllm/multimodal/parse.py#L205
