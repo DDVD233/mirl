@@ -24,6 +24,7 @@ from typing import Optional
 import datasets
 import numpy as np
 import torch
+from jinja2 import Template
 from omegaconf import DictConfig, ListConfig
 from torch.utils.data import Dataset
 from transformers import PreTrainedTokenizer, ProcessorMixin
@@ -107,6 +108,10 @@ class RLHFDataset(Dataset):
         self.return_full_prompt = config.get("return_full_prompt", False)
         self.truncation = config.get("truncation", "error")
         self.filter_overlong_prompts = config.get("filter_overlong_prompts", True)
+        if isinstance(data_files, str):
+            self.base_dir = os.path.dirname(os.path.abspath(data_files))
+        else:
+            self.base_dir = os.path.dirname(os.path.abspath(data_files[0]))
 
         self.num_workers = config.get("filter_overlong_prompts_workers", max(1, os.cpu_count() // 4))
         self.num_workers = min(self.num_workers, os.cpu_count())
@@ -116,9 +121,21 @@ class RLHFDataset(Dataset):
         self.filter_prompts = config.get("filter_prompts", True)
         self.serialize_dataset = False
         self.return_multi_modal_inputs = config.get("return_multi_modal_inputs", True)
+        
+        # Load format prompt from file if specified
+        self.format_prompt_path = config.get("format_prompt", "examples/format_prompt/default.jinja")
+        self.format_prompt = self._load_format_prompt()
 
         self._download()
         self._read_files_and_tokenize()
+
+    def _load_format_prompt(self) -> Optional[Template]:
+        """Load format prompt from file if specified."""
+        if self.format_prompt_path:
+            with open(self.format_prompt_path, 'r', encoding='utf-8') as f:
+                template_content = f.read()
+            return Template(template_content)
+        return None
 
     def _download(self, use_origin_parquet=False):
         from verl.utils.fs import copy_to_local
@@ -131,7 +148,12 @@ class RLHFDataset(Dataset):
         dataframes = []
         for parquet_file in self.data_files:
             # read parquet files and cache
-            dataframe = datasets.load_dataset("parquet", data_files=parquet_file)["train"]
+            if parquet_file.endswith(".parquet"):
+                dataframe = datasets.load_dataset("parquet", data_files=parquet_file)["train"]
+            elif parquet_file.endswith(".json") or parquet_file.endswith(".jsonl"):
+                dataframe = datasets.load_dataset("json", data_files=parquet_file)["train"]
+            else:
+                raise ValueError(f"Unsupported file format: {parquet_file}. Only .parquet, .json, .jsonl are supported.")
             dataframes.append(dataframe)
         self.dataframe: datasets.Dataset = datasets.concatenate_datasets(dataframes)
 
@@ -188,11 +210,35 @@ class RLHFDataset(Dataset):
         return len(self.dataframe)
 
     def _build_messages(self, example: dict):
-        messages: list = example.pop(self.prompt_key)
+        messages: list = example.get(self.prompt_key)
+        if isinstance(messages, str):
+            messages = [messages]
 
         if self.image_key in example or self.video_key in example:
+            new_messages = []
             for message in messages:
-                content = message["content"]
+                new_message = copy.deepcopy(message)
+                if isinstance(new_message, str):
+                    new_message = {"role": "user", "content": new_message}
+                content = new_message["content"]
+                
+                # Apply format prompt to the entire content first if template is loaded
+                if self.format_prompt:
+                    content = self.format_prompt.render(content=content)
+
+                image_count = len(example.get(self.image_key, []))
+                video_count = len(example.get(self.video_key, []))
+                image_tag_count = content.count("<image>")
+                video_tag_count = content.count("<video>")
+                if image_tag_count < image_count:
+                    content = "<image>" * (image_count - image_tag_count) + content
+                    logger.warning("<image> tag count is less than image count, adding missing <image> tags."
+                                   " content: %s", content)
+                if video_tag_count < video_count:
+                    content = "<video>" * (video_count - video_tag_count) + content
+                    logger.warning("<video> tag count is less than video count, adding missing <video> tags."
+                                 " content: %s", content)
+
                 content_list = []
                 segments = re.split("(<image>|<video>)", content)
                 segments = [item for item in segments if item != ""]
@@ -203,16 +249,70 @@ class RLHFDataset(Dataset):
                         content_list.append({"type": "video"})
                     else:
                         content_list.append({"type": "text", "text": segment})
-
-                message["content"] = content_list
-
-        return messages
+                new_message["content"] = content_list
+                new_messages.append(new_message)
+        else:
+            new_messages = copy.deepcopy(messages)
+            if isinstance(new_messages, str):
+                new_messages = [{"role": "user", "content": new_messages}]
+            elif isinstance(new_messages, list) and isinstance(new_messages[0], str):
+                new_messages = [{"role": "user", "content": new_messages}]
+            
+            # Apply format prompt to text-only messages if template is loaded
+            if self.format_prompt and len(new_messages) > 0:
+                for i, msg in enumerate(new_messages):
+                    if isinstance(msg, dict) and msg.get("role") == "user":
+                        content = msg.get("content", "")
+                        if isinstance(content, str):
+                            new_messages[i]["content"] = self.format_prompt.render(content=content)
+        return new_messages
 
     def __getitem__(self, item):
         """
         Note that we also return the raw_input_ids so that it can be combined with other chat template
         """
         row_dict: dict = self.dataframe[item]
+
+        is_timeseries = False
+        vision_path = row_dict['images'][0] if 'images' in row_dict and len(row_dict['images']) != 0 else None
+        if vision_path is None:  # this may be video
+            vision_path = row_dict['videos'][0] if 'videos' in row_dict and len(row_dict['videos']) != 0 else None
+        if vision_path is None:  # this may be time series only
+            vision_path = row_dict['time_series'][0] if 'time_series' in row_dict and len(
+                row_dict['time_series']) != 0 else ''
+            is_timeseries = True
+        prompt_str = row_dict[self.prompt_key]
+
+        if 'How long will the patient stay in the hospital?' in prompt_str:
+            row_dict["data_source"] = "multimodal"
+            row_dict["dataset"] = "los_prediction"
+        elif 'Will the patient survive for at least 48 hours?' in prompt_str:
+            row_dict["data_source"] = "multimodal"
+            row_dict["dataset"] = "48_ihm"
+        elif len(vision_path) != 0:
+            try:
+                row_dict["data_source"] = vision_path.split("/")[0]
+                row_dict["dataset"] = vision_path.split("/")[1]
+            except IndexError:
+                row_dict["data_source"] = "unknown"
+                row_dict["dataset"] = "unknown"
+                print(
+                    f"Failed to parse vision path: {vision_path}. The annotation is {row_dict}. Using default values.")
+        elif is_timeseries:
+            row_dict["data_source"] = "ecg"
+            # dataset already set in json
+        else:
+            raise ValueError("No modality found.")
+
+        if 'reward_model' not in row_dict:
+            if 'answer' in row_dict:
+                answer = row_dict['answer']
+            elif 'ground_truth' in row_dict:
+                answer = row_dict['ground_truth']
+            else:
+                raise ValueError("No answer or ground_truth found in the row_dict.")
+            row_dict['reward_model'] = {'ground_truth': answer}
+
         messages = self._build_messages(row_dict)
         model_inputs = {}
 
@@ -223,16 +323,24 @@ class RLHFDataset(Dataset):
             multi_modal_data = {}
 
             images = None
-            if self.image_key in row_dict and row_dict.get(self.image_key, None) is not None:
-                images = [process_image(image) for image in row_dict.pop(self.image_key)]
+            if self.image_key in row_dict and row_dict.get(self.image_key, None) is not None and len(row_dict[self.image_key]) > 0:
+                # images = [process_image(image) for image in row_dict.get(self.image_key)]
+                images = []
+                for image in row_dict.get(self.image_key):
+                    image = os.path.join(self.base_dir, image) if isinstance(image, str) else image
+                    images.append(process_image(image))
 
                 # due to the image key is "image" instead of "images" in vllm, we need to use "image" here
                 # link: https://github.com/vllm-project/vllm/blob/3c545c0c3b98ee642373a308197d750d0e449403/vllm/multimodal/parse.py#L205
                 multi_modal_data["image"] = images
 
             videos = None
-            if self.video_key in row_dict and row_dict.get(self.video_key, None) is not None:
-                videos = [process_video(video) for video in row_dict.pop(self.video_key)]
+            if self.video_key in row_dict and row_dict.get(self.video_key, None) is not None and len(row_dict[self.video_key]) > 0:
+                # videos = [process_video(video) for video in row_dict.get(self.video_key)]
+                videos = []
+                for video in row_dict.get(self.video_key):
+                    video = os.path.join(self.base_dir, video) if isinstance(video, str) else video
+                    videos.append(process_video(video))
 
                 # due to the video key is "video" instead of "videos" in vllm, we need to use "video" here
                 # link: https://github.com/vllm-project/vllm/blob/3c545c0c3b98ee642373a308197d750d0e449403/vllm/multimodal/parse.py#L205

@@ -20,9 +20,11 @@ implement PPO-like algorithms.
 
 __all__ = ["register_adv_est", "get_adv_estimator_fn", "AdvantageEstimator"]
 
+import math
 from collections import defaultdict
 from enum import Enum
-from typing import Any, Callable, Optional
+from sklearn.cluster import KMeans
+from typing import Any, Callable, Optional, Dict, List, Tuple
 
 import numpy as np
 import torch
@@ -101,6 +103,7 @@ class AdvantageEstimator(str, Enum):
     OPO = "opo"
     GRPO_PASSK = "grpo_passk"
     GPG = "gpg"
+    DRPO = "drpo"
 
 
 ADV_ESTIMATOR_REGISTRY: dict[str, Any] = {}
@@ -322,6 +325,181 @@ def compute_grpo_outcome_advantage(
         scores = scores.unsqueeze(-1) * response_mask
 
     return scores, scores
+
+
+EPS_DEFAULT: float = 1e-6
+
+# Per‑domain question history ------------------------------------------------ #
+#   domain_qstats[dom] = {
+#       "vectors": List[np.ndarray]   # shape = (Q, R)
+#       "q_ids":   List[int],        # question ids in same order as vectors
+#       "count":   int,              # #questions accumulated so far
+#   }
+# --------------------------------------------------------------------------- #
+domain_qstats: Dict[Any, Dict[str, Any]] = defaultdict(lambda: {
+    "vectors": [],
+    "q_ids":   [],
+    "count":   0,
+})
+
+global_running_stats: Dict[str, int] = {"q_count": 0}
+
+# --------------------------------------------------------------------------- #
+#  Helpers                                                                    #
+# --------------------------------------------------------------------------- #
+
+def _select_k_elbow(vals: np.ndarray, k_max: int = 10, tol: float = 0.10) -> int:
+    """k‑means elbow pick on multi‑dimensional points."""
+    unique_cnt = len(np.unique(vals, axis=0))
+    k_cap      = min(k_max, unique_cnt)
+    ks         = range(1, k_cap + 1)
+    inertias   = [KMeans(n_clusters=k, n_init="auto", random_state=0).fit(vals).inertia_ for k in ks]
+    if len(inertias) == 1:
+        return 1
+    drops = np.diff(inertias) * -1.0
+    for i in range(1, len(drops)):
+        if drops[i] < tol * drops[i - 1]:
+            return i + 1
+    return ks[-1]
+
+
+def _cluster_info_question(vectors: List[np.ndarray]) -> Tuple[float, np.ndarray, np.ndarray, np.ndarray]:
+    """K‑means on question‑level vectors.
+
+    Returns
+    -------
+    mu_d        : float   – inverse‑cluster‑size weighted mean of the centroid means
+    assignments : (Q,)    – cluster index for each question vector
+    counts      : (k,)    – cluster sizes
+    centroids   : (k,R)   – cluster centroid vectors
+    """
+    if len(vectors) == 0:
+        return 0.0, np.empty(0, int), np.empty(0), np.empty((0, 0))
+
+    X = np.stack(vectors, axis=0)            # (Q,R) – R inferred from data
+    k_opt = _select_k_elbow(X, k_max=20)
+    km    = KMeans(n_clusters=k_opt, n_init="auto", random_state=0).fit(X)
+
+    centroids   = km.cluster_centers_        # (k,R)
+    assignments = km.labels_                 # (Q,)
+    _, counts   = np.unique(assignments, return_counts=True)
+    counts      = counts.astype(float)
+
+    centroid_means = centroids.mean(axis=1)  # (k,)
+    weights        = 1.0 / counts
+    mu_d           = float((weights * centroid_means).sum() / weights.sum())
+
+    # Debug ------------------------------------------------------------- #
+    print(
+        f"[KMEANS‑Q] k={k_opt} | centroid_means="
+        f"[{', '.join(f'{m:.3f}' for m in centroid_means)}] | counts={counts.tolist()} | μ_d={mu_d:.3f}"
+    )
+
+    return mu_d, assignments, counts, centroids
+
+
+@register_adv_est(AdvantageEstimator.DRPO)
+def compute_drpo_outcome_advantage(
+    token_level_rewards: torch.Tensor,      # (B,L)
+    response_mask:      torch.Tensor,       # (B,L)
+    index:              np.ndarray[str],         # (B,) question ids
+    domain_info: np.ndarray,  # (B,) domain ids
+    epsilon: float = EPS_DEFAULT,
+):
+    """DRPO with question‑level clustering."""
+
+    B, L = token_level_rewards.shape
+
+    # 1) raw rollout‑level rewards -------------------------------------- #
+    raw_scores = token_level_rewards.sum(dim=-1)                          # (B,)
+
+    # 2) collect rollouts per question for this mini‑batch -------------- #
+    q2rollouts: Dict[str, List[float]] = defaultdict(list)
+    q2domain:   Dict[str, Any]         = {}
+    for i in range(B):
+        qid: str = index[i]
+        q2rollouts[qid].append(raw_scores[i].item())
+        q2domain[qid] = domain_info[i]
+
+    # ensure consistent rollout count ----------------------------------- #
+    rollout_lens = {len(v) for v in q2rollouts.values()}
+    assert len(rollout_lens) == 1, "Inconsistent rollout counts per question in batch!"
+
+    # build vector per question ----------------------------------------- #
+    q_vectors = {qid: np.asarray(v, dtype=np.float32) for qid, v in q2rollouts.items()}
+
+    # 3) update per‑domain question history ----------------------------- #
+    for qid, vec in q_vectors.items():
+        dom = q2domain[qid]
+        dstat = domain_qstats[dom]
+        dstat["vectors"].append(vec)
+        dstat["q_ids"].append(qid)
+        dstat["count"] += 1
+        global_running_stats["q_count"] += 1
+
+    # 4) GRPO normalisation (within‑question) --------------------------- #
+    scores = raw_scores.clone()
+    id2mean = {qid: torch.mean(torch.tensor(v)) for qid, v in q2rollouts.items()}
+    id2std  = {qid: torch.std (torch.tensor(v)) for qid, v in q2rollouts.items()}
+    for i in range(B):
+        qid: str = index[i]
+        scores[i] = (scores[i] - id2mean[qid]) / (id2std[qid] + epsilon)
+    before_scale_score = scores.clone()
+
+    # 5) Domain‑wise question clustering -------------------------------- #
+    domain_cluster_cache: Dict[Any, Dict[str, Any]] = {}
+    for dom, dstat in domain_qstats.items():
+        if dstat["count"] == 0:
+            continue
+        mu_d, assign, counts, centroids = _cluster_info_question(dstat["vectors"])
+        domain_cluster_cache[dom] = {
+            "mu_d":      mu_d,
+            "assign":    assign,
+            "counts":    counts,
+            "centroids": centroids,
+            "q_ids":     dstat["q_ids"],
+        }
+
+    # 6) Apply scaling --------------------------------------------------- #
+    scaling_factors: List[float] = []
+    for i in range(B):
+        qid: str  = index[i]
+        dom  = q2domain[qid]
+        cache = domain_cluster_cache[dom]
+
+        # map qid → cluster idx ---------------------------------------- #
+        q_idx       = cache["q_ids"].index(qid)
+        cluster_idx = cache["assign"][q_idx]
+
+        N_d  = float(domain_qstats[dom]["count"])
+        mu_d = cache["mu_d"]
+        T_d  = max(math.sqrt(N_d) * mu_d, epsilon)
+
+        N_c  = float(cache["counts"][cluster_idx])
+        mu_c = float(cache["centroids"][cluster_idx].mean())
+
+        factor = T_d * math.sqrt(N_c) * mu_c
+        scaling_factors.append(factor)
+        scores[i] = scores[i] / factor
+
+    # divide scores by std of scores
+    scores_std = torch.std(scores)
+    scores = scores / (scores_std + epsilon)
+
+    # Debug report -------------------------------------------------------- #
+    print("--------------Hierarchical scaling report--------------")
+    dom2scale: Dict[Any, List[torch.Tensor]] = defaultdict(list)
+    for i in range(B):
+        dom2scale[domain_info[i]].append(scores[i] / (before_scale_score[i] + epsilon))
+    for dom, lst in dom2scale.items():
+        avg_sf = torch.mean(torch.stack(lst)).item()
+        print(f"[HDRPO] domain = {dom:<15} | mean overall scale = {avg_sf:6.3f}")
+
+    # Print global reward mean
+    print(f"[HDRPO] global reward mean = {torch.mean(scores):.3f}")
+
+    returns = scores.unsqueeze(-1) * response_mask
+    return returns, returns
 
 
 @register_adv_est(AdvantageEstimator.GRPO_PASSK)  # or simply: @register_adv_est("grpo_passk")

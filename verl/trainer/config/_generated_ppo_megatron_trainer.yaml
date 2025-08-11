@@ -264,6 +264,7 @@ data:
   train_files: ~/data/rlhf/gsm8k/train.parquet
   val_files: ~/data/rlhf/gsm8k/test.parquet
   prompt_key: prompt
+  format_prompt: examples/format_prompt/default.jinja
   reward_fn_key: data_source
   max_prompt_length: 512
   max_response_length: 512
