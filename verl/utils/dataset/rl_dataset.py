@@ -201,6 +201,10 @@ class RLHFDataset(Dataset):
         if isinstance(messages, str):
             messages = [messages]
 
+        format_prompt = ("You FIRST think about the reasoning process as an internal monologue and then "
+                         "provide the final answer. The reasoning process MUST BE enclosed within <think> "
+                         "</think> tags. The final answer MUST BE put in \\boxed{}.")
+
         if self.image_key in example or self.video_key in example:
             new_messages = []
             for message in messages:
@@ -231,7 +235,7 @@ class RLHFDataset(Dataset):
                     elif segment == "<video>":
                         content_list.append({"type": "video"})
                     else:
-                        content_list.append({"type": "text", "text": segment})
+                        content_list.append({"type": "text", "text": segment + format_prompt})
                 new_message["content"] = content_list
                 new_messages.append(new_message)
         else:
