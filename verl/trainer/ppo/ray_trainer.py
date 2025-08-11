@@ -759,7 +759,7 @@ class RayPPOTrainer:
 
         self._maybe_log_val_generations(inputs=sample_inputs, outputs=sample_outputs, scores=sample_scores)
 
-        self.save_generations(sample_datapaths, sample_datasets, sample_inputs, sample_gts, sample_outputs,
+        self.save_generations(sample_datapaths, all_datasets, sample_inputs, sample_gts, sample_outputs,
                               sample_scores)
 
         # Per data source metrics
