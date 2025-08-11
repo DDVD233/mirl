@@ -3,8 +3,8 @@ ENGINE=${1:-vllm}
 
 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
-    data.train_files=/home/dvdai/orcd/scratch/high_modality/geom_train_images.jsonl \
-    data.val_files=/home/dvdai/orcd/scratch/high_modality/geom_valid_mini_images_full.jsonl \
+    data.train_files=/home/dvdai/orcd/scratch/high_modality/geom_train_upsampled_new.jsonl \
+    data.val_files=/home/dvdai/orcd/scratch/high_modality/geom_valid_mini_new.jsonl \
     data.train_batch_size=512 \
     data.max_prompt_length=4096 \
     data.max_response_length=4096 \
