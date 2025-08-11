@@ -812,7 +812,7 @@ class RayPPOTrainer:
 
     def save_generations(self, sample_datapaths, sample_datasets, sample_inputs, sample_labels, sample_outputs,
                          sample_scores):
-        generation_save_folder = os.path.join(self.config.trainer.save_checkpoint_path,
+        generation_save_folder = os.path.join(self.config.trainer.default_local_dir,
                                               f"global_step_{self.global_steps}")
         if not os.path.exists(generation_save_folder):
             os.makedirs(generation_save_folder, exist_ok=True)
