@@ -240,7 +240,6 @@ class RLHFDataset(Dataset):
                 new_messages = [{"role": "user", "content": new_messages}]
             elif isinstance(new_messages, list) and isinstance(new_messages[0], str):
                 new_messages = [{"role": "user", "content": new_messages}]
-        print(new_messages)
         return new_messages
 
     def __getitem__(self, item):
