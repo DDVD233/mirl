@@ -103,6 +103,8 @@ class RLHFDataset(Dataset):
         self.prompt_key = config.get("prompt_key", "prompt")
         self.image_key = config.get("image_key", "images")
         self.video_key = config.get("video_key", "videos")
+        self.audio_key = config.get("audio_key", "audios")
+        self.modalities = set(config.get("modalities", "images,videos").split(","))
         self.max_prompt_length = config.get("max_prompt_length", 1024)
         self.return_raw_chat = config.get("return_raw_chat", False)
         self.return_full_prompt = config.get("return_full_prompt", False)
@@ -169,19 +171,32 @@ class RLHFDataset(Dataset):
             prompt_key = self.prompt_key
             image_key = self.image_key
             video_key = self.video_key
+            audio_key = self.audio_key
 
             if processor is not None:
                 from verl.utils.dataset.vision_utils import process_image, process_video
+                from verl.utils.dataset.audio_utils import process_audio
 
                 def doc2len(doc) -> int:
                     messages = self._build_messages(doc)
                     raw_prompt = self.processor.apply_chat_template(
                         messages, add_generation_prompt=True, tokenize=False
                     )
-                    images = [process_image(image) for image in doc[image_key]] if image_key in doc else None
-                    videos = [process_video(video) for video in doc[video_key]] if video_key in doc else None
+                    processor_kwargs = {"text": [raw_prompt]}
+                    
+                    if "images" in self.modalities and image_key in doc:
+                        images = [process_image(image) for image in doc[image_key]]
+                        processor_kwargs["images"] = images
+                        
+                    if "videos" in self.modalities and video_key in doc:
+                        videos = [process_video(video) for video in doc[video_key]]
+                        processor_kwargs["videos"] = videos
+                        
+                    if "audios" in self.modalities and audio_key in doc and doc.get(audio_key, None) is not None:
+                        audios = [process_audio(audio, processor) for audio in doc[audio_key]]
+                        processor_kwargs["audio"] = audios
 
-                    return len(processor(text=[raw_prompt], images=images, videos=videos)["input_ids"][0])
+                    return len(processor(**processor_kwargs)["input_ids"][0])
 
             else:
 
@@ -214,7 +229,13 @@ class RLHFDataset(Dataset):
         if isinstance(messages, str):
             messages = [messages]
 
-        if self.image_key in example or self.video_key in example:
+        has_multimodal = (
+            ("images" in self.modalities and self.image_key in example) or
+            ("videos" in self.modalities and self.video_key in example) or
+            ("audios" in self.modalities and self.audio_key in example)
+        )
+        
+        if has_multimodal:
             new_messages = []
             for message in messages:
                 new_message = copy.deepcopy(message)
@@ -228,8 +249,10 @@ class RLHFDataset(Dataset):
 
                 image_count = len(example.get(self.image_key, []))
                 video_count = len(example.get(self.video_key, []))
+                audio_count = len(example.get(self.audio_key, []))
                 image_tag_count = content.count("<image>")
                 video_tag_count = content.count("<video>")
+                audio_tag_count = content.count("<audio>")
                 if image_tag_count < image_count:
                     content = "<image>" * (image_count - image_tag_count) + content
                     logger.warning("<image> tag count is less than image count, adding missing <image> tags."
@@ -238,17 +261,36 @@ class RLHFDataset(Dataset):
                     content = "<video>" * (video_count - video_tag_count) + content
                     logger.warning("<video> tag count is less than video count, adding missing <video> tags."
                                  " content: %s", content)
+                if audio_tag_count < audio_count:
+                    content = "<audio>" * (audio_count - audio_tag_count) + content
+                    logger.warning("<audio> tag count is less than audio count, adding missing <audio> tags."
+                                   " content: %s", content)
 
                 content_list = []
-                segments = re.split("(<image>|<video>)", content)
-                segments = [item for item in segments if item != ""]
-                for segment in segments:
-                    if segment == "<image>":
-                        content_list.append({"type": "image"})
-                    elif segment == "<video>":
-                        content_list.append({"type": "video"})
-                    else:
-                        content_list.append({"type": "text", "text": segment})
+                # Build regex pattern based on enabled modalities
+                tag_patterns = []
+                if "images" in self.modalities:
+                    tag_patterns.append("<image>")
+                if "videos" in self.modalities:
+                    tag_patterns.append("<video>")
+                if "audios" in self.modalities:
+                    tag_patterns.append("<audio>")
+                
+                if tag_patterns:
+                    pattern = "(" + "|".join(tag_patterns) + ")"
+                    segments = re.split(pattern, content)
+                    segments = [item for item in segments if item != ""]
+                    for segment in segments:
+                        if segment == "<image>" and "images" in self.modalities:
+                            content_list.append({"type": "image"})
+                        elif segment == "<video>" and "videos" in self.modalities:
+                            content_list.append({"type": "video"})
+                        elif segment == "<audio>" and "audios" in self.modalities:
+                            content_list.append({"type": "audio"})
+                        else:
+                            content_list.append({"type": "text", "text": segment})
+                else:
+                    content_list.append({"type": "text", "text": content})
                 new_message["content"] = content_list
                 new_messages.append(new_message)
         else:
@@ -318,13 +360,14 @@ class RLHFDataset(Dataset):
 
         if self.processor is not None:
             from verl.utils.dataset.vision_utils import process_image, process_video
+            from verl.utils.dataset.audio_utils import process_audio
 
             raw_prompt = self.processor.apply_chat_template(messages, add_generation_prompt=True, tokenize=False)
             multi_modal_data = {}
+            processor_kwargs = {"text": [raw_prompt], "return_tensors": "pt"}
 
             images = None
-            if self.image_key in row_dict and row_dict.get(self.image_key, None) is not None and len(row_dict[self.image_key]) > 0:
-                # images = [process_image(image) for image in row_dict.get(self.image_key)]
+            if "images" in self.modalities and self.image_key in row_dict and row_dict.get(self.image_key, None) is not None and len(row_dict[self.image_key]) > 0:
                 images = []
                 for image in row_dict.get(self.image_key):
                     image = os.path.join(self.base_dir, image) if isinstance(image, str) else image
@@ -333,10 +376,10 @@ class RLHFDataset(Dataset):
                 # due to the image key is "image" instead of "images" in vllm, we need to use "image" here
                 # link: https://github.com/vllm-project/vllm/blob/3c545c0c3b98ee642373a308197d750d0e449403/vllm/multimodal/parse.py#L205
                 multi_modal_data["image"] = images
+                processor_kwargs["images"] = images
 
             videos = None
-            if self.video_key in row_dict and row_dict.get(self.video_key, None) is not None and len(row_dict[self.video_key]) > 0:
-                # videos = [process_video(video) for video in row_dict.get(self.video_key)]
+            if "videos" in self.modalities and self.video_key in row_dict and row_dict.get(self.video_key, None) is not None and len(row_dict[self.video_key]) > 0:
                 videos = []
                 for video in row_dict.get(self.video_key):
                     video = os.path.join(self.base_dir, video) if isinstance(video, str) else video
@@ -345,8 +388,22 @@ class RLHFDataset(Dataset):
                 # due to the video key is "video" instead of "videos" in vllm, we need to use "video" here
                 # link: https://github.com/vllm-project/vllm/blob/3c545c0c3b98ee642373a308197d750d0e449403/vllm/multimodal/parse.py#L205
                 multi_modal_data["video"] = [video.numpy() for video in videos]
+                processor_kwargs["videos"] = videos
 
-            model_inputs = self.processor(text=[raw_prompt], images=images, videos=videos, return_tensors="pt")
+            audios = None
+            if "audios" in self.modalities and self.audio_key in row_dict and row_dict.get(self.audio_key, None) is not None and len(row_dict[self.audio_key]) > 0:
+                audios = []
+                for audio in row_dict.get(self.audio_key):
+                    audio_path = os.path.join(self.base_dir, audio) if isinstance(audio, str) else audio
+                    audio_data, sampling_rate = process_audio(audio_path, self.processor)
+                    audios.append((audio_data, sampling_rate))
+
+                # due to the audio key is "audio" instead of "audios" in vllm, we need to use "audio" here
+                # following the same pattern as images and videos for vllm compatibility
+                multi_modal_data["audio"] = audios
+                processor_kwargs["audio"] = audios
+
+            model_inputs = self.processor(**processor_kwargs)
 
             input_ids = model_inputs.pop("input_ids")
             attention_mask = model_inputs.pop("attention_mask")
