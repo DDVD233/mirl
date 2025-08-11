@@ -24,6 +24,7 @@ from typing import Optional
 import datasets
 import numpy as np
 import torch
+from jinja2 import Template
 from omegaconf import DictConfig, ListConfig
 from torch.utils.data import Dataset
 from transformers import PreTrainedTokenizer, ProcessorMixin
@@ -120,9 +121,21 @@ class RLHFDataset(Dataset):
         self.filter_prompts = config.get("filter_prompts", True)
         self.serialize_dataset = False
         self.return_multi_modal_inputs = config.get("return_multi_modal_inputs", True)
+        
+        # Load format prompt from file if specified
+        self.format_prompt_path = config.get("format_prompt", "examples/format_prompt/default.jinja")
+        self.format_prompt = self._load_format_prompt()
 
         self._download()
         self._read_files_and_tokenize()
+
+    def _load_format_prompt(self) -> Optional[Template]:
+        """Load format prompt from file if specified."""
+        if self.format_prompt_path:
+            with open(self.format_prompt_path, 'r', encoding='utf-8') as f:
+                template_content = f.read()
+            return Template(template_content)
+        return None
 
     def _download(self, use_origin_parquet=False):
         from verl.utils.fs import copy_to_local
@@ -201,10 +214,6 @@ class RLHFDataset(Dataset):
         if isinstance(messages, str):
             messages = [messages]
 
-        format_prompt = ("You FIRST think about the reasoning process as an internal monologue and then "
-                         "provide the final answer. The reasoning process MUST BE enclosed within <think> "
-                         "</think> tags. The final answer MUST BE put in \\boxed{}.")
-
         if self.image_key in example or self.video_key in example:
             new_messages = []
             for message in messages:
@@ -212,6 +221,10 @@ class RLHFDataset(Dataset):
                 if isinstance(new_message, str):
                     new_message = {"role": "user", "content": new_message}
                 content = new_message["content"]
+                
+                # Apply format prompt to the entire content first if template is loaded
+                if self.format_prompt:
+                    content = self.format_prompt.render(content=content)
 
                 image_count = len(example.get(self.image_key, []))
                 video_count = len(example.get(self.video_key, []))
@@ -235,7 +248,7 @@ class RLHFDataset(Dataset):
                     elif segment == "<video>":
                         content_list.append({"type": "video"})
                     else:
-                        content_list.append({"type": "text", "text": segment + format_prompt})
+                        content_list.append({"type": "text", "text": segment})
                 new_message["content"] = content_list
                 new_messages.append(new_message)
         else:
@@ -244,6 +257,14 @@ class RLHFDataset(Dataset):
                 new_messages = [{"role": "user", "content": new_messages}]
             elif isinstance(new_messages, list) and isinstance(new_messages[0], str):
                 new_messages = [{"role": "user", "content": new_messages}]
+            
+            # Apply format prompt to text-only messages if template is loaded
+            if self.format_prompt and len(new_messages) > 0:
+                for i, msg in enumerate(new_messages):
+                    if isinstance(msg, dict) and msg.get("role") == "user":
+                        content = msg.get("content", "")
+                        if isinstance(content, str):
+                            new_messages[i]["content"] = self.format_prompt.render(content=content)
         return new_messages
 
     def __getitem__(self, item):

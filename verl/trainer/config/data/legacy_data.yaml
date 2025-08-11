@@ -16,6 +16,11 @@ val_files: ~/data/rlhf/gsm8k/test.parquet
 # The field in the dataset where the prompt is located. Default is 'prompt'.
 prompt_key: prompt
 
+# Path to the format prompt template file. If null, uses the default format prompt.
+# The template should be a Jinja2 template that will be applied to each prompt.
+# Example: examples/format_prompt/default.jinja
+format_prompt: examples/format_prompt/default.jinja
+
 # The field used to select the reward function (if using different ones per example).
 reward_fn_key: data_source
 
