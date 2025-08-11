@@ -649,7 +649,6 @@ class RayPPOTrainer:
         self.validation_generations_logger.log(self.config.trainer.logger, samples, self.global_steps)
 
     def _validate(self):
-        data_source_lst = []
         reward_extra_infos_dict: dict[str, list] = defaultdict(list)
 
         # Lists to collect samples for the table
@@ -821,6 +820,7 @@ class RayPPOTrainer:
                 dump_path=val_data_dir,
                 datasets=all_datasets,
                 data_paths=data_sources,
+                demographics=all_demographics,
             )
 
         if len(sample_turns) > 0:
