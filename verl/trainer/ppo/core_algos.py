@@ -412,6 +412,7 @@ def compute_drpo_outcome_advantage(
 
     # 1) raw rollout‑level rewards -------------------------------------- #
     raw_scores = token_level_rewards.sum(dim=-1)                          # (B,)
+    print(f"[DRPO] B={B} L={L} raw_scores={raw_scores}")
 
     # 2) collect rollouts per question for this mini‑batch -------------- #
     q2rollouts: Dict[str, List[float]] = defaultdict(list)
@@ -480,7 +481,12 @@ def compute_drpo_outcome_advantage(
 
         factor = T_d * math.sqrt(N_c) * mu_c
         scaling_factors.append(factor)
-        scores[i] = scores[i] / factor
+        scaled_score = scores[i] / factor
+        if not math.isnan(scaled_score) and not math.isinf(scaled_score):
+            scores[i] = scaled_score
+        else:
+            print(f"[DRPO] {qid} score={scaled_score:.3f}, factor={factor:.3f}, nan/inf detected! ")
+
 
     # divide scores by std of scores
     scores_std = torch.std(scores)
