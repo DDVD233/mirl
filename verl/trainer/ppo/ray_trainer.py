@@ -776,9 +776,6 @@ class RayPPOTrainer:
         # convert to list for easier processing
         data_sources = data_sources.tolist()
 
-        print(data_sources)
-        print(sample_inputs)
-        print(reward_extra_infos_dict)
         print(f"size of sample_scores: {len(sample_scores)}, size of sample_outputs: {len(sample_outputs)},"
               f" size of sample_gts: {len(sample_gts)}, size of sample_inputs: {len(sample_inputs)}"
               f", size of data_sources: {len(data_sources)}, size of sample_turns: {len(sample_turns)}")
