@@ -484,6 +484,8 @@ def compute_drpo_outcome_advantage(
 
     # divide scores by std of scores
     scores_std = torch.std(scores)
+    print("Scores std:", scores_std.item())
+    print("Scores: ", scores.tolist())
     scores = scores / (scores_std + epsilon)
 
     # Debug report -------------------------------------------------------- #
