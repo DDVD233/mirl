@@ -449,7 +449,7 @@ def medical_compute_score_batch(data_sources: List[str], solution_strs: List[str
                 pass
 
         scores = {
-            "overall": 0.5 * standard_score + 0.3 * iou_score + 0.1 * format_score + 0.1 * length_score,
+            "score": 0.5 * standard_score + 0.3 * iou_score + 0.1 * format_score + 0.1 * length_score,
             "standard_score": standard_score,
             "iou_score": iou_score,
             "format_score": format_score,
