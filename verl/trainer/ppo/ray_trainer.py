@@ -576,7 +576,7 @@ class RayPPOTrainer:
         except Exception as e:
             print(f"Warning: Could not set total_training_steps in config. Structure missing? Error: {e}")
 
-    def _dump_generations(self, inputs, outputs, gts, scores, reward_extra_infos_dict, dump_path):
+    def _dump_generations(self, inputs, outputs, gts, scores, reward_extra_infos_dict, dump_path, **kwargs):
         """Dump rollout/validation samples as JSONL."""
         os.makedirs(dump_path, exist_ok=True)
         filename = os.path.join(dump_path, f"{self.global_steps}.jsonl")
@@ -592,6 +592,14 @@ class RayPPOTrainer:
 
         for k, v in reward_extra_infos_dict.items():
             if len(v) == n:
+                base_data[k] = v
+
+        for k, v in kwargs.items():
+            if isinstance(v, np.ndarray):
+                base_data[k] = v.tolist()
+            elif hasattr(v, 'cpu'):  # Check if it's a torch tensor
+                base_data[k] = v.cpu().numpy().tolist()
+            else:
                 base_data[k] = v
 
         lines = []
@@ -758,30 +766,17 @@ class RayPPOTrainer:
 
         self._maybe_log_val_generations(inputs=sample_inputs, outputs=sample_outputs, scores=sample_scores)
 
-        self.save_generations(data_source_lst, all_datasets, sample_inputs, sample_gts, sample_outputs,
-                              sample_scores)
-
         # Per data source metrics
         metrics = compute_metrics_by_data_source(all_predictions, all_ground_truths,
                                                  all_data_sources, all_datasets, all_demographics)
         wandb.log(metrics, step=self.global_steps)
 
-        # dump generations
-        val_data_dir = self.config.trainer.get("validation_data_dir", None)
-        if val_data_dir:
-            self._dump_generations(
-                inputs=sample_inputs,
-                outputs=sample_outputs,
-                gts=sample_gts,
-                scores=sample_scores,
-                reward_extra_infos_dict=reward_extra_infos_dict,
-                dump_path=val_data_dir,
-            )
-
         for key_info, lst in reward_extra_infos_dict.items():
             assert len(lst) == 0 or len(lst) == len(sample_scores), f"{key_info}: {len(lst)=}, {len(sample_scores)=}"
 
         data_sources = np.concatenate(data_source_lst, axis=0)
+        # convert to list for easier processing
+        data_sources = data_sources.tolist()
 
         data_src2var2metric2val = process_validation_metrics(data_sources, sample_inputs, reward_extra_infos_dict)
         metric_dict = {}
@@ -800,6 +795,20 @@ class RayPPOTrainer:
                         metric_sec = "val-aux"
                     pfx = f"{metric_sec}/{data_source}/{var_name}/{metric_name}"
                     metric_dict[pfx] = metric_val
+
+        # dump generations
+        val_data_dir = self.config.trainer.get("validation_data_dir", self.config.trainer.default_local_dir)
+        if val_data_dir:
+            self._dump_generations(
+                inputs=sample_inputs,
+                outputs=sample_outputs,
+                gts=sample_gts,
+                scores=sample_scores,
+                reward_extra_infos_dict=reward_extra_infos_dict,
+                dump_path=val_data_dir,
+                datasets=all_datasets,
+                data_paths=data_sources,
+            )
 
         if len(sample_turns) > 0:
             sample_turns = np.concatenate(sample_turns)
