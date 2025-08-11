@@ -100,11 +100,11 @@ class DataParallelPPOActor(BasePPOActor):
         if "multi_modal_inputs" in micro_batch.keys():
             if "image_bound" in micro_batch["multi_modal_inputs"][0]:  # minicpm-o logic
                 for key in micro_batch["multi_modal_inputs"][0].keys():
-                    multi_modal_inputs[key] = [inputs[key] for inputs in micro_batch["multi_modal_inputs"]]
+                    multi_modal_inputs[key] = [inputs[key] for inputs in micro_batch["multi_modal_inputs"] if key in inputs]
             else:
                 for key in micro_batch["multi_modal_inputs"][0].keys():
                     multi_modal_inputs[key] = torch.cat(
-                        [inputs[key] for inputs in micro_batch["multi_modal_inputs"]], dim=0
+                        [inputs[key] for inputs in micro_batch["multi_modal_inputs"] if key in inputs], dim=0
                     )
 
         with torch.autocast(device_type=self.device_name, dtype=torch.bfloat16):
