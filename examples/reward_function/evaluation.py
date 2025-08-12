@@ -69,14 +69,18 @@ def compute_class_metrics(class_name: str, confusion_matrix: Dict[str, int]) -> 
     fn = confusion_matrix["fn"]
     tn = confusion_matrix["tn"]
 
-    # Calculate metrics (avoid division by zero)
-    precision = tp / (tp + fp) if (tp + fp) > 0 else 0
-    recall = tp / (tp + fn) if (tp + fn) > 0 else 0
-    sensitivity = recall  # sensitivity is the same as recall
-    specificity = tn / (tn + fp) if (tn + fp) > 0 else 0
-    f1 = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0
-    accuracy = (tp + tn) / (tp + tn + fp + fn) if (tp + tn + fp + fn) > 0 else 0
+    def divide_by_zero(n, d):
+        return n / d if d else 0.0
 
+    precision = divide_by_zero(tp, tp + fp)
+    recall = divide_by_zero(tp, tp + fn)
+    sensitivity = recall
+    specificity = divide_by_zero(tn, tn + fp)
+    f1 = (2 * precision * recall / (precision + recall)) if (precision + recall) > 0 else 0.0
+    accuracy = divide_by_zero(tp + tn, tp + tn + fp + fn)
+    tpr = sensitivity
+    fpr = divide_by_zero(fp, fp + tn)
+    fdr = divide_by_zero(fp, tp + fp)
     return {
         "precision": precision,
         "recall": recall,
@@ -84,6 +88,9 @@ def compute_class_metrics(class_name: str, confusion_matrix: Dict[str, int]) -> 
         "specificity": specificity,
         "f1": f1,
         "accuracy": accuracy,
+        "tpr": tpr,
+        "fpr": fpr,
+        "fdr": fdr,
         "count": confusion_matrix["count"],
         "confusion_matrix": {"tp": tp, "fp": fp, "fn": fn, "tn": tn},
     }
@@ -103,6 +110,9 @@ def gender(predictions: List[str], ground_truths: List[str], demographics: List[
     results = {}
     acc_values = []
     f1_values = []
+    tpr_values = []
+    fpr_values = []
+    fdr_values = []
 
     for sex in ["male", "female"]:
         preds = groups[sex]["preds"]
@@ -112,11 +122,23 @@ def gender(predictions: List[str], ground_truths: List[str], demographics: List[
         metrics = compute_dataset_metrics(preds, gts)["dataset_metrics"]
         acc = metrics["accuracy"]
         f1 = metrics["f1"]
+        tpr = metrics.get("tpr", metrics["sensitivity"])
+        fdr = metrics.get("fdr", 1 - metrics["precision"])
+        fpr = metrics.get("fpr", 1 - metrics["specificity"])
+
         results[f"{sex}/accuracy"] = acc
         results[f"{sex}/f1"] = f1
+        results[f"{sex}/tpr"] = tpr
+        results[f"{sex}/fdr"] = fdr
+        results[f"{sex}/fpr"] = fpr
+
         acc_values.append(acc)
         f1_values.append(f1)
-        print(f"{sex}: accuracy = {acc:.4f}, f1 = {f1:.4f}")
+        tpr_values.append(tpr)
+        fdr_values.append(fdr)
+        fpr_values.append(fpr)
+
+    print(f"{sex}: accuracy = {acc:.4f}, f1 = {f1:.4f}, tpr = {tpr:.4f}, fdr = {fdr:.4f}")
 
     if len(acc_values) >= 2:
         acc_diff = abs(acc_values[0] - acc_values[1])
@@ -131,6 +153,23 @@ def gender(predictions: List[str], ground_truths: List[str], demographics: List[
         results["std_f1 for sex"] = statistics.stdev(f1_values)
         print(f"F1 max diff for sex = {f1_diff:.4f}")
         print(f"std of f1 for sex = {results['std_f1 for sex']:.4f}")
+
+    if len(tpr_values) >= 2:
+        results["tpr_diff for sex"] = abs(tpr_values[0] - tpr_values[1])
+        results["std_tpr for sex"] = statistics.stdev(tpr_values)
+        print(f"TPR max diff for sex = {results['tpr_diff for sex']:.4f}")
+        print(f"std of tpr for sex = {results['std_tpr for sex']:.4f}")
+
+    if len(fdr_values) >= 2:
+        results["fdr_diff for sex"] = abs(fdr_values[0] - fdr_values[1])
+        results["std_fdr for sex"] = statistics.stdev(fdr_values)
+        print(f"FDR max diff for sex = {results['fdr_diff for sex']:.4f}")
+        print(f"std of fdr for sex = {results['std_fdr for sex']:.4f}")
+
+    if len(fpr_values) >= 2:
+        results["fpr_diff for sex"] = abs(fpr_values[0] - fpr_values[1])
+        results["std_fpr for sex"] = statistics.stdev(fpr_values)
+
 
     return results
 
@@ -164,6 +203,9 @@ def parent(predictions: List[str], ground_truths: List[str], demographics: List[
     results = {}
     acc_values = []
     f1_values = []
+    tpr_values = []
+    fpr_values = []
+    fdr_values = []
 
     for race in groups:
         preds = groups[race]["preds"]
@@ -173,11 +215,22 @@ def parent(predictions: List[str], ground_truths: List[str], demographics: List[
         metrics = compute_dataset_metrics(preds, gts)["dataset_metrics"]
         acc = metrics["accuracy"]
         f1 = metrics["f1"]
+        tpr = metrics.get("tpr", metrics["sensitivity"])
+        fpr = metrics.get("fpr", 1.0 - metrics["specificity"])
+        fdr = metrics.get("fdr", 1.0 - metrics["precision"])
+
         results[f"{race}/accuracy"] = acc
         results[f"{race}/f1"] = f1
+        results[f"{race}/tpr"] = tpr
+        results[f"{race}/fpr"] = fpr
+        results[f"{race}/fdr"] = fdr
+
         acc_values.append(acc)
         f1_values.append(f1)
-        print(f"{race}: accuracy = {acc:.4f}, f1 = {f1:.4f}")
+        tpr_values.append(tpr)
+        fpr_values.append(fpr)
+        fdr_values.append(fdr)
+        print(f"{race}: accuracy = {acc:.4f}, f1 = {f1:.4f}, tpr = {tpr:.4f}, fpr = {fpr:.4f}, fdr = {fdr:.4f}")
 
     if len(acc_values) >= 2:
         acc_diff = max(acc_values) - min(acc_values)
@@ -194,6 +247,24 @@ def parent(predictions: List[str], ground_truths: List[str], demographics: List[
         std_f1 = statistics.stdev(f1_values)
         results["std_f1"] = std_f1
         print(f"std of f1 for parent = {std_f1:.4f}")
+
+    if len(tpr_values) >= 2:
+        results["tpr_diff for parent"] = max(tpr_values) - min(tpr_values)
+        results["std_tpr for parent"] = statistics.stdev(tpr_values)
+        print(f"TPR max diff for parent = {results['tpr_diff for parent']:.4f}")
+        print(f"std of tpr for parent = {results['std_tpr for parent']:.4f}")
+
+    if len(fpr_values) >= 2:
+        results["fpr_diff for parent"] = max(fpr_values) - min(fpr_values)
+        results["std_fpr for parent"] = statistics.stdev(fpr_values)
+        print(f"FPR max diff for parent = {results['fpr_diff for parent']:.4f}")
+        print(f"std of fpr for parent = {results['std_fpr for parent']:.4f}")
+
+    if len(fdr_values) >= 2:
+        results["fdr_diff for parent"] = max(fdr_values) - min(fdr_values)
+        results["std_fdr for parent"] = statistics.stdev(fdr_values)
+        print(f"FDR max diff for parent = {results['fdr_diff for parent']:.4f}")
+        print(f"std of fdr for parent = {results['std_fdr for parent']:.4f}")
 
     return results
 
@@ -230,6 +301,9 @@ def age(predictions: List[str], ground_truths: List[str], demographics: List[str
     results = {}
     acc_values = []
     f1_values = []
+    tpr_values = []
+    fpr_values = []
+    fdr_values = []
 
     for group in ["a1", "a2", "a3", "a4"]:
         preds = groups[group]["preds"]
@@ -239,10 +313,21 @@ def age(predictions: List[str], ground_truths: List[str], demographics: List[str
         metrics = compute_dataset_metrics(preds, gts)["dataset_metrics"]
         acc = metrics["accuracy"]
         f1 = metrics["f1"]
+        tpr = metrics.get("tpr", metrics["sensitivity"])
+        fpr = metrics.get("fpr", 1.0 - metrics["specificity"])
+        fdr = metrics.get("fdr", 1.0 - metrics["precision"])
+
         results[f"{group}/accuracy"] = acc
         results[f"{group}/f1"] = f1
+        results[f"{group}/tpr"] = tpr
+        results[f"{group}/fpr"] = fpr
+        results[f"{group}/fdr"] = fdr
+
         acc_values.append(acc)
         f1_values.append(f1)
+        tpr_values.append(tpr)
+        fpr_values.append(fpr)
+        fdr_values.append(fdr)
 
     if len(acc_values) >= 2:
         results["acc_diff"] = max(acc_values) - min(acc_values)
@@ -259,11 +344,30 @@ def age(predictions: List[str], ground_truths: List[str], demographics: List[str
             print(f"{group}: accuracy = {acc:.4f}, f1 = {f1:.4f}")
 
     if "acc_diff" in results:
+        results["acc_diff"] = max(acc_values) - min(acc_values)
+        results["std_accuracy"] = statistics.stdev(acc_values)
         print(f"Accuracy max diff = {results['acc_diff']:.4f}")
         print(f"std of accuracy for age = {results['std_accuracy']:.4f}")
     if "f1_diff" in results:
+        results["f1_diff"] = max(f1_values) - min(f1_values)
+        results["std_f1"] = statistics.stdev(f1_values)
         print(f"F1 max diff = {results['f1_diff']:.4f}")
         print(f"std of f1 for age = {results['std_f1']:.4f}")
+    if len(tpr_values) >= 2:
+        results["tpr_diff"] = max(tpr_values) - min(tpr_values)
+        results["std_tpr"] = statistics.stdev(tpr_values)
+        print(f"TPR max diff = {results['tpr_diff']:.4f}")
+        print(f"std of tpr for age = {results['std_tpr']:.4f}")
+    if len(fpr_values) >= 2:
+        results["fpr_diff"] = max(fpr_values) - min(fpr_values)
+        results["std_fpr"] = statistics.stdev(fpr_values)
+        print(f"FPR max diff = {results['fpr_diff']:.4f}")
+        print(f"std of fpr for age = {results['std_fpr']:.4f}")
+    if len(fdr_values) >= 2:
+        results["fdr_diff"] = max(fdr_values) - min(fdr_values)
+        results["std_fdr"] = statistics.stdev(fdr_values)
+        print(f"FDR max diff = {results['fdr_diff']:.4f}")
+        print(f"std of fdr for age = {results['std_fdr']:.4f}")
 
     return results
 def compute_confusion_matrices(predictions: List[str], ground_truths: List[str]) -> Dict[str, Dict[str, int]]:
@@ -352,6 +456,9 @@ def compute_dataset_metrics(predictions: List[str], ground_truths: List[str]) ->
         "specificity": 0.0,
         "f1": 0.0,
         "accuracy": 0.0,
+        "tpr": 0.0,
+        "fpr": 0.0,
+        "fdr": 0.0,
     }
 
     # Compute metrics for each class and accumulate for dataset average
