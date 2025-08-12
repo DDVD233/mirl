@@ -491,7 +491,6 @@ def compute_drpo_outcome_advantage(
     # divide scores by std of scores
     scores_std = torch.std(scores)
     print("Scores std:", scores_std.item())
-    print("Scores: ", scores.tolist())
     scores = scores / (scores_std + epsilon)
 
     # Debug report -------------------------------------------------------- #
@@ -499,8 +498,6 @@ def compute_drpo_outcome_advantage(
     dom2scale: Dict[Any, List[torch.Tensor]] = defaultdict(list)
     for i in range(B):
         dom2scale[domain_info[i]].append(scores[i] / (before_scale_score[i] + epsilon))
-        print(f"[HDRPO] qid = {index[i]:<15} | domain = {domain_info[i]:<15} | before scale = {before_scale_score[i]:6.3f} | "
-              f"after scale = {scores[i]:6.3f} | scaling factor = {scaling_factors[i]:6.3f}")
     for dom, lst in dom2scale.items():
         avg_sf = torch.mean(torch.stack(lst)).item()
         print(f"[HDRPO] domain = {dom:<15} | mean overall scale = {avg_sf:6.3f}")
