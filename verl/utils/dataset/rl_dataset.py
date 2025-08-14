@@ -355,6 +355,10 @@ class RLHFDataset(Dataset):
                 raise ValueError("No answer or ground_truth found in the row_dict.")
             row_dict['reward_model'] = {'ground_truth': answer}
 
+        for key, item in row_dict.items():
+            if item is None:
+                row_dict.pop(key)
+
         messages = self._build_messages(row_dict)
         model_inputs = {}
 
