@@ -192,7 +192,7 @@ class RLHFDataset(Dataset):
                         videos = [process_video(video) for video in doc[video_key]]
                         processor_kwargs["videos"] = videos
                         
-                    if "audios" in self.modalities and audio_key in doc and doc.get(audio_key, None) is not None:
+                    if "audio" in self.modalities and audio_key in doc and doc.get(audio_key, None) is not None:
                         audios = [process_audio(audio, processor) for audio in doc[audio_key]]
                         processor_kwargs["audio"] = audios
 
@@ -232,7 +232,7 @@ class RLHFDataset(Dataset):
         has_multimodal = (
             ("images" in self.modalities and self.image_key in example) or
             ("videos" in self.modalities and self.video_key in example) or
-            ("audios" in self.modalities and self.audio_key in example)
+            ("audio" in self.modalities and self.audio_key in example)
         )
         
         if has_multimodal:
@@ -273,7 +273,7 @@ class RLHFDataset(Dataset):
                     tag_patterns.append("<image>")
                 if "videos" in self.modalities:
                     tag_patterns.append("<video>")
-                if "audios" in self.modalities:
+                if "audio" in self.modalities:
                     tag_patterns.append("<audio>")
                 
                 if tag_patterns:
@@ -285,7 +285,7 @@ class RLHFDataset(Dataset):
                             content_list.append({"type": "image"})
                         elif segment == "<video>" and "videos" in self.modalities:
                             content_list.append({"type": "video"})
-                        elif segment == "<audio>" and "audios" in self.modalities:
+                        elif segment == "<audio>" and "audio" in self.modalities:
                             content_list.append({"type": "audio"})
                         else:
                             content_list.append({"type": "text", "text": segment})
@@ -395,7 +395,7 @@ class RLHFDataset(Dataset):
                 processor_kwargs["videos"] = videos
 
             audios = None
-            if "audios" in self.modalities and self.audio_key in row_dict and row_dict.get(self.audio_key, None) is not None and len(row_dict[self.audio_key]) > 0:
+            if "audio" in self.modalities and self.audio_key in row_dict and row_dict.get(self.audio_key, None) is not None and len(row_dict[self.audio_key]) > 0:
                 audios = []
                 for audio in row_dict.get(self.audio_key):
                     audio_path = os.path.join(self.base_dir, audio) if isinstance(audio, str) else audio
