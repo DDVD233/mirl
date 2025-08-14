@@ -15,37 +15,39 @@
 from typing import Tuple, Optional
 
 import torch
-from transformers.pipelines.audio_utils import ffmpeg_read
+import torchaudio
 
 
 def process_audio(audio: str | dict, processor=None) -> Tuple[torch.Tensor, int]:
-    """Process audio file and return (audio_data, sampling_rate) tuple.
-    
-    Args:
-        audio: Audio file path (str) or audio dict containing file path
-        processor: Audio processor with feature_extractor for sampling rate
-        
-    Returns:
-        Tuple of (audio_data, sampling_rate)
-    """
     if isinstance(audio, dict):
         audio_path = audio.get("audio", audio)
     else:
         audio_path = audio
-    
+
     try:
-        # Get sampling rate from processor if available, otherwise use default
-        if processor and hasattr(processor, 'feature_extractor') and hasattr(processor.feature_extractor, 'sampling_rate'):
-            sampling_rate = processor.feature_extractor.sampling_rate
+        # Load audio
+        audio_data, original_sr = torchaudio.load(audio_path)
+
+        # Get target sampling rate
+        if processor and hasattr(processor, 'feature_extractor') and hasattr(processor.feature_extractor,
+                                                                             'sampling_rate'):
+            target_sr = processor.feature_extractor.sampling_rate
         else:
-            sampling_rate = 16000  # Default sampling rate
-            
-        # Read audio using ffmpeg_read with the specified sampling rate
-        audio_data = ffmpeg_read(audio_path, sampling_rate=sampling_rate)
-        
-        return audio_data, sampling_rate
+            target_sr = 16000
+
+        # Resample if needed
+        if original_sr != target_sr:
+            resampler = torchaudio.transforms.Resample(original_sr, target_sr)
+            audio_data = resampler(audio_data)
+
+        # Convert to mono if stereo
+        if audio_data.shape[0] > 1:
+            audio_data = audio_data.mean(dim=0, keepdim=False)
+        else:
+            audio_data = audio_data.squeeze(0)
+
+        return audio_data, target_sr
     except Exception as e:
         print(f"Error processing audio {audio_path}: {e}")
-        # Return dummy audio data on error
-        dummy_audio = torch.zeros((1000,), dtype=torch.float32)  # 1 second of silence at 1kHz
+        dummy_audio = torch.zeros((1000,), dtype=torch.float32)
         return dummy_audio, 16000
