@@ -357,7 +357,7 @@ class RLHFDataset(Dataset):
 
         for key, item in row_dict.items():
             if item is None:
-                row_dict.pop(key)
+                row_dict[key] = []
 
         messages = self._build_messages(row_dict)
         model_inputs = {}
