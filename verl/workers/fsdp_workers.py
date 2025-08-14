@@ -264,9 +264,15 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             torch_dtype = PrecisionType.to_dtype(torch_dtype)
 
         # override model kwargs
-        actor_model_config = AutoConfig.from_pretrained(
-            local_path, trust_remote_code=trust_remote_code, attn_implementation="flash_attention_2"
-        )
+        if "Qwen2.5-Omni" in local_path:
+            from transformers import Qwen2_5OmniThinkerConfig
+            actor_model_config = Qwen2_5OmniThinkerConfig.from_pretrained(
+                local_path, trust_remote_code=trust_remote_code, attn_implementation="flash_attention_2"
+            )
+        else:
+            actor_model_config = AutoConfig.from_pretrained(
+                local_path, trust_remote_code=trust_remote_code, attn_implementation="flash_attention_2"
+            )
 
         # patch for kimi-vl
         if getattr(actor_model_config, "model_type", None) == "kimi_vl":
