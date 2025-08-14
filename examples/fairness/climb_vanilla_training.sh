@@ -5,7 +5,7 @@ python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=drpo \
     data.train_files=/home/dvdai/orcd/scratch/high_modality/geom_train.jsonl \
     data.val_files=/home/dvdai/orcd/scratch/high_modality/geom_valid_demo_only.jsonl \
-    data.train_batch_size=512 \
+    data.train_batch_size=128 \
     data.max_prompt_length=4096 \
     data.max_response_length=4096 \
     data.filter_overlong_prompts=False \
@@ -15,9 +15,9 @@ python3 -m verl.trainer.main_ppo \
     data.prompt_key=problem \
     data.format_prompt=examples/format_prompt/default.jinja \
     actor_rollout_ref.model.path=Qwen/Qwen2.5-VL-7B-Instruct \
-    actor_rollout_ref.actor.optim.lr=1e-6 \
+    actor_rollout_ref.actor.optim.lr=5e-7 \
     actor_rollout_ref.model.use_remove_padding=False \
-    actor_rollout_ref.actor.ppo_mini_batch_size=128 \
+    actor_rollout_ref.actor.ppo_mini_batch_size=64 \
     actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=2 \
     actor_rollout_ref.actor.use_kl_loss=False \
     actor_rollout_ref.actor.kl_loss_coef=1e-8 \
@@ -35,7 +35,7 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.rollout.enable_chunked_prefill=False \
     actor_rollout_ref.rollout.enforce_eager=False \
     actor_rollout_ref.rollout.free_cache_engine=True \
-    actor_rollout_ref.rollout.n=5 \
+    actor_rollout_ref.rollout.n=10 \
     actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=4 \
     actor_rollout_ref.ref.fsdp_config.param_offload=True \
     algorithm.use_kl_in_reward=False \
