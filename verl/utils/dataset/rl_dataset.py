@@ -402,8 +402,6 @@ class RLHFDataset(Dataset):
                     audio_data, sampling_rate = process_audio(audio_path, self.processor)
                     audios.append((audio_data, sampling_rate))
 
-                # due to the audio key is "audio" instead of "audios" in vllm, we need to use "audio" here
-                # following the same pattern as images and videos for vllm compatibility
                 multi_modal_data["audio"] = audios
                 processor_kwargs["audio"] = audios
 
