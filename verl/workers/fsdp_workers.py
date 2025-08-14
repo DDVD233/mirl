@@ -298,8 +298,8 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         with init_context(), warnings.catch_warnings():
             warnings.simplefilter("ignore")
             if "Qwen2.5-Omni" in local_path:
-                from transformers import Qwen2_5OmniForConditionalGeneration
-                actor_module_class = Qwen2_5OmniForConditionalGeneration
+                from transformers import Qwen2_5OmniThinkerForConditionalGeneration
+                actor_module_class = Qwen2_5OmniThinkerForConditionalGeneration
             elif type(actor_model_config) in AutoModelForVision2Seq._model_mapping.keys():
                 actor_module_class = AutoModelForVision2Seq
             else:
