@@ -348,7 +348,30 @@ class FSDPVLLMShardingManager(BaseShardingManager):
             updated_params = {name.replace("layers.", "language_model.layers.") if name.startswith("layers.") else name: param
                               for name, param in updated_params.items()}
 
-        print(updated_params.keys())
+        # Debug: Print model structure to understand weight loading paths
+        def print_model_tree(module, prefix="", indent=""):
+            """Recursively print model structure showing modules that can accept weights."""
+            print(f"{indent}{prefix}{module.__class__.__name__}")
+            for name, child in module.named_children():
+                # Check if this module has parameters (can load weights)
+                has_params = any(child.parameters())
+                param_indicator = " [has params]" if has_params else ""
+                new_prefix = f"{prefix}{name}." if prefix else f"{name}."
+                print(f"{indent}  └─ {name}: {child.__class__.__name__}{param_indicator}")
+                # Recursively print children with deeper indentation
+                if len(list(child.children())) > 0:
+                    print_model_tree(child, new_prefix, indent + "    ")
+        
+        print("\n=== Model Structure Tree ===")
+        print_model_tree(model)
+        print("\n=== Available Parameter Keys ===")
+        # Print first 20 parameter keys as example
+        param_keys = list(updated_params.keys())
+        for key in param_keys[:20]:
+            print(f"  {key}")
+        if len(param_keys) > 20:
+            print(f"  ... and {len(param_keys) - 20} more")
+        print(f"\n=== Total parameters to load: {len(param_keys)} ===\n")
 
         loaded_params = model.load_weights(
             (
