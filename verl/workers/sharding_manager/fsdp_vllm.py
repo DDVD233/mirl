@@ -343,6 +343,8 @@ class FSDPVLLMShardingManager(BaseShardingManager):
             updated_params = {name.replace("model.", "") if name.startswith("model.") else name: param 
                             for name, param in updated_params.items()}
         print(updated_params)
+        # print model modules
+        print(model._modules)
         loaded_params = model.load_weights(
             (
                 (name, param.to(device, non_blocking=True).full_tensor() if isinstance(param, DTensor) else param)
