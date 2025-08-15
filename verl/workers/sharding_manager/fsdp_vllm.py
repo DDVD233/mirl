@@ -345,6 +345,8 @@ class FSDPVLLMShardingManager(BaseShardingManager):
             # drop embed_tokens
             updated_params = {name: param for name, param in updated_params.items() if not name.startswith("embed_tokens.")}
 
+        print(updated_params.keys())
+
         loaded_params = model.load_weights(
             (
                 (name, param.to(device, non_blocking=True).full_tensor() if isinstance(param, DTensor) else param)
