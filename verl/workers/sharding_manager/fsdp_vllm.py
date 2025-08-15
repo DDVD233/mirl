@@ -336,11 +336,11 @@ class FSDPVLLMShardingManager(BaseShardingManager):
         device = get_device_id()  # used when fsdp2 set cpu_offload_policy
         
         # Special handling for Qwen2_5OmniThinkerForConditionalGeneration
-        # This model doesn't have a 'model.' prefix in its parameter names
+        # This vLLM model doesn't have a 'model.' attribute, so we need to remove the prefix
         model_class_name = model.__class__.__name__
         if model_class_name == "Qwen2_5OmniThinkerForConditionalGeneration":
-            # Add 'model.' prefix to all parameter names for compatibility with vLLM
-            updated_params = {f"model.{name}" if not name.startswith("model.") else name: param 
+            # Remove 'model.' prefix from parameter names for this specific model
+            updated_params = {name.replace("model.", "") if name.startswith("model.") else name: param 
                             for name, param in updated_params.items()}
         
         loaded_params = model.load_weights(
