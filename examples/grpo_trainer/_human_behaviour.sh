@@ -39,7 +39,7 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=4 \
     actor_rollout_ref.ref.fsdp_config.param_offload=True \
     algorithm.use_kl_in_reward=False \
-    custom_reward_function.path=/Users/keane/Desktop/research/human-behavior/verl/examples/reward_function/medical.py \
+    custom_reward_function.path=/home/keaneong/human-behavior/verl/examples/reward_function/medical.py \
     custom_reward_function.name=medical_compute_score_batch \
     reward_model.reward_manager=batch \
     trainer.critic_warmup=0 \
