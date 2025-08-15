@@ -112,6 +112,7 @@ class RLHFDataset(Dataset):
             self.base_dir = os.path.dirname(os.path.abspath(data_files))
         else:
             self.base_dir = os.path.dirname(os.path.abspath(data_files[0]))
+        self.apply_chat_template_kwargs = config.get("apply_chat_template_kwargs", {})
 
         self.num_workers = config.get("filter_overlong_prompts_workers", max(1, os.cpu_count() // 4))
         self.num_workers = min(self.num_workers, os.cpu_count())
@@ -121,7 +122,7 @@ class RLHFDataset(Dataset):
         self.filter_prompts = config.get("filter_prompts", True)
         self.serialize_dataset = False
         self.return_multi_modal_inputs = config.get("return_multi_modal_inputs", True)
-        
+
         # Load format prompt from file if specified
         self.format_prompt_path = config.get("format_prompt", "examples/format_prompt/default.jinja")
         self.format_prompt = self._load_format_prompt()
@@ -176,7 +177,7 @@ class RLHFDataset(Dataset):
                 def doc2len(doc) -> int:
                     messages = self._build_messages(doc)
                     raw_prompt = self.processor.apply_chat_template(
-                        messages, add_generation_prompt=True, tokenize=False
+                        messages, add_generation_prompt=True, tokenize=False, **self.apply_chat_template_kwargs
                     )
                     images = [process_image(image) for image in doc[image_key]] if image_key in doc else None
                     videos = [process_video(video) for video in doc[video_key]] if video_key in doc else None
@@ -186,7 +187,11 @@ class RLHFDataset(Dataset):
             else:
 
                 def doc2len(doc) -> int:
-                    return len(tokenizer.apply_chat_template(doc[prompt_key], add_generation_prompt=True))
+                    return len(
+                        tokenizer.apply_chat_template(
+                            doc[prompt_key], add_generation_prompt=True, **self.apply_chat_template_kwargs
+                        )
+                    )
 
             dataframe = dataframe.filter(
                 lambda doc: doc2len(doc) <= self.max_prompt_length,
@@ -221,7 +226,7 @@ class RLHFDataset(Dataset):
                 if isinstance(new_message, str):
                     new_message = {"role": "user", "content": new_message}
                 content = new_message["content"]
-                
+
                 # Apply format prompt to the entire content first if template is loaded
                 if self.format_prompt:
                     content = self.format_prompt.render(content=content)
@@ -257,7 +262,7 @@ class RLHFDataset(Dataset):
                 new_messages = [{"role": "user", "content": new_messages}]
             elif isinstance(new_messages, list) and isinstance(new_messages[0], str):
                 new_messages = [{"role": "user", "content": new_messages}]
-            
+
             # Apply format prompt to text-only messages if template is loaded
             if self.format_prompt and len(new_messages) > 0:
                 for i, msg in enumerate(new_messages):
@@ -319,7 +324,9 @@ class RLHFDataset(Dataset):
         if self.processor is not None:
             from verl.utils.dataset.vision_utils import process_image, process_video
 
-            raw_prompt = self.processor.apply_chat_template(messages, add_generation_prompt=True, tokenize=False)
+            raw_prompt = self.processor.apply_chat_template(
+                messages, add_generation_prompt=True, tokenize=False, **self.apply_chat_template_kwargs
+            )
             multi_modal_data = {}
 
             images = None
@@ -366,7 +373,9 @@ class RLHFDataset(Dataset):
                 row_dict["multi_modal_inputs"].pop("second_per_grid_ts", None)
 
         else:
-            raw_prompt = self.tokenizer.apply_chat_template(messages, add_generation_prompt=True, tokenize=False)
+            raw_prompt = self.tokenizer.apply_chat_template(
+                messages, add_generation_prompt=True, tokenize=False, **self.apply_chat_template_kwargs
+            )
             model_inputs = self.tokenizer(raw_prompt, return_tensors="pt", add_special_tokens=False)
             input_ids = model_inputs.pop("input_ids")
             attention_mask = model_inputs.pop("attention_mask")
