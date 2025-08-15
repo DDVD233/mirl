@@ -2,10 +2,11 @@ set -x
 ENGINE=${1:-vllm}
 
 python3 -m verl.trainer.main_ppo \
-    algorithm.adv_estimator=drpo \
+    algorithm.adv_estimator=grpo \
     data.train_files=/home/dvdai/orcd/scratch/high_modality/geom_train_demo_only.jsonl \
     data.val_files=/home/dvdai/orcd/scratch/high_modality/geom_valid_demo_only.jsonl \
     data.train_batch_size=128 \
+    data.val_batch_size=128 \
     data.max_prompt_length=4096 \
     data.max_response_length=4096 \
     data.filter_overlong_prompts=False \
