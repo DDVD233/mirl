@@ -340,13 +340,13 @@ class FSDPVLLMShardingManager(BaseShardingManager):
         model_class_name = model.__class__.__name__
         if model_class_name == "Qwen2_5OmniThinkerForConditionalGeneration":
             # Remove 'model.' prefix from parameter names for this specific model
-            updated_params = {name.replace("model.", "") if name.startswith("model.") else name: param 
+            updated_params = {name.replace("model.", "language_model.model.") if name.startswith("model.") else name: param
                             for name, param in updated_params.items()}
             # drop embed_tokens
-            updated_params = {name: param for name, param in updated_params.items() if not name.startswith("embed_tokens.")}
-            # layers. -> language_model.layers.
-            updated_params = {name.replace("layers.", "language_model.layers.") if name.startswith("layers.") else name: param
-                              for name, param in updated_params.items()}
+            # updated_params = {name: param for name, param in updated_params.items() if not name.startswith("embed_tokens.")}
+            # # layers. -> language_model.layers.
+            # updated_params = {name.replace("layers.", "language_model.layers.") if name.startswith("layers.") else name: param
+            #                   for name, param in updated_params.items()}
 
         # Debug: Print model structure to understand weight loading paths
         def print_model_tree(module, prefix="", indent=""):
