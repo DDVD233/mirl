@@ -3,7 +3,7 @@ ENGINE=${1:-vllm}
 
 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=drpo \
-    data.train_files=/home/dvdai/orcd/scratch/high_modality/geom_train.jsonl \
+    data.train_files=/home/dvdai/orcd/scratch/high_modality/geom_train_demo_only.jsonl \
     data.val_files=/home/dvdai/orcd/scratch/high_modality/geom_valid_demo_only.jsonl \
     data.train_batch_size=128 \
     data.max_prompt_length=4096 \
@@ -45,7 +45,7 @@ python3 -m verl.trainer.main_ppo \
     trainer.critic_warmup=0 \
     trainer.logger='["console","wandb"]' \
     trainer.project_name='verl_climb' \
-    trainer.experiment_name='qwen_training2' \
+    trainer.experiment_name='qwen_training_demo_only' \
     trainer.n_gpus_per_node=4 \
     trainer.nnodes=1 \
     trainer.save_freq=20 \
