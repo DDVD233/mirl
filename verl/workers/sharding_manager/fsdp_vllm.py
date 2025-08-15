@@ -342,9 +342,9 @@ class FSDPVLLMShardingManager(BaseShardingManager):
             # Remove 'model.' prefix from parameter names for this specific model
             updated_params = {name.replace("model.", "") if name.startswith("model.") else name: param 
                             for name, param in updated_params.items()}
-        print(updated_params)
-        # print model modules
-        print(model._modules)
+            # drop embed_tokens
+            updated_params = {name: param for name, param in updated_params.items() if not name.startswith("embed_tokens.")}
+
         loaded_params = model.load_weights(
             (
                 (name, param.to(device, non_blocking=True).full_tensor() if isinstance(param, DTensor) else param)
