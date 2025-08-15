@@ -397,13 +397,15 @@ class RLHFDataset(Dataset):
             audios = None
             if "audio" in self.modalities and self.audio_key in row_dict and row_dict.get(self.audio_key, None) is not None and len(row_dict[self.audio_key]) > 0:
                 audios = []
+                audio_tuples = []  # Keep tuples for multi_modal_data
                 for audio in row_dict.get(self.audio_key):
                     audio_path = os.path.join(self.base_dir, audio) if isinstance(audio, str) else audio
                     audio_data, sampling_rate = process_audio(audio_path, self.processor)
-                    audios.append((audio_data, sampling_rate))
+                    audio_tuples.append((audio_data, sampling_rate))
+                    audios.append(audio_data.numpy())  # Convert to numpy array for Whisper
 
-                multi_modal_data["audio"] = audios
-                processor_kwargs["audio"] = audios
+                multi_modal_data["audio"] = audio_tuples  # Store tuples for reference
+                processor_kwargs["audio"] = audios  # Pass numpy arrays to processor
 
             model_inputs = self.processor(**processor_kwargs)
 
