@@ -13,7 +13,7 @@ python3 -m verl.trainer.main_ppo \
     data.image_key=images \
     data.video_key=videos \
     data.prompt_key=problem \
-    data.format_prompt=examples/format_prompt/default.jinja \
+    data.format_prompt=/home/keaneong/human-behavior/verl/examples/format_prompt/default.jinja \
     actor_rollout_ref.model.path=Qwen/Qwen2.5-VL-7B-Instruct \
     actor_rollout_ref.actor.optim.lr=1e-6 \
     actor_rollout_ref.model.use_remove_padding=False \
