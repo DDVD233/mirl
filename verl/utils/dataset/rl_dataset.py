@@ -28,6 +28,7 @@ from jinja2 import Template
 from omegaconf import DictConfig, ListConfig
 from torch.utils.data import Dataset
 from transformers import PreTrainedTokenizer, ProcessorMixin
+import warnings
 
 import verl.utils.torch_functional as verl_F
 from verl.utils.model import compute_position_id_with_mask
@@ -366,7 +367,9 @@ class RLHFDataset(Dataset):
             from verl.utils.dataset.vision_utils import process_image, process_video
             from verl.utils.dataset.audio_utils import process_audio
 
-            raw_prompt = self.processor.apply_chat_template(messages, add_generation_prompt=True, tokenize=False)
+            with warnings.catch_warnings():
+                warnings.filterwarnings("ignore", message="System prompt modified")
+                raw_prompt = self.processor.apply_chat_template(messages, add_generation_prompt=True, tokenize=False)
             multi_modal_data = {}
             processor_kwargs = {"text": [raw_prompt], "return_tensors": "pt"}
 
