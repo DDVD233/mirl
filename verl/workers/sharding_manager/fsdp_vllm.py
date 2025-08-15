@@ -342,11 +342,12 @@ class FSDPVLLMShardingManager(BaseShardingManager):
             # Remove 'model.' prefix from parameter names for this specific model
             updated_params = {name.replace("model.", "language_model.model.") if name.startswith("model.") else name: param
                             for name, param in updated_params.items()}
-            # drop embed_tokens
-            # updated_params = {name: param for name, param in updated_params.items() if not name.startswith("embed_tokens.")}
-            # # layers. -> language_model.layers.
-            # updated_params = {name.replace("layers.", "language_model.layers.") if name.startswith("layers.") else name: param
-            #                   for name, param in updated_params.items()}
+            updated_params = {
+                name.replace("lm_head.", "language_model.lm_head.") if name.startswith("lm_head.") else name: param
+                for name, param in updated_params.items()}
+            updated_params = {
+                name.replace("logits_processor.", "language_model.logits_processor.") if name.startswith("logits_processor.") else name: param
+                for name, param in updated_params.items()}
 
         # Debug: Print model structure to understand weight loading paths
         def print_model_tree(module, prefix="", indent=""):
