@@ -354,7 +354,10 @@ class FSDPVLLMShardingManager(BaseShardingManager):
             print(f"{indent}{prefix}{module.__class__.__name__}")
             for name, child in module.named_children():
                 # Check if this module has parameters (can load weights)
-                has_params = any(child.parameters())
+                try:
+                    has_params = len(list(child.parameters())) > 0
+                except:
+                    has_params = False
                 param_indicator = " [has params]" if has_params else ""
                 new_prefix = f"{prefix}{name}." if prefix else f"{name}."
                 print(f"{indent}  └─ {name}: {child.__class__.__name__}{param_indicator}")
