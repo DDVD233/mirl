@@ -560,6 +560,8 @@ class RayPPOTrainer:
             shuffle=self.config.data.get("validation_shuffle", True),
             drop_last=False,
             collate_fn=collate_fn,
+            pin_memory=True,
+            persistent_workers=True,
         )
 
         assert len(self.train_dataloader) >= 1, "Train dataloader is empty!"
