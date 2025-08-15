@@ -361,6 +361,11 @@ class RLHFDataset(Dataset):
                 row_dict[key] = []
 
         messages = self._build_messages(row_dict)
+        if "audio" in self.modalities:
+            messages.insert(0, {
+                "role": "system",
+                "content": "You are Qwen, a virtual human developed by the Qwen Team, Alibaba Group, capable of perceiving auditory and visual inputs, as well as generating text and speech."
+            })
         model_inputs = {}
 
         if self.processor is not None:
