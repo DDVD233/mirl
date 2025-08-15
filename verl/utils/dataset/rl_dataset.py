@@ -381,7 +381,6 @@ class RLHFDataset(Dataset):
             multi_modal_data = {}
             processor_kwargs = {"text": [raw_prompt], "return_tensors": "pt"}
 
-            images = None
             if "images" in self.modalities and self.image_key in row_dict and row_dict.get(self.image_key, None) is not None and len(row_dict[self.image_key]) > 0:
                 images = []
                 for image in row_dict.get(self.image_key):
@@ -393,7 +392,6 @@ class RLHFDataset(Dataset):
                 multi_modal_data["image"] = images
                 processor_kwargs["images"] = images
 
-            videos = None
             if "videos" in self.modalities and self.video_key in row_dict and row_dict.get(self.video_key, None) is not None and len(row_dict[self.video_key]) > 0:
                 videos = []
                 for video in row_dict.get(self.video_key):
@@ -405,7 +403,6 @@ class RLHFDataset(Dataset):
                 multi_modal_data["video"] = [video.numpy() for video in videos]
                 processor_kwargs["videos"] = videos
 
-            audios = None
             if "audio" in self.modalities and self.audio_key in row_dict and row_dict.get(self.audio_key, None) is not None and len(row_dict[self.audio_key]) > 0:
                 audios = []
                 audio_tuples = []  # Keep tuples for multi_modal_data
