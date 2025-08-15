@@ -269,6 +269,7 @@ class vLLMRollout(BaseRollout):
 
         # used to construct attention_mask
         eos_token_id = prompts.meta_info["eos_token_id"]
+        print(f"Metainfo: {prompts.meta_info}")
 
         batch_size = idx.size(0)
 
