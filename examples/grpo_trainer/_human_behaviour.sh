@@ -46,7 +46,7 @@ python3 -m verl.trainer.main_ppo \
     trainer.logger='["console","wandb"]' \
     trainer.project_name='verl_human_behaviour' \
     trainer.experiment_name='qwen2_5_vl_7b_function_trial' \
-    trainer.n_gpus_per_node=4 \
+    trainer.n_gpus_per_node= 2 \
     trainer.nnodes=1 \
     trainer.save_freq=20 \
     trainer.val_before_train=False \
