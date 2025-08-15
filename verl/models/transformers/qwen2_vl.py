@@ -58,9 +58,20 @@ def get_rope_index(
     """
     spatial_merge_size = processor.image_processor.merge_size
     tokens_per_second = 2
+    
+    # Try old token names first, then fall back to new ones
     image_token_id = processor.tokenizer.convert_tokens_to_ids("<|image_pad|>")
+    if image_token_id is None:
+        image_token_id = processor.tokenizer.convert_tokens_to_ids("<|vision_pad|>")  # New tokenizer uses vision_pad for images
+    
     video_token_id = processor.tokenizer.convert_tokens_to_ids("<|video_pad|>")
+    if video_token_id is None:
+        video_token_id = processor.tokenizer.convert_tokens_to_ids("<|vision_pad|>")  # New tokenizer uses vision_pad for videos
+    
     vision_start_token_id = processor.tokenizer.convert_tokens_to_ids("<|vision_start|>")
+    if vision_start_token_id is None:
+        vision_start_token_id = processor.tokenizer.convert_tokens_to_ids("<|vision_bos|>")  # New tokenizer uses vision_bos
+    
     if input_ids is not None and (image_grid_thw is not None or video_grid_thw is not None):
         if attention_mask is None:
             attention_mask = torch.ones_like(input_ids)
@@ -69,10 +80,20 @@ def get_rope_index(
         image_index, video_index = 0, 0
         input_ids = input_ids[attention_mask == 1]
         image_nums, video_nums = 0, 0
-        vision_start_indices = torch.argwhere(input_ids == vision_start_token_id)
-        vision_tokens = input_ids[vision_start_indices + 1]
-        image_nums = (vision_tokens == image_token_id).sum()
-        video_nums = (vision_tokens == video_token_id).sum()
+        
+        # Ensure vision_start_token_id is valid before comparison
+        if vision_start_token_id is not None:
+            vision_start_indices = torch.argwhere(input_ids == vision_start_token_id)
+        else:
+            vision_start_indices = torch.empty((0, 1), dtype=torch.long, device=input_ids.device)
+        
+        # Handle case where there are vision tokens
+        if vision_start_indices.numel() > 0:
+            vision_tokens = input_ids[vision_start_indices + 1]
+            image_nums = (vision_tokens == image_token_id).sum().item() if image_token_id is not None else 0
+            video_nums = (vision_tokens == video_token_id).sum().item() if video_token_id is not None else 0
+        else:
+            image_nums, video_nums = 0, 0
         input_tokens = input_ids.tolist()
         llm_pos_ids_list: list = []
         st = 0
