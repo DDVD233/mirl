@@ -633,6 +633,10 @@ def compute_metrics_by_data_source(
 
         result["fairness/avg_std_accuracy"] = sum(std_acc_values) / len(std_acc_values)
         result["fairness/avg_std_f1"] = sum(std_f1_values) / len(std_f1_values)
+
+        accuracy, f1 = result["val/accuracy"], result["val/f1"]
+        result["val/accuracy_es"] = accuracy / (1 + result["fairness/avg_std_accuracy"])
+        result["val/f1_es"] = f1 / (1 + result["fairness/avg_std_f1"])
     except KeyError:
         print("Some fairness metrics do not have standard deviation values, skipping average calculation.")
 
