@@ -344,6 +344,8 @@ class FSDPVLLMShardingManager(BaseShardingManager):
                             for name, param in updated_params.items()}
             # drop embed_tokens
             updated_params = {name: param for name, param in updated_params.items() if not name.startswith("embed_tokens.")}
+            # layers. -> language_model.layers.
+            updated_params = {name.replace("layers.", "language_model.layers."): param for name, param in updated_params.items()}
 
         print(updated_params.keys())
 
