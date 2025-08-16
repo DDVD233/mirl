@@ -160,7 +160,7 @@ opentelemetry-exporter-otlp-proto-http==1.26.0
 opentelemetry-exporter-prometheus==0.55b1
 opentelemetry-proto==1.26.0
 opentelemetry-sdk==1.26.0
-opentelemetry-semantic-conventions==0.55b1
+# opentelemetry-semantic-conventions==0.55b1
 openxlab==0.1.2
 opt_einsum==3.4.0
 ordered-set==4.1.0
