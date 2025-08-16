@@ -8,8 +8,7 @@ unset ROCR_VISIBLE_DEVICES
 # data.val_files=/scratch/keane/human_behaviour/human_behaviour_data/val_no_meld_no_chalearn_vision_v2_template_prompts.jsonl \
 # data.modalities=\'audio,videos\' \
 
-PYTHONUNBUFFERED=1 HYDRA_FULL_ERROR=1 PYTHONPATH="/home/keaneong/human-behavior/verl:$PYTHONPATH" NCCL_ASYNC_ERROR_HANDLING=1\
-python3 -m verl.trainer.main_ppo \
+PYTHONUNBUFFERED=1 HYDRA_FULL_ERROR=1 PYTHONPATH="/home/keaneong/human-behavior/verl:$PYTHONPATH" NCCL_ASYNC_ERROR_HANDLING=1 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
     data.train_files=/scratch/keane/human_behaviour/human_behaviour_data/old_train_template_prompts.jsonl \
     data.val_files=/scratch/keane/human_behaviour/human_behaviour_data/old_val_template_prompts.jsonl \
