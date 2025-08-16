@@ -59,7 +59,7 @@ fastapi==0.115.14
 fastapi-cli==0.0.7
 fastrlock==0.8.3
 ffmpeg-python==0.2.0
-filelock==3.19.1
+# filelock==3.19.1
 flash_attn==2.8.0.post2
 flatbuffers==25.2.10
 fonttools==4.58.4
