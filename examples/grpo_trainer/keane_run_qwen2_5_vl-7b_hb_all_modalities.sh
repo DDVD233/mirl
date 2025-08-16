@@ -1,5 +1,7 @@
 set -x
 
+unset ROCR_VISIBLE_DEVICES
+
 # Qwen/Qwen2.5-VL-7B-Instruct
 # Qwen/Qwen2.5-Omni-7B
 # data.train_files=/scratch/keane/human_behaviour/human_behaviour_data/train_no_meld_no_chalearn_vision_v2_template_prompts.jsonl \
@@ -58,5 +60,5 @@ PYTHONUNBUFFERED=1 HYDRA_FULL_ERROR=1 PYTHONPATH="/home/keaneong/human-behavior/
     trainer.nnodes=1 \
     trainer.save_freq=20 \
     trainer.val_before_train=False \
-    trainer.test_freq=5 \
+    trainer.test_freq=2 \
     trainer.total_epochs=15 $@
