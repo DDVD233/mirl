@@ -272,6 +272,39 @@ class RLHFDataset(Dataset):
                             new_messages[i]["content"] = self.format_prompt.render(content=content)
         return new_messages
 
+    def _process_demographic_info(self, demographic_info: str) -> str:
+        """
+        Process demographic information string to groups, separated by commas.
+        Example input: "demo": "sex: Male, age: 68"
+        Example output: "M,A3"
+        Age is grouped into ranges: 0-25 (A1), 26-50 (A2), 51-75 (A3), 76+ (A4).
+        """
+        if not demographic_info:
+            return ""
+
+        groups = []
+        for item in demographic_info.split(","):
+            key, value = item.split(":")
+            key = key.strip().lower()
+            value = value.strip().lower()
+
+            if key == 'sex':
+                groups.append(value[0].upper())  # M or F
+            elif key == 'age':
+                try:
+                    age = int(value)
+                    if age <= 25:
+                        groups.append("A1")
+                    elif age <= 50:
+                        groups.append("A2")
+                    elif age <= 75:
+                        groups.append("A3")
+                    else:
+                        groups.append("A4")
+                except ValueError:
+                    groups.append("UNK")
+        return ",".join(groups)
+
     def __getitem__(self, item):
         """
         Note that we also return the raw_input_ids so that it can be combined with other chat template
@@ -317,6 +350,11 @@ class RLHFDataset(Dataset):
             else:
                 raise ValueError("No answer or ground_truth found in the row_dict.")
             row_dict['reward_model'] = {'ground_truth': answer}
+
+        if "demo" in row_dict:
+            row_dict["demo_group"] = self._process_demographic_info(row_dict["demo"])
+        else:
+            row_dict["demo_group"] = "UNK"
 
         messages = self._build_messages(row_dict)
         model_inputs = {}

@@ -104,6 +104,7 @@ class AdvantageEstimator(str, Enum):
     GRPO_PASSK = "grpo_passk"
     GPG = "gpg"
     DRPO = "drpo"
+    FAIR_GRPO = "fair_grpo"
 
 
 ADV_ESTIMATOR_REGISTRY: dict[str, Any] = {}
@@ -403,7 +404,7 @@ def compute_drpo_outcome_advantage(
     token_level_rewards: torch.Tensor,      # (B,L)
     response_mask:      torch.Tensor,       # (B,L)
     index:              np.ndarray[str],         # (B,) question ids
-    domain_info: np.ndarray,  # (B,) domain ids
+    domain_info: np.ndarray[str],  # (B,) domain names
     epsilon: float = EPS_DEFAULT,
 ):
     """DRPO with question‑level clustering."""
@@ -505,6 +506,142 @@ def compute_drpo_outcome_advantage(
     # Print global reward mean
     print(f"[HDRPO] global reward mean = {torch.mean(scores):.3f}")
 
+    returns = scores.unsqueeze(-1) * response_mask
+    return returns, returns
+
+
+@register_adv_est(AdvantageEstimator.FAIR_GRPO)
+def compute_fair_grpo_outcome_advantage(
+    token_level_rewards: torch.Tensor,      # (B,L)
+    response_mask:      torch.Tensor,       # (B,L)
+    index:              np.ndarray[str],         # (B,) question ids
+    domain_info: np.ndarray[str],  # (B,) domain names
+    demo_info: np.ndarray[str],  # (B,) demographic information
+    epsilon: float = EPS_DEFAULT,
+):
+    """Fair GRPO with domain and demographic scaling."""
+    
+    B, L = token_level_rewards.shape
+    
+    # 1) raw rollout-level rewards
+    raw_scores = token_level_rewards.sum(dim=-1)                          # (B,)
+    print(f"[FairGRPO] B={B} L={L} raw_scores={raw_scores}")
+    
+    # 2) collect rollouts per question for this mini-batch
+    q2rollouts: Dict[str, List[float]] = defaultdict(list)
+    q2domain:   Dict[str, Any]         = {}
+    q2demo:     Dict[str, str]         = {}
+    for i in range(B):
+        qid: str = index[i]
+        q2rollouts[qid].append(raw_scores[i].item())
+        q2domain[qid] = domain_info[i]
+        q2demo[qid] = demo_info[i]
+    
+    # ensure consistent rollout count
+    rollout_lens = {len(v) for v in q2rollouts.values()}
+    assert len(rollout_lens) == 1, "Inconsistent rollout counts per question in batch!"
+    
+    # 3) GRPO normalization (within-question)
+    scores = raw_scores.clone()
+    id2mean = {qid: torch.mean(torch.tensor(v)) for qid, v in q2rollouts.items()}
+    id2std  = {qid: torch.std (torch.tensor(v)) for qid, v in q2rollouts.items()}
+    for i in range(B):
+        qid: str = index[i]
+        scores[i] = (scores[i] - id2mean[qid]) / (id2std[qid] + epsilon)
+    before_scale_score = scores.clone()
+    
+    # 4) Collect domain-demographic groups with their raw rewards
+    domain_demo_rewards: Dict[Tuple[Any, str], List[float]] = defaultdict(list)
+    domain_demo_q2idx: Dict[Tuple[Any, str], Dict[str, int]] = defaultdict(dict)
+    domain_unk_rewards: Dict[Any, Dict[str, np.ndarray]] = defaultdict(lambda: {"vectors": [], "q_ids": []})
+    
+    for qid, rollouts in q2rollouts.items():
+        dom = q2domain[qid]
+        demo = q2demo[qid]
+        vec = np.asarray(rollouts, dtype=np.float32)
+        
+        if demo == "UNK":
+            domain_unk_rewards[dom]["vectors"].append(vec)
+            domain_unk_rewards[dom]["q_ids"].append(qid)
+        else:
+            key = (dom, demo)
+            domain_demo_rewards[key].extend(rollouts)
+            domain_demo_q2idx[key][qid] = len(domain_demo_q2idx[key])
+    
+    # 5) Process UNK demographics with k-means clustering
+    domain_cluster_cache: Dict[Any, Dict[str, Any]] = {}
+    for dom, unk_data in domain_unk_rewards.items():
+        if len(unk_data["vectors"]) > 0:
+            mu_d, assign, counts, centroids = _cluster_info_question(unk_data["vectors"])
+            domain_cluster_cache[dom] = {
+                "assign":    assign,
+                "counts":    counts,
+                "centroids": centroids,
+                "q_ids":     unk_data["q_ids"],
+            }
+    
+    # 6) Calculate scaling factors
+    scaling_factors: List[float] = []
+    for i in range(B):
+        qid: str = index[i]
+        dom = q2domain[qid]
+        demo = q2demo[qid]
+        
+        # Domain-level statistics
+        dom_rewards_all = []
+        for (d, _), rewards in domain_demo_rewards.items():
+            if d == dom:
+                dom_rewards_all.extend(rewards)
+        for unk_vec in domain_unk_rewards.get(dom, {}).get("vectors", []):
+            dom_rewards_all.extend(unk_vec.tolist())
+        
+        N_d = float(len(dom_rewards_all))
+        mu_d = float(np.mean(dom_rewards_all)) if dom_rewards_all else epsilon
+        T_d = max(math.sqrt(N_d) * mu_d, epsilon)
+        
+        # Demographic-level statistics
+        if demo == "UNK":
+            cache = domain_cluster_cache.get(dom)
+            if cache:
+                q_idx = cache["q_ids"].index(qid)
+                cluster_idx = cache["assign"][q_idx]
+                N_g = float(cache["counts"][cluster_idx])
+                mu_g = float(cache["centroids"][cluster_idx].mean())
+            else:
+                N_g = 1.0
+                mu_g = raw_scores[i].item()
+        else:
+            key = (dom, demo)
+            group_rewards = domain_demo_rewards[key]
+            N_g = float(len(group_rewards))
+            mu_g = float(np.mean(group_rewards))
+        
+        # Two-level scaling: domain and demographic
+        factor = T_d * math.sqrt(N_g) * mu_g
+        scaling_factors.append(factor)
+        scaled_score = scores[i] / factor
+        if not math.isnan(scaled_score) and not math.isinf(scaled_score):
+            scores[i] = scaled_score
+        else:
+            print(f"[FairGRPO] {qid} score={scaled_score:.3f}, factor={factor:.3f}, nan/inf detected!")
+    
+    # divide scores by std of scores
+    scores_std = torch.std(scores)
+    print("Scores std:", scores_std.item())
+    scores = scores / (scores_std + epsilon)
+    
+    # Debug report
+    print("--------------Fair GRPO scaling report--------------")
+    dom_demo_scale: Dict[Tuple[Any, str], List[torch.Tensor]] = defaultdict(list)
+    for i in range(B):
+        key = (domain_info[i], demo_info[i])
+        dom_demo_scale[key].append(scores[i] / (before_scale_score[i] + epsilon))
+    for (dom, demo), lst in dom_demo_scale.items():
+        avg_sf = torch.mean(torch.stack(lst)).item()
+        print(f"[FairGRPO] domain={dom:<15} demo={demo:<10} | mean scale={avg_sf:6.3f}")
+    
+    print(f"[FairGRPO] global reward mean = {torch.mean(scores):.3f}")
+    
     returns = scores.unsqueeze(-1) * response_mask
     return returns, returns
 
