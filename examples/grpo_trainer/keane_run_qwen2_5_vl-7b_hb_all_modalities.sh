@@ -56,7 +56,7 @@ PYTHONUNBUFFERED=1 HYDRA_FULL_ERROR=1 PYTHONPATH="/home/keaneong/human-behavior/
     trainer.logger='["console","wandb"]' \
     trainer.project_name='verl_hb' \
     trainer.experiment_name='vision_only' \
-    trainer.n_gpus_per_node=2 \
+    trainer.n_gpus_per_node=3 \
     trainer.nnodes=1 \
     trainer.save_freq=20 \
     trainer.val_before_train=False \
