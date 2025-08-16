@@ -14,7 +14,7 @@ PYTHONUNBUFFERED=1 HYDRA_FULL_ERROR=1 python3 -m verl.trainer.main_ppo \
     data.video_key=videos \
     data.prompt_key=problem \
     data.dataloader_num_workers=0 \
-    data.modalities=\'videos\' \
+    data.modalities=\'audio,videos\' \
     data.format_prompt=/home/keaneong/human-behavior/verl/examples/format_prompt/default.jinja \
     actor_rollout_ref.model.path=Qwen/Qwen2.5-Omni-7B \
     actor_rollout_ref.actor.optim.lr=1e-6 \
