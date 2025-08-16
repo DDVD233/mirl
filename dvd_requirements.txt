@@ -157,7 +157,7 @@ openmim==0.3.9
 opentelemetry-api==1.26.0
 opentelemetry-exporter-otlp-proto-grpc==1.26.0
 opentelemetry-exporter-otlp-proto-http==1.26.0
-opentelemetry-exporter-prometheus==0.55b1
+opentelemetry-exporter-prometheus==0.41b0
 opentelemetry-proto==1.26.0
 opentelemetry-sdk==1.26.0
 # opentelemetry-semantic-conventions==0.55b1
