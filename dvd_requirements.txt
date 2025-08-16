@@ -221,7 +221,7 @@ rich-toolkit==0.14.7
 rpds-py==0.25.1
 rsa==4.9.1
 safetensors==0.6.0rc0
-sageattention==2.2.0
+# sageattention==2.2.0
 scikit-image==0.25.2
 scikit-learn==1.7.0
 scipy==1.16.0
