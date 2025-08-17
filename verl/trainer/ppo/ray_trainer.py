@@ -963,6 +963,8 @@ class RayPPOTrainer:
             )
 
     def _save_checkpoint(self):
+
+        ## TO SAVE CHECKPOINT
         from verl.utils.fs import local_mkdir_safe
 
         # path: given_path + `/global_step_{global_steps}` + `/actor`
