@@ -199,20 +199,31 @@ class RLHFDataset(Dataset):
                     )
                     processor_kwargs = {"text": [raw_prompt]}
                     
-                    if "images" in self.modalities and image_key in doc:
+                    if "images" in self.modalities and image_key in doc and len(doc[image_key]) > 0:
                         images = [process_image(image) for image in doc[image_key]]
                         processor_kwargs["images"] = images
-                        
-                    if "videos" in self.modalities and video_key in doc:
+
+                    if "videos" in self.modalities and video_key in doc and len(doc[video_key]) > 0:    
                         videos = [process_video(video) for video in doc[video_key]]
                         processor_kwargs["videos"] = videos
-                        
-                    if "audio" in self.modalities and audio_key in doc and doc.get(audio_key, None) is not None:
-                        # TODO: make sure that this path is actually happening
+
+                    if "audio" in self.modalities and audio_key in doc and doc.get(audio_key, None) is not None and len(doc[audio_key]) > 0:
                         # processing of audio
-                        print(f"KEANE: Processing audio within rl dataset file")
-                        audios = [process_audio(audio, processor) for audio in doc[audio_key]]
-                        processor_kwargs["audio"] = audios
+                        # print(f"KEANE: Processing audio within rl dataset file")
+                        # audios = [process_audio(audio, processor) for audio in doc[audio_key]]
+                        # processor_kwargs["audio"] = audios
+
+                        # PATCH
+                        audios = []
+                        audio_tuples = []  # Keep tuples for multi_modal_data
+                        for audio in doc.get(self.audio_key):
+                            audio_path = os.path.join(self.base_dir, audio) if isinstance(audio, str) else audio
+                            audio_data, sampling_rate = process_audio(audio_path, self.processor)
+                            audio_tuples.append((audio_data, sampling_rate))
+                            # audios.append(audio_data.numpy())  # Convert to numpy array for Whisper
+                            audios.append(audio_data.detach().cpu().numpy().astype("float32"))
+
+                        processor_kwargs["audio"] = audios  # Pass numpy arrays to processor
                     # TODO: cannot process the audio inputs
                     print(f"KEANE: Processor class is {processor.__class__.__name__}")
                     print(f"KEANE: Printing the processor_kwargs, {processor_kwargs}")
@@ -450,7 +461,9 @@ class RLHFDataset(Dataset):
                     audio_path = os.path.join(self.base_dir, audio) if isinstance(audio, str) else audio
                     audio_data, sampling_rate = process_audio(audio_path, self.processor)
                     audio_tuples.append((audio_data, sampling_rate))
-                    audios.append(audio_data.numpy())  # Convert to numpy array for Whisper
+                    # audios.append(audio_data.numpy())  # Convert to numpy array for Whisper
+                    audios.append(audio_data.detach().cpu().numpy().astype("float32"))
+
 
                 multi_modal_data["audio"] = audio_tuples  # Store tuples for reference
                 processor_kwargs["audio"] = audios  # Pass numpy arrays to processor
