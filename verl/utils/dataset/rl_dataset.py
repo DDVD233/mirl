@@ -467,7 +467,7 @@ class RLHFDataset(Dataset):
 
                 # multi_modal_data["audio"] = audio_tuples  # Store tuples for reference
                 multi_modal_data["audio"] = audios  # Store numpy arrays (it should not accept tuples)
-                
+
                 processor_kwargs["audio"] = audios  # Pass numpy arrays to processor
 
             # TODO: Please check whether the model is processing the "audio" correctly, the processor that we are using is qwen 2.5 OMNI
