@@ -454,21 +454,47 @@ class RLHFDataset(Dataset):
                 processor_kwargs["videos"] = videos
 
             # NOTE: PROCESSING OF THE AUDIO TUPLES
-            if "audio" in self.modalities and self.audio_key in row_dict and row_dict.get(self.audio_key, None) is not None and len(row_dict[self.audio_key]) > 0:
-                audios = []
-                audio_tuples = []  # Keep tuples for multi_modal_data
-                for audio in row_dict.get(self.audio_key):
+            # if "audio" in self.modalities and self.audio_key in row_dict and row_dict.get(self.audio_key, None) is not None and len(row_dict[self.audio_key]) > 0:
+            #     audios = []
+            #     audio_tuples = []  # Keep tuples for multi_modal_data
+            #     for audio in row_dict.get(self.audio_key):
+            #         audio_path = os.path.join(self.base_dir, audio) if isinstance(audio, str) else audio
+            #         audio_data, sampling_rate = process_audio(audio_path, self.processor)
+            #         audio_tuples.append((audio_data, sampling_rate))
+            #         # audios.append(audio_data.numpy())  # Convert to numpy array for Whisper
+            #         audios.append(audio_data.detach().cpu().numpy().astype("float32"))
+
+            #     # multi_modal_data["audio"] = audio_tuples  # Store tuples for reference
+            #     multi_modal_data["audio"] = audios  # Store numpy arrays (it should not accept tuples)
+
+            #     processor_kwargs["audio"] = audios  # Pass numpy arrays to processor
+
+            if (
+                "audio" in self.modalities
+                and self.audio_key in row_dict
+                and row_dict.get(self.audio_key)
+                and len(row_dict[self.audio_key]) > 0
+            ):
+                audios_np = []
+                audios_np_sr = []
+                audio_tuples_debug = []  # keep tensors only for debugging
+
+                for audio in row_dict[self.audio_key]:
                     audio_path = os.path.join(self.base_dir, audio) if isinstance(audio, str) else audio
-                    audio_data, sampling_rate = process_audio(audio_path, self.processor)
-                    audio_tuples.append((audio_data, sampling_rate))
-                    # audios.append(audio_data.numpy())  # Convert to numpy array for Whisper
-                    audios.append(audio_data.detach().cpu().numpy().astype("float32"))
+                    audio_tensor, sr = process_audio(audio_path, self.processor)
 
+                    # Debug only
+                    audio_tuples_debug.append((audio_tensor, sr))
 
-                # multi_modal_data["audio"] = audio_tuples  # Store tuples for reference
-                multi_modal_data["audio"] = audios  # Store numpy arrays (it should not accept tuples)
+                    # What BOTH HF and vLLM need:
+                    arr = audio_tensor.detach().cpu().numpy().astype("float32")
+                    audios_np.append(arr)
+                    audios_np_sr.append((arr, int(sr)))
 
-                processor_kwargs["audio"] = audios  # Pass numpy arrays to processor
+                # HF (Whisper / Omni processor) path
+                multi_modal_data["audio"] = audios_np_sr  # Store numpy arrays (it should not accept tuples)
+
+                processor_kwargs["audio"] = audios_np  # Pass numpy arrays to processor
 
             # TODO: Please check whether the model is processing the "audio" correctly, the processor that we are using is qwen 2.5 OMNI
             # print(f"KEANE: Processing multimodal data with processor {self.processor.__class__.__name__} ")
