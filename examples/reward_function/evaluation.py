@@ -730,31 +730,31 @@ def compute_metrics_by_data_source(
     result["val/num_datasets"] = total_datasets
 
     try:
-        result[f"fairness/overall_acc"] = sum(overall_acc) / len(overall_acc)
-        result[f"fairness/overall_f1"] = sum(overall_f1) / len(overall_f1)
-        result[f"fairness/overall_tpr"] = sum(overall_tpr) / len(overall_tpr)
-        result[f"fairness/overall_fpr"] = sum(overall_fpr) / len(overall_fpr)
-        result[f"fairness/overall_fdr"] = sum(overall_fdr) / len(overall_fdr)
-        result[f"fairness/overall_acc_diff"] = sum(overall_acc_diff) / len(overall_acc_diff)
-        result[f"fairness/overall_f1_diff"] = sum(overall_f1_diff) / len(overall_f1_diff)
-        result[f"fairness/overall_tpr_diff"] = sum(overall_tpr_diff) / len(overall_tpr_diff)
-        result[f"fairness/overall_fpr_diff"] = sum(overall_fpr_diff) / len(overall_fpr_diff)
-        result[f"fairness/overall_fdr_diff"] = sum(overall_fdr_diff) / len(overall_fdr_diff)
-        result[f"fairness/overall_acc_std"] = sum(overall_acc_std) / len(overall_acc_std)
-        result[f"fairness/overall_f1_std"] = sum(overall_f1_std) / len(overall_f1_std)
-        result[f"fairness/acc_es"] = result[f"fairness/overall_acc"] / (1 + result[f"fairness/overall_acc_std"])
-        result[f"fairness/f1_es"] = result[f"fairness/overall_f1"] / (1 + result[f"fairness/overall_f1_std"])
+        result[f"overall/overall_acc"] = sum(overall_acc) / len(overall_acc)
+        result[f"overall/overall_f1"] = sum(overall_f1) / len(overall_f1)
+        result[f"overall/overall_tpr"] = sum(overall_tpr) / len(overall_tpr)
+        result[f"overall/overall_fpr"] = sum(overall_fpr) / len(overall_fpr)
+        result[f"overall/overall_fdr"] = sum(overall_fdr) / len(overall_fdr)
+        result[f"overall/overall_acc_diff"] = sum(overall_acc_diff) / len(overall_acc_diff)
+        result[f"overall/overall_f1_diff"] = sum(overall_f1_diff) / len(overall_f1_diff)
+        result[f"overall/overall_tpr_diff"] = sum(overall_tpr_diff) / len(overall_tpr_diff)
+        result[f"overall/overall_fpr_diff"] = sum(overall_fpr_diff) / len(overall_fpr_diff)
+        result[f"overall/overall_fdr_diff"] = sum(overall_fdr_diff) / len(overall_fdr_diff)
+        result[f"overall/overall_acc_std"] = sum(overall_acc_std) / len(overall_acc_std)
+        result[f"overall/overall_f1_std"] = sum(overall_f1_std) / len(overall_f1_std)
+        result[f"overall/acc_es"] = result[f"fairness/overall_acc"] / (1 + result[f"fairness/overall_acc_std"])
+        result[f"overall/f1_es"] = result[f"fairness/overall_f1"] / (1 + result[f"fairness/overall_f1_std"])
         for key in [
-            "fairness/overall_tpr",
-            "fairness/overall_fpr",
-            "fairness/overall_fdr",
-            "fairness/overall_acc_diff",
-            "fairness/overall_f1_diff",
-            "fairness/overall_tpr_diff",
-            "fairness/overall_fpr_diff",
-            "fairness/overall_fdr_diff",
-            "fairness/overall_acc_std",
-            "fairness/overall_f1_std",
+            "overall/overall_tpr",
+            "overall/overall_fpr",
+            "overall/overall_fdr",
+            "overall/overall_acc_diff",
+            "overall/overall_f1_diff",
+            "overall/overall_tpr_diff",
+            "overall/overall_fpr_diff",
+            "overall/overall_fdr_diff",
+            "overall/overall_acc_std",
+            "overall/overall_f1_std",
         ]:
             print(f"{key}/{result[key]:.4f}")
     except KeyError:
