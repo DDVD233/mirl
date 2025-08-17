@@ -53,6 +53,14 @@ def process_audio(audio: str | dict, processor=None) -> Tuple[torch.Tensor, int]
         else:
             audio_data = audio_data.squeeze(0)
 
+               # Debug prints
+        print(
+            f"KEANE: Finished processing {audio_path} -> "
+            f"waveform shape {audio_data.shape}, dtype {audio_data.dtype}, "
+            # f"min {audio_data.min().item():.4f}, max {audio_data.max().item():.4f}"
+        )
+        print(f"KEANE: Returning tuple (waveform, sr={target_sr})")
+
         return audio_data, target_sr
     except Exception as e:
         print(f"Error processing audio {audio_path}: {e}")
