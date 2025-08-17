@@ -138,6 +138,12 @@ def gender(predictions: List[str], ground_truths: List[str], demographics: List[
         fdr_values.append(fdr)
         fpr_values.append(fpr)
 
+    results["acc"] = sum(acc_values) / len(acc_values)
+    results["f1"] = sum(f1_values) / len(f1_values)
+    results["tpr"] = sum(tpr_values) / len(tpr_values)
+    results["fpr"] = sum(fpr_values) / len(fpr_values)
+    results["fdr"] = sum(fdr_values) / len(fdr_values)
+
     print(f"{sex}: accuracy = {acc:.4f}, f1 = {f1:.4f}, tpr = {tpr:.4f}, fdr = {fdr:.4f}")
 
     if len(acc_values) >= 2:
@@ -231,6 +237,12 @@ def parent(predictions: List[str], ground_truths: List[str], demographics: List[
         fpr_values.append(fpr)
         fdr_values.append(fdr)
         print(f"{race}: accuracy = {acc:.4f}, f1 = {f1:.4f}, tpr = {tpr:.4f}, fpr = {fpr:.4f}, fdr = {fdr:.4f}")
+
+    results["acc"] = sum(acc_values) / len(acc_values)
+    results["f1"] = sum(f1_values) / len(f1_values)
+    results["tpr"] = sum(tpr_values) / len(tpr_values)
+    results["fpr"] = sum(fpr_values) / len(fpr_values)
+    results["fdr"] = sum(fdr_values) / len(fdr_values)
 
     if len(acc_values) >= 2:
         acc_diff = max(acc_values) - min(acc_values)
@@ -329,21 +341,13 @@ def age(predictions: List[str], ground_truths: List[str], demographics: List[str
         fpr_values.append(fpr)
         fdr_values.append(fdr)
 
-    if len(acc_values) >= 2:
-        results["acc_diff"] = max(acc_values) - min(acc_values)
-        results["std_accuracy"] = statistics.stdev(acc_values)
+    results["acc"] = sum(acc_values) / len(acc_values)
+    results["f1"] = sum(f1_values) / len(f1_values)
+    results["tpr"] = sum(tpr_values) / len(tpr_values)
+    results["fpr"] = sum(fpr_values) / len(fpr_values)
+    results["fdr"] = sum(fdr_values) / len(fdr_values)
 
     if len(f1_values) >= 2:
-        results["f1_diff"] = max(f1_values) - min(f1_values)
-        results["std_f1"] = statistics.stdev(f1_values)
-
-    for group in ["a1", "a2", "a3", "a4"]:
-        acc = results.get(f"{group}/accuracy")
-        f1 = results.get(f"{group}/f1")
-        if acc is not None and f1 is not None:
-            print(f"{group}: accuracy = {acc:.4f}, f1 = {f1:.4f}")
-
-    if "acc_diff" in results:
         results["acc_diff"] = max(acc_values) - min(acc_values)
         results["std_accuracy"] = statistics.stdev(acc_values)
         print(f"Accuracy max diff = {results['acc_diff']:.4f}")
@@ -485,13 +489,12 @@ def compute_dataset_metrics(predictions: List[str], ground_truths: List[str]) ->
 
     return result
 
-
 def compute_metrics_by_data_source(
-    predictions: List[str],
-    ground_truths: List[str],
-    data_sources: List[str],
-    datasets: List[str],
-    demographics: List[str],
+        predictions: List[str],
+        ground_truths: List[str],
+        data_sources: List[str],
+        datasets: List[str],
+        demographics: List[str],
 ) -> Dict[str, float]:
     """
     Compute hierarchical metrics: class -> dataset -> data source -> global.
@@ -522,19 +525,21 @@ def compute_metrics_by_data_source(
     }
     # name is time in yyyy-mm-dd_hh-mm-ss format
     with open(
-        os.path.join(output_dir, f"input_data_{datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.json"), "w"
+            os.path.join(output_dir, f"input_data_{datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.json"),
+            "w"
     ) as f:
         json.dump(input_data, f, indent=4)
 
     # Group examples by data source and dataset
-    grouped_data = defaultdict(lambda: defaultdict(lambda: {"preds": [], "gts": []}))
+    grouped_data = defaultdict(lambda: defaultdict(lambda: {"preds": [], "gts": [], "demos": []}))
 
-    for pred, gt, source, dataset in zip(predictions, ground_truths, data_sources, datasets):
+    for pred, gt, source, dataset, demo in zip(predictions, ground_truths, data_sources, datasets, demographics):
         grouped_data[source][dataset]["preds"].append(pred)
         grouped_data[source][dataset]["gts"].append(gt)
+        grouped_data[source][dataset]["demos"].append(demo)
 
     # Initialize the flattened result dictionary
-    result = {}
+    result: Dict[str, float] = {}
 
     # Initialize global metrics accumulators
     global_metrics = {
@@ -561,6 +566,21 @@ def compute_metrics_by_data_source(
         }
 
         total_datasets_in_source = 0
+        overall_acc = []
+        overall_f1 = []
+        overall_tpr = []
+        overall_fpr = []
+        overall_fdr = []
+        overall_acc_diff = []
+        overall_f1_diff = []
+        overall_tpr_diff = []
+        overall_fpr_diff = []
+        overall_fdr_diff = []
+        overall_acc_std = []
+        overall_f1_std = []
+        overall_tpr_std = []
+        overall_fpr_std = []
+        overall_fdr_std = []
 
         for dataset_name, dataset_data in source_datasets.items():
             # Compute metrics for this dataset
@@ -580,65 +600,159 @@ def compute_metrics_by_data_source(
             for metric_name in source_metrics.keys():
                 source_metrics[metric_name] += dataset_result["dataset_metrics"][metric_name]
 
-        # Calculate data source average (equal dataset weighting)
-        if total_datasets_in_source > 0:
-            for metric_name in source_metrics.keys():
-                source_metrics[metric_name] /= total_datasets_in_source
+            # Calculate data source average (equal dataset weighting)
+            if total_datasets_in_source > 0:
+                for metric_name in source_metrics.keys():
+                    source_metrics[metric_name] /= total_datasets_in_source
 
-            # Store data source metrics with the format "data_source/metric"
-            for metric_name, metric_value in source_metrics.items():
-                result[f"{source_name}/{metric_name}"] = metric_value
+                # Store data source metrics with the format "data_source/metric"
+                for metric_name, metric_value in source_metrics.items():
+                    result[f"{source_name}/{metric_name}"] = metric_value
 
-            total_data_sources += 1
+                total_data_sources += 1
 
-            # Accumulate for global metrics (equal data source weighting)
-            for metric_name in global_metrics.keys():
-                global_metrics[metric_name] += source_metrics[metric_name]
+                # Accumulate for global metrics (equal data source weighting)
+                for metric_name in global_metrics.keys():
+                    global_metrics[metric_name] += source_metrics[metric_name]
 
-    # Calculate global average (equal data source weighting)
-    if total_data_sources > 0:
-        for metric_name in global_metrics.keys():
-            global_metrics[metric_name] /= total_data_sources
+                # Calculate global average (equal data source weighting)
+                if total_data_sources > 0:
+                    for metric_name in global_metrics.keys():
+                        global_metrics[metric_name] /= total_data_sources
 
-        # Store global metrics with the format "val/metric"
-        for metric_name, metric_value in global_metrics.items():
-            result[f"val/{metric_name}"] = metric_value
+                    # Store global metrics with the format "val/metric"
+                    for metric_name, metric_value in global_metrics.items():
+                        result[f"val/{metric_name}"] = metric_value
 
-    gender_results = gender(predictions, ground_truths, demographics)
-    for k, v in gender_results.items():
-        result[f"fairness/gender/{k}"] = v
+                gender_results = gender(predictions, ground_truths, demographics)
+                for k, v in gender_results.items():
+                    result[f"fairness/{dataset_name}/gender/{k}"] = v
 
-    age_results = age(predictions, ground_truths, demographics)
-    for k, v in age_results.items():
-        result[f"fairness/age/{k}"] = v
+                age_results = age(predictions, ground_truths, demographics)
+                for k, v in age_results.items():
+                    result[f"fairness/{dataset_name}/age/{k}"] = v
 
-    parent_results = parent(predictions, ground_truths, demographics)
-    for k, v in parent_results.items():
-        result[f"fairness/parent/{k}"] = v
+                parent_results = parent(predictions, ground_truths, demographics)
+                for k, v in parent_results.items():
+                    result[f"fairness/{dataset_name}/parent/{k}"] = v
+
+                overall_acc.extend([parent_results["acc"], age_results["acc"], gender_results["acc"]])
+                overall_f1.extend([parent_results["f1"], age_results["f1"], gender_results["f1"]])
+                overall_tpr.extend([parent_results["tpr"], age_results["tpr"], gender_results["tpr"]])
+                overall_fpr.extend([parent_results["fpr"], age_results["fpr"], gender_results["fpr"]])
+                overall_fdr.extend([parent_results["fdr"], age_results["fdr"], gender_results["fdr"]])
+
+                acc_diffs = []
+                f1_diffs = []
+                tpr_diffs = []
+                fpr_diffs = []
+                fdr_diffs = []
+
+                if "acc_diff for sex" in gender_results: acc_diffs.append(gender_results["acc_diff for sex"])
+                if "acc_diff" in age_results: acc_diffs.append(age_results["acc_diff"])
+                if "acc_diff" in parent_results: acc_diffs.append(parent_results["acc_diff"])
+                if "f1_diff for sex" in gender_results: f1_diffs.append(gender_results["f1_diff for sex"])
+                if "f1_diff" in age_results: f1_diffs.append(age_results["f1_diff"])
+                if "f1_diff" in parent_results: f1_diffs.append(parent_results["f1_diff"])
+                if "tpr_diff for sex" in gender_results: tpr_diffs.append(gender_results["tpr_diff for sex"])
+                if "tpr_diff" in age_results: tpr_diffs.append(age_results["tpr_diff"])
+                if "tpr_diff for parent" in parent_results: tpr_diffs.append(parent_results["tpr_diff for parent"])
+                if "fpr_diff for sex" in gender_results: fpr_diffs.append(gender_results["fpr_diff for sex"])
+                if "fpr_diff" in age_results: fpr_diffs.append(age_results["fpr_diff"])
+                if "fpr_diff for parent" in parent_results: fpr_diffs.append(parent_results["fpr_diff for parent"])
+                if "fdr_diff for sex" in gender_results: fdr_diffs.append(gender_results["fdr_diff for sex"])
+                if "fdr_diff" in age_results: fdr_diffs.append(age_results["fdr_diff"])
+                if "fdr_diff for parent" in parent_results: fdr_diffs.append(parent_results["fdr_diff for parent"])
+
+                if acc_diffs:
+                    avg = sum(acc_diffs) / len(acc_diffs)
+                    result[f"fairness/{dataset_name}/avg_acc_diff"] = avg
+                    print(f"[fairness/{dataset_name}] avg_acc_diff = {avg:.4f}")
+                    overall_acc.append(avg)
+                    if len(acc_diffs) > 1:
+                        std = statistics.stdev(acc_diffs)
+                        result[f"fairness/{dataset_name}/std_acc_diff"] = std
+                        print(f"[fairness/{dataset_name}] std_acc_diff = {std:.4f}")
+                        overall_acc_std.append(std)
+                    overall_acc_diff.append(avg)
 
 
-    std_acc_values = []
-    std_f1_values = []
-    try:
+                if f1_diffs:
+                    avg = sum(f1_diffs) / len(f1_diffs)
+                    result[f"fairness/{dataset_name}/avg_f1_diff"] = avg
+                    print(f"[fairness/{dataset_name}] avg_f1_diff = {avg:.4f}")
+                    if len(f1_diffs) > 1:
+                        std = statistics.stdev(f1_diffs)
+                        result[f"fairness/{dataset_name}/std_f1_diff"] = std
+                        print(f"[fairness/{dataset_name}] std_f1_diff = {std:.4f}")
+                        overall_f1_std.append(std)
+                    overall_f1_diff.append(avg)
 
-        std_acc_values.append(gender_results["std_accuracy for sex"])
-        std_f1_values.append(gender_results["std_f1 for sex"])
+                if tpr_diffs:
+                    avg = sum(tpr_diffs) / len(tpr_diffs)
+                    result[f"fairness/{dataset_name}/avg_tpr_diff"] = avg
+                    print(f"[fairness/{dataset_name}] avg_tpr_diff = {avg:.4f}")
+                    if len(tpr_diffs) > 1:
+                        std = statistics.stdev(tpr_diffs)
+                        result[f"fairness/{dataset_name}/std_tpr_diff"] = std
+                        print(f"[fairness/{dataset_name}] std_tpr_diff = {std:.4f}")
+                        overall_tpr_std.append(std)
+                    overall_tpr_diff.append(avg)
 
+                if fpr_diffs:
+                    avg = sum(fpr_diffs) / len(fpr_diffs)
+                    result[f"fairness/{dataset_name}/avg_fpr_diff"] = avg
+                    print(f"[fairness/{dataset_name}] avg_fpr_diff = {avg:.4f}")
+                    if len(fpr_diffs) > 1:
+                        std = statistics.stdev(fpr_diffs)
+                        result[f"fairness/{dataset_name}/std_fpr_diff"] = std
+                        print(f"[fairness/{dataset_name}] std_fpr_diff = {std:.4f}")
+                        overall_fpr_std.append(std)
+                    overall_fpr_diff.append(avg)
 
-        std_acc_values.append(age_results["std_accuracy"])
-        std_f1_values.append(age_results["std_f1"])
-
-        std_acc_values.append(parent_results["std_accuracy"])
-        std_f1_values.append(parent_results["std_f1"])
-
-        result["fairness/avg_std_accuracy"] = sum(std_acc_values) / len(std_acc_values)
-        result["fairness/avg_std_f1"] = sum(std_f1_values) / len(std_f1_values)
-
-        accuracy, f1 = result["val/accuracy"], result["val/f1"]
-        result["val/accuracy_es"] = accuracy / (1 + result["fairness/avg_std_accuracy"])
-        result["val/f1_es"] = f1 / (1 + result["fairness/avg_std_f1"])
-    except KeyError:
-        print("Some fairness metrics do not have standard deviation values, skipping average calculation.")
+                if fdr_diffs:
+                    avg = sum(fdr_diffs) / len(fdr_diffs)
+                    result[f"fairness/{dataset_name}/avg_fdr_diff"] = avg
+                    print(f"[fairness/{dataset_name}] avg_fdr_diff = {avg:.4f}")
+                    if len(fdr_diffs) > 1:
+                        std = statistics.stdev(fdr_diffs)
+                        result[f"fairness/{dataset_name}/std_fdr_diff"] = std
+                        print(f"[fairness/{dataset_name}] std_fdr_diff = {std:.4f}")
+                        overall_fdr_std.append(std)
+                    overall_fdr_diff.append(avg)
+        result[f"fairness/overall_acc"] = sum(overall_acc) / len(overall_acc)
+        result[f"fairness/overall_f1"] = sum(overall_f1) / len(overall_f1)
+        result[f"fairness/overall_tpr"] = sum(overall_tpr) / len(overall_tpr)
+        result[f"fairness/overall_fpr"] = sum(overall_fpr) / len(overall_fpr)
+        result[f"fairness/overall_fdr"] = sum(overall_fdr) / len(overall_fdr)
+        result[f"fairness/overall_acc_diff"] = sum(overall_acc_diff) / len(overall_acc_diff)
+        result[f"fairness/overall_f1_diff"] = sum(overall_f1_diff) / len(overall_f1_diff)
+        result[f"fairness/overall_tpr_diff"] = sum(overall_tpr_diff) / len(overall_tpr_diff)
+        result[f"fairness/overall_fpr_diff"] = sum(overall_fpr_diff) / len(overall_fpr_diff)
+        result[f"fairness/overall_fdr_diff"] = sum(overall_fdr_diff) / len(overall_fdr_diff)
+        result[f"fairness/overall_acc_std"] = sum(overall_acc_std) / len(overall_acc_std)
+        result[f"fairness/overall_f1_std"] = sum(overall_f1_std) / len(overall_f1_std)
+        result[f"fairness/overall_tpr_std"] = sum(overall_tpr_std) / len(overall_tpr_std)
+        result[f"fairness/overall_fpr_std"] = sum(overall_fpr_std) / len(overall_fpr_std)
+        result[f"fairness/overall_fdr_std"] = sum(overall_fdr_std) / len(overall_fdr_std)
+        for key in [
+            "fairness/overall_acc",
+            "fairness/overall_f1",
+            "fairness/overall_tpr",
+            "fairness/overall_fpr",
+            "fairness/overall_fdr",
+            "fairness/overall_acc_diff",
+            "fairness/overall_f1_diff",
+            "fairness/overall_tpr_diff",
+            "fairness/overall_fpr_diff",
+            "fairness/overall_fdr_diff",
+            "fairness/overall_acc_std",
+            "fairness/overall_f1_std",
+            "fairness/overall_tpr_std",
+            "fairness/overall_fpr_std",
+            "fairness/overall_fdr_std",
+        ]:
+            print(f"{key}/{result[key]:.4f}")
 
     return result
 
