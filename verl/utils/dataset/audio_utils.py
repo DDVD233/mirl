@@ -112,6 +112,8 @@ def process_audio(audio: str | dict, processor=None) -> np.ndarray:
             f"waveform shape {audio_np.shape}, dtype {audio_np.dtype}"
         )
 
+        # NOTE: we only need to return the numpy array and not the sampling rate
+
         return audio_np
 
     except Exception as e:
