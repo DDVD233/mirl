@@ -2,8 +2,8 @@ set -x
 
 unset ROCR_VISIBLE_DEVICES
 
-# Qwen/Qwen2.5-VL-7B-Instruct
-# Qwen/Qwen2.5-Omni-7B
+# actor_rollout_ref.model.path=Qwen/Qwen2.5-VL-7B-Instruct
+# actor_rollout_ref.model.path=Qwen/Qwen2.5-Omni-7B
 # data.train_files=/scratch/keane/human_behaviour/human_behaviour_data/train_no_meld_no_chalearn_vision_v2_template_prompts.jsonl \
 # data.val_files=/scratch/keane/human_behaviour/human_behaviour_data/val_no_meld_no_chalearn_vision_v2_template_prompts.jsonl \
 # data.modalities=\'audio,videos\' \
@@ -24,7 +24,7 @@ PYTHONUNBUFFERED=1 HYDRA_FULL_ERROR=1 PYTHONPATH="/home/keaneong/human-behavior/
     data.dataloader_num_workers=0 \
     data.modalities=\'videos\' \
     data.format_prompt=/home/keaneong/human-behavior/verl/examples/format_prompt/default.jinja \
-    actor_rollout_ref.model.path=Qwen/Qwen2.5-Omni-7B \
+    actor_rollout_ref.model.path=Qwen/Qwen2.5-VL-7B-Instruct \
     actor_rollout_ref.actor.optim.lr=1e-6 \
     actor_rollout_ref.model.use_remove_padding=False \
     actor_rollout_ref.actor.ppo_mini_batch_size=64 \
@@ -60,5 +60,5 @@ PYTHONUNBUFFERED=1 HYDRA_FULL_ERROR=1 PYTHONPATH="/home/keaneong/human-behavior/
     trainer.nnodes=1 \
     trainer.save_freq=20 \
     trainer.val_before_train=False \
-    trainer.test_freq=2 \
+    trainer.test_freq=1 \
     trainer.total_epochs=15 $@
