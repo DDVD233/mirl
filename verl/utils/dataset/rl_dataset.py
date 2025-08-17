@@ -428,6 +428,7 @@ class RLHFDataset(Dataset):
                 multi_modal_data["image"] = images
                 processor_kwargs["images"] = images
 
+            print("KEANE: Videos is next line")
             if "videos" in self.modalities and self.video_key in row_dict and row_dict.get(self.video_key, None) is not None and len(row_dict[self.video_key]) > 0:
                 videos = []
                 print(f"KEANE: GETTING VIDEO {row_dict[self.video_key]}")
@@ -462,7 +463,6 @@ class RLHFDataset(Dataset):
             # NOTE: all text should be processed by self.processor()
             input_ids = model_inputs.pop("input_ids")
             attention_mask = model_inputs.pop("attention_mask")
-            
 
             if "second_per_grid_ts" in model_inputs:
                 model_inputs.pop("second_per_grid_ts")
