@@ -430,6 +430,8 @@ class RLHFDataset(Dataset):
 
             if "videos" in self.modalities and self.video_key in row_dict and row_dict.get(self.video_key, None) is not None and len(row_dict[self.video_key]) > 0:
                 videos = []
+                print(f"KEANE: GETTING VIDEO {row_dict[self.video_key]}")
+
                 for video in row_dict.get(self.video_key):
                     video = os.path.join(self.base_dir, video) if isinstance(video, str) else video
                     videos.append(process_video(video))
@@ -453,8 +455,8 @@ class RLHFDataset(Dataset):
                 processor_kwargs["audio"] = audios  # Pass numpy arrays to processor
 
             # TODO: Please check whether the model is processing the "audio" correctly, the processor that we are using is qwen 2.5 OMNI
-            print(f"KEANE: Processing multimodal data with processor {self.processor.__class__.__name__} ")
-            print(f"KEANE: Processor kwargs: {processor_kwargs}")
+            # print(f"KEANE: Processing multimodal data with processor {self.processor.__class__.__name__} ")
+            # print(f"KEANE: Processor kwargs: {processor_kwargs}")
             model_inputs = self.processor(**processor_kwargs)
 
             # NOTE: all text should be processed by self.processor()
