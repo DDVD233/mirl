@@ -742,8 +742,8 @@ def compute_metrics_by_data_source(
         result[f"overall/overall_fdr_diff"] = sum(overall_fdr_diff) / len(overall_fdr_diff)
         result[f"overall/overall_acc_std"] = sum(overall_acc_std) / len(overall_acc_std)
         result[f"overall/overall_f1_std"] = sum(overall_f1_std) / len(overall_f1_std)
-        result[f"overall/acc_es"] = result[f"fairness/overall_acc"] / (1 + result[f"fairness/overall_acc_std"])
-        result[f"overall/f1_es"] = result[f"fairness/overall_f1"] / (1 + result[f"fairness/overall_f1_std"])
+        result[f"overall/acc_es"] = result[f"overall/overall_acc"] / (1 + result[f"overall/overall_acc_std"])
+        result[f"overall/f1_es"] = result[f"overall/overall_f1"] / (1 + result[f"overall/overall_f1_std"])
         for key in [
             "overall/overall_tpr",
             "overall/overall_fpr",
