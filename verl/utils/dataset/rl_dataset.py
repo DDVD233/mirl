@@ -216,6 +216,7 @@ class RLHFDataset(Dataset):
                     # TODO: cannot process the audio inputs
                     print(f"KEANE: Processor class is {processor.__class__.__name__}")
                     print(f"KEANE: Printing the processor_kwargs, {processor_kwargs}")
+                    # Assume that all are in tensors already, hence there is no return_tensors = "pt"
                     return len(processor(**processor_kwargs)["input_ids"][0])
 
             else:
