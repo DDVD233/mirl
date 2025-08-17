@@ -23,11 +23,12 @@ unset ROCR_VISIBLE_DEVICES
 # for validation, set val_before_train=True ; make sure that the checkpoint is loaded and put val_only=True
 # the checkpoint should already be loaded before that
 # and then we will just evaluate
+/scratch/keane/human_behaviour/human_behaviour_data/subset_cremad_only.jsonl
 
 PYTHONUNBUFFERED=1 HYDRA_FULL_ERROR=1 PYTHONPATH="/home/keaneong/human-behavior/verl:$PYTHONPATH" NCCL_ASYNC_ERROR_HANDLING=1 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
-    data.train_files=/scratch/keane/human_behaviour/human_behaviour_data/old_train_template_prompts.jsonl \
-    data.val_files=/scratch/keane/human_behaviour/human_behaviour_data/old_val_template_prompts.jsonl \
+    data.train_files=/scratch/keane/human_behaviour/human_behaviour_data/subset_cremad_only.jsonl \
+    data.val_files=/scratch/keane/human_behaviour/human_behaviour_data/subset_cremad_only.jsonl \
     data.train_batch_size=64 \
     data.val_batch_size=64 \
     data.max_prompt_length=3072 \
