@@ -101,15 +101,24 @@ class RLHFDataset(Dataset):
         self.config = config
 
         self.cache_dir = os.path.expanduser(config.get("cache_dir", "~/.cache/verl/rlhf"))
+        
+        # Essentially getting all the different keys.
         self.prompt_key = config.get("prompt_key", "prompt")
         self.image_key = config.get("image_key", "images")
         self.video_key = config.get("video_key", "videos")
+
+        # NOTE: SET AUDIO KEY AS AUDIOS
         self.audio_key = config.get("audio_key", "audios")
+
+        # NOTE: SET MODALITIES, split the images and videos
         self.modalities = set(config.get("modalities", "images,videos").split(","))
+
         self.max_prompt_length = config.get("max_prompt_length", 1024)
         self.return_raw_chat = config.get("return_raw_chat", False)
         self.return_full_prompt = config.get("return_full_prompt", False)
         self.truncation = config.get("truncation", "error")
+
+        # TODO: Check whether this is true
         self.filter_overlong_prompts = config.get("filter_overlong_prompts", True)
         if isinstance(data_files, str):
             self.base_dir = os.path.dirname(os.path.abspath(data_files))
@@ -130,7 +139,7 @@ class RLHFDataset(Dataset):
         self.format_prompt = self._load_format_prompt()
 
         self._download()
-        self._read_files_and_tokenize()
+        self._read_files_and_tokenize() # essentially this is prepared first before _getitem
 
     def _load_format_prompt(self) -> Optional[Template]:
         """Load format prompt from file if specified."""
@@ -162,11 +171,15 @@ class RLHFDataset(Dataset):
 
         print(f"dataset len: {len(self.dataframe)}")
 
+        # PROCESSING THE DATAFRAME for TRAINING
         self.dataframe = self.maybe_filter_out_long_prompts(self.dataframe)
 
     def maybe_filter_out_long_prompts(self, dataframe: datasets.Dataset = None):
-        # filter out too long prompts
+        # NOTE: filter out too long prompts, because the prompts can become very long
+        # when the audio is appended.
+
         if self.filter_overlong_prompts:
+            # NOTE: FILTER OUT THE LONG PROMPTS SO THAT THEY FIT THE LENGTH
             tokenizer = self.tokenizer
             processor = self.processor
             prompt_key = self.prompt_key
@@ -175,6 +188,7 @@ class RLHFDataset(Dataset):
             audio_key = self.audio_key
 
             if processor is not None:
+                print(f"KEANE: PROCESSOR FOUND")
                 from verl.utils.dataset.vision_utils import process_image, process_video
                 from verl.utils.dataset.audio_utils import process_audio
 
@@ -194,13 +208,16 @@ class RLHFDataset(Dataset):
                         processor_kwargs["videos"] = videos
                         
                     if "audio" in self.modalities and audio_key in doc and doc.get(audio_key, None) is not None:
+                        # TODO: make sure that this path is actually happening
+                        # processing of audio
+                        print(f"KEANE: Processing audio within rl dataset file")
                         audios = [process_audio(audio, processor) for audio in doc[audio_key]]
                         processor_kwargs["audio"] = audios
 
                     return len(processor(**processor_kwargs)["input_ids"][0])
 
             else:
-
+                print(f"KEANE: PROCESSOR NOT FOUND")
                 def doc2len(doc) -> int:
                     return len(tokenizer.apply_chat_template(doc[prompt_key], add_generation_prompt=True))
 
@@ -226,10 +243,14 @@ class RLHFDataset(Dataset):
         return len(self.dataframe)
 
     def _build_messages(self, example: dict):
+        """
+        This appears to be called twice, once during maybe_filter_out_long_prompts, and another time during getitems
+        """
         messages: list = example.get(self.prompt_key)
         if isinstance(messages, str):
             messages = [messages]
 
+        # NOTE: Before building, check if there is multimodal content
         has_multimodal = (
             ("images" in self.modalities and self.image_key in example) or
             ("videos" in self.modalities and self.video_key in example) or
@@ -254,6 +275,8 @@ class RLHFDataset(Dataset):
                 image_tag_count = content.count("<image>")
                 video_tag_count = content.count("<video>")
                 audio_tag_count = content.count("<audio>")
+
+                # NOTE: Apppending the <image>, <video>, <audio> tags when they are missing
                 if image_tag_count < image_count:
                     content = "<image>" * (image_count - image_tag_count) + content
                     logger.warning("<image> tag count is less than image count, adding missing <image> tags."
@@ -277,6 +300,8 @@ class RLHFDataset(Dataset):
                 if "audio" in self.modalities:
                     tag_patterns.append("<audio>")
                 
+                # NOTE: Denote the different patterns based on the tag.
+                # TODO: Double check what this does
                 if tag_patterns:
                     pattern = "(" + "|".join(tag_patterns) + ")"
                     segments = re.split(pattern, content)
@@ -360,8 +385,15 @@ class RLHFDataset(Dataset):
             if item is None:
                 row_dict[key] = []
 
+        # NOTE: BUILD_MESSAGES IS CALLED TWICE; 
+        # NOTE: FIRST TIME IS TO GET THE LENGTH OF THE RAW PROMPT AND FILTER OUT 
+        # NOTE: PROMPTS THAT DO NOT FIT THE LENGTH; 
+        # NOTE: SECOND TIME IS TO BUILD THE MESSAGE TO BE PASSED INTO THE MODEL
+
         messages = self._build_messages(row_dict)
+
         if "audio" in self.modalities:
+            # NOTE: Set the following prompt for qwen omni when we are training on audio
             messages.insert(0, {
                 "role": "system",
                 "content": [
@@ -372,6 +404,7 @@ class RLHFDataset(Dataset):
         model_inputs = {}
 
         if self.processor is not None:
+            # THIS CHUNK IS BASICALLY ABOUT PROCESSING ALL THE MODALITIES
             from verl.utils.dataset.vision_utils import process_image, process_video
             from verl.utils.dataset.audio_utils import process_audio
 
@@ -403,6 +436,7 @@ class RLHFDataset(Dataset):
                 multi_modal_data["video"] = [video.numpy() for video in videos]
                 processor_kwargs["videos"] = videos
 
+            # NOTE: PROCESSING OF THE AUDIO TUPLES
             if "audio" in self.modalities and self.audio_key in row_dict and row_dict.get(self.audio_key, None) is not None and len(row_dict[self.audio_key]) > 0:
                 audios = []
                 audio_tuples = []  # Keep tuples for multi_modal_data
@@ -415,10 +449,15 @@ class RLHFDataset(Dataset):
                 multi_modal_data["audio"] = audio_tuples  # Store tuples for reference
                 processor_kwargs["audio"] = audios  # Pass numpy arrays to processor
 
+            # TODO: Please check whether the model is processing the "audio" correctly, the processor that we are using is qwen 2.5 OMNI
+            print(f"KEANE: Processing multimodal data with processor {self.processor.__class__.__name__} ")
+            print(f"KEANE: Processor kwargs: {processor_kwargs}")
             model_inputs = self.processor(**processor_kwargs)
 
+            # NOTE: all text should be processed by self.processor()
             input_ids = model_inputs.pop("input_ids")
             attention_mask = model_inputs.pop("attention_mask")
+            
 
             if "second_per_grid_ts" in model_inputs:
                 model_inputs.pop("second_per_grid_ts")
@@ -451,7 +490,12 @@ class RLHFDataset(Dataset):
 
         if self.processor is not None and "Qwen2VLImageProcessor" in self.processor.image_processor.__class__.__name__:
             from verl.models.transformers.qwen2_vl import get_rope_index
-
+            
+            # NOTE: printing out whether this runs
+            print("KEANE: Running getting the rope index of input ids")
+            
+            # NOTE: OBTAIN ROPE of rotary positional embeddings. ROPE encodes position by rotating components of query/key vectors
+            # This is just for to get relative position in terms of angular differences etc.
             position_ids = [
                 get_rope_index(
                     self.processor,
@@ -466,6 +510,7 @@ class RLHFDataset(Dataset):
         else:
             position_ids = compute_position_id_with_mask(attention_mask)
 
+        # Essentially training with the different input ids etc.
         row_dict["input_ids"] = input_ids[0]
         row_dict["attention_mask"] = attention_mask[0]
         row_dict["position_ids"] = position_ids[0]

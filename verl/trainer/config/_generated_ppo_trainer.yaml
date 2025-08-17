@@ -255,7 +255,7 @@ data:
   image_key: images
   video_key: videos
   audio_key: audios
-  modalities: images,videos
+  modalities: images,videos # list of modalities to process
   trust_remote_code: false
   custom_cls:
     path: null

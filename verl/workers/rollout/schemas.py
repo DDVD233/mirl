@@ -269,6 +269,8 @@ class AsyncRolloutRequest(BaseModel):
         if is_qwen2vl:
             from verl.models.transformers.qwen2_vl import get_rope_index
 
+            print("KEANE: Running getting the rope index of input ids")
+
             image_grid_thw = video_grid_thw = second_per_grid_ts = None
             if multi_modal_inputs:
                 image_grid_thw = multi_modal_inputs.get("image_grid_thw")
