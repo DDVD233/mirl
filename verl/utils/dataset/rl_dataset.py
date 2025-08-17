@@ -214,6 +214,7 @@ class RLHFDataset(Dataset):
                         audios = [process_audio(audio, processor) for audio in doc[audio_key]]
                         processor_kwargs["audio"] = audios
                     # TODO: cannot process the audio inputs
+                    print(f"KEANE: Processor class is {processor.__class__.__name__}")
                     print(f"KEANE: Printing the processor_kwargs, {processor_kwargs}")
                     return len(processor(**processor_kwargs)["input_ids"][0])
 
