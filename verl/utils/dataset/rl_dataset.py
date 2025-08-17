@@ -428,7 +428,7 @@ class RLHFDataset(Dataset):
                 multi_modal_data["image"] = images
                 processor_kwargs["images"] = images
 
-            print("KEANE: Videos is next line")
+            print(f"KEANE: Videos is next line, current processor_kwargs {processor_kwargs}")
             if "videos" in self.modalities and self.video_key in row_dict and row_dict.get(self.video_key, None) is not None and len(row_dict[self.video_key]) > 0:
                 videos = []
                 print(f"KEANE: GETTING VIDEO {row_dict[self.video_key]}")
