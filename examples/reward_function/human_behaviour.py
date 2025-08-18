@@ -1,49 +1,59 @@
-# Copyright 2024 Bytedance Ltd. and/or its affiliates
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
+from typing import List, Dict
 import re
-from typing import Any
-
-from mathruler.grader import extract_boxed_content, grade_answer
-
 
 def format_reward(response: str) -> float:
+    """
+    Check whether the response matches the expected format.
+    Here we require something like <think>...</think> ... \boxed{...}
+    """
     pattern = re.compile(r"<think>.*</think>.*\\boxed\{.*\}.*", re.DOTALL)
     format_match = re.fullmatch(pattern, response)
     return 1.0 if format_match else 0.0
 
 def accuracy_reward(response: str, ground_truth: str) -> float:
-    if response == ground_truth:
-        return 1.0
-    else:
-        return 0.0
+    """
+    Simple accuracy: exact match to ground truth string.
+    """
+    return 1.0 if response == ground_truth else 0.0
 
-def human_behaviour_compute_score(reward_inputs: list[dict[str, Any]], format_weight: float = 0.1) -> list[dict[str, float]]:
-    if not isinstance(reward_inputs, list):
-        raise ValueError("Please use `reward_type=batch` for math reward function.")
+def human_behaviour_compute_score_batch(
+    data_sources: List[str],
+    solution_strs: List[str],
+    ground_truths: List[str],
+    extra_infos: List[str],
+    **kwargs
+) -> List[Dict[str, float]]:
+    """
+    Compute human behaviour scoring for batch inputs.
 
-    scores = []
-    for reward_input in reward_inputs:
-        response = re.sub(r"\s*(<|>|/)\s*", r"\1", reward_input["response"])  # handle qwen2.5vl-32b format
+    Args:
+        data_sources: List of data sources (unused here, but kept for interface compatibility)
+        solution_strs: List of model prediction strings
+        ground_truths: List of ground truth strings
+        extra_infos: List of extra information (unused here, kept for compatibility)
+
+    Returns:
+        List of score dictionaries
+    """
+    batch_scores = []
+    format_weight = 0.1
+
+    for data_source, predict_str, ground_truth, extra_info in zip(data_sources, solution_strs, ground_truths, extra_infos):
+        # Normalize response formatting (e.g., qwen2.5vl quirks)
+        response = re.sub(r"\s*(<|>|/)\s*", r"\1", predict_str)
+
+        # Compute individual components
         format_score = format_reward(response)
-        accuracy_score = accuracy_reward(response, reward_input["ground_truth"])
-        scores.append(
-            {
-                "overall": (1 - format_weight) * accuracy_score + format_weight * format_score,
-                "format": format_score,
-                "accuracy": accuracy_score,
-            }
-        )
+        standard_score = accuracy_reward(response, ground_truth)
 
-    return scores
+        # Weighted overall score
+        overall_score = (1 - format_weight) * standard_score + format_weight * format_score
+
+        scores = {
+            "score": overall_score,
+            "standard_score": standard_score,
+            "format_score": format_score,
+        }
+        batch_scores.append(scores)
+
+    return batch_scores
