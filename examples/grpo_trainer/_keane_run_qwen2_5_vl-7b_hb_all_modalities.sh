@@ -62,7 +62,7 @@ unset ROCR_VISIBLE_DEVICES
 
 PYTHONUNBUFFERED=1 HYDRA_FULL_ERROR=1 PYTHONPATH="/home/keaneong/human-behavior/verl:$PYTHONPATH" NCCL_ASYNC_ERROR_HANDLING=1 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
-    data.train_files=/scratch/keane/human_behaviour/human_behaviour_data/chsimsv2_only.jsonl \
+    data.train_files=/scratch/keane/human_behaviour/human_behaviour_data/no_vptd_no_chsimsv2_no_chalearn.jsonl \
     data.val_files=/scratch/keane/human_behaviour/human_behaviour_data/subset_cremad_only.jsonl \
     data.train_batch_size=1 \
     data.val_batch_size=1 \
