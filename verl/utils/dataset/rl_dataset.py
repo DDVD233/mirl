@@ -158,10 +158,21 @@ class RLHFDataset(Dataset):
 
     def _read_files_and_tokenize(self):
         dataframes = []
+        
+        features = datasets.Features({
+            "problem": datasets.Value("string"),
+            "answer":  datasets.Value("string"),
+            "images":  datasets.Sequence(datasets.Value("string")),
+            "videos":  datasets.Sequence(datasets.Value("string")),
+            "audios":  datasets.Sequence(datasets.Value("string")),  # <- force list of strings
+            "dataset": datasets.Value("string"),
+            "texts":   datasets.Sequence(datasets.Value("string")),
+        })
+
         for parquet_file in self.data_files:
             # read parquet files and cache
             if parquet_file.endswith(".parquet"):
-                dataframe = datasets.load_dataset("parquet", data_files=parquet_file)["train"]
+                dataframe = datasets.load_dataset("parquet", data_files=parquet_file, features=features)["train"]
             elif parquet_file.endswith(".json") or parquet_file.endswith(".jsonl"):
                 dataframe = datasets.load_dataset("json", data_files=parquet_file)["train"]
             else:
