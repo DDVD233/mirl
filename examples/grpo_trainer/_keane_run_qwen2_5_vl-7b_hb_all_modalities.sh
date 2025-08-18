@@ -35,8 +35,8 @@ unset ROCR_VISIBLE_DEVICES
 
 PYTHONUNBUFFERED=1 HYDRA_FULL_ERROR=1 PYTHONPATH="/home/keaneong/human-behavior/verl:$PYTHONPATH" NCCL_ASYNC_ERROR_HANDLING=1 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
-    data.train_files=/scratch/keane/human_behaviour/human_behaviour_data/['cremad']_only.jsonl \
-    data.val_files=/scratch/keane/human_behaviour/human_behaviour_data/['cremad']_only.jsonl \
+    data.train_files=/scratch/keane/human_behaviour/human_behaviour_data/cremad_only.jsonl \
+    data.val_files=/scratch/keane/human_behaviour/human_behaviour_data/cremad_only.jsonl \
     data.train_batch_size=12 \
     data.val_batch_size=12 \
     data.max_prompt_length=3072 \
