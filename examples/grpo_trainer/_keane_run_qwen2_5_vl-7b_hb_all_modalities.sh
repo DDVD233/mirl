@@ -45,8 +45,8 @@ unset ROCR_VISIBLE_DEVICES
 # /scratch/keane/human_behaviour/human_behaviour_data/expw_only.jsonl
 # /scratch/keane/human_behaviour/human_behaviour_data/no_expw.jsonl
 
-# # meld
-# /scratch/keane/human_behaviour/human_behaviour_data/meld_only.jsonl
+# meld
+# /scratch/keane/human_behaviour/human_behaviour_data/meld_only.jsonl (ok)
 # /scratch/keane/human_behaviour/human_behaviour_data/no_meld.jsonl
 
 # cremad
@@ -55,7 +55,6 @@ unset ROCR_VISIBLE_DEVICES
 
 # old
 # discretized_no_lmvd_no_chalearn_v3_template_prompts.jsonl
-
 
 # /scratch/keane/human_behaviour/human_behaviour_data/discretized_no_lmvd_no_chsimsv2_v3_template_prompts.jsonl
 # /scratch/keane/human_behaviour/human_behaviour_data/discretized_no_lmvd_no_chsimsv2_no_chalearn_v3_template_prompts.jsonl
