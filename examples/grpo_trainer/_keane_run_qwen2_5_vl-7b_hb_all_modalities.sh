@@ -24,47 +24,17 @@ unset ROCR_VISIBLE_DEVICES
 # the checkpoint should already be loaded before that
 # and then we will just evaluate
 
-# ALL OF THESE ARE FROM THE NO CHALEARN NO LMVD
-# esconv
-# /scratch/keane/human_behaviour/human_behaviour_data/esconv_only.jsonl
-# /scratch/keane/human_behaviour/human_behaviour_data/no_esconv.jsonl
-
-# chalearn
-# /scratch/keane/human_behaviour/human_behaviour_data/chalearn_only.jsonl 
-# /scratch/keane/human_behaviour/human_behaviour_data/no_chalearn.jsonl (Problematic)
-
-# # chsimsv2
-# /scratch/keane/human_behaviour/human_behaviour_data/chsimsv2_only.jsonl (works)
-# /scratch/keane/human_behaviour/human_behaviour_data/no_chsimsv2.jsonl (does not work)
-
-# # tess
-# /scratch/keane/human_behaviour/human_behaviour_data/tess_only.jsonl
-# /scratch/keane/human_behaviour/human_behaviour_data/no_tess.jsonl
-
-# # expw
-# /scratch/keane/human_behaviour/human_behaviour_data/expw_only.jsonl
-# /scratch/keane/human_behaviour/human_behaviour_data/no_expw.jsonl
-
-# meld
-# /scratch/keane/human_behaviour/human_behaviour_data/meld_only.jsonl (ok)
-# /scratch/keane/human_behaviour/human_behaviour_data/no_meld.jsonl
-
-# cremad
-# /scratch/keane/human_behaviour/human_behaviour_data/cremad_only.jsonl
-# /scratch/keane/human_behaviour/human_behaviour_data/no_cremad.jsonl
-
-# old
-# discretized_no_lmvd_no_chalearn_v3_template_prompts.jsonl
-
+# ALTERNATIVES
 # /scratch/keane/human_behaviour/human_behaviour_data/discretized_no_lmvd_no_chsimsv2_v3_template_prompts.jsonl
 # /scratch/keane/human_behaviour/human_behaviour_data/discretized_no_lmvd_no_chsimsv2_no_chalearn_v3_template_prompts.jsonl
-# /scratch/keane/human_behaviour/human_behaviour_data/discretized_no_lmvd_v3_template_prompts.jsonl
+
 # when resuming training from a loaded checkpoint cuda OOM error
+
 
 PYTHONUNBUFFERED=1 HYDRA_FULL_ERROR=1 PYTHONPATH="/home/keaneong/human-behavior/verl:$PYTHONPATH" NCCL_ASYNC_ERROR_HANDLING=1 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
-    data.train_files=/scratch/keane/human_behaviour/human_behaviour_data/no_lmvd_discretized_v3_template_prompts.jsonl \
-    data.val_files=/scratch/keane/human_behaviour/human_behaviour_data/subset_cremad_only.jsonl \
+    data.train_files=/scratch/keane/human_behaviour/human_behaviour_data/train_no_lmvd_discretized_v3_template_prompts.jsonl \
+    data.val_files=/scratch/keane/human_behaviour/human_behaviour_data/val_no_lmvd_discretized_v3_template_prompts.jsonl \
     data.train_batch_size=512 \
     data.val_batch_size=128 \
     data.max_prompt_length=3072 \
