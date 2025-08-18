@@ -1,6 +1,30 @@
 from typing import List, Dict
 import re
 
+def extract_boxed_content(text: str) -> str:
+    """
+    Extract content within \boxed{} or similar boxing notations.
+
+    Args:
+        text (str): Text containing potentially boxed content.
+
+    Returns:
+        str: Extracted boxed content or the original text if no box found.
+    """
+
+    # Look for LaTeX \boxed{} notation
+    boxed_match = re.search(r"\\boxed{([^}]*)}", text)
+    if boxed_match:
+        return boxed_match.group(1)
+
+    # Look for markdown boxed notation (e.g., [boxed content])
+    markdown_match = re.search(r"\[(.*?)\]", text)
+    if markdown_match:
+        return markdown_match.group(1)
+
+    # Return the text as is if no boxed content is found
+    return text
+
 def format_reward(response: str) -> float:
     """
     Check whether the response matches the expected format.
@@ -40,11 +64,15 @@ def human_behaviour_compute_score_batch(
 
     for data_source, predict_str, ground_truth, extra_info in zip(data_sources, solution_strs, ground_truths, extra_infos):
         # Normalize response formatting (e.g., qwen2.5vl quirks)
-        response = re.sub(r"\s*(<|>|/)\s*", r"\1", predict_str)
+        full_response = re.sub(r"\s*(<|>|/)\s*", r"\1", predict_str)
+        pred_label = extract_boxed_content(full_response).lower()  # handle qwen2.5vl-32b format
 
+        print(pred_label)
         # Compute individual components
-        format_score = format_reward(response)
-        standard_score = accuracy_reward(response, ground_truth)
+        format_score = format_reward(full_response)
+        standard_score = accuracy_reward(pred_label, ground_truth)
+
+        ground_truth = ground_truth.lower()
 
         # Weighted overall score
         overall_score = (1 - format_weight) * standard_score + format_weight * format_score
@@ -57,3 +85,19 @@ def human_behaviour_compute_score_batch(
         batch_scores.append(scores)
 
     return batch_scores
+
+
+if __name__ == "__main__":
+    response_str = (
+        "<think>Well, I've listened to the speech recording. It sounds like the speaker is expressing anger. "
+        "You know, the tone and the way the words are said seem to indicate frustration or annoyance. "
+        "So, I'd say the emotion is anger.</think>\\boxed{anger}If you have any other questions or need more help, feel free to let me know."
+    )
+
+    data_sources = ["sample_audio.wav"]
+    solution_strs = [response_str]
+    ground_truths = ["anger"]
+    extra_infos = [""]
+
+    scores = human_behaviour_compute_score_batch(data_sources, solution_strs, ground_truths, extra_infos)
+    print(scores)
