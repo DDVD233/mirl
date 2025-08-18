@@ -199,7 +199,7 @@ class RLHFDataset(Dataset):
             audio_key = self.audio_key
 
             if processor is not None:
-                print(f"KEANE: PROCESSOR FOUND")
+                # print(f"KEANE: PROCESSOR FOUND")
                 from verl.utils.dataset.vision_utils import process_image, process_video
                 from verl.utils.dataset.audio_utils import process_audio
 
@@ -236,13 +236,13 @@ class RLHFDataset(Dataset):
 
                         processor_kwargs["audio"] = audios  # Pass numpy arrays to processor
                     # TODO: cannot process the audio inputs
-                    print(f"KEANE: Processor class is {processor.__class__.__name__}")
-                    print(f"KEANE: Printing the processor_kwargs, {processor_kwargs}")
+                    # print(f"KEANE: Processor class is {processor.__class__.__name__}")
+                    # print(f"KEANE: Printing the processor_kwargs, {processor_kwargs}")
                     # Assume that all are in tensors already, hence there is no return_tensors = "pt"
                     return len(processor(**processor_kwargs)["input_ids"][0])
 
             else:
-                print(f"KEANE: PROCESSOR NOT FOUND")
+                # print(f"KEANE: PROCESSOR NOT FOUND")
                 def doc2len(doc) -> int:
                     return len(tokenizer.apply_chat_template(doc[prompt_key], add_generation_prompt=True))
 
@@ -450,10 +450,10 @@ class RLHFDataset(Dataset):
                 multi_modal_data["image"] = images
                 processor_kwargs["images"] = images
 
-            print(f"KEANE: Videos is next line, current processor_kwargs {processor_kwargs}")
+            # print(f"KEANE: Videos is next line, current processor_kwargs {processor_kwargs}")
             if "videos" in self.modalities and self.video_key in row_dict and row_dict.get(self.video_key, None) is not None and len(row_dict[self.video_key]) > 0:
                 videos = []
-                print(f"KEANE: GETTING VIDEO {row_dict[self.video_key]}")
+                # print(f"KEANE: GETTING VIDEO {row_dict[self.video_key]}")
 
                 for video in row_dict.get(self.video_key):
                     video = os.path.join(self.base_dir, video) if isinstance(video, str) else video
@@ -549,7 +549,7 @@ class RLHFDataset(Dataset):
             from verl.models.transformers.qwen2_vl import get_rope_index
             
             # NOTE: printing out whether this runs
-            print("KEANE: Running getting the rope index of input ids")
+            # print("KEANE: Running getting the rope index of input ids")
             
             # NOTE: OBTAIN ROPE of rotary positional embeddings. ROPE encodes position by rotating components of query/key vectors
             # This is just for to get relative position in terms of angular differences etc.
