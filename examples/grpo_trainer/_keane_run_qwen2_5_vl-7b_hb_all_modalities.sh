@@ -35,8 +35,8 @@ PYTHONUNBUFFERED=1 HYDRA_FULL_ERROR=1 PYTHONPATH="/home/keaneong/human-behavior/
     algorithm.adv_estimator=grpo \
     data.train_files=/scratch/keane/human_behaviour/human_behaviour_data/train_no_lmvd_discretized_v3_template_prompts.jsonl \
     data.val_files=/scratch/keane/human_behaviour/human_behaviour_data/val_no_lmvd_discretized_v3_template_prompts.jsonl \
-    data.train_batch_size=1 \
-    data.val_batch_size=1 \
+    data.train_batch_size=12 \
+    data.val_batch_size=12 \
     data.max_prompt_length=3072 \
     data.max_response_length=1536 \
     data.filter_overlong_prompts=False \
@@ -50,8 +50,8 @@ PYTHONUNBUFFERED=1 HYDRA_FULL_ERROR=1 PYTHONPATH="/home/keaneong/human-behavior/
     actor_rollout_ref.model.path=Qwen/Qwen2.5-Omni-7B \
     actor_rollout_ref.actor.optim.lr=1e-6 \
     actor_rollout_ref.model.use_remove_padding=False \
-    actor_rollout_ref.actor.ppo_mini_batch_size=1 \
-    actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=1 \
+    actor_rollout_ref.actor.ppo_mini_batch_size=3 \
+    actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=3 \
     actor_rollout_ref.actor.use_kl_loss=False \
     actor_rollout_ref.actor.kl_loss_coef=1e-9 \
     actor_rollout_ref.actor.kl_loss_type=low_var_kl \
@@ -83,6 +83,6 @@ PYTHONUNBUFFERED=1 HYDRA_FULL_ERROR=1 PYTHONPATH="/home/keaneong/human-behavior/
     trainer.nnodes=1 \
     trainer.save_freq=5 \
     trainer.val_before_train=False \
-    trainer.test_freq=1 \
+    trainer.test_freq=5 \
     trainer.total_epochs=15 $@ \
     trainer.default_local_dir=/scratch/keane/human_behaviour/verl_models_hb_omni
