@@ -32,7 +32,7 @@ PYTHONUNBUFFERED=1 HYDRA_FULL_ERROR=1 PYTHONPATH="/home/keaneong/human-behavior/
     data.val_batch_size=64 \
     data.max_prompt_length=3072 \
     data.max_response_length=1536 \
-    data.filter_overlong_prompts=True \
+    data.filter_overlong_prompts=False \
     data.truncation='left' \
     data.image_key=images \
     data.video_key=videos \
