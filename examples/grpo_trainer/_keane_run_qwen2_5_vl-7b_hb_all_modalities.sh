@@ -24,6 +24,7 @@ unset ROCR_VISIBLE_DEVICES
 # the checkpoint should already be loaded before that
 # and then we will just evaluate
 
+# ALL OF THESE ARE FROM THE NO CHALEARN NO LMVD
 # esconv
 # /scratch/keane/human_behaviour/human_behaviour_data/esconv_only.jsonl
 # /scratch/keane/human_behaviour/human_behaviour_data/no_esconv.jsonl
