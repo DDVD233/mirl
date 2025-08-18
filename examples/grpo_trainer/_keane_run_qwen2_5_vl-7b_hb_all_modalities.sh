@@ -30,10 +30,12 @@ unset ROCR_VISIBLE_DEVICES
 
 # when resuming training from a loaded checkpoint cuda OOM error
 
+# alt: /scratch/keane/human_behaviour/human_behaviour_data/0.1_train_no_lmvd_discretized_v3_template_prompts.jsonl
+# org: /scratch/keane/human_behaviour/human_behaviour_data/train_no_lmvd_discretized_v3_template_prompts.jsonl
 
 PYTHONUNBUFFERED=1 HYDRA_FULL_ERROR=1 PYTHONPATH="/home/keaneong/human-behavior/verl:$PYTHONPATH" NCCL_ASYNC_ERROR_HANDLING=1 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
-    data.train_files=/scratch/keane/human_behaviour/human_behaviour_data/train_no_lmvd_discretized_v3_template_prompts.jsonl \
+    data.train_files=/scratch/keane/human_behaviour/human_behaviour_data/0.1_train_no_lmvd_discretized_v3_template_prompts.jsonl \
     data.val_files=/scratch/keane/human_behaviour/human_behaviour_data/val_no_lmvd_discretized_v3_template_prompts.jsonl \
     data.train_batch_size=12 \
     data.val_batch_size=12 \
