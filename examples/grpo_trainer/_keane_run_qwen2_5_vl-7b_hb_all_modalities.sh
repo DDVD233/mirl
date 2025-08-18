@@ -34,7 +34,7 @@ unset ROCR_VISIBLE_DEVICES
 
 # # chsimsv2
 # /scratch/keane/human_behaviour/human_behaviour_data/chsimsv2_only.jsonl (works)
-# /scratch/keane/human_behaviour/human_behaviour_data/no_chsimsv2.jsonl
+# /scratch/keane/human_behaviour/human_behaviour_data/no_chsimsv2.jsonl (works without chsimsv2)
 
 # # tess
 # /scratch/keane/human_behaviour/human_behaviour_data/tess_only.jsonl
@@ -55,9 +55,12 @@ unset ROCR_VISIBLE_DEVICES
 # old
 # discretized_no_lmvd_no_chalearn_v3_template_prompts.jsonl
 
+
+# /scratch/keane/human_behaviour/human_behaviour_data/discretized_no_lmvd_no_chsimsv2_v3_template_prompts.jsonl
+
 PYTHONUNBUFFERED=1 HYDRA_FULL_ERROR=1 PYTHONPATH="/home/keaneong/human-behavior/verl:$PYTHONPATH" NCCL_ASYNC_ERROR_HANDLING=1 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
-    data.train_files=/scratch/keane/human_behaviour/human_behaviour_data/no_chsimsv2.jsonl \
+    data.train_files=/scratch/keane/human_behaviour/human_behaviour_data/discretized_no_lmvd_no_chsimsv2_v3_template_prompts.jsonl \
     data.val_files=/scratch/keane/human_behaviour/human_behaviour_data/subset_cremad_only.jsonl \
     data.train_batch_size=1 \
     data.val_batch_size=1 \
