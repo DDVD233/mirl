@@ -681,7 +681,7 @@ class RayPPOTrainer:
 
             # Store original inputs
             input_ids = test_batch.batch["input_ids"]
-
+            # TODO: Can we keep special tokens except for padding tokens?
             input_texts = [self.tokenizer.decode(ids, skip_special_tokens=True) for ids in input_ids]
             sample_inputs.extend(input_texts)
 
@@ -1193,17 +1193,17 @@ class RayPPOTrainer:
                 # pop those keys for generation
                 batch_keys_to_pop = ["input_ids", "attention_mask", "position_ids"]
                 non_tensor_batch_keys_to_pop = ["raw_prompt_ids"]
-
-                if "input_ids" in batch.batch:
-                    print(f"[DEBUG] input_ids shape: {batch.batch['input_ids'].shape}")
-                    print(f"[DEBUG] First sequence tokens: {batch.batch['input_ids'][0][:10].tolist()}")
-
                 if "multi_modal_data" in batch.non_tensor_batch:
                     # TODO: Fix the audio generation for this
                     non_tensor_batch_keys_to_pop.append("multi_modal_data")
-                # # NOTE: Adding pruned inputs that we kept for generation
+
+                # NOTE: Adding pruned inputs that we kept for generation
                 # if "multi_modal_inputs" in batch.non_tensor_batch:
                 #     non_tensor_batch_keys_to_pop.append("multi_modal_inputs")
+
+                # NOTE: Adding pruned inputs that we kept for generation
+                if "multi_modal_inputs" in batch.non_tensor_batch:
+                    non_tensor_batch_keys_to_pop.append("multi_modal_inputs")
                     
                 if "raw_prompt" in batch.non_tensor_batch:
                     non_tensor_batch_keys_to_pop.append("raw_prompt")
@@ -1229,6 +1229,7 @@ class RayPPOTrainer:
 
                 # TODO: double check the gen_batch
                 # print(f"gen_batch", gen_batch)
+
 
                 with marked_timer("step", timing_raw):
                     # generate a batch

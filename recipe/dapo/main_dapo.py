@@ -98,7 +98,7 @@ class TaskRunner:
         else:
             raise NotImplementedError
 
-        from verl.trainer.ppo.ray_trainer import ResourcePoolManager, Role
+        from verl.verl.trainer.ppo.ray_trainer import ResourcePoolManager, Role
 
         role_worker_mapping = {
             Role.ActorRollout: ray.remote(ActorRolloutRefWorker),

@@ -18,7 +18,7 @@ from omegaconf import DictConfig
 from verl.experimental.agent_loop import AgentLoopManager
 from verl.single_controller.ray import RayClassWithInitArgs, RayWorkerGroup
 from verl.single_controller.ray.base import create_colocated_worker_cls
-from verl.trainer.ppo.ray_trainer import ResourcePoolManager, Role
+from verl.verl.trainer.ppo.ray_trainer import ResourcePoolManager, Role
 from verl.workers.fsdp_workers import ActorRolloutRefWorker, AsyncActorRolloutRefWorker
 
 
