@@ -67,6 +67,7 @@ from examples.reward_function.evaluation import compute_metrics_by_data_source
 
 WorkerType = type[Worker]
 
+debug_file = "debug_log.txt"
 
 class Role(Enum):
     """
@@ -1197,16 +1198,23 @@ class RayPPOTrainer:
                 non_tensor_batch_keys_to_pop = ["raw_prompt_ids"]
 
                 
-                if "input_ids" in batch.batch:
-                    print(f"[DEBUG] input_ids shape: {batch.batch['input_ids'].shape}")
-                    print(f"[DEBUG] First sequence tokens: {batch.batch['input_ids'][0][:10].tolist()}")
+                # if "input_ids" in batch.batch:
+                #     print(f"[DEBUG] input_ids shape: {batch.batch['input_ids'].shape}")
+                #     print(f"[DEBUG] First sequence tokens: {batch.batch['input_ids'][0][:10].tolist()}")
 
-                if i == 5:
-                    raise ValueError(
-                        f"Debugging error at iteration 4\n"
-                        f"input_ids shape: {batch.batch['input_ids'].shape}\n"
-                        f"First 10 tokens: {batch.batch['input_ids'][0][:10].tolist()}"
-                    )
+
+                if "input_ids" in batch.batch:
+                            with open(debug_file, "a") as f:  # append mode
+                                f.write(f"[DEBUG] Epoch {epoch}, Iter {i}\n")
+                                f.write(f"input_ids shape: {batch.batch['input_ids'].shape}\n")
+                                f.write(f"First sequence tokens: {batch.batch['input_ids'][0][:10].tolist()}\n\n")
+
+                # if i == 5:
+                #     raise ValueError(
+                #         f"Debugging error at iteration 4\n"
+                #         f"input_ids shape: {batch.batch['input_ids'].shape}\n"
+                #         f"First 10 tokens: {batch.batch['input_ids'][0][:10].tolist()}"
+                #     )
 
                 if "multi_modal_data" in batch.non_tensor_batch:
                     # TODO: Fix the audio generation for this
