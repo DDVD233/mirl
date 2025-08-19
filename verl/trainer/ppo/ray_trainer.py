@@ -67,7 +67,7 @@ from examples.reward_function.evaluation import compute_metrics_by_data_source
 
 WorkerType = type[Worker]
 
-debug_file = "debug_log.txt"
+debug_file = "/home/keaneong/human-behavior/verl/examples/grpo_trainer/debug_log.txt"
 
 class Role(Enum):
     """
