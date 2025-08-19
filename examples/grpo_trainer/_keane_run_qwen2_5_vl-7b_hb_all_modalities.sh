@@ -46,7 +46,7 @@ PYTHONUNBUFFERED=1 HYDRA_FULL_ERROR=1 PYTHONPATH="/home/keaneong/human-behavior/
     data.image_key=images \
     data.video_key=videos \
     data.prompt_key=problem \
-    data.dataloader_num_workers=0 \
+    data.dataloader_num_workers=2 \
     data.modalities=\'audio,videos\' \
     data.format_prompt=/home/keaneong/human-behavior/verl/examples/format_prompt/default.jinja \
     actor_rollout_ref.model.path=Qwen/Qwen2.5-Omni-7B \
