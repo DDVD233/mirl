@@ -92,5 +92,6 @@ def hf_processor(name_or_path, **kwargs):
         print("KEANE: Setting pixel limits for Omni processor")
         processor.min_pixels = 128*28*28
         processor.max_pixels = 256*28*28
+    raise RuntimeError("Intentional Test Error")
 
     return processor
