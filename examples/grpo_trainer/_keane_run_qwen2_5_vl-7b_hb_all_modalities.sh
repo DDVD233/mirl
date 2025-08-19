@@ -81,8 +81,8 @@ PYTHONUNBUFFERED=1 HYDRA_FULL_ERROR=1 PYTHONPATH="/home/keaneong/human-behavior/
     actor_rollout_ref.rollout.n=3 \
     actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=1 \
     actor_rollout_ref.ref.fsdp_config.param_offload=True \
-    actor_rollout_ref.rollout.max_model_len=1536 \
-    actor_rollout_ref.rollout.max_num_batched_tokens=1536 \
+    actor_rollout_ref.rollout.max_model_len=4096 \
+    actor_rollout_ref.rollout.max_num_batched_tokens=4096 \
     algorithm.use_kl_in_reward=False \
     custom_reward_function.path=/home/keaneong/human-behavior/verl/examples/reward_function/human_behaviour.py \
     custom_reward_function.name=human_behaviour_compute_score_batch \
@@ -97,4 +97,4 @@ PYTHONUNBUFFERED=1 HYDRA_FULL_ERROR=1 PYTHONPATH="/home/keaneong/human-behavior/
     trainer.val_before_train=False \
     trainer.test_freq=10 \
     trainer.total_epochs=15 $@ \
-    trainer.default_local_dir=/scratch/keane/human_behaviour/verl_models_hb_omni
+    trainer.default_local_dir=/scratch/keane/human_behaviour/new_verl_models_hb_omni

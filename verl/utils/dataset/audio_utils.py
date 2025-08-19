@@ -19,7 +19,7 @@ import torchaudio
 def process_audio(
     audio: Union[str, dict],
     processor=None,
-    max_seconds: float = 3.0  # keep audio to this many seconds max
+    max_seconds: float = 10.0  # keep audio to this many seconds max
 ) -> Tuple[torch.Tensor, int]:
     """
     Load audio, convert to mono, resample, and clip to max_seconds.
