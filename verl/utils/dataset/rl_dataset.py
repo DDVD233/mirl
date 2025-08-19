@@ -293,16 +293,20 @@ class RLHFDataset(Dataset):
             elif key == 'age':
                 try:
                     age = int(value)
-                    if age <= 25:
-                        groups.append("A1")
-                    elif age <= 50:
-                        groups.append("A2")
-                    elif age <= 75:
-                        groups.append("A3")
-                    else:
-                        groups.append("A4")
                 except ValueError:
-                    groups.append("UNK")
+                    try:
+                        age = float(value)
+                    except ValueError:
+                        groups.append("UNK")
+                        continue
+                if age <= 25:
+                    groups.append("A1")
+                elif age <= 50:
+                    groups.append("A2")
+                elif age <= 75:
+                    groups.append("A3")
+                else:
+                    groups.append("A4")
         return ",".join(groups)
 
     def __getitem__(self, item):
