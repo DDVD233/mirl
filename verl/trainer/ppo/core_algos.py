@@ -510,98 +510,132 @@ def compute_drpo_outcome_advantage(
     return returns, returns
 
 
+# --------------------------------------------------------------------------- #
+#  FairGRPO Global Statistics                                                #
+# --------------------------------------------------------------------------- #
+# Per-domain demographic statistics
+#   domain_demo_stats[dom][demo] = {
+#       "vectors": List[np.ndarray],  # shape = (Q, R) for each question
+#       "q_ids": List[str],           # question ids in same order
+#       "count": int,                 # #questions accumulated so far
+#   }
+domain_demo_stats: Dict[Any, Dict[str, Dict[str, Any]]] = defaultdict(
+    lambda: defaultdict(lambda: {"vectors": [], "q_ids": [], "count": 0})
+)
+
+# Per-domain UNK statistics (for clustering)
+#   domain_unk_stats[dom] = {
+#       "vectors": List[np.ndarray],  # shape = (Q, R) for each question
+#       "q_ids": List[str],           # question ids in same order
+#       "count": int,                 # #questions accumulated so far
+#   }
+domain_unk_stats: Dict[Any, Dict[str, Any]] = defaultdict(
+    lambda: {"vectors": [], "q_ids": [], "count": 0}
+)
+
+# --------------------------------------------------------------------------- #
+
 @register_adv_est(AdvantageEstimator.FAIR_GRPO)
 def compute_fair_grpo_outcome_advantage(
     token_level_rewards: torch.Tensor,      # (B,L)
     response_mask:      torch.Tensor,       # (B,L)
-    index:              np.ndarray[str],         # (B,) question ids
-    domain_info: np.ndarray[str],  # (B,) domain names
-    demo_info: np.ndarray[str],  # (B,) demographic information
+    index:              np.ndarray[str],    # (B,) question ids
+    domain_info: np.ndarray[str],           # (B,) domain names
+    demo_info: np.ndarray[str],             # (B,) demographic information
     epsilon: float = EPS_DEFAULT,
 ):
     """Fair GRPO with domain and demographic scaling."""
     
     B, L = token_level_rewards.shape
     
-    # 1) raw rollout-level rewards
-    raw_scores = token_level_rewards.sum(dim=-1)                          # (B,)
+    # 1) raw rollout-level rewards -------------------------------------- #
+    raw_scores = token_level_rewards.sum(dim=-1)  # (B,)
     print(f"[FairGRPO] B={B} L={L} raw_scores={raw_scores}")
     
-    # 2) collect rollouts per question for this mini-batch
+    # 2) collect rollouts per question for this mini-batch -------------- #
     q2rollouts: Dict[str, List[float]] = defaultdict(list)
-    q2domain:   Dict[str, Any]         = {}
-    q2demo:     Dict[str, str]         = {}
+    q2domain: Dict[str, Any] = {}
+    q2demo: Dict[str, str] = {}
     for i in range(B):
         qid: str = index[i]
         q2rollouts[qid].append(raw_scores[i].item())
         q2domain[qid] = domain_info[i]
         q2demo[qid] = demo_info[i]
     
-    # ensure consistent rollout count
+    # ensure consistent rollout count ----------------------------------- #
     rollout_lens = {len(v) for v in q2rollouts.values()}
     assert len(rollout_lens) == 1, "Inconsistent rollout counts per question in batch!"
     
-    # 3) GRPO normalization (within-question)
+    # build vector per question ----------------------------------------- #
+    q_vectors = {qid: np.asarray(v, dtype=np.float32) for qid, v in q2rollouts.items()}
+    
+    # 3) update global per-domain demographic history ------------------- #
+    for qid, vec in q_vectors.items():
+        dom = q2domain[qid]
+        demo = q2demo[qid]
+        
+        if demo == "UNK":
+            dstat = domain_unk_stats[dom]
+            dstat["vectors"].append(vec)
+            dstat["q_ids"].append(qid)
+            dstat["count"] += 1
+        else:
+            dstat = domain_demo_stats[dom][demo]
+            dstat["vectors"].append(vec)
+            dstat["q_ids"].append(qid)
+            dstat["count"] += 1
+    
+    # 4) GRPO normalization (within-question) --------------------------- #
     scores = raw_scores.clone()
     id2mean = {qid: torch.mean(torch.tensor(v)) for qid, v in q2rollouts.items()}
-    id2std  = {qid: torch.std (torch.tensor(v)) for qid, v in q2rollouts.items()}
+    id2std = {qid: torch.std(torch.tensor(v)) for qid, v in q2rollouts.items()}
     for i in range(B):
         qid: str = index[i]
         scores[i] = (scores[i] - id2mean[qid]) / (id2std[qid] + epsilon)
     before_scale_score = scores.clone()
     
-    # 4) Collect domain-demographic groups with their raw rewards
-    domain_demo_rewards: Dict[Tuple[Any, str], List[float]] = defaultdict(list)
-    domain_demo_q2idx: Dict[Tuple[Any, str], Dict[str, int]] = defaultdict(dict)
-    domain_unk_rewards: Dict[Any, Dict[str, np.ndarray]] = defaultdict(lambda: {"vectors": [], "q_ids": []})
-    
-    for qid, rollouts in q2rollouts.items():
-        dom = q2domain[qid]
-        demo = q2demo[qid]
-        vec = np.asarray(rollouts, dtype=np.float32)
-        
-        if demo == "UNK":
-            domain_unk_rewards[dom]["vectors"].append(vec)
-            domain_unk_rewards[dom]["q_ids"].append(qid)
-        else:
-            key = (dom, demo)
-            domain_demo_rewards[key].extend(rollouts)
-            domain_demo_q2idx[key][qid] = len(domain_demo_q2idx[key])
-    
-    # 5) Process UNK demographics with k-means clustering
-    domain_cluster_cache: Dict[Any, Dict[str, Any]] = {}
-    for dom, unk_data in domain_unk_rewards.items():
-        if len(unk_data["vectors"]) > 0:
-            mu_d, assign, counts, centroids = _cluster_info_question(unk_data["vectors"])
-            domain_cluster_cache[dom] = {
-                "assign":    assign,
-                "counts":    counts,
+    # 5) Domain-wise clustering for UNK demographics -------------------- #
+    domain_unk_cluster_cache: Dict[Any, Dict[str, Any]] = {}
+    for dom, dstat in domain_unk_stats.items():
+        if dstat["count"] > 0:
+            mu_d, assign, counts, centroids = _cluster_info_question(dstat["vectors"])
+            domain_unk_cluster_cache[dom] = {
+                "mu_d": mu_d,
+                "assign": assign,
+                "counts": counts,
                 "centroids": centroids,
-                "q_ids":     unk_data["q_ids"],
+                "q_ids": dstat["q_ids"],
             }
     
-    # 6) Calculate scaling factors
+    # 6) Apply two-level scaling ---------------------------------------- #
     scaling_factors: List[float] = []
     for i in range(B):
         qid: str = index[i]
         dom = q2domain[qid]
         demo = q2demo[qid]
         
-        # Domain-level statistics
-        dom_rewards_all = []
-        for (d, _), rewards in domain_demo_rewards.items():
-            if d == dom:
-                dom_rewards_all.extend(rewards)
-        for unk_vec in domain_unk_rewards.get(dom, {}).get("vectors", []):
-            dom_rewards_all.extend(unk_vec.tolist())
+        # Domain-level statistics (total count and mean across all groups)
+        N_d = 0.0
+        all_dom_rewards = []
         
-        N_d = float(len(dom_rewards_all))
-        mu_d = float(np.mean(dom_rewards_all)) if dom_rewards_all else epsilon
+        # Add explicit demographic groups
+        for demo_key, dstat in domain_demo_stats[dom].items():
+            N_d += dstat["count"]
+            for vec in dstat["vectors"]:
+                all_dom_rewards.extend(vec.tolist())
+        
+        # Add UNK groups
+        unk_dstat = domain_unk_stats[dom]
+        N_d += unk_dstat["count"]
+        for vec in unk_dstat["vectors"]:
+            all_dom_rewards.extend(vec.tolist())
+        
+        mu_d = float(np.mean(all_dom_rewards)) if all_dom_rewards else epsilon
         T_d = max(math.sqrt(N_d) * mu_d, epsilon)
         
-        # Demographic-level statistics
+        # Demographic-level statistics within domain
         if demo == "UNK":
-            cache = domain_cluster_cache.get(dom)
+            cache = domain_unk_cluster_cache.get(dom)
             if cache:
                 q_idx = cache["q_ids"].index(qid)
                 cluster_idx = cache["assign"][q_idx]
@@ -611,12 +645,14 @@ def compute_fair_grpo_outcome_advantage(
                 N_g = 1.0
                 mu_g = raw_scores[i].item()
         else:
-            key = (dom, demo)
-            group_rewards = domain_demo_rewards[key]
-            N_g = float(len(group_rewards))
-            mu_g = float(np.mean(group_rewards))
+            dstat = domain_demo_stats[dom][demo]
+            N_g = float(dstat["count"])
+            all_rewards = []
+            for vec in dstat["vectors"]:
+                all_rewards.extend(vec.tolist())
+            mu_g = float(np.mean(all_rewards)) if all_rewards else raw_scores[i].item()
         
-        # Two-level scaling: domain and demographic
+        # Two-level scaling factor
         factor = T_d * math.sqrt(N_g) * mu_g
         scaling_factors.append(factor)
         scaled_score = scores[i] / factor
@@ -630,7 +666,7 @@ def compute_fair_grpo_outcome_advantage(
     print("Scores std:", scores_std.item())
     scores = scores / (scores_std + epsilon)
     
-    # Debug report
+    # Debug report ------------------------------------------------------- #
     print("--------------Fair GRPO scaling report--------------")
     dom_demo_scale: Dict[Tuple[Any, str], List[torch.Tensor]] = defaultdict(list)
     for i in range(B):
@@ -640,6 +676,7 @@ def compute_fair_grpo_outcome_advantage(
         avg_sf = torch.mean(torch.stack(lst)).item()
         print(f"[FairGRPO] domain={dom:<15} demo={demo:<10} | mean scale={avg_sf:6.3f}")
     
+    # Print global reward mean
     print(f"[FairGRPO] global reward mean = {torch.mean(scores):.3f}")
     
     returns = scores.unsqueeze(-1) * response_mask
