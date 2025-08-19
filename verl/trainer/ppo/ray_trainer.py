@@ -1171,7 +1171,9 @@ class RayPPOTrainer:
         )
         next_step_profile = False
 
+
         for epoch in range(self.config.trainer.total_epochs):
+            i = 0
             for batch_dict in self.train_dataloader:
                 metrics = {}
                 timing_raw = {}
@@ -1194,11 +1196,14 @@ class RayPPOTrainer:
                 batch_keys_to_pop = ["input_ids", "attention_mask", "position_ids"]
                 non_tensor_batch_keys_to_pop = ["raw_prompt_ids"]
 
+                
                 if "input_ids" in batch.batch:
                     print(f"[DEBUG] input_ids shape: {batch.batch['input_ids'].shape}")
                     print(f"[DEBUG] First sequence tokens: {batch.batch['input_ids'][0][:10].tolist()}")
 
-            
+                if i==3:
+                    raise ValueError("Debugging error at iteration 4")
+
                 if "multi_modal_data" in batch.non_tensor_batch:
                     # TODO: Fix the audio generation for this
                     non_tensor_batch_keys_to_pop.append("multi_modal_data")
@@ -1226,7 +1231,7 @@ class RayPPOTrainer:
 
                 # TODO: double check the gen_batch
                 # print(f"gen_batch", gen_batch)
-
+                i += 1
 
                 with marked_timer("step", timing_raw):
                     # generate a batch
