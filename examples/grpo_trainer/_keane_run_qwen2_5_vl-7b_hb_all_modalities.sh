@@ -45,8 +45,8 @@ PYTHONUNBUFFERED=1 HYDRA_FULL_ERROR=1 PYTHONPATH="/home/keaneong/human-behavior/
     algorithm.adv_estimator=grpo \
     data.train_files=/scratch/keane/human_behaviour/human_behaviour_data/chalearn_only.jsonl \
     data.val_files=/scratch/keane/human_behaviour/human_behaviour_data/chalearn_only.jsonl \
-    data.train_batch_size=12 \
-    data.val_batch_size=12 \
+    data.train_batch_size=3 \
+    data.val_batch_size=3 \
     data.max_prompt_length=4096 \
     data.max_response_length=4096 \
     data.filter_overlong_prompts=False \
