@@ -1193,6 +1193,12 @@ class RayPPOTrainer:
                 # pop those keys for generation
                 batch_keys_to_pop = ["input_ids", "attention_mask", "position_ids"]
                 non_tensor_batch_keys_to_pop = ["raw_prompt_ids"]
+
+                if "input_ids" in batch.batch:
+                    print(f"[DEBUG] input_ids shape: {batch.batch['input_ids'].shape}")
+                    print(f"[DEBUG] First sequence tokens: {batch.batch['input_ids'][0][:10].tolist()}")
+
+            
                 if "multi_modal_data" in batch.non_tensor_batch:
                     # TODO: Fix the audio generation for this
                     non_tensor_batch_keys_to_pop.append("multi_modal_data")
