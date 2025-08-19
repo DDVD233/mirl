@@ -85,4 +85,12 @@ def hf_processor(name_or_path, **kwargs):
     # https://github.com/huggingface/transformers/blob/v4.49.0/src/transformers/models/auto/processing_auto.py#L344
     if processor is not None and "Processor" not in processor.__class__.__name__:
         processor = None
+
+    # set the limits on the min and max pixels in the processor if Omni is present
+    print(f"Processor Class {processor.__class__.__name__}")
+    if "Omni" in processor.__class__.__name__:
+        print("KEANE: Setting pixel limits for Omni processor")
+        processor.min_pixels = 128*28*28
+        processor.max_pixels = 256*28*28
+
     return processor
