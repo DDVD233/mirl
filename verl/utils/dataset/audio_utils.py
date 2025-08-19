@@ -12,12 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Tuple, Optional
-
-import torch
-import torchaudio
-import numpy as np
-
 from typing import Tuple, Union
 import torch
 import torchaudio
@@ -58,15 +52,15 @@ def process_audio(
             audio_data = audio_data.squeeze(0)
 
         # Clip to max_seconds
-        max_samples = int(max_seconds * target_sr)
+        # max_samples = int(max_seconds * target_sr)
         
-        print(f"Processing Audio {audio_path}, shape={audio_data.shape}, "
-                f"sr={target_sr}, max_samples={max_samples}")
-        # ValueError("Audio was processed")
+        # print(f"Processing Audio {audio_path}, shape={audio_data.shape}, "
+        #         f"sr={target_sr}, max_samples={max_samples}")
+        # # ValueError("Audio was processed")
 
-        if audio_data.shape[0] > max_samples:
-            print("Clipping audio to max_seconds")
-            audio_data = audio_data[:max_samples]
+        # if audio_data.shape[0] > max_samples:
+        #     print("Clipping audio to max_seconds")
+        #     audio_data = audio_data[:max_samples]
             # raise ValueError("Audio data was clipped to max_seconds")
 
         return audio_data, target_sr
