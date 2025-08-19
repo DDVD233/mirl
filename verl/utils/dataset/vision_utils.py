@@ -83,7 +83,7 @@ def process_video(
         # video = {"type": "video", "video": video, "min_pixels": 65536, "max_pixels": 524288,
         #          "nframes": 4}
         video = {"type": "video", "video": video, "min_pixels": 32768, "max_pixels": 98304,
-            "nframes": 1}
+            "nframes": 1, "fps": 1}
 
     if not isinstance(video, dict) or "video" not in video:
         raise NotImplementedError(VIDEO_FORMAT_HELP)
