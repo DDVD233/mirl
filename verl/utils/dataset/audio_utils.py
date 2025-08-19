@@ -62,12 +62,12 @@ def process_audio(
         
         print(f"Processing Audio {audio_path}, shape={audio_data.shape}, "
                 f"sr={target_sr}, max_samples={max_samples}")
-        ValueError("Audio was processed")
+        # ValueError("Audio was processed")
 
         if audio_data.shape[0] > max_samples:
             print("Clipping audio to max_seconds")
             audio_data = audio_data[:max_samples]
-            raise ValueError("Audio data was clipped to max_seconds")
+            # raise ValueError("Audio data was clipped to max_seconds")
 
         return audio_data, target_sr
 
