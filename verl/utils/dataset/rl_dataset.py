@@ -479,7 +479,7 @@ class RLHFDataset(Dataset):
                 processor_kwargs["images"] = images
 
                 if dbg:
-                    print(f"[image] n={len(imgs)} shapes={[tuple(x.size()) if hasattr(x,'size') else 'np' for x in imgs]}")
+                    print(f"[image] n={len(images)} shapes={[tuple(x.size()) if hasattr(x,'size') else 'np' for x in images]}")
 
 
             # print(f"KEANE: Videos is next line, current processor_kwargs {processor_kwargs}")
