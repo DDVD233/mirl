@@ -87,6 +87,6 @@ PYTHONUNBUFFERED=1 HYDRA_FULL_ERROR=1 PYTHONPATH="/home/keaneong/human-behavior/
     trainer.nnodes=1 \
     trainer.save_freq=5 \
     trainer.val_before_train=False \
-    trainer.test_freq=5 \
+    trainer.test_freq=10 \
     trainer.total_epochs=15 $@ \
     trainer.default_local_dir=/scratch/keane/human_behaviour/verl_models_hb_omni
