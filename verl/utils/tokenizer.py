@@ -90,8 +90,8 @@ def hf_processor(name_or_path, **kwargs):
     print(f"Processor Class {processor.__class__.__name__}")
     if "Omni" in processor.__class__.__name__:
         print("KEANE: Setting pixel limits for Omni processor")
-        min_pixels = 128 * 28 * 28
-        max_pixels = 256 * 28 * 28
+        min_pixels = 32768
+        max_pixels = 98304
         processor.min_pixels = min_pixels
         processor.max_pixels = max_pixels
         print(f"KEANE: Set min_pixels to {min_pixels} and max_pixels to {max_pixels}")
