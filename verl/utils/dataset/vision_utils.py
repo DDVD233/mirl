@@ -82,7 +82,7 @@ def process_video(
         # This is the original form
         # video = {"type": "video", "video": video, "min_pixels": 65536, "max_pixels": 524288,
         #          "nframes": 4}
-        video = {"type": "video", "video": video, "min_pixels": 32768, "max_pixels": 98304,
+        video = {"type": "video", "video": video, "min_pixels": 32768, "max_pixels": 32768,
             "nframes": 2}
 
     if not isinstance(video, dict) or "video" not in video:
