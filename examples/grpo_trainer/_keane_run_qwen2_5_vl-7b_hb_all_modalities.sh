@@ -33,6 +33,9 @@ unset ROCR_VISIBLE_DEVICES
 # alt: /scratch/keane/human_behaviour/human_behaviour_data/0.1_train_no_lmvd_discretized_v3_template_prompts.jsonl
 # org: /scratch/keane/human_behaviour/human_behaviour_data/train_no_lmvd_discretized_v3_template_prompts.jsonl
 
+# LORA:
+#     actor_rollout_ref.model.use_shm=True \
+
 PYTHONUNBUFFERED=1 HYDRA_FULL_ERROR=1 PYTHONPATH="/home/keaneong/human-behavior/verl:$PYTHONPATH" NCCL_ASYNC_ERROR_HANDLING=1 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
     data.train_files=/scratch/keane/human_behaviour/human_behaviour_data/0.1_train_no_lmvd_discretized_v3_template_prompts.jsonl  \
@@ -57,7 +60,6 @@ PYTHONUNBUFFERED=1 HYDRA_FULL_ERROR=1 PYTHONPATH="/home/keaneong/human-behavior/
     actor_rollout_ref.model.lora_alpha=32 \
     actor_rollout_ref.rollout.load_format=safetensors \
     actor_rollout_ref.model.target_modules=all-linear \
-    actor_rollout_ref.model.use_shm=True \
     actor_rollout_ref.rollout.layered_summon=True \
     actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=1 \
     actor_rollout_ref.actor.use_kl_loss=False \
