@@ -24,7 +24,7 @@ from omegaconf import OmegaConf
 
 from verl.experimental.dataset.sampler import AbstractSampler
 from verl.trainer.constants_ppo import get_ppo_ray_runtime_env
-from verl.verl.trainer.ppo.ray_trainer import RayPPOTrainer
+from verl.trainer.ppo.ray_trainer import RayPPOTrainer
 from verl.trainer.ppo.reward import load_reward_manager
 from verl.utils.device import is_cuda_available
 from verl.utils.import_utils import load_extern_type
@@ -129,7 +129,7 @@ class TaskRunner:
         else:
             raise NotImplementedError
 
-        from verl.verl.trainer.ppo.ray_trainer import Role
+        from verl.trainer.ppo.ray_trainer import Role
 
         self.role_worker_mapping[Role.ActorRollout] = ray.remote(actor_rollout_cls)
 
@@ -154,13 +154,13 @@ class TaskRunner:
         else:
             raise NotImplementedError
 
-        from verl.verl.trainer.ppo.ray_trainer import Role
+        from verl.trainer.ppo.ray_trainer import Role
 
         self.role_worker_mapping[Role.Critic] = ray.remote(CriticWorker)
 
     def init_resource_pool_mgr(self, config):
         """Initialize resource pool manager."""
-        from verl.verl.trainer.ppo.ray_trainer import Role
+        from verl.trainer.ppo.ray_trainer import Role
 
         global_pool_id = "global_pool"
         resource_pool_spec = {
@@ -168,14 +168,14 @@ class TaskRunner:
         }
         self.mapping[Role.ActorRollout] = global_pool_id
         self.mapping[Role.Critic] = global_pool_id
-        from verl.verl.trainer.ppo.ray_trainer import ResourcePoolManager
+        from verl.trainer.ppo.ray_trainer import ResourcePoolManager
 
         resource_pool_manager = ResourcePoolManager(resource_pool_spec=resource_pool_spec, mapping=self.mapping)
         return resource_pool_manager
 
     def add_reward_model_worker(self, config):
         """Add reward model worker if enabled."""
-        from verl.verl.trainer.ppo.ray_trainer import Role
+        from verl.trainer.ppo.ray_trainer import Role
 
         if config.reward_model.enable:
             if config.reward_model.strategy in {"fsdp", "fsdp2"}:
@@ -189,7 +189,7 @@ class TaskRunner:
 
     def add_ref_policy_worker(self, config, ref_policy_cls):
         """Add reference policy worker if KL loss or KL reward is used."""
-        from verl.verl.trainer.ppo.ray_trainer import Role
+        from verl.trainer.ppo.ray_trainer import Role
 
         if config.algorithm.use_kl_in_reward or config.actor_rollout_ref.actor.use_kl_loss:
             self.role_worker_mapping[Role.RefPolicy] = ray.remote(ref_policy_cls)

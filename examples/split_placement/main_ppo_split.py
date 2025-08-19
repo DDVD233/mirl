@@ -21,7 +21,7 @@ import torch
 from split_monkey_patch import fit
 
 from verl import DataProto
-from verl.verl.trainer.ppo.ray_trainer import RayPPOTrainer
+from verl.trainer.ppo.ray_trainer import RayPPOTrainer
 from verl.utils.reward_score import gsm8k, math
 
 
@@ -140,7 +140,7 @@ def main_task(config):
     else:
         raise NotImplementedError
 
-    from verl.verl.trainer.ppo.ray_trainer import ResourcePoolManager, Role
+    from verl.trainer.ppo.ray_trainer import ResourcePoolManager, Role
 
     role_worker_mapping = {
         Role.ActorRollout: ray.remote(ActorRolloutRefWorker),

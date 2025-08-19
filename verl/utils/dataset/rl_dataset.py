@@ -377,7 +377,6 @@ class RLHFDataset(Dataset):
                             new_messages[i]["content"] = self.format_prompt.render(content=content)
         return new_messages
 
-
     def __getitem__(self, item):
         """
         Note that we also return the raw_input_ids so that it can be combined with other chat template
@@ -674,9 +673,7 @@ class RLHFDataset(Dataset):
         row_dict["index"] = index
         row_dict["tools_kwargs"] = tools_kwargs
         row_dict["interaction_kwargs"] = interaction_kwargs
-    
-        return row_dict    
-    
+        return row_dict
 
     def __getstate__(self):
         if not self.serialize_dataset:

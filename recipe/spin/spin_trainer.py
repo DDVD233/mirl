@@ -44,7 +44,7 @@ from verl.trainer.ppo.metric_utils import (
     process_validation_metrics,
     reduce_metrics,
 )
-from verl.verl.trainer.ppo.ray_trainer import Role
+from verl.trainer.ppo.ray_trainer import Role
 from verl.utils.checkpoint.checkpoint_manager import find_latest_ckpt_path
 from verl.utils.seqlen_balancing import get_seqlen_balanced_partitions, log_seqlen_unbalance
 from verl.utils.torch_functional import masked_mean

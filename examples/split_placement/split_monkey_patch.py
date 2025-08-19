@@ -23,7 +23,7 @@ import numpy as np
 import torch
 
 from verl import DataProto
-from verl.verl.trainer.ppo.ray_trainer import (
+from verl.trainer.ppo.ray_trainer import (
     AdvantageEstimator,
     apply_kl_penalty,
     compute_advantage,

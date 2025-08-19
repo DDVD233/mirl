@@ -93,7 +93,7 @@ class TaskRunner:
         else:
             raise NotImplementedError
 
-        from verl.verl.trainer.ppo.ray_trainer import ResourcePoolManager, Role
+        from verl.trainer.ppo.ray_trainer import ResourcePoolManager, Role
 
         # sppo does not use critic
         role_worker_mapping = {

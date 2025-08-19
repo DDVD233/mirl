@@ -34,7 +34,7 @@ from verl.single_controller.ray import RayWorkerGroup
 from verl.trainer.ppo import core_algos
 from verl.trainer.ppo.core_algos import agg_loss
 from verl.trainer.ppo.metric_utils import reduce_metrics
-from verl.verl.trainer.ppo.ray_trainer import (
+from verl.trainer.ppo.ray_trainer import (
     AdvantageEstimator,
     RayPPOTrainer,
     ResourcePoolManager,
