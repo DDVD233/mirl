@@ -93,7 +93,7 @@ PYTHONUNBUFFERED=1 HYDRA_FULL_ERROR=1 PYTHONPATH="/home/keaneong/human-behavior/
     trainer.experiment_name='omni' \
     trainer.n_gpus_per_node=3 \
     trainer.nnodes=1 \
-    trainer.save_freq=5 \
+    trainer.save_freq=-1 \
     trainer.val_before_train=False \
     trainer.test_freq=10 \
     trainer.total_epochs=15 $@ \
