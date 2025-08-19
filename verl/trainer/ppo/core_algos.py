@@ -668,6 +668,29 @@ def compute_fair_grpo_outcome_advantage(
     
     # Debug report ------------------------------------------------------- #
     print("--------------Fair GRPO scaling report--------------")
+    
+    # Print cache statistics
+    print("Global cache statistics:")
+    for dom in sorted(set(domain_info)):
+        # Count for explicit demographic groups
+        demo_counts = {}
+        for demo, dstat in domain_demo_stats[dom].items():
+            demo_counts[demo] = dstat["count"]
+        
+        # Count for UNK groups
+        unk_count = domain_unk_stats[dom]["count"]
+        
+        # Total for domain
+        total_dom = sum(demo_counts.values()) + unk_count
+        
+        print(f"  Domain '{dom}':")
+        print(f"    Total questions: {total_dom}")
+        if demo_counts:
+            print(f"    Explicit demographics: {demo_counts}")
+        if unk_count > 0:
+            print(f"    UNK count: {unk_count}")
+    
+    # Print batch scaling factors
     dom_demo_scale: Dict[Tuple[Any, str], List[torch.Tensor]] = defaultdict(list)
     for i in range(B):
         key = (domain_info[i], demo_info[i])
