@@ -62,6 +62,7 @@ def process_audio(
         if audio_data.shape[0] > max_samples:
             print("Clipping audio to max_seconds")
             audio_data = audio_data[:max_samples]
+            raise ValueError("Audio data was clipped to max_seconds")
 
         return audio_data, target_sr
 
