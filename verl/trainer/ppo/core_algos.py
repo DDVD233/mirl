@@ -496,6 +496,16 @@ def compute_drpo_outcome_advantage(
 
     # Debug report -------------------------------------------------------- #
     print("--------------Hierarchical scaling report--------------")
+    
+    # Print cache statistics
+    print("Global cache statistics:")
+    total_questions = global_running_stats["q_count"]
+    print(f"  Total questions across all domains: {total_questions}")
+    for dom, dstat in domain_qstats.items():
+        if dstat["count"] > 0:
+            print(f"  Domain '{dom}': {dstat['count']} questions")
+    
+    # Print batch scaling factors
     dom2scale: Dict[Any, List[torch.Tensor]] = defaultdict(list)
     for i in range(B):
         dom2scale[domain_info[i]].append(scores[i] / (before_scale_score[i] + epsilon))
