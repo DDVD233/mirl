@@ -32,8 +32,25 @@ import warnings
 
 import verl.utils.torch_functional as verl_F
 from verl.utils.model import compute_position_id_with_mask
+import time, os, math, warnings
 
 logger = logging.getLogger(__name__)
+
+def _tok_est_from_hw(H, W):
+    # 28x28 -> 1 "visual token" heuristic
+    return math.ceil(H/28) * math.ceil(W/28)
+
+def _sec_from_array(arr, sr):
+    try:
+        return round(len(arr) / float(sr), 3)
+    except Exception:
+        return "?"
+
+def _p99(xs):
+    xs = sorted(xs)
+    if not xs: return 0
+    k = int(0.99*(len(xs)-1))
+    return xs[k]
 
 
 def collate_fn(data_list: list[dict]) -> dict:
@@ -427,6 +444,12 @@ class RLHFDataset(Dataset):
                 ]
             })
         model_inputs = {}
+        
+        # NOTE: DEBUGGING
+        dbg = True
+        if dbg:
+            print(f"[getitem] idx=? ds={row_dict.get('dataset')} src={row_dict.get('data_source')} "
+                f"modalities={self.modalities}")
 
         if self.processor is not None:
             # THIS CHUNK IS BASICALLY ABOUT PROCESSING ALL THE MODALITIES
@@ -436,6 +459,11 @@ class RLHFDataset(Dataset):
             with warnings.catch_warnings():
                 warnings.filterwarnings("ignore", message="System prompt modified")
                 raw_prompt = self.processor.apply_chat_template(messages, add_generation_prompt=True, tokenize=False)
+
+            
+            if dbg:
+                print(f"[prompt] raw_prompt_chars={len(raw_prompt)}")
+
             multi_modal_data = {}
             processor_kwargs = {"text": [raw_prompt], "return_tensors": "pt"}
 
@@ -450,6 +478,10 @@ class RLHFDataset(Dataset):
                 multi_modal_data["image"] = images
                 processor_kwargs["images"] = images
 
+                if dbg:
+                    print(f"[image] n={len(imgs)} shapes={[tuple(x.size()) if hasattr(x,'size') else 'np' for x in imgs]}")
+
+
             # print(f"KEANE: Videos is next line, current processor_kwargs {processor_kwargs}")
             if "videos" in self.modalities and self.video_key in row_dict and row_dict.get(self.video_key, None) is not None and len(row_dict[self.video_key]) > 0:
                 videos = []
@@ -463,6 +495,15 @@ class RLHFDataset(Dataset):
                 # link: https://github.com/vllm-project/vllm/blob/3c545c0c3b98ee642373a308197d750d0e449403/vllm/multimodal/parse.py#L205
                 multi_modal_data["video"] = [video.numpy() for video in videos]
                 processor_kwargs["videos"] = videos
+
+                if dbg:
+                    shapes = [tuple(v.shape) for v in videos]  # [T,3,H,W]
+                    toks = []
+                    for (T, C, H, W) in shapes:
+                        toks.append(_tok_est_from_hw(H, W) * T)
+                    print(f"[video] n={len(videos)} shapes={shapes} est_tokens={toks} "
+                        f"sum_est_tokens={sum(toks)} p99_est={_p99(toks)}")
+
 
             # NOTE: PROCESSING OF THE AUDIO TUPLES
             # if "audio" in self.modalities and self.audio_key in row_dict and row_dict.get(self.audio_key, None) is not None and len(row_dict[self.audio_key]) > 0:
@@ -489,6 +530,7 @@ class RLHFDataset(Dataset):
                 audios_np = []
                 audios_np_sr = []
                 audio_tuples_debug = []  # keep tensors only for debugging
+                audio_secs = []
 
                 for audio in row_dict[self.audio_key]:
                     audio_path = os.path.join(self.base_dir, audio) if isinstance(audio, str) else audio
@@ -501,16 +543,43 @@ class RLHFDataset(Dataset):
                     arr = audio_tensor.detach().cpu().numpy().astype("float32")
                     audios_np.append(arr)
                     audios_np_sr.append((arr, int(sr)))
+                    audio_secs.append(_sec_from_array(arr, sr))
 
                 # HF (Whisper / Omni processor) path
                 multi_modal_data["audio"] = audios_np_sr  # Store numpy arrays (it should not accept tuples)
 
                 processor_kwargs["audio"] = audios_np  # Pass numpy arrays to processor
 
+                if dbg:
+                    print(f"[audio] n={len(audios_np)} secs_each={audio_secs} total_secs≈{round(sum([s for s in audio_secs if s!='?']),3)}")
+
+            # NOTE: Original CODE PROCESSING    
             # TODO: Please check whether the model is processing the "audio" correctly, the processor that we are using is qwen 2.5 OMNI
             # print(f"KEANE: Processing multimodal data with processor {self.processor.__class__.__name__} ")
             # print(f"KEANE: Processor kwargs: {processor_kwargs}")
-            model_inputs = self.processor(**processor_kwargs)
+            # model_inputs = self.processor(**processor_kwargs)
+
+            # NOTE: Replacement code
+            try:
+                t0 = time.time()
+                model_inputs = self.processor(**processor_kwargs)
+                dt = (time.time() - t0)*1000
+                if dbg:
+                    # lengths after processor/tokenizer
+                    ids = model_inputs.get("input_ids")
+                    lens = [len(x) for x in ids] if ids is not None else []
+                    print(f"[processor] ok in {dt:.1f}ms; input_ids lens={lens} "
+                        f"min/med/max={ (min(lens) if lens else '-')} / "
+                        f"{ (sorted(lens)[len(lens)//2] if lens else '-') } / "
+                        f"{ (max(lens) if lens else '-') }")
+            except Exception as e:
+                print(f"[processor][ERROR] {type(e).__name__}: {e}")
+                # helpful context dump (small)
+                print(f"[processor][ctx] has_video={videos is not None} "
+                    f"n_vid={len(videos) if videos is not None else 0} "
+                    f"n_audio={len(audio_secs) if audio_secs else 0} "
+                    f"raw_prompt_chars={len(raw_prompt)}")
+                raise
 
             # NOTE: all text should be processed by self.processor()
             input_ids = model_inputs.pop("input_ids")
