@@ -46,8 +46,8 @@ unset ROCR_VISIBLE_DEVICES
 
 PYTHONUNBUFFERED=1 HYDRA_FULL_ERROR=1 PYTHONPATH="/home/keaneong/human-behavior/verl:$PYTHONPATH" NCCL_ASYNC_ERROR_HANDLING=1 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
-    data.train_files=/scratch/keane/human_behaviour/human_behaviour_data/full_no_chalearn.jsonl \
-    data.val_files=/scratch/keane/human_behaviour/human_behaviour_data/full_no_chalearn.jsonl \
+    data.train_files=/scratch/keane/human_behaviour/human_behaviour_data/chalearn_only.jsonl \
+    data.val_files=/scratch/keane/human_behaviour/human_behaviour_data/chalearn_only.jsonl \
     data.train_batch_size=3 \
     data.val_batch_size=3 \
     data.max_prompt_length=4096 \
@@ -100,4 +100,4 @@ PYTHONUNBUFFERED=1 HYDRA_FULL_ERROR=1 PYTHONPATH="/home/keaneong/human-behavior/
     trainer.val_before_train=False \
     trainer.test_freq=10 \
     trainer.total_epochs=15 $@ \
-    trainer.default_local_dir=/scratch/keane/human_behaviour/new_verl_models_hb_omni
+    trainer.default_local_dir=/scratch/keane/human_behaviour/newest_verl_models_hb_omni
