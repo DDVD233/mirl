@@ -1201,8 +1201,12 @@ class RayPPOTrainer:
                     print(f"[DEBUG] input_ids shape: {batch.batch['input_ids'].shape}")
                     print(f"[DEBUG] First sequence tokens: {batch.batch['input_ids'][0][:10].tolist()}")
 
-                if i==3:
-                    raise ValueError("Debugging error at iteration 4")
+                if i == 5:
+                    raise ValueError(
+                        f"Debugging error at iteration 4\n"
+                        f"input_ids shape: {batch.batch['input_ids'].shape}\n"
+                        f"First 10 tokens: {batch.batch['input_ids'][0][:10].tolist()}"
+                    )
 
                 if "multi_modal_data" in batch.non_tensor_batch:
                     # TODO: Fix the audio generation for this
