@@ -269,7 +269,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             actor_model_config = Qwen2_5OmniThinkerConfig.from_pretrained(
                 local_path, 
                 trust_remote_code=trust_remote_code, 
-                torch_dtype=torch.bfloat16, 
+                # torch_dtype=torch.bfloat16, 
                 attn_implementation="flash_attention_2"
             )
         else:
