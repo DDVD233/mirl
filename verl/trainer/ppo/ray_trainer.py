@@ -1225,7 +1225,7 @@ class RayPPOTrainer:
                 is_last_step = self.global_steps >= self.total_training_steps
 
                 # TODO: double check the gen_batch
-                print(f"gen_batch", gen_batch)
+                # print(f"gen_batch", gen_batch)
 
 
                 with marked_timer("step", timing_raw):
