@@ -19,7 +19,7 @@ import torchaudio
 def process_audio(
     audio: Union[str, dict],
     processor=None,
-    max_seconds: float = 10.0  # keep audio to this many seconds max
+    max_seconds: float = None  # keep audio to this many seconds max
 ) -> Tuple[torch.Tensor, int]:
     """
     Load audio, convert to mono, resample, and clip to max_seconds.
@@ -52,16 +52,17 @@ def process_audio(
             audio_data = audio_data.squeeze(0)
 
         # Clip to max_seconds
-        # max_samples = int(max_seconds * target_sr)
-        
-        # print(f"Processing Audio {audio_path}, shape={audio_data.shape}, "
-        #         f"sr={target_sr}, max_samples={max_samples}")
-        # # ValueError("Audio was processed")
+        if max_seconds:
+            max_samples = int(max_seconds * target_sr)
+            
+            print(f"Processing Audio {audio_path}, shape={audio_data.shape}, "
+                    f"sr={target_sr}, max_samples={max_samples}")
+            # ValueError("Audio was processed")
 
-        # if audio_data.shape[0] > max_samples:
-        #     print("Clipping audio to max_seconds")
-        #     audio_data = audio_data[:max_samples]
-            # raise ValueError("Audio data was clipped to max_seconds")
+            if audio_data.shape[0] > max_samples:
+                print("Clipping audio to max_seconds")
+                audio_data = audio_data[:max_samples]
+                raise ValueError("Audio data was clipped to max_seconds")
 
         return audio_data, target_sr
 
