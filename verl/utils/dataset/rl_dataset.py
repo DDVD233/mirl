@@ -52,8 +52,9 @@ def processor_supports_video(processor: ProcessorMixin) -> bool:
     try:
         sig = inspect.signature(processor.__call__)
         params = sig.parameters
-        print(params)
-        print(processor.__class__)
+        # return false if it's Gemma3Processor, which doesn't support video
+        if "Gemma3Processor" in processor.__class__.__name__:
+            return False
         
         # Check if 'videos' is a parameter
         if 'videos' in params:
