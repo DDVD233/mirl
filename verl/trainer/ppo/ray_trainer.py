@@ -1288,7 +1288,7 @@ class RayPPOTrainer:
 
                 # TODO: double check the gen_batch
                 # print(f"gen_batch", gen_batch)
-                i += 1
+                # i += 1
 
                 with marked_timer("step", timing_raw):
                     # generate a batch
