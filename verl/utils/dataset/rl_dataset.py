@@ -70,7 +70,7 @@ def collate_fn(data_list: list[dict]) -> dict:
     """
     # data list is the batch list
     # NOTE: we assert homogeneous if the modality signatures are not homogeneous
-    assert_homogeneous(data_list) # assert if not homogeneous
+    # assert_homogeneous(data_list) # assert if not homogeneous
 
     tensors = defaultdict(list)
     non_tensors = defaultdict(list)

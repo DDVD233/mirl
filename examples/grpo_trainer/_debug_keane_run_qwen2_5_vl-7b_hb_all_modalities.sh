@@ -48,6 +48,7 @@ unset ROCR_VISIBLE_DEVICES
 #   train_batch_size: 8
 #   val_batch_size: 8
 
+# NOTE: THESE NEED TO BE TOGGLED AS TRUE 
 #   train_modality_batching:
 #     enabled: true
 #     drop_last: true
