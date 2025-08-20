@@ -446,7 +446,7 @@ class RLHFDataset(Dataset):
         model_inputs = {}
         
         # NOTE: DEBUGGING
-        dbg = True
+        dbg = False
         if dbg:
             print(f"[getitem] idx=? ds={row_dict.get('dataset')} src={row_dict.get('data_source')} "
                 f"modalities={self.modalities}")
