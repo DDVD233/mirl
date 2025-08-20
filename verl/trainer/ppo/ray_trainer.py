@@ -541,6 +541,7 @@ class RayPPOTrainer:
 
         num_workers = self.config.data["dataloader_num_workers"]
 
+        ## TODO: trainer_sampler is pretty much the rl_sampler here, which shuffles the dataset
         self.train_dataloader = StatefulDataLoader(
             dataset=self.train_dataset,
             batch_size=self.config.data.get("gen_batch_size", self.config.data.train_batch_size),
@@ -555,6 +556,7 @@ class RayPPOTrainer:
         if val_batch_size is None:
             val_batch_size = len(self.val_dataset)
 
+        # TODO: validation data is shuffled here as well
         self.val_dataloader = StatefulDataLoader(
             dataset=self.val_dataset,
             batch_size=val_batch_size,
