@@ -44,6 +44,19 @@ unset ROCR_VISIBLE_DEVICES
 # Set PyTorch CUDA memory allocator policies
 # export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True,max_split_size_mb=128
 
+# data:
+#   train_batch_size: 8
+#   val_batch_size: 8
+
+#   train_modality_batching:
+#     enabled: true
+#     drop_last: true
+
+#   val_modality_batching:
+#     enabled: true
+#     drop_last: false
+
+
 PYTHONUNBUFFERED=1 HYDRA_FULL_ERROR=1 PYTHONPATH="/home/keaneong/human-behavior/verl:$PYTHONPATH" NCCL_ASYNC_ERROR_HANDLING=1 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
     data.train_files=/scratch/keane/human_behaviour/human_behaviour_data/train_video_only.jsonl \
@@ -59,6 +72,8 @@ PYTHONUNBUFFERED=1 HYDRA_FULL_ERROR=1 PYTHONPATH="/home/keaneong/human-behavior/
     data.prompt_key=problem \
     data.dataloader_num_workers=8 \
     data.modalities=\'audio,videos\' \
+    data.train_modality_batching.enabled=True \
+    data.val_modality_batching.enabled=True \
     data.format_prompt=/home/keaneong/human-behavior/verl/examples/format_prompt/default.jinja \
     actor_rollout_ref.model.path=Qwen/Qwen2.5-Omni-7B \
     actor_rollout_ref.actor.optim.lr=1e-6 \
@@ -99,5 +114,5 @@ PYTHONUNBUFFERED=1 HYDRA_FULL_ERROR=1 PYTHONPATH="/home/keaneong/human-behavior/
     trainer.save_freq=-1 \
     trainer.val_before_train=False \
     trainer.test_freq=10 \
-    trainer.total_epochs=15 $@ \
+    trainer.total_epochs=1 $@ \
     trainer.default_local_dir=/scratch/keane/human_behaviour/newest_verl_models_hb_omni

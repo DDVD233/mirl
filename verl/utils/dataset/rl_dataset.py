@@ -19,8 +19,7 @@ import logging
 import os
 import re
 from collections import defaultdict
-from typing import Optional
-
+from typing import Optional,Dict, Any, List
 import datasets
 import numpy as np
 import torch
@@ -52,6 +51,10 @@ def _p99(xs):
     k = int(0.99*(len(xs)-1))
     return xs[k]
 
+def assert_homogeneous(batch_list: List[Dict[str, Any]]):
+    sigs = {b.get("modality_signature") for b in batch_list}
+    if len(sigs) != 1:
+        raise AssertionError(f"Non-homogeneous batch signatures: {sigs}")
 
 def collate_fn(data_list: list[dict]) -> dict:
     """
@@ -65,6 +68,10 @@ def collate_fn(data_list: list[dict]) -> dict:
         (batch_size, dims) and non-tensor entries are converted to
         np.ndarray of dtype object with shape (batch_size,).
     """
+    # data list is the batch list
+    # NOTE: we assert homogeneous if the modality signatures are not homogeneous
+    assert_homogeneous(data_list) # assert if not homogeneous
+
     tensors = defaultdict(list)
     non_tensors = defaultdict(list)
 
@@ -380,8 +387,21 @@ class RLHFDataset(Dataset):
     def __getitem__(self, item):
         """
         Note that we also return the raw_input_ids so that it can be combined with other chat template
+        PROCESSING ONE ROW AT A TIME
         """
         row_dict: dict = self.dataframe[item]
+
+        # NOTE: save the modality signature to this; 
+        sig = row_dict.get("modality_signature", None)
+
+        if not isinstance(sig, str) or len(sig.strip()) == 0:
+            raise ValueError(
+                f"[Dataset] Missing modality_signature for idx={item}. "
+                "Preprocess your JSONL with signatures first."
+            )
+        # Optionally normalize to str (avoid numpy scalar, etc.)
+        # save the modality signatures for debugging purposes
+        row_dict["modality_signatures"] = str(sig)
 
         is_timeseries = False
         vision_path = row_dict['images'][0] if 'images' in row_dict and len(row_dict['images']) != 0 else None
@@ -392,6 +412,9 @@ class RLHFDataset(Dataset):
                 row_dict['time_series']) != 0 else ''
             is_timeseries = True
         prompt_str = row_dict[self.prompt_key]
+
+        # save the debug_prompts for debugging purposes
+        row_dict["debug_prompts"] = prompt_str
 
         if 'How long will the patient stay in the hospital?' in prompt_str:
             row_dict["data_source"] = "multimodal"
