@@ -53,6 +53,7 @@ def processor_supports_video(processor: ProcessorMixin) -> bool:
         sig = inspect.signature(processor.__call__)
         params = sig.parameters
         print(params)
+        print(processor)
         
         # Check if 'videos' is a parameter
         if 'videos' in params:
