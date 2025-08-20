@@ -3,7 +3,7 @@ ENGINE=${1:-vllm}
 
 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=drpo \
-    data.train_files=/home/dvdai/orcd/scratch/high_modality/geom_train_upsampled_new.jsonl \
+    data.train_files=/home/dvdai/orcd/scratch/high_modality/geom_train.jsonl \
     data.val_files=/home/dvdai/orcd/scratch/high_modality/geom_valid_mini_new.jsonl \
     data.train_batch_size=512 \
     data.max_prompt_length=4096 \
@@ -15,11 +15,11 @@ python3 -m verl.trainer.main_ppo \
     data.prompt_key=problem \
     data.format_prompt=examples/format_prompt/no_thinking.jinja \
     actor_rollout_ref.model.path=Qwen/Qwen2.5-VL-7B-Instruct \
-    actor_rollout_ref.actor.optim.lr=2e-6 \
+    actor_rollout_ref.actor.optim.lr=1e-6 \
     actor_rollout_ref.model.use_remove_padding=False \
     actor_rollout_ref.actor.ppo_mini_batch_size=128 \
     actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=2 \
-    actor_rollout_ref.actor.use_kl_loss=True \
+    actor_rollout_ref.actor.use_kl_loss=False \
     actor_rollout_ref.actor.kl_loss_coef=1e-8 \
     actor_rollout_ref.actor.kl_loss_type=low_var_kl \
     actor_rollout_ref.actor.entropy_coeff=0 \
@@ -49,6 +49,6 @@ python3 -m verl.trainer.main_ppo \
     trainer.n_gpus_per_node=4 \
     trainer.nnodes=1 \
     trainer.save_freq=20 \
-    trainer.val_before_train=False \
+    trainer.val_before_train=True \
     trainer.test_freq=5 \
     trainer.total_epochs=15 $@

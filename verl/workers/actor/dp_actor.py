@@ -103,9 +103,35 @@ class DataParallelPPOActor(BasePPOActor):
                     multi_modal_inputs[key] = [inputs[key] for inputs in micro_batch["multi_modal_inputs"] if key in inputs]
             else:
                 for key in micro_batch["multi_modal_inputs"][0].keys():
-                    multi_modal_inputs[key] = torch.cat(
-                        [inputs[key] for inputs in micro_batch["multi_modal_inputs"] if key in inputs], dim=0
-                    )
+                    # Padding all dimensions except dimension 0
+                    tensors_to_concat = [inputs[key] for inputs in micro_batch["multi_modal_inputs"] if key in inputs]
+                    
+                    if len(tensors_to_concat) > 1:
+                        # Get the maximum shape for each dimension (except dim 0)
+                        max_shape = list(tensors_to_concat[0].shape)
+                        for tensor in tensors_to_concat[1:]:
+                            for i in range(1, len(tensor.shape)):
+                                max_shape[i] = max(max_shape[i], tensor.shape[i])
+                        
+                        # Pad each tensor to the maximum shape
+                        padded_tensors = []
+                        for tensor in tensors_to_concat:
+                            if list(tensor.shape[1:]) == max_shape[1:]:
+                                # No padding needed
+                                padded_tensors.append(tensor)
+                            else:
+                                # Calculate padding for each dimension (pytorch padding is specified in reverse order)
+                                padding = []
+                                for i in range(len(tensor.shape) - 1, 0, -1):  # Skip dim 0, go in reverse
+                                    pad_size = max_shape[i] - tensor.shape[i]
+                                    padding.extend([0, pad_size])  # [left_pad, right_pad]
+                                
+                                padded_tensor = torch.nn.functional.pad(tensor, padding)
+                                padded_tensors.append(padded_tensor)
+                        
+                        multi_modal_inputs[key] = torch.cat(padded_tensors, dim=0)
+                    else:
+                        multi_modal_inputs[key] = tensors_to_concat[0]
 
         with torch.autocast(device_type=self.device_name, dtype=torch.bfloat16):
             input_ids = micro_batch["input_ids"]
