@@ -85,6 +85,13 @@ audio_key: audios
 # Example: 'images,videos,audios' to enable all modalities
 modalities: images,videos
 
+train_modality_batching:
+    enabled: false
+    drop_last: false
+val_modality_batching:
+    enabled: false
+    drop_last: false
+
 # If the remote tokenizer has a Python file, this flag determines whether to allow using it.
 trust_remote_code: False
 
