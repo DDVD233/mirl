@@ -109,12 +109,12 @@ PYTHONUNBUFFERED=1 HYDRA_FULL_ERROR=1 PYTHONPATH="/home/keaneong/human-behavior/
     reward_model.reward_manager=batch \
     trainer.critic_warmup=0 \
     trainer.logger='["console","wandb"]' \
-    trainer.project_name='verl_hb' \
-    trainer.experiment_name='omni' \
+    trainer.project_name='mixed_modal_verl_hb' \
+    trainer.experiment_name='mixed_modal_omni' \
     trainer.n_gpus_per_node=3 \
     trainer.nnodes=1 \
-    trainer.save_freq=-1 \
+    trainer.save_freq=10 \
     trainer.val_before_train=False \
-    trainer.test_freq=10 \
+    trainer.test_freq=5 \
     trainer.total_epochs=1 $@ \
-    trainer.default_local_dir=/scratch/keane/human_behaviour/newest_verl_models_hb_omni
+    trainer.default_local_dir=/scratch/keane/human_behaviour/mixed_modal_verl_models_hb_omni
