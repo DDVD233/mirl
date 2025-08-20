@@ -72,9 +72,9 @@ PYTHONUNBUFFERED=1 HYDRA_FULL_ERROR=1 PYTHONPATH="/home/keaneong/human-behavior/
     data.prompt_key=problem \
     data.dataloader_num_workers=8 \
     data.modalities=\'audio,videos\' \
-    data.train_modality_batching.enabled=True \
+    data.train_modality_batching.enabled=False \
     data.train_modality_batching.drop_last=True \
-    data.val_modality_batching.enabled=True \
+    data.val_modality_batching.enabled=False \
     data.val_modality_batching.drop_last=False \
     data.format_prompt=/home/keaneong/human-behavior/verl/examples/format_prompt/default.jinja \
     actor_rollout_ref.model.path=Qwen/Qwen2.5-Omni-7B \
