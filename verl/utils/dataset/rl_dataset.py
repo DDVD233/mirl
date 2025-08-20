@@ -191,6 +191,7 @@ class RLHFDataset(Dataset):
             "audios":  datasets.Sequence(datasets.Value("string")),  # <- force list of strings
             "dataset": datasets.Value("string"),
             "texts":   datasets.Sequence(datasets.Value("string")),
+            "modality_signature": datasets.Value("string"),
         })
 
         for parquet_file in self.data_files:
