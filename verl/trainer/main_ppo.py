@@ -22,12 +22,14 @@ import hydra
 import ray
 from omegaconf import OmegaConf
 
+from typing import Dict, List
 from verl.experimental.dataset.sampler import AbstractSampler
 from verl.trainer.constants_ppo import get_ppo_ray_runtime_env
 from verl.trainer.ppo.ray_trainer import RayPPOTrainer
 from verl.trainer.ppo.reward import load_reward_manager
 from verl.utils.device import is_cuda_available
 from verl.utils.import_utils import load_extern_type
+from verl.utils.dataset.modality_sampler import ModalitySignatureBatchSampler
 
 
 @hydra.main(config_path="config", config_name="ppo_trainer", version_base=None)
@@ -75,6 +77,8 @@ def run_ppo(config) -> None:
         runner = TaskRunner.options(runtime_env={"nsight": nsight_options}).remote()
     else:
         runner = TaskRunner.remote()
+
+    # RUN THE TRAINING using runner.run
     ray.get(runner.run.remote(config))
 
     # [Optional] get the path of the timeline trace file from the configuration, default to None
@@ -255,11 +259,17 @@ class TaskRunner:
         from verl.utils.dataset.rl_dataset import collate_fn
 
         # Create training and validation datasets.
+        # This is done by reading from the train and the val files
         train_dataset = create_rl_dataset(config.data.train_files, config.data, tokenizer, processor, is_train=True)
         val_dataset = create_rl_dataset(config.data.val_files, config.data, tokenizer, processor, is_train=False)
-        train_sampler = create_rl_sampler(config.data, train_dataset)
+        train_sampler = create_rl_sampler(config.data, train_dataset, split="train")
+
+        # print(f"Using train sampler: {train_sampler}")
+        # print(f"Using val dataset: {val_dataset}")
+        # print(f"Using train dataset: {train_dataset}")
 
         # Initialize the PPO trainer.
+        # TODO: train sampler is fed into this; and is used to shuffle the training dataset (and extending to validation)
         trainer = RayPPOTrainer(
             config=config,
             tokenizer=tokenizer,
@@ -329,8 +339,50 @@ def create_rl_dataset(data_paths, data_config, tokenizer, processor, is_train=Tr
 
     return dataset
 
+# NOTE: This is the old rl_sampler
+# def create_rl_sampler(data_config, dataset):
+#     """Create a sampler for the dataset.
 
-def create_rl_sampler(data_config, dataset):
+#     Arguments:
+#         data_config: The data config.
+#         dataset (Dataset): The dataset.
+
+#     Returns:
+#         sampler (Sampler): The sampler.
+#     """
+#     import torch
+#     from torch.utils.data import RandomSampler, SequentialSampler
+
+#     if data_config.sampler is not None and data_config.sampler.get("class_path", None) is not None:
+#         curriculum_class = load_extern_type(
+#             data_config.sampler.class_path,
+#             data_config.sampler.class_name,
+#         )
+#         sampler = curriculum_class(
+#             data_source=dataset,
+#             data_config=data_config,
+#         )
+#         assert isinstance(sampler, AbstractSampler)
+#         assert data_config.get("dataloader_num_workers", 8) == 0, (
+#             "If using curriculum, num_workers must be 0 to prevent data caching. "
+#             "If the dataloader caches data before the batch is done the "
+#             "curriculum sampler won't have the opportunity to reorder it. "
+#         )
+
+#     # Use a sampler to facilitate checkpoint resumption.
+#     # If shuffling is enabled in the data configuration, create a random sampler.
+#     elif data_config.shuffle:
+#         train_dataloader_generator = torch.Generator()
+#         train_dataloader_generator.manual_seed(data_config.get("seed", 1))
+#         sampler = RandomSampler(data_source=dataset, generator=train_dataloader_generator)
+#     else:
+#         # If shuffling is disabled, use a sequential sampler to iterate through the dataset in order.
+#         sampler = SequentialSampler(data_source=dataset)
+
+#     return sampler
+
+# NOTE: This is your implementation
+def create_rl_sampler(data_config, dataset, split: str = "train"):
     """Create a sampler for the dataset.
 
     Arguments:
@@ -342,6 +394,10 @@ def create_rl_sampler(data_config, dataset):
     """
     import torch
     from torch.utils.data import RandomSampler, SequentialSampler
+
+    # modality batching config parse
+    mb_cfg = data_config.get("train_modality_batching") if split == "train" \
+            else data_config.get("val_modality_batching")
 
     if data_config.sampler is not None and data_config.sampler.get("class_path", None) is not None:
         curriculum_class = load_extern_type(
@@ -359,18 +415,52 @@ def create_rl_sampler(data_config, dataset):
             "curriculum sampler won't have the opportunity to reorder it. "
         )
 
+    if mb_cfg and mb_cfg.get("enabled", False):
+        print(f"Creating our modality sampler for split: {split}")
+        # by_sig is actually the collation of dataset indices grouped by their modality signature
+        by_sig: Dict[str, List[int]] = {}
+        # essentially getting "modality_signature" from the jsonl dataset
+        for i in range(len(dataset)):
+            row = dataset.dataframe[i] if hasattr(dataset, "dataframe") else dataset[i]
+            sig = row.get("modality_signature")
+            if sig is None:
+                print(f"[WARNING] Row {i} missing 'modality_signature'. Skipping.")
+                continue
+            by_sig.setdefault(sig, []).append(i)
+
+        # batch_size = mb_cfg.get("batch_size", data_config.get(
+        #     "train_batch_size" if split=="train" else "val_batch_size"
+        # ))
+
+        batch_size = data_config.get("train_batch_size" if split=="train" else "val_batch_size")
+
+        drop_last = mb_cfg.get("drop_last")
+
+        # shuffle if split (meaning that we shuffle the samples within each batch)
+        shuffle = (split == "train")
+
+        print(f"Creating our modality sampler for split: {split}, batch_size: {batch_size}, drop_last: {drop_last}, shuffle: {shuffle}")
+
+        sampler = ModalitySignatureBatchSampler(
+            indices_by_sig=by_sig,
+            batch_size=int(batch_size),
+            drop_last=drop_last,
+            seed=data_config.get("seed", 42),
+            shuffle=shuffle,
+        )
+
     # Use a sampler to facilitate checkpoint resumption.
     # If shuffling is enabled in the data configuration, create a random sampler.
-    elif data_config.shuffle:
+    elif data_config.shuffle and split == "train":
         train_dataloader_generator = torch.Generator()
         train_dataloader_generator.manual_seed(data_config.get("seed", 1))
         sampler = RandomSampler(data_source=dataset, generator=train_dataloader_generator)
+
     else:
         # If shuffling is disabled, use a sequential sampler to iterate through the dataset in order.
         sampler = SequentialSampler(data_source=dataset)
 
     return sampler
-
 
 if __name__ == "__main__":
     main()

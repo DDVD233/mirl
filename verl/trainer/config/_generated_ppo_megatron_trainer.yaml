@@ -283,6 +283,12 @@ data:
   video_key: videos
   audio_key: audios
   modalities: images,videos
+  train_modality_batching:
+    enabled: false
+    drop_last: false
+  val_modality_batching:
+    enabled: false
+    drop_last: false
   trust_remote_code: false
   custom_cls:
     path: null

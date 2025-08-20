@@ -35,7 +35,7 @@ import torch
 import ujson
 import wandb
 from omegaconf import OmegaConf, open_dict
-from torch.utils.data import Dataset, Sampler
+from torch.utils.data import Dataset, Sampler, BatchSampler, SequentialSampler
 from torchdata.stateful_dataloader import StatefulDataLoader
 from tqdm import tqdm
 
@@ -67,6 +67,7 @@ from examples.reward_function.evaluation import compute_metrics_by_data_source
 
 WorkerType = type[Worker]
 
+debug_file = "/home/keaneong/human-behavior/verl/examples/grpo_trainer/debug_log.txt"
 
 class Role(Enum):
     """
@@ -330,6 +331,7 @@ class RayPPOTrainer:
         val_dataset: Optional[Dataset] = None,
         collate_fn=None,
         train_sampler: Optional[Sampler] = None,
+        val_sampler: Optional[Sampler] = None,
         device_name=None,
     ):
         """
@@ -397,7 +399,7 @@ class RayPPOTrainer:
             self.use_critic = False
 
         self._validate_config()
-        self._create_dataloader(train_dataset, val_dataset, collate_fn, train_sampler)
+        self._create_dataloader(train_dataset, val_dataset, collate_fn, train_sampler, val_sampler)
 
     def _validate_config(self):
         config = self.config
@@ -514,7 +516,7 @@ class RayPPOTrainer:
 
         print("[validate_config] All configuration checks passed successfully!")
 
-    def _create_dataloader(self, train_dataset, val_dataset, collate_fn, train_sampler: Optional[Sampler]):
+    def _create_dataloader(self, train_dataset, val_dataset, collate_fn, train_sampler: Optional[Sampler], val_sampler: Optional[Sampler]):
         """
         Creates the train and validation dataloaders.
         """
@@ -532,7 +534,11 @@ class RayPPOTrainer:
         self.train_dataset, self.val_dataset = train_dataset, val_dataset
 
         if train_sampler is None:
-            train_sampler = create_rl_sampler(self.config.data, self.train_dataset)
+            train_sampler = create_rl_sampler(self.config.data, self.train_dataset, split="train")
+        
+        if val_sampler is None:
+            val_sampler = create_rl_sampler(self.config.data, self.val_dataset, split="val")
+            
         if collate_fn is None:
             from verl.utils.dataset.rl_dataset import collate_fn as default_collate_fn
 
@@ -540,27 +546,54 @@ class RayPPOTrainer:
 
         num_workers = self.config.data["dataloader_num_workers"]
 
-        self.train_dataloader = StatefulDataLoader(
-            dataset=self.train_dataset,
-            batch_size=self.config.data.get("gen_batch_size", self.config.data.train_batch_size),
-            num_workers=num_workers,
-            drop_last=True,
-            collate_fn=collate_fn,
-            sampler=train_sampler,
-        )
 
-        val_batch_size = self.config.data.val_batch_size  # Prefer config value if set
-        if val_batch_size is None:
-            val_batch_size = len(self.val_dataset)
+        if isinstance(train_sampler, BatchSampler):
+            self.train_dataloader = StatefulDataLoader(
+                dataset=self.train_dataset,
+                batch_sampler=train_sampler,
+                num_workers=num_workers,
+                collate_fn=collate_fn,
+            )
+        else:
+            # Else if it is not a batch sampler, we can specify the batch size directly
+            self.train_dataloader = StatefulDataLoader(
+                dataset=self.train_dataset,
+                batch_size=self.config.data.get("gen_batch_size", self.config.data.train_batch_size),
+                num_workers=num_workers,
+                # shuffle=False,
+                drop_last=True,
+                collate_fn=collate_fn,
+                sampler=train_sampler,
+            )
+        if isinstance(val_sampler, BatchSampler):
+            # BatchSampler path: DO NOT pass batch_size/shuffle/drop_last
+            self.val_dataloader = StatefulDataLoader(
+                dataset=self.val_dataset,
+                batch_sampler=val_sampler,
+                num_workers=num_workers,
+                collate_fn=collate_fn,
+            )
+        else:
+            # Plain Sampler path: compute val_batch_size (None -> len(dataset))
+            # This plain sampler path, if you trace the instance of val_sampler,
+            # should be that of a sequential sampler. Break if it is not.
+            if not isinstance(val_sampler, SequentialSampler):
+                raise ValueError("Validation sampler is not a SequentialSampler")
 
-        self.val_dataloader = StatefulDataLoader(
-            dataset=self.val_dataset,
-            batch_size=val_batch_size,
-            num_workers=num_workers,
-            shuffle=self.config.data.get("validation_shuffle", True),
-            drop_last=False,
-            collate_fn=collate_fn,
-        )
+            val_batch_size = self.config.data.val_batch_size
+            if val_batch_size is None:
+                val_batch_size = len(self.val_dataset)
+
+            self.val_dataloader = StatefulDataLoader(
+                dataset=self.val_dataset,
+                sampler=val_sampler,
+                batch_size=val_batch_size,
+                num_workers=num_workers,
+                drop_last=False,                           # keep all val samples
+                collate_fn=collate_fn,
+                # Deterministic val preferred; if you want to honor a config flag, keep it here:
+                shuffle=self.config.data.get("validation_shuffle", False),
+            )
 
         assert len(self.train_dataloader) >= 1, "Train dataloader is empty!"
         assert len(self.val_dataloader) >= 1, "Validation dataloader is empty!"
@@ -963,6 +996,8 @@ class RayPPOTrainer:
             )
 
     def _save_checkpoint(self):
+
+        ## TO SAVE CHECKPOINT
         from verl.utils.fs import local_mkdir_safe
 
         # path: given_path + `/global_step_{global_steps}` + `/actor`
@@ -1169,8 +1204,23 @@ class RayPPOTrainer:
         )
         next_step_profile = False
 
+
         for epoch in range(self.config.trainer.total_epochs):
-            for batch_dict in self.train_dataloader:
+            # i = 0
+            for batch_idx, batch_dict in enumerate(self.train_dataloader):
+                #--- DEBUG: log batch content into debug_file ---
+
+
+                if debug_file is not None:
+                    with open(debug_file, "a", encoding="utf-8") as f:
+                        log_entry = {
+                            "epoch": int(epoch),
+                            "batch_idx": int(batch_idx),
+                            "modality_signatures": batch_dict.get("modality_signatures", []),
+                            "prompts": batch_dict.get("debug_prompts", []),
+                        }
+                        f.write(json.dumps(log_entry, ensure_ascii=False, default=lambda o: o.tolist() if isinstance(o, np.ndarray) else str(o)) + "\n")
+                
                 metrics = {}
                 timing_raw = {}
 
@@ -1191,7 +1241,28 @@ class RayPPOTrainer:
                 # pop those keys for generation
                 batch_keys_to_pop = ["input_ids", "attention_mask", "position_ids"]
                 non_tensor_batch_keys_to_pop = ["raw_prompt_ids"]
+
+                
+                # if "input_ids" in batch.batch:
+                #     print(f"[DEBUG] input_ids shape: {batch.batch['input_ids'].shape}")
+                #     print(f"[DEBUG] First sequence tokens: {batch.batch['input_ids'][0][:10].tolist()}")
+
+
+                # if "input_ids" in batch.batch:
+                #             with open(debug_file, "a") as f:  # append mode
+                #                 f.write(f"[DEBUG] Epoch {epoch}, Iter {i}\n")
+                #                 f.write(f"input_ids shape: {batch.batch['input_ids'].shape}\n")
+                #                 f.write(f"First sequence tokens: {batch.batch['input_ids'][0][:10].tolist()}\n\n")
+
+                # if i == 5:
+                #     raise ValueError(
+                #         f"Debugging error at iteration 4\n"
+                #         f"input_ids shape: {batch.batch['input_ids'].shape}\n"
+                #         f"First 10 tokens: {batch.batch['input_ids'][0][:10].tolist()}"
+                #     )
+
                 if "multi_modal_data" in batch.non_tensor_batch:
+                    # TODO: Fix the audio generation for this
                     non_tensor_batch_keys_to_pop.append("multi_modal_data")
                 if "raw_prompt" in batch.non_tensor_batch:
                     non_tensor_batch_keys_to_pop.append("raw_prompt")
@@ -1215,10 +1286,15 @@ class RayPPOTrainer:
 
                 is_last_step = self.global_steps >= self.total_training_steps
 
+                # TODO: double check the gen_batch
+                # print(f"gen_batch", gen_batch)
+                # i += 1
+
                 with marked_timer("step", timing_raw):
                     # generate a batch
                     with marked_timer("gen", timing_raw, color="red"):
                         if not self.async_rollout_mode:
+                            # TODO: Fix the audio generation for this
                             gen_batch_output = self.actor_rollout_wg.generate_sequences(gen_batch)
                         else:
                             gen_batch_output = self.async_rollout_manager.generate_sequences(gen_batch)

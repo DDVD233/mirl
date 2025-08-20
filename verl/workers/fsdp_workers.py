@@ -267,7 +267,10 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         if "Qwen2.5-Omni" in local_path:
             from transformers import Qwen2_5OmniThinkerConfig
             actor_model_config = Qwen2_5OmniThinkerConfig.from_pretrained(
-                local_path, trust_remote_code=trust_remote_code, attn_implementation="flash_attention_2"
+                local_path, 
+                trust_remote_code=trust_remote_code, 
+                # torch_dtype=torch.bfloat16, 
+                attn_implementation="flash_attention_2"
             )
         else:
             actor_model_config = AutoConfig.from_pretrained(

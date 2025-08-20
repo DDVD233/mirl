@@ -66,30 +66,49 @@ eg.
 }
 """
 
+from typing import Optional, Dict
+import os, time, traceback
+import torch
 
 def process_video(
-    video: dict,
+    video: Dict,
     nframes: Optional[int] = None,
     fps: Optional[float] = None,
     fps_min_frames: Optional[int] = None,
     fps_max_frames: Optional[int] = None,
+    *,
+    debug: bool = False,           # <-- turn on diagnostics
+    name_hint: Optional[str] = None
 ) -> torch.Tensor:
-    """Converts a video dict into a [n_frames, 3, H, W] tensor
+    """Converts a video dict into a [n_frames, 3, H, W] uint8 tensor.
 
-    Add video sample FPS in a future MR
+    Set debug=True for per-call diagnostics to help track OOM spikes.
     """
+    start_t = time.perf_counter()
+
+    # Normalize string input → dict
     if isinstance(video, str):
-        video = {"type": "video", "video": video, "min_pixels": 65536, "max_pixels": 524288,
-                 "nframes": 4}
+        # Your current defaults (tiny visual budget)
+        # video = {"type": "video", "video": video,
+        #          "min_pixels": 32768, "max_pixels": 32768, "nframes": 2}
+
+    # Moderate budget
+        video = {"type": "video", "video": video,
+                "min_pixels": 49152, "max_pixels": 262144, "nframes": 4}
+        
+    # Most expensive budget
+    #     video = {"type": "video", "video": video, "min_pixels": 65536, "max_pixels": 524288,
+    #              "nframes": 4}
 
     if not isinstance(video, dict) or "video" not in video:
-        raise NotImplementedError(VIDEO_FORMAT_HELP)
-    assert nframes is None or fps is None, "Can't use both `nframes` or `fps`"
+        raise NotImplementedError("Video format must be dict with key 'video'.")
 
-    # Shallow copy... since we might want to add some keys
+    # Shallow copy; we may add keys
     video = dict(video)
 
-    contains_sampling_rules = "nframes" in video or "fps" in video
+    # Compose sampling rules
+    assert nframes is None or fps is None, "Can't use both `nframes` and `fps`."
+    contains_sampling_rules = ("nframes" in video) or ("fps" in video)
     if not contains_sampling_rules:
         if nframes is not None:
             video["nframes"] = nframes
@@ -99,12 +118,115 @@ def process_video(
                 video["min_frames"] = fps_min_frames
             if fps_max_frames is not None:
                 video["max_frames"] = fps_max_frames
+
+    # --- DIAGNOSTICS (before decode/resize) ---
+    if debug:
+        vpath = video.get("video")
+        min_px = video.get("min_pixels", None)
+        max_px = video.get("max_pixels", None)
+        nf_req = video.get("nframes", None)
+        fps_req = video.get("fps", None)
+        size_on_disk = None
+        try:
+            if isinstance(vpath, str) and os.path.exists(vpath):
+                size_on_disk = os.path.getsize(vpath)
+        except Exception:
+            pass
+        print(f"[process_video][pre] name={name_hint or ''} path={vpath} exists={os.path.exists(vpath) if isinstance(vpath,str) else 'N/A'} "
+              f"size={size_on_disk}B min_px={min_px} max_px={max_px} "
+              f"nframes_req={nf_req} fps_req={fps_req}")
+
+    # Decode + resize according to your fetcher
     try:
-        return fetch_video(video)
+        frames = fetch_video(video)  # expected [T, 3, H, W], dtype=uint8
     except Exception as e:
-        print(e)
-        dummy_video = torch.zeros((1, 3, 224, 224), dtype=torch.uint8)
-        return dummy_video
+        if debug:
+            print(f"[process_video][error] {e}\n{traceback.format_exc()}")
+        # Return a small dummy to keep pipeline alive
+        dummy = torch.zeros((1, 3, 224, 224), dtype=torch.uint8)
+        return dummy
+
+    # --- DIAGNOSTICS (after decode/resize) ---
+    if debug:
+        try:
+            T, C, H, W = frames.shape
+        except Exception:
+            T, C, H, W = (None, None, None, None)
+
+        # Estimate visual tokens via 28x28 rule
+        def tok_per_frame(h, w):
+            if not (isinstance(h, int) and isinstance(w, int)):
+                return None
+            # tokens ≈ ceil(H/28)*ceil(W/28)
+            import math
+            return math.ceil(h / 28) * math.ceil(w / 28)
+
+        vtok_pf = tok_per_frame(H, W)
+        vtok_total = (vtok_pf * T) if (vtok_pf is not None and isinstance(T, int)) else None
+
+        # Optional: quick CUDA mem snapshot (safe even on CPU)
+        if torch.cuda.is_available():
+            cur = round(torch.cuda.memory_allocated() / 1e9, 2)
+            peak = round(torch.cuda.max_memory_allocated() / 1e9, 2)
+            mem_str = f"cuda_cur={cur}GB cuda_peak={peak}GB"
+        else:
+            mem_str = "cuda=N/A"
+
+        dt = (time.perf_counter() - start_t) * 1000
+        print(f"[process_video][post] name={name_hint or ''} shape={frames.shape} "
+              f"HxW={H}x{W} T={T} tok/frame≈{vtok_pf} tok_total≈{vtok_total} "
+              f"elapsed={dt:.1f}ms {mem_str}")
+
+        # Warn if frame count or token budget larger than expected
+        if T is not None and (("nframes" in video and T != video["nframes"]) or (T > 8)):
+            print(f"[process_video][warn] unexpected T={T} (requested {video.get('nframes')}).")
+        if vtok_total is not None and vtok_total > 4000:
+            print(f"[process_video][warn] large visual token count: ~{vtok_total}. Consider lowering pixels/frames.")
+
+    return frames
+
+
+# def process_video(
+#     video: dict,
+#     nframes: Optional[int] = None,
+#     fps: Optional[float] = None,
+#     fps_min_frames: Optional[int] = None,
+#     fps_max_frames: Optional[int] = None,
+# ) -> torch.Tensor:
+#     """Converts a video dict into a [n_frames, 3, H, W] tensor
+
+#     Add video sample FPS in a future MR
+#     """
+#     if isinstance(video, str):
+#         # This is the original form
+#         # video = {"type": "video", "video": video, "min_pixels": 65536, "max_pixels": 524288,
+#         #          "nframes": 4}
+#         video = {"type": "video", "video": video, "min_pixels": 32768, "max_pixels": 32768,
+#             "nframes": 2}
+
+#     if not isinstance(video, dict) or "video" not in video:
+#         raise NotImplementedError(VIDEO_FORMAT_HELP)
+#     assert nframes is None or fps is None, "Can't use both `nframes` or `fps`"
+
+#     # Shallow copy... since we might want to add some keys
+#     video = dict(video)
+
+#     contains_sampling_rules = "nframes" in video or "fps" in video
+#     if not contains_sampling_rules:
+#         if nframes is not None:
+#             video["nframes"] = nframes
+#         elif fps is not None:
+#             video["fps"] = fps
+#             if fps_min_frames is not None:
+#                 video["min_frames"] = fps_min_frames
+#             if fps_max_frames is not None:
+#                 video["max_frames"] = fps_max_frames
+#     try:
+#         return fetch_video(video)
+#     except Exception as e:
+#         print(e)
+#         dummy_video = torch.zeros((1, 3, 224, 224), dtype=torch.uint8)
+#         return dummy_video
 
 
 def process_multi_modal_inputs_for_minicpmo(input_ids, attention_mask, position_ids, cu_seqlens, multi_modal_inputs):
