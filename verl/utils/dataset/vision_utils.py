@@ -87,14 +87,16 @@ def process_video(
     start_t = time.perf_counter()
 
     # Normalize string input → dict
-    # if isinstance(video, str):
-    #     # Your current defaults (tiny visual budget)
-    #     video = {"type": "video", "video": video,
-    #              "min_pixels": 32768, "max_pixels": 32768, "nframes": 2}
-        
     if isinstance(video, str):
-        video = {"type": "video", "video": video, "min_pixels": 65536, "max_pixels": 524288,
-                 "nframes": 4}
+        # Your current defaults (tiny visual budget)
+        video = {"type": "video", "video": video,
+                 "min_pixels": 32768, "max_pixels": 32768, "nframes": 2}
+
+    # Moderate budget
+        
+    # if isinstance(video, str):
+    #     video = {"type": "video", "video": video, "min_pixels": 65536, "max_pixels": 524288,
+    #              "nframes": 4}
 
     if not isinstance(video, dict) or "video" not in video:
         raise NotImplementedError("Video format must be dict with key 'video'.")
