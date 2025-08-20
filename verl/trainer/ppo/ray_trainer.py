@@ -331,6 +331,7 @@ class RayPPOTrainer:
         val_dataset: Optional[Dataset] = None,
         collate_fn=None,
         train_sampler: Optional[Sampler] = None,
+        val_sampler: Optional[Sampler] = None,
         device_name=None,
     ):
         """
@@ -398,7 +399,7 @@ class RayPPOTrainer:
             self.use_critic = False
 
         self._validate_config()
-        self._create_dataloader(train_dataset, val_dataset, collate_fn, train_sampler)
+        self._create_dataloader(train_dataset, val_dataset, collate_fn, train_sampler, val_sampler)
 
     def _validate_config(self):
         config = self.config
