@@ -77,7 +77,7 @@ def process_video(
     fps_min_frames: Optional[int] = None,
     fps_max_frames: Optional[int] = None,
     *,
-    debug: bool = True,           # <-- turn on diagnostics
+    debug: bool = False,           # <-- turn on diagnostics
     name_hint: Optional[str] = None
 ) -> torch.Tensor:
     """Converts a video dict into a [n_frames, 3, H, W] uint8 tensor.
