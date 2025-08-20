@@ -61,7 +61,7 @@ unset ROCR_VISIBLE_DEVICES
 PYTHONUNBUFFERED=1 HYDRA_FULL_ERROR=1 PYTHONPATH="/home/keaneong/human-behavior/verl:$PYTHONPATH" NCCL_ASYNC_ERROR_HANDLING=1 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
     data.train_files=/scratch/keane/human_behaviour/human_behaviour_data/sigs_train_no_lmvd_discretized_v3_template_prompts.jsonl \
-    data.val_files=/scratch/keane/human_behaviour/human_behaviour_data/sigs_train_no_lmvd_discretized_v3_template_prompts.jsonl \
+    data.val_files=/scratch/keane/human_behaviour/human_behaviour_data/sigs_val_no_lmvd_discretized_v3_template_prompts.jsonl \
     data.train_batch_size=6 \
     data.val_batch_size=6 \
     data.max_prompt_length=4096 \
@@ -73,10 +73,10 @@ PYTHONUNBUFFERED=1 HYDRA_FULL_ERROR=1 PYTHONPATH="/home/keaneong/human-behavior/
     data.prompt_key=problem \
     data.dataloader_num_workers=8 \
     data.modalities=\'audio,videos\' \
-    data.train_modality_batching.enabled=False \
+    data.train_modality_batching.enabled=True \
     data.train_modality_batching.drop_last=True \
-    data.val_modality_batching.enabled=False \
-    data.val_modality_batching.drop_last=False \
+    data.val_modality_batching.enabled=True \
+    data.val_modality_batching.drop_last=True \
     data.format_prompt=/home/keaneong/human-behavior/verl/examples/format_prompt/default.jinja \
     actor_rollout_ref.model.path=Qwen/Qwen2.5-Omni-7B \
     actor_rollout_ref.actor.optim.lr=1e-6 \
@@ -111,11 +111,11 @@ PYTHONUNBUFFERED=1 HYDRA_FULL_ERROR=1 PYTHONPATH="/home/keaneong/human-behavior/
     trainer.critic_warmup=0 \
     trainer.logger='["console","wandb"]' \
     trainer.project_name='verl_hb' \
-    trainer.experiment_name='omni' \
+    trainer.experiment_name='mixed_modal_omni' \
     trainer.n_gpus_per_node=3 \
     trainer.nnodes=1 \
     trainer.save_freq=-1 \
     trainer.val_before_train=False \
     trainer.test_freq=10 \
     trainer.total_epochs=1 $@ \
-    trainer.default_local_dir=/scratch/keane/human_behaviour/newest_verl_models_hb_omni
+    trainer.default_local_dir=/scratch/keane/human_behaviour/mixed_modal_verl_models_hb_omni

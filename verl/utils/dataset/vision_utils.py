@@ -89,12 +89,14 @@ def process_video(
     # Normalize string input → dict
     if isinstance(video, str):
         # Your current defaults (tiny visual budget)
-        video = {"type": "video", "video": video,
-                 "min_pixels": 32768, "max_pixels": 32768, "nframes": 2}
+        # video = {"type": "video", "video": video,
+        #          "min_pixels": 32768, "max_pixels": 32768, "nframes": 2}
 
     # Moderate budget
+        video = {"type": "video", "video": video,
+                "min_pixels": 49152, "max_pixels": 262144, "nframes": 4}
         
-    # if isinstance(video, str):
+    # Most expensive budget
     #     video = {"type": "video", "video": video, "min_pixels": 65536, "max_pixels": 524288,
     #              "nframes": 4}
 
