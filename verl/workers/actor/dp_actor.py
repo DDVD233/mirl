@@ -103,6 +103,10 @@ class DataParallelPPOActor(BasePPOActor):
                     multi_modal_inputs[key] = [inputs[key] for inputs in micro_batch["multi_modal_inputs"] if key in inputs]
             else:
                 for key in micro_batch["multi_modal_inputs"][0].keys():
+                    print(key)
+                    for inputs in micro_batch["multi_modal_inputs"]:
+                        if key in inputs:
+                            print(inputs[key].shape)
                     multi_modal_inputs[key] = torch.cat(
                         [inputs[key] for inputs in micro_batch["multi_modal_inputs"] if key in inputs], dim=0
                     )
