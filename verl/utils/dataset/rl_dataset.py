@@ -267,7 +267,7 @@ class RLHFDataset(Dataset):
     def __len__(self):
         return len(self.dataframe)
 
-    def _build_messages(self, example: dict):
+    def _build_messages(self, example: dict, convert_video_to_images: bool = False):
         messages: list = example.get(self.prompt_key)
         if isinstance(messages, str):
             messages = [messages]
@@ -304,7 +304,12 @@ class RLHFDataset(Dataset):
                     if segment == "<image>":
                         content_list.append({"type": "image"})
                     elif segment == "<video>":
-                        content_list.append({"type": "video"})
+                        if convert_video_to_images:
+                            # Replace each video tag with 4 image tags
+                            for _ in range(4):
+                                content_list.append({"type": "image"})
+                        else:
+                            content_list.append({"type": "video"})
                     else:
                         content_list.append({"type": "text", "text": segment})
                 new_message["content"] = content_list
@@ -413,7 +418,12 @@ class RLHFDataset(Dataset):
         else:
             row_dict["demo_group"] = "UNK"
 
-        messages = self._build_messages(row_dict)
+        # Check if processor supports video to determine if we need to convert tags
+        convert_video_to_images = False
+        if self.processor is not None and self.video_key in row_dict and row_dict.get(self.video_key, None) is not None and len(row_dict[self.video_key]) > 0:
+            convert_video_to_images = not processor_supports_video(self.processor)
+        
+        messages = self._build_messages(row_dict, convert_video_to_images=convert_video_to_images)
         model_inputs = {}
 
         if self.processor is not None:
