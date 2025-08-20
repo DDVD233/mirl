@@ -14,7 +14,7 @@ def process_mosei_annotations(annotation_path: str) -> None:
         image_path = sample["image"]
         video_id = image_path.split("/")[1].split("_")[0]
         clip_id = image_path.split("_")[-1].split(".")[0]
-        raw_video_path = f"Raw/{video_id}/{clip_id}.mp4"
+        raw_video_path = f"cmu_mosei/Raw/{video_id}/{clip_id}.mp4"
 
         problem: str = sample["conversations"][0]["value"]
         question_statement = problem.index("What is ")

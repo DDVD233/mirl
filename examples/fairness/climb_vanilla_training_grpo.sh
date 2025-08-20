@@ -2,10 +2,11 @@ set -x
 ENGINE=${1:-vllm}
 
 python3 -m verl.trainer.main_ppo \
-    algorithm.adv_estimator=drpo \
-    data.train_files=/home/dvdai/orcd/scratch/high_modality/geom_train.jsonl \
-    data.val_files=/home/dvdai/orcd/scratch/high_modality/geom_valid_mini_new.jsonl \
+    algorithm.adv_estimator=grpo \
+    data.train_files=/home/dvdai/orcd/scratch/high_modality/geom_train_demo_only.jsonl \
+    data.val_files=/home/dvdai/orcd/scratch/high_modality/geom_valid_demo_only.jsonl \
     data.train_batch_size=512 \
+    data.val_batch_size=512 \
     data.max_prompt_length=4096 \
     data.max_response_length=4096 \
     data.filter_overlong_prompts=False \
@@ -13,7 +14,7 @@ python3 -m verl.trainer.main_ppo \
     data.image_key=images \
     data.video_key=videos \
     data.prompt_key=problem \
-    data.format_prompt=examples/format_prompt/no_thinking.jinja \
+    data.format_prompt=examples/format_prompt/default.jinja \
     actor_rollout_ref.model.path=Qwen/Qwen2.5-VL-7B-Instruct \
     actor_rollout_ref.actor.optim.lr=1e-6 \
     actor_rollout_ref.model.use_remove_padding=False \
@@ -30,7 +31,6 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=4 \
     actor_rollout_ref.rollout.tensor_model_parallel_size=2 \
     actor_rollout_ref.rollout.name=$ENGINE \
-    actor_rollout_ref.rollout.engine_kwargs.vllm.disable_mm_preprocessor_cache=True \
     actor_rollout_ref.rollout.gpu_memory_utilization=0.6 \
     actor_rollout_ref.rollout.enable_chunked_prefill=False \
     actor_rollout_ref.rollout.enforce_eager=False \
@@ -42,10 +42,11 @@ python3 -m verl.trainer.main_ppo \
     custom_reward_function.path=examples/reward_function/medical.py \
     custom_reward_function.name=medical_compute_score_batch \
     reward_model.reward_manager=batch \
+    ray_init.num_cpus=16 \
     trainer.critic_warmup=0 \
     trainer.logger='["console","wandb"]' \
     trainer.project_name='verl_climb' \
-    trainer.experiment_name='drpo_nothinking' \
+    trainer.experiment_name='qwen_training_demo_grpo' \
     trainer.n_gpus_per_node=4 \
     trainer.nnodes=1 \
     trainer.save_freq=20 \

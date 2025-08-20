@@ -4,7 +4,7 @@ ENGINE=${1:-vllm}
 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=drpo \
     data.train_files=/home/dvdai/orcd/scratch/high_modality/geom_train.jsonl \
-    data.val_files=/home/dvdai/orcd/scratch/high_modality/geom_valid_mini_new.jsonl \
+    data.val_files=/home/dvdai/orcd/scratch/high_modality/geom_valid_demo_only.jsonl \
     data.train_batch_size=512 \
     data.max_prompt_length=4096 \
     data.max_response_length=4096 \
@@ -13,8 +13,8 @@ python3 -m verl.trainer.main_ppo \
     data.image_key=images \
     data.video_key=videos \
     data.prompt_key=problem \
-    data.format_prompt=examples/format_prompt/no_thinking.jinja \
-    actor_rollout_ref.model.path=Qwen/Qwen2.5-VL-7B-Instruct \
+    data.format_prompt=examples/format_prompt/default.jinja \
+    actor_rollout_ref.model.path=ddvd233/QoQ-Med-VL-7B \
     actor_rollout_ref.actor.optim.lr=1e-6 \
     actor_rollout_ref.model.use_remove_padding=False \
     actor_rollout_ref.actor.ppo_mini_batch_size=128 \
@@ -45,10 +45,11 @@ python3 -m verl.trainer.main_ppo \
     trainer.critic_warmup=0 \
     trainer.logger='["console","wandb"]' \
     trainer.project_name='verl_climb' \
-    trainer.experiment_name='drpo_nothinking' \
+    trainer.experiment_name='qoq_evalonly_thinking' \
     trainer.n_gpus_per_node=4 \
     trainer.nnodes=1 \
     trainer.save_freq=20 \
     trainer.val_before_train=True \
+    trainer.val_only=True \
     trainer.test_freq=5 \
     trainer.total_epochs=15 $@

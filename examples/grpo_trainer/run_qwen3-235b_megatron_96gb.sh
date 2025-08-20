@@ -2,13 +2,24 @@
 set -xeuo pipefail
 
 ## !!!!!!!important!!!!!!
+<<<<<<<< HEAD:examples/grpo_trainer/run_deepseek671b_math_megatron_96gb.sh
+# 1. set the following environment variables on all your nodes
+========
 ## set the following environment variables on all your nodes
+>>>>>>>> aaf379d0 (Misc adaptation & merge upstream (#4)):examples/grpo_trainer/run_qwen3-235b_megatron_96gb.sh
 # env_vars:
 #   CUDA_DEVICE_MAX_CONNECTIONS: "1"
 #   NCCL_NVLS_ENABLE: "0"
 #   VLLM_USE_V1: 1
+<<<<<<<< HEAD:examples/grpo_trainer/run_deepseek671b_math_megatron_96gb.sh
+# 2. install mbridge=0.1.13 on all your node with the following command: 
+# pip3 install git+https://github.com/ISEEKYAN/mbridge
+# 3. remove the `quantization_config` in the DeepSeek-V3's `config.json` and 
+# set `num_nextn_predict_layers=0` to disable MTP, which is not currently supported
+========
 # install mbridge=0.1.13 on all your node with the following command: 
 # pip3 install git+https://github.com/ISEEKYAN/mbridge
+>>>>>>>> aaf379d0 (Misc adaptation & merge upstream (#4)):examples/grpo_trainer/run_qwen3-235b_megatron_96gb.sh
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 [ -f "${SCRIPT_DIR}/env.sh" ] && source "${SCRIPT_DIR}/env.sh"
@@ -26,11 +37,28 @@ clip_ratio_high=0.28
 max_prompt_length=$((1024 * 2))
 max_response_length=$((1204 * 8))
 enable_overlong_buffer=True
+<<<<<<<< HEAD:examples/grpo_trainer/run_deepseek671b_math_megatron_96gb.sh
+overlong_buffer_len=$((1024 * 4))
+========
 overlong_buffer_len=$((1024 * 1))
+>>>>>>>> aaf379d0 (Misc adaptation & merge upstream (#4)):examples/grpo_trainer/run_qwen3-235b_megatron_96gb.sh
 overlong_penalty_factor=1.0
 
 loss_agg_mode="token-mean"
 
+<<<<<<<< HEAD:examples/grpo_trainer/run_deepseek671b_math_megatron_96gb.sh
+train_prompt_bsz=96
+n_resp_per_prompt=8
+train_prompt_mini_bsz=32
+
+
+# minimum nodes for DeepSeek-V3: 12 nodes
+NNODES=${NNODES:-12}
+
+RAY_DATA_HOME=${RAY_DATA_HOME:-"${HOME}/verl"}
+
+MODEL_PATH=$RAY_DATA_HOME/models/DeepSeek-V3-config-verl
+========
 train_prompt_bsz=${TRAIN_BS:-32}
 n_resp_per_prompt=8
 train_prompt_mini_bsz=16
@@ -42,6 +70,7 @@ NNODES=${NNODES:-4}
 RAY_DATA_HOME=${RAY_DATA_HOME:-"${HOME}/verl"}
 
 MODEL_PATH=$RAY_DATA_HOME/models/Qwen3-235B-A22B
+>>>>>>>> aaf379d0 (Misc adaptation & merge upstream (#4)):examples/grpo_trainer/run_qwen3-235b_megatron_96gb.sh
 
 TRAIN_FILE=$RAY_DATA_HOME/dataset/dapo-math-17k.parquet
 TEST_FILE=$RAY_DATA_HOME/dataset/aime-2024.parquet
@@ -56,6 +85,23 @@ use_dynamic_bsz=True
 actor_ppo_max_token_len=$(((max_prompt_length + max_response_length) * 10 / 10))
 infer_ppo_max_token_len=$(((max_prompt_length + max_response_length) * 1))
 offload=True
+<<<<<<<< HEAD:examples/grpo_trainer/run_deepseek671b_math_megatron_96gb.sh
+optim_offload=${OFFLOAD_OPTIM:-True}
+gen_tp=32
+train_tp=${TP:-8}
+train_pp=${PP:-12}
+
+EP=${EP:-8}
+ETP=1
+CP=1
+optimizer_offload_fraction=${OFFLOAD_FRACTION:-1.}
+LAST_LAYER=${LAST_LAYER:-6}
+
+
+project_name='verl-deepseek-v3'
+exp_name="671B-${NNODES}-pp${train_pp}-tp${train_tp}-ep${EP}-actor-length${actor_ppo_max_token_len}"
+CKPTS_DIR=$RAY_DATA_HOME/ckpt/${project_name}/${exp_name}
+========
 OPTIM_OFFLOAD=${OPTIM_OFFLOAD:-True}
 gen_tp=8
 train_tp=${TP:-4}
@@ -74,6 +120,7 @@ CKPTS_DIR=$RAY_DATA_HOME/ckpt/${project_name}/${exp_name}
 # TODO: support cuda graph for rollout by setting the following config
     # actor_rollout_ref.rollout.cudagraph_capture_sizes=[1,2,4,8,16,32]
     # actor_rollout_ref.rollout.enforce_eager=False
+>>>>>>>> aaf379d0 (Misc adaptation & merge upstream (#4)):examples/grpo_trainer/run_qwen3-235b_megatron_96gb.sh
 
 python3 -m verl.trainer.main_ppo \
     --config-path=config \
@@ -87,8 +134,10 @@ python3 -m verl.trainer.main_ppo \
     data.train_batch_size=${train_prompt_bsz} \
     actor_rollout_ref.rollout.n=${n_resp_per_prompt} \
     actor_rollout_ref.rollout.name=vllm \
+<<<<<<<< HEAD:examples/grpo_trainer/run_deepseek671b_math_megatron_96gb.sh
+========
     actor_rollout_ref.rollout.enforce_eager=True \
-    actor_rollout_ref.rollout.free_cache_engine=True \
+>>>>>>>> aaf379d0 (Misc adaptation & merge upstream (#4)):examples/grpo_trainer/run_qwen3-235b_megatron_96gb.sh
     algorithm.adv_estimator=${adv_estimator} \
     algorithm.use_kl_in_reward=${use_kl_in_reward} \
     algorithm.kl_ctrl.kl_coef=${kl_coef} \
@@ -118,7 +167,11 @@ python3 -m verl.trainer.main_ppo \
     +actor_rollout_ref.actor.optim.override_optimizer_config.optimizer_cpu_offload=True \
     actor_rollout_ref.actor.ppo_mini_batch_size=${train_prompt_mini_bsz} \
     actor_rollout_ref.actor.megatron.param_offload=${offload} \
+<<<<<<<< HEAD:examples/grpo_trainer/run_deepseek671b_math_megatron_96gb.sh
+    actor_rollout_ref.actor.megatron.optimizer_offload=${optim_offload} \
+========
     actor_rollout_ref.actor.megatron.optimizer_offload=${OPTIM_OFFLOAD} \
+>>>>>>>> aaf379d0 (Misc adaptation & merge upstream (#4)):examples/grpo_trainer/run_qwen3-235b_megatron_96gb.sh
     actor_rollout_ref.actor.megatron.grad_offload=${offload} \
     actor_rollout_ref.actor.megatron.pipeline_model_parallel_size=${train_pp} \
     actor_rollout_ref.actor.megatron.tensor_model_parallel_size=${train_tp} \
@@ -128,7 +181,12 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.actor.entropy_coeff=0 \
     actor_rollout_ref.actor.optim.clip_grad=1.0 \
     actor_rollout_ref.actor.loss_agg_mode=${loss_agg_mode} \
+<<<<<<<< HEAD:examples/grpo_trainer/run_deepseek671b_math_megatron_96gb.sh
+    actor_rollout_ref.rollout.gpu_memory_utilization=0.6 \
+========
     actor_rollout_ref.rollout.gpu_memory_utilization=0.85 \
+    +actor_rollout_ref.rollout.engine_kwargs.vllm.enable_expert_parallel=True \
+>>>>>>>> aaf379d0 (Misc adaptation & merge upstream (#4)):examples/grpo_trainer/run_qwen3-235b_megatron_96gb.sh
     actor_rollout_ref.rollout.tensor_model_parallel_size=${gen_tp} \
     actor_rollout_ref.rollout.enable_chunked_prefill=True \
     actor_rollout_ref.rollout.max_num_batched_tokens=$((max_prompt_length + max_response_length)) \
@@ -141,26 +199,33 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.rollout.val_kwargs.top_k=${top_k} \
     actor_rollout_ref.rollout.val_kwargs.do_sample=True \
     actor_rollout_ref.rollout.val_kwargs.n=1 \
+<<<<<<<< HEAD:examples/grpo_trainer/run_deepseek671b_math_megatron_96gb.sh
+    actor_rollout_ref.rollout.enforce_eager=True \
+========
+>>>>>>>> aaf379d0 (Misc adaptation & merge upstream (#4)):examples/grpo_trainer/run_qwen3-235b_megatron_96gb.sh
     actor_rollout_ref.ref.megatron.pipeline_model_parallel_size=${train_pp} \
     actor_rollout_ref.ref.megatron.tensor_model_parallel_size=${train_tp} \
     actor_rollout_ref.ref.megatron.expert_model_parallel_size=$EP \
     actor_rollout_ref.ref.megatron.expert_tensor_parallel_size=$ETP \
     actor_rollout_ref.ref.megatron.context_parallel_size=${CP} \
     actor_rollout_ref.ref.megatron.param_offload=${offload} \
-    +actor_rollout_ref.actor.megatron.override_transformer_config.apply_rope_fusion=True \
-    +actor_rollout_ref.actor.megatron.override_transformer_config.masked_softmax_fusion=True \
-    +actor_rollout_ref.actor.megatron.override_transformer_config.bias_activation_fusion=True \
-    +actor_rollout_ref.actor.megatron.override_transformer_config.bias_dropout_fusion=True \
-    +actor_rollout_ref.actor.megatron.override_transformer_config.gradient_accumulation_fusion=True \
-    +actor_rollout_ref.actor.megatron.override_transformer_config.deallocate_pipeline_outputs=True \
-    +actor_rollout_ref.actor.megatron.override_transformer_config.persist_layer_norm=True \
-    +actor_rollout_ref.actor.megatron.override_transformer_config.moe_grouped_gemm=True \
-    +actor_rollout_ref.actor.megatron.override_transformer_config.moe_permute_fusion=True \
-    +actor_rollout_ref.actor.megatron.override_transformer_config.moe_token_dispatcher_type="flex" \
+    +actor_rollout_ref.actor.megatron.override_transformer_config.apply_rope_fusion=False \
     +actor_rollout_ref.actor.megatron.override_transformer_config.moe_router_dtype=fp32 \
+    +actor_rollout_ref.actor.megatron.override_transformer_config.moe_shared_expert_overlap=False \
     +actor_rollout_ref.actor.megatron.override_transformer_config.moe_enable_deepep=True \
-    +actor_rollout_ref.actor.megatron.override_transformer_config.account_for_loss_in_pipeline_split=True \
-    +actor_rollout_ref.actor.megatron.override_transformer_config.account_for_embedding_in_pipeline_split=True \
+    +actor_rollout_ref.actor.megatron.override_transformer_config.moe_token_dispatcher_type=flex \
+    +actor_rollout_ref.actor.megatron.override_transformer_config.recompute_method=uniform \
+    +actor_rollout_ref.actor.megatron.override_transformer_config.recompute_granularity=full \
+    +actor_rollout_ref.actor.megatron.override_transformer_config.recompute_num_layers=1 \
+    +actor_rollout_ref.actor.megatron.override_transformer_config.gradient_accumulation_fusion=True \
+    +actor_rollout_ref.actor.megatron.override_transformer_config.moe_permute_fusion=True \
+    +actor_rollout_ref.actor.megatron.override_transformer_config.account_for_embedding_in_pipeline_split=False \
+    +actor_rollout_ref.actor.megatron.override_transformer_config.account_for_loss_in_pipeline_split=False \
+<<<<<<<< HEAD:examples/grpo_trainer/run_deepseek671b_math_megatron_96gb.sh
+    +actor_rollout_ref.actor.megatron.override_transformer_config.num_layers_in_last_pipeline_stage=${LAST_LAYER} \
+========
+    +actor_rollout_ref.actor.megatron.override_transformer_config.num_layers_in_last_pipeline_stage=${last_layer} \
+>>>>>>>> aaf379d0 (Misc adaptation & merge upstream (#4)):examples/grpo_trainer/run_qwen3-235b_megatron_96gb.sh
     reward_model.reward_manager=dapo \
     +reward_model.reward_kwargs.overlong_buffer_cfg.enable=${enable_overlong_buffer} \
     +reward_model.reward_kwargs.overlong_buffer_cfg.len=${overlong_buffer_len} \

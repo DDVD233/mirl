@@ -21,9 +21,6 @@ defaults:
   # Rollout model config.
   - rollout@actor_rollout_ref.rollout: rollout
 
-  # Model config.
-  - model@actor_rollout_ref.model: hf_model
-
   # Critic model config.
   - critic@critic: dp_critic
 
@@ -42,6 +39,62 @@ actor_rollout_ref:
 
   # Timeout for operations executed against the process group
   nccl_timeout: 600
+
+  # common configs for the model
+  model:
+
+    # Huggingface model path. This can be either local path or HDFS path.
+    path: ~/models/deepseek-llm-7b-chat
+
+    # Custom chat template for the model.
+    custom_chat_template: null
+
+    # Whether to use shared memory (SHM) for accelerating the loading of model weights
+    use_shm: false
+
+    # Additional Python packages to register huggingface models/tokenizers.
+    external_lib: null
+
+    # Used to override model's original configurations, mainly dropout
+    override_config: {}
+
+    # Enable gradient checkpointing for actor
+    enable_gradient_checkpointing: true
+
+    # Enable activation offloading for actor
+    enable_activation_offload: false
+
+    # Whether to remove padding tokens in inputs during training
+    use_remove_padding: false
+
+    # Set to positive value to enable LoRA (e.g., 32)
+    lora_rank: 0
+
+    # LoRA scaling factor
+    lora_alpha: 16
+
+    # Target modules to apply LoRA. Options: "all-linear" (not recommended for VLMs) or
+    # [q_proj,k_proj,v_proj,o_proj,gate_proj,up_proj,down_proj]
+    target_modules: all-linear
+
+    # Exclude modules from applying Lora. Similar usage to target_modules and Peft.
+    # Example: '.*visual.*' for excluding the ViT in Qwen2.5-VL, as currently vllm does not support ViT Lora.
+    exclude_modules: null
+
+    # Whether to use Liger for linear layer fusion
+    use_liger: false
+
+    # Whether to use custom fused kernels (e.g., FlashAttention, fused MLP)
+    use_fused_kernels: false
+
+    # Options for fused kernels. If use_fused_kernels is true, this will be used.
+    fused_kernel_options:
+
+      # Implementation backend for fused kernels. Options: "triton" or "torch".
+      impl_backend: torch
+
+    # Whether to enable loading a remote code model
+    trust_remote_code: false
 
   # Rollout model config.
   rollout:
@@ -219,7 +272,7 @@ global_profiler:
   # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
   _target_: verl.utils.profiler.ProfilerConfig
 
-  # Profiling tool: choose between nsys, npu, torch, torch_memory
+  # Profiling tool: choose between nsys, npu, torch
   tool: null
 
   # profile steps
@@ -285,32 +338,11 @@ global_profiler:
         # Send signal to the target application's process group. We let the program to exit by itself.
         kill: none
 
-    # enable memory visualization for debugging memory usage
-    torch_memory:
+# configs related to ray initialization
+ray_init:
 
-      #  Maximum number of allocation entries to record
-      trace_alloc_max_entries: 100_000
-
-      # The depth of the call stack to capture for each allocation
-      stack_depth: 32
-
-      # 'alloc': records only allocation events || 'state': records memory state changes || 'all': records both.
-      context: "all"
-
-      # 'python': records Python stacks || 'cpp': records C++ stacks (available in some versions) || 'all': records both.
-      stacks: "all"
-
-      # devices, record_context etc.
-      kw_args: {}
-  
-# configs related to ray
-ray_kwargs:
-
-  # configs related to ray initialization
-  ray_init:
-  
-    # Number of CPUs for Ray. Use a fixed number instead of null when using SLURM.
-    num_cpus: null
+  # Number of CPUs for Ray. Use a fixed number instead of null when using SLURM.
+  num_cpus: null
 
   # Path to save Ray timeline JSON for performance profiling
   timeline_json_file: null

@@ -1,7 +1,7 @@
 Data collection based on FSDP backend on Ascend devices(en)
 ==========================================================================================
 
-Last updated: 08/14/2025.
+Last updated: 07/24/2025.
 
 This is a tutorial for data collection using the GRPO or DAPO algorithm
 based on FSDP on Ascend devices.
@@ -30,18 +30,7 @@ and steps.
    -  save_path: The path to save the collected data. Default is
       "outputs/profile".
 
-
-Role collection control
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-In each role's ``profiler`` field, you can control the collection mode for that role.
-
--  enable: Whether to enable profiling for this role.
--  all_ranks: Whether to collect data from all ranks.
--  ranks: A list of ranks to collect data from. If empty, no data is collected.
--  tool_config: Configuration for the profiling tool used by this role.
-
-Use parameters in each role's ``profiler.tool_config.npu`` to control npu profiler behavior:
+Use parameters in ``global_profiler.global_tool_config.npu`` to control npu profiler behavior:
 
 -  level: Collection level—options are level_none, level0, level1, and
    level2
@@ -67,7 +56,17 @@ Use parameters in each role's ``profiler.tool_config.npu`` to control npu profil
    -  stack: Whether to record operator call stack information.
 
 -  analysis: Enables automatic data parsing.
--  discrete: Whether to enable discrete mode.
+
+
+Role collection control
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+In each role's ``profile`` field, you can control the collection mode for that role.
+
+-  enable: Whether to enable profiling for this role.
+-  all_ranks: Whether to collect data from all ranks.
+-  ranks: A list of ranks to collect data from. If empty, no data is collected.
+-  tool_config: Configuration for the profiling tool used by this role.
 
 
 Examples
@@ -88,15 +87,12 @@ End-to-End collection
 
       global_profiler:
          steps: [1, 2, 5]
+         discrete: False
       actor_rollout_ref:
          actor:
             profiler:
                enable: True
                all_ranks: True
-               tool_config:
-                  npu:
-                     discrete: False
-        # rollout & ref follow actor settings
 
 
 Discrete Mode Collection
@@ -105,16 +101,7 @@ Discrete Mode Collection
 .. code:: yaml
 
       global_profiler:
-         steps: [1, 2, 5]
-      actor_rollout_ref:
-         actor:
-            profiler:
-               enable: True
-               all_ranks: True
-               tool_config:
-                  npu:
-                     discrete: True
-        # rollout & ref follow actor settings
+         discrete: True
 
 
 Visualization
