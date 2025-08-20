@@ -15,6 +15,7 @@
 # limitations under the License.
 
 import copy
+import inspect
 import logging
 import os
 import re
@@ -33,6 +34,36 @@ import verl.utils.torch_functional as verl_F
 from verl.utils.model import compute_position_id_with_mask
 
 logger = logging.getLogger(__name__)
+
+
+def processor_supports_video(processor: ProcessorMixin) -> bool:
+    """
+    Check if a processor supports video inputs by inspecting its __call__ signature.
+    
+    Args:
+        processor: The processor to check
+        
+    Returns:
+        True if the processor supports video parameter, False otherwise
+    """
+    if processor is None:
+        return False
+    
+    try:
+        sig = inspect.signature(processor.__call__)
+        params = sig.parameters
+        
+        # Check if 'videos' is a parameter
+        if 'videos' in params:
+            param = params['videos']
+            # Verify it can be used as a keyword argument
+            if param.kind in (inspect.Parameter.KEYWORD_ONLY, 
+                              inspect.Parameter.POSITIONAL_OR_KEYWORD):
+                return True
+    except (ValueError, TypeError, AttributeError):
+        logger.debug("Cannot inspect processor __call__ signature")
+    
+    return False
 
 
 def collate_fn(data_list: list[dict]) -> dict:
@@ -181,8 +212,27 @@ class RLHFDataset(Dataset):
                     )
                     images = [process_image(image) for image in doc[image_key]] if image_key in doc else None
                     videos = [process_video(video) for video in doc[video_key]] if video_key in doc else None
-
-                    return len(processor(text=[raw_prompt], images=images, videos=videos)["input_ids"][0])
+                    
+                    # Handle video-to-image conversion for processors that don't support video
+                    if videos and not processor_supports_video(processor):
+                        # Convert video frames to images
+                        if images is None:
+                            images = []
+                        for video_tensor in videos:
+                            # video_tensor is shape [n_frames, 3, H, W]
+                            for frame_idx in range(video_tensor.shape[0]):
+                                frame = video_tensor[frame_idx]  # [3, H, W]
+                                frame_np = frame.permute(1, 2, 0).numpy()  # [H, W, 3]
+                                from PIL import Image
+                                frame_image = Image.fromarray(frame_np.astype('uint8'), 'RGB')
+                                images.append(frame_image)
+                        videos = None
+                    
+                    # Call processor with appropriate parameters
+                    if processor_supports_video(processor):
+                        return len(processor(text=[raw_prompt], images=images, videos=videos)["input_ids"][0])
+                    else:
+                        return len(processor(text=[raw_prompt], images=images)["input_ids"][0])
 
             else:
 
@@ -384,18 +434,54 @@ class RLHFDataset(Dataset):
                 multi_modal_data["image"] = images
 
             videos = None
+            video_frames_as_images = None
             if self.video_key in row_dict and row_dict.get(self.video_key, None) is not None and len(row_dict[self.video_key]) > 0:
-                # videos = [process_video(video) for video in row_dict.get(self.video_key)]
+                # Process videos
                 videos = []
                 for video in row_dict.get(self.video_key):
                     video = os.path.join(self.base_dir, video) if isinstance(video, str) else video
                     videos.append(process_video(video))
 
-                # due to the video key is "video" instead of "videos" in vllm, we need to use "video" here
-                # link: https://github.com/vllm-project/vllm/blob/3c545c0c3b98ee642373a308197d750d0e449403/vllm/multimodal/parse.py#L205
-                multi_modal_data["video"] = [video.numpy() for video in videos]
+                # Check if processor supports video
+                if processor_supports_video(self.processor):
+                    # Processor supports video, use it directly
+                    # due to the video key is "video" instead of "videos" in vllm, we need to use "video" here
+                    # link: https://github.com/vllm-project/vllm/blob/3c545c0c3b98ee642373a308197d750d0e449403/vllm/multimodal/parse.py#L205
+                    multi_modal_data["video"] = [video.numpy() for video in videos]
+                else:
+                    # Processor doesn't support video, convert to images
+                    logger.info("Processor doesn't support video, converting video frames to images")
+                    video_frames_as_images = []
+                    for video_tensor in videos:
+                        # video_tensor is shape [n_frames, 3, H, W]
+                        # Convert each frame to PIL Image
+                        for frame_idx in range(video_tensor.shape[0]):
+                            frame = video_tensor[frame_idx]  # [3, H, W]
+                            # Convert from tensor to PIL Image
+                            # Assuming the tensor is in uint8 format [0, 255]
+                            frame_np = frame.permute(1, 2, 0).numpy()  # [H, W, 3]
+                            from PIL import Image
+                            frame_image = Image.fromarray(frame_np.astype('uint8'), 'RGB')
+                            video_frames_as_images.append(frame_image)
+                    
+                    # Append video frames to existing images
+                    if images is None:
+                        images = video_frames_as_images
+                    else:
+                        images.extend(video_frames_as_images)
+                    
+                    # Update multi_modal_data with the combined images
+                    multi_modal_data["image"] = images
+                    
+                    # Clear videos since we've converted them to images
+                    videos = None
 
-            model_inputs = self.processor(text=[raw_prompt], images=images, videos=videos, return_tensors="pt")
+            # Call processor with appropriate parameters
+            if processor_supports_video(self.processor):
+                model_inputs = self.processor(text=[raw_prompt], images=images, videos=videos, return_tensors="pt")
+            else:
+                # Only pass images parameter if processor doesn't support video
+                model_inputs = self.processor(text=[raw_prompt], images=images, return_tensors="pt")
 
             input_ids = model_inputs.pop("input_ids")
             attention_mask = model_inputs.pop("attention_mask")
