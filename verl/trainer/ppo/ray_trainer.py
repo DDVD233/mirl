@@ -1209,16 +1209,18 @@ class RayPPOTrainer:
             # i = 0
             for batch_idx, batch_dict in enumerate(self.train_dataloader):
                 #--- DEBUG: log batch content into debug_file ---
+
+
                 if debug_file is not None:
                     with open(debug_file, "a", encoding="utf-8") as f:
                         log_entry = {
-                            "epoch": epoch,
-                            "batch_idx": batch_idx,
+                            "epoch": int(epoch),
+                            "batch_idx": int(batch_idx),
                             "modality_signatures": batch_dict.get("modality_signatures", []),
-                            "prompts": batch_dict.get("debug_prompts", []),   # may be long
+                            "prompts": batch_dict.get("debug_prompts", []),
                         }
-                        f.write(json.dumps(log_entry, ensure_ascii=False) + "\n")
-
+                        f.write(json.dumps(log_entry, ensure_ascii=False, default=lambda o: o.tolist() if isinstance(o, np.ndarray) else str(o)) + "\n")
+                
                 metrics = {}
                 timing_raw = {}
 

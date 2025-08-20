@@ -416,7 +416,7 @@ def create_rl_sampler(data_config, dataset, split: str = "train"):
         )
 
     if mb_cfg and mb_cfg.get("enabled", False):
-
+        print(f"Creating our modality sampler for split: {split}")
         # by_sig is actually the collation of dataset indices grouped by their modality signature
         by_sig: Dict[str, List[int]] = {}
         # essentially getting "modality_signature" from the jsonl dataset
@@ -438,6 +438,8 @@ def create_rl_sampler(data_config, dataset, split: str = "train"):
 
         # shuffle if split (meaning that we shuffle the samples within each batch)
         shuffle = (split == "train")
+
+        print(f"Creating our modality sampler for split: {split}, batch_size: {batch_size}, drop_last: {drop_last}, shuffle: {shuffle}")
 
         sampler = ModalitySignatureBatchSampler(
             indices_by_sig=by_sig,
