@@ -696,6 +696,7 @@ class RayPPOTrainer:
         all_predictions = []
         all_ground_truths = []
         all_datasets = []
+        all_data_sources = []
         data_source_lst = []
 
         for test_data in self.val_dataloader:
@@ -720,7 +721,9 @@ class RayPPOTrainer:
                 item.non_tensor_batch.get("reward_model", {}).get("ground_truth", None) for item in test_batch
             ]
             sample_gts.extend(ground_truths)
-
+            
+            # NOTE: Put datasource as a place holder for now, but only dataset is used for metrics calculation
+            data_sources = test_batch.non_tensor_batch.get("data_source", ["unknown"] * len(input_texts))
             datasets = test_batch.non_tensor_batch.get("dataset", ["unknown"] * len(input_texts))
 
             batch_keys_to_pop = ["input_ids", "attention_mask", "position_ids"]
@@ -776,7 +779,7 @@ class RayPPOTrainer:
             all_predictions.extend(output_texts)
             all_ground_truths.extend(ground_truths)
             all_datasets.extend(datasets)
-
+            all_data_sources.extend(data_sources)
             data_source_lst.append(
                 test_batch.non_tensor_batch.get("data_source", ["unknown"] * len(input_texts))
             )
@@ -825,7 +828,11 @@ class RayPPOTrainer:
               f" size of sample_gts: {len(sample_gts)}, size of sample_inputs: {len(sample_inputs)}"
               f", size of data_sources: {len(data_sources)}, size of sample_turns: {len(sample_turns)}")
         
+        # TODO: change this if you want to use your own validation metrics
+        # NOTE: This currently focuses on data sources
+        # So, ignore this in WANDB logging for now
         data_src2var2metric2val = process_validation_metrics(data_sources, sample_inputs, reward_extra_infos_dict)
+        
         metric_dict = {}
         for data_source, var2metric2val in data_src2var2metric2val.items():
             core_var = "acc" if "acc" in var2metric2val else "reward"
