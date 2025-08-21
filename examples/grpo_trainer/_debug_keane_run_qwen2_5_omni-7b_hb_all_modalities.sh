@@ -73,9 +73,9 @@ unset ROCR_VISIBLE_DEVICES
 PYTHONUNBUFFERED=1 HYDRA_FULL_ERROR=1 PYTHONPATH="/home/keaneong/human-behavior/verl:$PYTHONPATH" NCCL_ASYNC_ERROR_HANDLING=1 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
     data.train_files=/scratch/keane/human_behaviour/human_behaviour_data/sigs_train_no_lmvd_discretized_v3_template_prompts.jsonl \
-    data.val_files=/scratch/keane/human_behaviour/human_behaviour_data/0.01_sigs_val_no_lmvd_discretized_v3_template_prompts.jsonl \
+    data.val_files=/scratch/keane/human_behaviour/human_behaviour_data/sigs_train_no_lmvd_discretized_v3_template_prompts.jsonl \
     data.train_batch_size=288 \
-    data.val_batch_size=36 \
+    data.val_batch_size=144 \
     data.max_prompt_length=4096 \
     data.max_response_length=4096 \
     data.filter_overlong_prompts=False \
@@ -93,8 +93,8 @@ PYTHONUNBUFFERED=1 HYDRA_FULL_ERROR=1 PYTHONPATH="/home/keaneong/human-behavior/
     actor_rollout_ref.model.path=Qwen/Qwen2.5-Omni-7B \
     actor_rollout_ref.actor.optim.lr=1e-6 \
     actor_rollout_ref.model.use_remove_padding=False \
-    actor_rollout_ref.actor.ppo_mini_batch_size=36 \
-    actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=1 \
+    actor_rollout_ref.actor.ppo_mini_batch_size=72 \
+    actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=2 \
     actor_rollout_ref.actor.use_kl_loss=False \
     actor_rollout_ref.actor.kl_loss_coef=0 \
     actor_rollout_ref.actor.kl_loss_type=low_var_kl \
@@ -103,7 +103,7 @@ PYTHONUNBUFFERED=1 HYDRA_FULL_ERROR=1 PYTHONPATH="/home/keaneong/human-behavior/
     actor_rollout_ref.model.enable_gradient_checkpointing=True \
     actor_rollout_ref.actor.fsdp_config.param_offload=False \
     actor_rollout_ref.actor.fsdp_config.optimizer_offload=False \
-    actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=1 \
+    actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=2 \
     actor_rollout_ref.rollout.tensor_model_parallel_size=1 \
     actor_rollout_ref.rollout.name=vllm \
     actor_rollout_ref.rollout.engine_kwargs.vllm.disable_mm_preprocessor_cache=True \
@@ -113,7 +113,7 @@ PYTHONUNBUFFERED=1 HYDRA_FULL_ERROR=1 PYTHONPATH="/home/keaneong/human-behavior/
     actor_rollout_ref.rollout.enforce_eager=True \
     actor_rollout_ref.rollout.free_cache_engine=True \
     actor_rollout_ref.rollout.n=5 \
-    actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=1 \
+    actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=2 \
     actor_rollout_ref.ref.fsdp_config.param_offload=True \
     actor_rollout_ref.rollout.max_model_len=4096 \
     actor_rollout_ref.rollout.max_num_batched_tokens=2048 \

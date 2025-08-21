@@ -74,6 +74,7 @@ unset ROCR_VISIBLE_DEVICES
 # actor_rollout_ref.rollout.max_num_batched_tokens=2048
 # actor_rollout_ref.rollout.n=1
 
+PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True,max_split_size_mb:128
 
 PYTHONUNBUFFERED=1 HYDRA_FULL_ERROR=1 PYTHONPATH="/home/keaneong/human-behavior/verl:$PYTHONPATH" NCCL_ASYNC_ERROR_HANDLING=1 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
@@ -93,7 +94,7 @@ PYTHONUNBUFFERED=1 HYDRA_FULL_ERROR=1 PYTHONPATH="/home/keaneong/human-behavior/
     data.train_modality_batching.enabled=True \
     data.train_modality_batching.drop_last=True \
     data.val_modality_batching.enabled=True \
-    data.val_modality_batching.drop_last=True \
+    data.val_modality_batching.drop_last=False \
     data.format_prompt=/home/keaneong/human-behavior/verl/examples/format_prompt/default.jinja \
     actor_rollout_ref.model.path=Qwen/Qwen2.5-Omni-7B \
     actor_rollout_ref.actor.optim.lr=1e-6 \
@@ -113,7 +114,7 @@ PYTHONUNBUFFERED=1 HYDRA_FULL_ERROR=1 PYTHONPATH="/home/keaneong/human-behavior/
     actor_rollout_ref.rollout.name=vllm \
     actor_rollout_ref.rollout.engine_kwargs.vllm.disable_mm_preprocessor_cache=True \
     +actor_rollout_ref.rollout.engine_kwargs.vllm.kv_cache_dtype=fp8 \
-    actor_rollout_ref.rollout.gpu_memory_utilization=0.5 \
+    actor_rollout_ref.rollout.gpu_memory_utilization=0.6 \
     actor_rollout_ref.rollout.enable_chunked_prefill=False \
     actor_rollout_ref.rollout.enforce_eager=True \
     actor_rollout_ref.rollout.free_cache_engine=True \
