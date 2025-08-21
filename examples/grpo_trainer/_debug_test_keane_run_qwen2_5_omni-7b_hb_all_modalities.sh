@@ -59,15 +59,20 @@ unset ROCR_VISIBLE_DEVICES
 
 # TEST ONLY CONFIG TO PREVENT KV CACHE OOM
 
-# actor_rollout_ref.rollout.n=1 \                       # ↓ fan-out
-#   actor_rollout_ref.rollout.max_num_seqs=4 \             # ↓ concurrent decodes
-#   actor_rollout_ref.rollout.max_num_batched_tokens=2048 \# ↓ prefill tokens
-#   actor_rollout_ref.rollout.gpu_memory_utilization=0.7 \ # give KV headroom
-#   actor_rollout_ref.rollout.max_model_len=4096 \
-#   actor_rollout_ref.rollout.engine_kwargs.vllm.kv_cache_dtype=fp8 \         # or fp16 if fp8 not available
-#   actor_rollout_ref.rollout.enforce_eager=True
-#   actor_rollout_ref.rollout.engine_kwargs.vllm.swap_space=8 \               # optional, if supported
-#   actor_rollout_ref.rollout.enable_chunked_prefill=True \
+# To prevent the KV cache OOM alter these parameters:
+# vLLM memory & precision (static planning)
+# actor_rollout_ref.rollout.max_model_len=4096
+# +actor_rollout_ref.rollout.engine_kwargs.vllm.kv_cache_dtype=fp8   # use fp16 if fp8 unsupported
+# actor_rollout_ref.rollout.enforce_eager=True                       # avoids CUDA graph preallocs
+# actor_rollout_ref.rollout.gpu_memory_utilization=0.55              # conservative; can raise later (requires restart)
+
+# # prefill strategy
+# actor_rollout_ref.rollout.enable_chunked_prefill=False             # keep off unless you set batched_tokens >= max_model_len
+
+# # startup concurrency (conservative)
+# actor_rollout_ref.rollout.max_num_seqs=4
+# actor_rollout_ref.rollout.max_num_batched_tokens=2048
+# actor_rollout_ref.rollout.n=1
 
 
 PYTHONUNBUFFERED=1 HYDRA_FULL_ERROR=1 PYTHONPATH="/home/keaneong/human-behavior/verl:$PYTHONPATH" NCCL_ASYNC_ERROR_HANDLING=1 python3 -m verl.trainer.main_ppo \
