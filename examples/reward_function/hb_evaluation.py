@@ -4,14 +4,6 @@ import os
 from collections import defaultdict
 from typing import Dict, List, Set
 
-def parse_conditions(text: str) -> Set[str]:
-    # Kept for compatibility; not used by the single-label pipeline.
-    text = text.replace("\\boxed{", "").replace("}", "")
-    for sep in [", ", " and ", " & ", ",", "&"]:
-        if sep in text:
-            return set(cond.strip() for cond in text.split(sep))
-    return {text.strip()}
-
 def extract_boxed_content(text: str) -> str:
     import re
     boxed_match = re.search(r"\\boxed{([^}]*)}", text)
@@ -82,7 +74,7 @@ def compute_class_counts_and_metrics(
         precision = _safe_div(tp, (tp + fp))
         recall    = _safe_div(tp, (tp + fn))
         f1        = _safe_div(2 * precision * recall, (precision + recall))
-        accuracy  = recall  # per-class accuracy = TP / support
+        accuracy  = recall  # per-class accuracy = TP / support (over the total amount of true instances of the class)
 
         class_metrics[c] = {
             "precision": precision,
@@ -226,20 +218,20 @@ def compute_metrics_by_data_source(
 
     if n_datasets > 0:
         for k in discovered_metric_keys:
-            result[f"val/{k}"] = global_accum[k] / n_datasets
+            result[f"val/averaged_{k}"] = global_accum[k] / n_datasets
 
     return result
 
 if __name__ == "__main__":
     predictions   = [
         # DatasetA (6 samples)
-        "A", "A", "B", "B", "A", "B",
+        "<think>Well, looking at the image, the person's eyes are looking down and their mouth is in a sort of frown. There's no big smile or anything that would suggest happiness. It doesn't look like they're angry or fearful either. So, I'd say the primary facial expression is sad.</think> \\boxed{sad}", "A", "B", "B", "A", "B",
         # DatasetB (5 samples)
         "A", "C", "C", "B", "B",
     ]
     ground_truths = [
         # DatasetA GT
-        "A", "B", "B", "B", "A", "A",
+        "sad", "B", "B", "B", "A", "A",
         # DatasetB GT
         "A", "C", "B", "B", "C",
     ]

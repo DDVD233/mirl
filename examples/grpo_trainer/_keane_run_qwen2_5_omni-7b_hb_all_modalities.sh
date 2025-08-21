@@ -115,6 +115,8 @@ PYTHONUNBUFFERED=1 HYDRA_FULL_ERROR=1 PYTHONPATH="/home/keaneong/human-behavior/
     trainer.nnodes=1 \
     trainer.save_freq=10 \
     trainer.val_before_train=False \
+    trainer.val_only=False \
+    trainer.validation_data_dir=/scratch/keane/human_behaviour/val_logs_mixed_modal_verl_models_hb_omni \
     trainer.test_freq=5 \
     trainer.total_epochs=1 $@ \
     trainer.default_local_dir=/scratch/keane/human_behaviour/mixed_modal_verl_models_hb_omni
