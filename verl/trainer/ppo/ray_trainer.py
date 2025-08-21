@@ -639,6 +639,9 @@ class RayPPOTrainer:
             if len(v) == n:
                 base_data[k] = v
 
+        # essentially, if there is more than one key in kwargs,
+        # each kwarg will be a key in base data (k), and v is
+        # the value for the key corresponding to the kwarg
         for k, v in kwargs.items():
             if isinstance(v, np.ndarray):
                 base_data[k] = v.tolist()
