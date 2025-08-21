@@ -66,13 +66,12 @@ def human_behaviour_compute_score_batch(
         # Normalize response formatting (e.g., qwen2.5vl quirks)
         full_response = re.sub(r"\s*(<|>|/)\s*", r"\1", predict_str)
         pred_label = extract_boxed_content(full_response).lower()  # handle qwen2.5vl-32b format
+        ground_truth = ground_truth.lower()
 
-        print(pred_label)
+        # print(pred_label)
         # Compute individual components
         format_score = format_reward(full_response)
         standard_score = accuracy_reward(pred_label, ground_truth)
-
-        ground_truth = ground_truth.lower()
 
         # Weighted overall score
         overall_score = (1 - format_weight) * standard_score + format_weight * format_score
