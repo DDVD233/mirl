@@ -110,7 +110,7 @@ PYTHONUNBUFFERED=1 HYDRA_FULL_ERROR=1 PYTHONPATH="/home/keaneong/human-behavior/
     reward_model.reward_manager=batch \
     trainer.critic_warmup=0 \
     trainer.logger='["console","wandb"]' \
-    trainer.project_name='verl_hb' \
+    trainer.project_name='test_mixed_modal_omni' \
     trainer.experiment_name='mixed_modal_omni' \
     trainer.n_gpus_per_node=3 \
     trainer.nnodes=1 \
