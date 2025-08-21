@@ -400,43 +400,9 @@ class RLHFDataset(Dataset):
                 f"[Dataset] Missing modality_signature for idx={item}. "
                 "Preprocess your JSONL with signatures first."
             )
-        # Optionally normalize to str (avoid numpy scalar, etc.)
-        # save the modality signatures for debugging purposes
-        row_dict["modality_signatures"] = str(sig)
-
-        is_timeseries = False
-        vision_path = row_dict['images'][0] if 'images' in row_dict and len(row_dict['images']) != 0 else None
-        if vision_path is None:  # this may be video
-            vision_path = row_dict['videos'][0] if 'videos' in row_dict and len(row_dict['videos']) != 0 else None
-        if vision_path is None:  # this may be time series only
-            vision_path = row_dict['time_series'][0] if 'time_series' in row_dict and len(
-                row_dict['time_series']) != 0 else ''
-            is_timeseries = True
-        prompt_str = row_dict[self.prompt_key]
-
+        
         # save the debug_prompts for debugging purposes
-        row_dict["debug_prompts"] = prompt_str
-
-        if 'How long will the patient stay in the hospital?' in prompt_str:
-            row_dict["data_source"] = "multimodal"
-            row_dict["dataset"] = "los_prediction"
-        elif 'Will the patient survive for at least 48 hours?' in prompt_str:
-            row_dict["data_source"] = "multimodal"
-            row_dict["dataset"] = "48_ihm"
-        elif len(vision_path) != 0:
-            try:
-                row_dict["data_source"] = vision_path.split("/")[0]
-                row_dict["dataset"] = vision_path.split("/")[1]
-            except IndexError:
-                row_dict["data_source"] = "unknown"
-                row_dict["dataset"] = "unknown"
-                print(
-                    f"Failed to parse vision path: {vision_path}. The annotation is {row_dict}. Using default values.")
-        elif is_timeseries:
-            row_dict["data_source"] = "ecg"
-            # dataset already set in json
-        else:
-            raise ValueError("No modality found.")
+        row_dict["debug_prompts"] = row_dict[self.prompt_key]
 
         if 'reward_model' not in row_dict:
             if 'answer' in row_dict:
@@ -697,6 +663,7 @@ class RLHFDataset(Dataset):
         row_dict["index"] = index
         row_dict["tools_kwargs"] = tools_kwargs
         row_dict["interaction_kwargs"] = interaction_kwargs
+        
         return row_dict
 
     def __getstate__(self):

@@ -63,7 +63,7 @@ from verl.utils.rollout_skip import RolloutSkip
 from verl.utils.seqlen_balancing import get_seqlen_balanced_partitions, log_seqlen_unbalance
 from verl.utils.torch_functional import masked_mean
 from verl.utils.tracking import ValidationGenerationsLogger
-from examples.reward_function.evaluation import compute_metrics_by_data_source
+from examples.reward_function.hb_evaluation import compute_metrics_by_data_source
 
 WorkerType = type[Worker]
 
@@ -695,8 +695,6 @@ class RayPPOTrainer:
         # New lists for metric calculation
         all_predictions = []
         all_ground_truths = []
-        all_data_sources = []
-        all_demographics = []
         all_datasets = []
         data_source_lst = []
 
@@ -722,9 +720,8 @@ class RayPPOTrainer:
                 item.non_tensor_batch.get("reward_model", {}).get("ground_truth", None) for item in test_batch
             ]
             sample_gts.extend(ground_truths)
-            data_sources = test_batch.non_tensor_batch.get("data_source", ["unknown"] * len(input_texts))
+
             datasets = test_batch.non_tensor_batch.get("dataset", ["unknown"] * len(input_texts))
-            demographics = test_batch.non_tensor_batch.get("demo", ["unknown"] * len(input_texts))
 
             batch_keys_to_pop = ["input_ids", "attention_mask", "position_ids"]
             non_tensor_batch_keys_to_pop = ["raw_prompt_ids"]
@@ -778,9 +775,8 @@ class RayPPOTrainer:
             # Collect for metrics calculation
             all_predictions.extend(output_texts)
             all_ground_truths.extend(ground_truths)
-            all_data_sources.extend(data_sources)
             all_datasets.extend(datasets)
-            all_demographics.extend(demographics)
+
             data_source_lst.append(
                 test_batch.non_tensor_batch.get("data_source", ["unknown"] * len(input_texts))
             )
@@ -810,8 +806,12 @@ class RayPPOTrainer:
         self._maybe_log_val_generations(inputs=sample_inputs, outputs=sample_outputs, scores=sample_scores)
 
         # Per data source metrics
-        metrics = compute_metrics_by_data_source(all_predictions, all_ground_truths,
-                                                 all_data_sources, all_datasets, all_demographics)
+        # metrics = compute_metrics_by_data_source(all_predictions, all_ground_truths,
+        #                                          all_data_sources, all_datasets, all_demographics)
+  
+        # NOTE: KEANE's IMPLEMENTATION
+        metrics = compute_metrics_by_data_source(all_predictions, all_ground_truths, all_datasets)
+
         wandb.log(metrics, step=self.global_steps)
 
         for key_info, lst in reward_extra_infos_dict.items():
@@ -824,6 +824,7 @@ class RayPPOTrainer:
         print(f"size of sample_scores: {len(sample_scores)}, size of sample_outputs: {len(sample_outputs)},"
               f" size of sample_gts: {len(sample_gts)}, size of sample_inputs: {len(sample_inputs)}"
               f", size of data_sources: {len(data_sources)}, size of sample_turns: {len(sample_turns)}")
+        
         data_src2var2metric2val = process_validation_metrics(data_sources, sample_inputs, reward_extra_infos_dict)
         metric_dict = {}
         for data_source, var2metric2val in data_src2var2metric2val.items():
@@ -843,6 +844,7 @@ class RayPPOTrainer:
                     metric_dict[pfx] = metric_val
 
         # dump generations
+        # TODO: dumping of the data directories
         val_data_dir = self.config.trainer.get("validation_data_dir", self.config.trainer.default_local_dir)
         if val_data_dir:
             self._dump_generations(
@@ -1216,7 +1218,7 @@ class RayPPOTrainer:
                         log_entry = {
                             "epoch": int(epoch),
                             "batch_idx": int(batch_idx),
-                            "modality_signatures": batch_dict.get("modality_signatures", []),
+                            "modality_signatures": batch_dict.get("modality_signature", []),
                             "prompts": batch_dict.get("debug_prompts", []),
                         }
                         f.write(json.dumps(log_entry, ensure_ascii=False, default=lambda o: o.tolist() if isinstance(o, np.ndarray) else str(o)) + "\n")

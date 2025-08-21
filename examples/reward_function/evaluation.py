@@ -386,6 +386,7 @@ def compute_metrics_by_data_source(
     datasets: List[str],
     demographics: List[str],
 ) -> Dict[str, float]:
+    # NOTE: This is the main function to compute the metrics
     """
     Compute hierarchical metrics: class -> dataset -> data source -> global.
 
