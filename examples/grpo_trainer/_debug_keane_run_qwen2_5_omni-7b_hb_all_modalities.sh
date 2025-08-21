@@ -8,17 +8,17 @@ unset ROCR_VISIBLE_DEVICES
 # data.val_files=/scratch/keane/human_behaviour/human_behaviour_data/val_no_meld_no_chalearn_vision_v2_template_prompts.jsonl \
 # data.modalities=\'audio,videos\' \
 
-# SETTING OF SAVE PATH: trainer.default_local_dir= /scratch/keane/human_behaviour/2_models_hb_vision_only
+# SETTING OF SAVE PATH: trainer.default_local_dir=/scratch/keane/human_behaviour/mixed_modal_verl_models_hb_omni
 # SETTING OF THE LOAD PATH from directory of checkpoints is also: trainer.default_local_dir
 
-# TRAINING FROM scratch: trainer.resume_mode ==  "disable" (default will save into default_local_dir)
+# TRAINING FROM scratch: trainer.resume_mode ==  "disable" (default will save into default_local_dir, and it will not load any checkpoint)
 
 # TRAINING AUTOMATICALLY (i.e. from scratch or from latest checkpoint) : 
-    # trainer.resume_mode == "auto" and then the model will take the latest ckpt from trainer.default_hdfs_dir
+    # trainer.resume_mode == "auto" and then the model will take the latest ckpt from trainer.default_local_dir
 
 # TRAINING from specific CHECKPOINT: trainer.resume_mode == "resume_path" and then specify trainer.resume_from_path
     # Setting of path to resume training from trainer.resume_from_path (exact path of checkpoint)
-    # the model will take from resume_from_path directly (absolute path), and ignore default_hdfs_dir
+    # the model will take from resume_from_path directly (absolute path), and ignore default_local_dir
 
 # for validation, set val_before_train=True ; make sure that the checkpoint is loaded and put val_only=True
 # the checkpoint should already be loaded before that
@@ -120,4 +120,5 @@ PYTHONUNBUFFERED=1 HYDRA_FULL_ERROR=1 PYTHONPATH="/home/keaneong/human-behavior/
     trainer.validation_data_dir=/scratch/keane/human_behaviour/debug_mixed_modal_verl_models_hb_omni \
     trainer.test_freq=10 \
     trainer.total_epochs=1 $@ \
-    trainer.default_local_dir=/scratch/keane/human_behaviour/debug_mixed_modal_verl_models_hb_omni
+    trainer.default_local_dir=/scratch/keane/human_behaviour/mixed_modal_verl_models_hb_omni \
+    trainer.resume_mode=auto \
