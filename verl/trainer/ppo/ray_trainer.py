@@ -1201,8 +1201,6 @@ class RayPPOTrainer:
             logger.log(data=val_metrics, step=self.global_steps)
             if self.config.trainer.get("val_only", False):
                 return
-        
-        raise NotImplementedError("Catching Error for debugging purposes")
     
         if self.config.actor_rollout_ref.rollout.get("skip_rollout", False):
             rollout_skip = RolloutSkip(self.config, self.actor_rollout_wg)

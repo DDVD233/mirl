@@ -57,6 +57,8 @@ unset ROCR_VISIBLE_DEVICES
 #     enabled: true
 #     drop_last: false
 
+# TEST ONLY CONFIG TO PREVENT KV CACHE OOM
+
 
 PYTHONUNBUFFERED=1 HYDRA_FULL_ERROR=1 PYTHONPATH="/home/keaneong/human-behavior/verl:$PYTHONPATH" NCCL_ASYNC_ERROR_HANDLING=1 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
@@ -104,6 +106,7 @@ PYTHONUNBUFFERED=1 HYDRA_FULL_ERROR=1 PYTHONPATH="/home/keaneong/human-behavior/
     actor_rollout_ref.ref.fsdp_config.param_offload=True \
     actor_rollout_ref.rollout.max_model_len=4096 \
     actor_rollout_ref.rollout.max_num_batched_tokens=4096 \
+    actor_rollout_ref.rollout.max_num_seqs=4 \             # ↓ LOWERED to prevent OOM
     algorithm.use_kl_in_reward=False \
     custom_reward_function.path=/home/keaneong/human-behavior/verl/examples/reward_function/human_behaviour.py \
     custom_reward_function.name=human_behaviour_compute_score_batch \
@@ -115,7 +118,7 @@ PYTHONUNBUFFERED=1 HYDRA_FULL_ERROR=1 PYTHONPATH="/home/keaneong/human-behavior/
     trainer.n_gpus_per_node=3 \
     trainer.nnodes=1 \
     trainer.save_freq=-1 \
-    trainer.val_before_train=False \
+    trainer.val_before_train=True \
     trainer.val_only=True \
     trainer.validation_data_dir=/scratch/keane/human_behaviour/debug_mixed_modal_verl_models_hb_omni \
     trainer.test_freq=10 \
