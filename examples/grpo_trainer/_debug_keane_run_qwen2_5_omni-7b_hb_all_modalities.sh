@@ -59,6 +59,16 @@ unset ROCR_VISIBLE_DEVICES
 
 # TEST ONLY CONFIG TO PREVENT KV CACHE OOM
 
+# actor_rollout_ref.rollout.n=1 \                       # ↓ fan-out
+#   actor_rollout_ref.rollout.max_num_seqs=4 \             # ↓ concurrent decodes
+#   actor_rollout_ref.rollout.max_num_batched_tokens=2048 \# ↓ prefill tokens
+#   actor_rollout_ref.rollout.gpu_memory_utilization=0.7 \ # give KV headroom
+#   actor_rollout_ref.rollout.max_model_len=4096 \
+#   actor_rollout_ref.rollout.engine_kwargs.vllm.kv_cache_dtype=fp8 \         # or fp16 if fp8 not available
+#   actor_rollout_ref.rollout.engine_kwargs.vllm.enable_cuda_graph=False \    # avoid large preallocs
+#   actor_rollout_ref.rollout.engine_kwargs.vllm.swap_space=8 \               # optional, if supported
+#   actor_rollout_ref.rollout.enable_chunked_prefill=True \
+
 
 PYTHONUNBUFFERED=1 HYDRA_FULL_ERROR=1 PYTHONPATH="/home/keaneong/human-behavior/verl:$PYTHONPATH" NCCL_ASYNC_ERROR_HANDLING=1 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
@@ -97,16 +107,17 @@ PYTHONUNBUFFERED=1 HYDRA_FULL_ERROR=1 PYTHONPATH="/home/keaneong/human-behavior/
     actor_rollout_ref.rollout.tensor_model_parallel_size=1 \
     actor_rollout_ref.rollout.name=vllm \
     actor_rollout_ref.rollout.engine_kwargs.vllm.disable_mm_preprocessor_cache=True \
-    actor_rollout_ref.rollout.gpu_memory_utilization=0.6 \
+     actor_rollout_ref.rollout.engine_kwargs.vllm.enable_cuda_graph=False \
+    actor_rollout_ref.rollout.gpu_memory_utilization=0.7 \
     actor_rollout_ref.rollout.enable_chunked_prefill=False \
     actor_rollout_ref.rollout.enforce_eager=False \
     actor_rollout_ref.rollout.free_cache_engine=True \
-    actor_rollout_ref.rollout.n=5 \
+    actor_rollout_ref.rollout.n=1 \
     actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=1 \
     actor_rollout_ref.ref.fsdp_config.param_offload=True \
     actor_rollout_ref.rollout.max_model_len=4096 \
-    actor_rollout_ref.rollout.max_num_batched_tokens=4096 \
-    actor_rollout_ref.rollout.max_num_seqs=4 \             # ↓ LOWERED to prevent OOM
+    actor_rollout_ref.rollout.max_num_batched_tokens=2048 \
+    actor_rollout_ref.rollout.max_num_seqs=4 \
     algorithm.use_kl_in_reward=False \
     custom_reward_function.path=/home/keaneong/human-behavior/verl/examples/reward_function/human_behaviour.py \
     custom_reward_function.name=human_behaviour_compute_score_batch \
