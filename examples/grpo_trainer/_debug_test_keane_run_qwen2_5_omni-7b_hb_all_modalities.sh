@@ -79,7 +79,7 @@ PYTHONUNBUFFERED=1 HYDRA_FULL_ERROR=1 PYTHONPATH="/home/keaneong/human-behavior/
     data.train_files=/scratch/keane/human_behaviour/human_behaviour_data/sigs_train_no_lmvd_discretized_v3_template_prompts.jsonl \
     data.val_files=/scratch/keane/human_behaviour/human_behaviour_data/0.005_sigs_val_no_lmvd_discretized_v3_template_prompts.jsonl \
     data.train_batch_size=3 \
-    data.val_batch_size=6 \
+    data.val_batch_size=3 \
     data.max_prompt_length=4096 \
     data.max_response_length=4096 \
     data.filter_overlong_prompts=False \
@@ -111,7 +111,7 @@ PYTHONUNBUFFERED=1 HYDRA_FULL_ERROR=1 PYTHONPATH="/home/keaneong/human-behavior/
     actor_rollout_ref.rollout.tensor_model_parallel_size=1 \
     actor_rollout_ref.rollout.name=vllm \
     actor_rollout_ref.rollout.engine_kwargs.vllm.disable_mm_preprocessor_cache=True \
-    +actor_rollout_ref.rollout.engine_kwargs.vllm.kv_cache_dtype=fp8 \
+    +actor_rollout_ref.rollout.engine_kwargs.vllm.kv_cache_dtype=fp16 \
     actor_rollout_ref.rollout.gpu_memory_utilization=0.5 \
     actor_rollout_ref.rollout.enable_chunked_prefill=False \
     actor_rollout_ref.rollout.enforce_eager=True \

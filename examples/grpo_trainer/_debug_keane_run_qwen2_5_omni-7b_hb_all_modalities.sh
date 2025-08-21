@@ -69,9 +69,6 @@ unset ROCR_VISIBLE_DEVICES
 #   actor_rollout_ref.rollout.engine_kwargs.vllm.swap_space=8 \               # optional, if supported
 #   actor_rollout_ref.rollout.enable_chunked_prefill=True \
 
-# Try whether this helps with fragmentation issues
-# PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True,max_split_size_mb:128
-
 PYTHONUNBUFFERED=1 HYDRA_FULL_ERROR=1 PYTHONPATH="/home/keaneong/human-behavior/verl:$PYTHONPATH" NCCL_ASYNC_ERROR_HANDLING=1 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
     data.train_files=/scratch/keane/human_behaviour/human_behaviour_data/sigs_train_no_lmvd_discretized_v3_template_prompts.jsonl \
