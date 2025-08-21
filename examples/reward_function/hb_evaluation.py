@@ -253,20 +253,27 @@ def compute_metrics_by_data_source(
     return result
 
 if __name__ == "__main__":
-    outputs_dir = "../../outputs"
-    output_files = [f for f in os.listdir(outputs_dir) if f.startswith("input_data_") and f.endswith(".json")]
-    if not output_files:
-        print("No output files found in the outputs directory.")
-    else:
-        latest_file = max(output_files, key=lambda f: os.path.getmtime(os.path.join(outputs_dir, f)))
-        with open(os.path.join(outputs_dir, latest_file), "r") as f:
-            input_data = json.load(f)
+    
+    predictions   = [
+        # DatasetA (6 samples)
+        "A", "A", "B", "B", "A", "B",
+        # DatasetB (5 samples)
+        "A", "C", "C", "B", "B",
+    ]
+    ground_truths = [
+        # DatasetA GT
+        "A", "B", "B", "B", "A", "A",
+        # DatasetB GT
+        "A", "C", "B", "B", "C",
+    ]
+    datasets = [
+        # Tag first 6 as DatasetA
+        "DatasetA","DatasetA","DatasetA","DatasetA","DatasetA","DatasetA",
+        # Next 5 as DatasetB
+        "DatasetB","DatasetB","DatasetB","DatasetB","DatasetB",
+    ]
 
-        predictions = input_data["predictions"]
-        ground_truths = input_data["ground_truths"]
-        data_sources = input_data["data_sources"]
-        datasets = input_data["datasets"]
-        demographics = input_data.get("demographics", [])  # unused
-
-        metrics = compute_metrics_by_data_source(predictions, ground_truths, data_sources, datasets, demographics)
-        print(json.dumps(metrics, indent=4))
+    # Run metrics for the two-dataset scenario
+    metrics = compute_metrics_by_data_source(predictions, ground_truths, datasets)
+    print("=== Synthetic two-dataset sanity check ===")
+    print(json.dumps(metrics, indent=4))

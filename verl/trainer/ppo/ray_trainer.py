@@ -788,6 +788,7 @@ class RayPPOTrainer:
             test_batch.meta_info["validate"] = True
 
             # evaluate using reward_function
+            # TODO: This val_reward_function is supposed to check the reward_fn for the different datasources 
             if self.val_reward_fn is None:
                 raise ValueError("val_reward_fn must be provided for validation.")
             result = self.val_reward_fn(test_batch, return_dict=True)
@@ -854,6 +855,7 @@ class RayPPOTrainer:
         # TODO: dumping of the data directories
         val_data_dir = self.config.trainer.get("validation_data_dir", self.config.trainer.default_local_dir)
         if val_data_dir:
+            # basically appending the all_datasets will just mean that it will dump the generations into these subdirectories
             self._dump_generations(
                 inputs=sample_inputs,
                 outputs=sample_outputs,

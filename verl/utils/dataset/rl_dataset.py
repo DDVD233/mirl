@@ -403,6 +403,8 @@ class RLHFDataset(Dataset):
         
         # save the debug_prompts for debugging purposes
         row_dict["debug_prompts"] = row_dict[self.prompt_key]
+        # TODO: Placeholder for now;
+        row_dict["data_source"] = "unknown"
 
         if 'reward_model' not in row_dict:
             if 'answer' in row_dict:
