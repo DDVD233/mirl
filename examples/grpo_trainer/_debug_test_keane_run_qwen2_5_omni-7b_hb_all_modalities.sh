@@ -133,8 +133,8 @@ PYTHONUNBUFFERED=1 HYDRA_FULL_ERROR=1 PYTHONPATH="/home/keaneong/human-behavior/
     trainer.n_gpus_per_node=3 \
     trainer.nnodes=1 \
     trainer.save_freq=-1 \
-    trainer.val_before_train=True \
-    trainer.val_only=True \
+    trainer.val_before_train=False \
+    trainer.val_only=False \
     trainer.validation_data_dir=/scratch/keane/human_behaviour/debug_mixed_modal_verl_models_hb_omni \
     trainer.test_freq=10 \
     trainer.total_epochs=1 $@ \
