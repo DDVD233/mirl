@@ -23,7 +23,7 @@ python3 -m verl.trainer.main_ppo \
     data.video_key=videos \
     data.prompt_key=problem \
     data.dataloader_num_workers=8 \
-    data.modalities='audio,videos' \
+    data.modalities=\'audio,videos\' \
     data.train_modality_batching.enabled=True \
     data.train_modality_batching.drop_last=True \
     data.val_modality_batching.enabled=True \
