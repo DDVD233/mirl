@@ -69,6 +69,20 @@ WorkerType = type[Worker]
 
 debug_file = "/home/keaneong/human-behavior/verl/examples/grpo_trainer/debug_log.txt"
 
+def _flatten(d, parent_key=""):
+    items = []
+    if isinstance(d, dict):
+        for k, v in d.items():
+            new_key = f"{parent_key}/{k}" if parent_key else k
+            items.extend(_flatten(v, new_key))
+    elif isinstance(d, (list, tuple)):
+        for i, v in enumerate(d):
+            new_key = f"{parent_key}/{i}" if parent_key else str(i)
+            items.extend(_flatten(v, new_key))
+    else:
+        items.append((parent_key, d))
+    return items
+
 class Role(Enum):
     """
     To create more roles dynamically, you can subclass Role and add new members
@@ -1187,13 +1201,15 @@ class RayPPOTrainer:
         )
 
         if "wandb" in self.config.trainer.logger and wandb.run is not None:
-            # Force overwrite keys into wandb Config
-            wandb.config.update(cfg_dict, allow_val_change=True)
+            flat_cfg = _flatten(cfg_dict)
 
-            # ALSO save raw hydra yaml as a file (appears in "Files" tab)
-            with open("hydra_config.yaml", "w") as f:
-                f.write(OmegaConf.to_yaml(self.config))
-            wandb.save("hydra_config.yaml")
+            # Build a W&B Table: two columns (key, value)
+            table = wandb.Table(columns=["Key", "Value"])
+            for k, v in flat_cfg:
+                table.add_data(k, v)
+
+            # Log it once at step 0
+            wandb.log({"config_table": table}, step=0)
 
         self.global_steps = 0
 
