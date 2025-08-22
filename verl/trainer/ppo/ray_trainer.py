@@ -1176,20 +1176,24 @@ class RayPPOTrainer:
 
         from verl.utils.tracking import Tracking
 
+        # Get full resolved config as a nested dict
+        cfg_dict = OmegaConf.to_container(self.config, resolve=True)
+
         logger = Tracking(
             project_name=self.config.trainer.project_name,
             experiment_name=self.config.trainer.experiment_name,
             default_backend=self.config.trainer.logger,
-            config=OmegaConf.to_container(self.config, resolve=True),
+            config=cfg_dict,
         )
 
-        # --- Add this block ---
         if "wandb" in self.config.trainer.logger and wandb.run is not None:
-            # Log full resolved config
-            wandb.config.update(
-                OmegaConf.to_container(self.config, resolve=True),
-                allow_val_change=True
-            )
+            # Force overwrite keys into wandb Config
+            wandb.config.update(cfg_dict, allow_val_change=True)
+
+            # ALSO save raw hydra yaml as a file (appears in "Files" tab)
+            with open("hydra_config.yaml", "w") as f:
+                f.write(OmegaConf.to_yaml(self.config))
+            wandb.save("hydra_config.yaml")
 
         self.global_steps = 0
 
