@@ -31,7 +31,7 @@ import warnings
 import verl.utils.torch_functional as verl_F
 from verl.utils.model import compute_position_id_with_mask
 import time, os, math, warnings
-from count_mm_tokens import compute_modality_token_breakdown
+from verl.utils.dataset.count_mm_tokens import compute_modality_token_breakdown
 
 logger = logging.getLogger(__name__)
 
