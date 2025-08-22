@@ -1271,6 +1271,9 @@ class RayPPOTrainer:
             for batch_idx, batch_dict in enumerate(self.train_dataloader):
                 #--- DEBUG: log batch content into debug_file ---
 
+                # log modality budgets                
+                log_modality_budgets(batch_dict, step=self.global_steps)
+
                 if debug_file is not None:
                     with open(debug_file, "a", encoding="utf-8") as f:
                         log_entry = {
@@ -1293,9 +1296,8 @@ class RayPPOTrainer:
 
                 batch: DataProto = DataProto.from_single_dict(batch_dict)
                                 
-                # log modality budgets                
-                log_modality_budgets(batch, step=self.global_steps)
                 
+
                 # add uid to batch
                 batch.non_tensor_batch["uid"] = np.array(
                     [str(uuid.uuid4()) for _ in range(len(batch.batch))], dtype=object

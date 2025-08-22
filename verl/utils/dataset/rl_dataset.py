@@ -556,6 +556,12 @@ class RLHFDataset(Dataset):
                     f"raw_prompt_chars={len(raw_prompt)}")
                 raise
 
+            row_dict["modality_token_breakdown"] = compute_modality_token_breakdown(
+                                            model_inputs=model_inputs,
+                                            tokenizer=self.tokenizer,
+                                            row_dict=row_dict,           # for audio seconds
+                                        )
+
             # NOTE: all text should be processed by self.processor()
             input_ids = model_inputs.pop("input_ids")
             attention_mask = model_inputs.pop("attention_mask")
@@ -579,12 +585,6 @@ class RLHFDataset(Dataset):
             model_inputs = self.tokenizer(raw_prompt, return_tensors="pt", add_special_tokens=False)
             input_ids = model_inputs.pop("input_ids")
             attention_mask = model_inputs.pop("attention_mask")
-
-        row_dict["modality_token_breakdown"] = compute_modality_token_breakdown(
-                                                    model_inputs=model_inputs,
-                                                    tokenizer=self.tokenizer,
-                                                    row_dict=row_dict,           # for audio seconds
-                                                )
         
         input_ids, attention_mask = verl_F.postprocess_data(
             input_ids=input_ids,

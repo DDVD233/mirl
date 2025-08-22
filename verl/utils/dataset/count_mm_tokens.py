@@ -72,6 +72,9 @@ def compute_modality_token_breakdown(
 
     # peek input_ids BEFORE popping them
     ids = model_inputs.get("input_ids")
+
+    # print("Ids are", ids)
+
     if ids is not None and len(ids) > 0:
         ids1d = ids[0]
         ph_counts = count_placeholders(ids1d, media_token_ids)
