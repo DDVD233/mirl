@@ -729,6 +729,8 @@ class RayPPOTrainer:
 
         # dump generations here, as well as the other reward extra info
         val_data_dir = self.config.trainer.get("validation_data_dir", self.config.trainer.default_local_dir)
+        # make if it does not exist
+        os.makedirs(val_data_dir, exist_ok=True)
 
         for test_data in self.val_dataloader:
             test_batch = DataProto.from_single_dict(test_data)
