@@ -73,6 +73,7 @@ unset ROCR_VISIBLE_DEVICES
 # actor_rollout_ref.rollout.max_num_seqs=4
 # actor_rollout_ref.rollout.max_num_batched_tokens=2048
 # actor_rollout_ref.rollout.n=1
+export CUDA_VISIBLE_DEVICES=0,1
 
 PYTHONUNBUFFERED=1 HYDRA_FULL_ERROR=1 PYTHONPATH="/home/keaneong/human-behavior/verl:$PYTHONPATH" NCCL_ASYNC_ERROR_HANDLING=1 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \

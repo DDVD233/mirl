@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 set -x
 
-# Pin to GPUs 1,2
-export CUDA_VISIBLE_DEVICES=2,3
+
 unset ROCR_VISIBLE_DEVICES
 export PYTHONUNBUFFERED=1
 export HYDRA_FULL_ERROR=1
@@ -69,7 +68,7 @@ python3 -m verl.trainer.main_ppo \
     trainer.save_freq=10 \
     trainer.val_before_train=False \
     trainer.val_only=False \
-    trainer.validation_data_dir=/home/keaneong/human-behavior/verl/examples/grpo_trainer/val_logs_mixed_modal_verl_models_hb_omni_gpus12 \
+    trainer.validation_data_dir=/home/keaneong/human-behavior/verl/examples/grpo_trainer/2_val_log_mixed_modal_verl_models_hb_omni_gpublock2 \
     trainer.test_freq=5 \
     trainer.total_epochs=5 $@ \
-    trainer.default_local_dir=/scratch/keane/human_behaviour/mixed_modal_verl_models_hb_omni_gpublock2
+    trainer.default_local_dir=/scratch/keane/human_behaviour/2_mixed_modal_verl_models_hb_omni_gpublock2
