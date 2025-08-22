@@ -204,13 +204,4 @@ def log_modality_budgets(batch_dict, step):
         if payload:
             wandb.log(payload, step=step)
 
-    # Optional histograms under the new namespace
-    try:
-        wandb.log({
-            "modality_token_budgets/hist/input_ids": wandb.Histogram(input_ids_len),
-            "modality_token_budgets/hist/img_kv":    wandb.Histogram(img_kv),
-            "modality_token_budgets/hist/vid_kv":    wandb.Histogram(vid_kv),
-        }, step=step)
-    except Exception:
-        pass
 # ---- end utils ----

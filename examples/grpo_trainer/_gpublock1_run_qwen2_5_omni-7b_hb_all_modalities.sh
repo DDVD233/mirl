@@ -30,7 +30,7 @@ python3 -m verl.trainer.main_ppo \
     data.val_modality_batching.drop_last=False \
     data.format_prompt=/home/keaneong/human-behavior/verl/examples/format_prompt/default.jinja \
     actor_rollout_ref.model.path=Qwen/Qwen2.5-Omni-7B \
-    actor_rollout_ref.actor.optim.lr=1e-5 \
+    actor_rollout_ref.actor.optim.lr=1e-7 \
     actor_rollout_ref.model.use_remove_padding=False \
     actor_rollout_ref.actor.ppo_mini_batch_size=48 \
     actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=2 \
