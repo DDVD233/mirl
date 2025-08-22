@@ -69,6 +69,7 @@ WorkerType = type[Worker]
 
 debug_file = "/home/keaneong/human-behavior/verl/examples/grpo_trainer/debug_log.txt"
 
+
 def _flatten(d, parent_key=""):
     items = []
     if isinstance(d, dict):
@@ -82,6 +83,15 @@ def _flatten(d, parent_key=""):
     else:
         items.append((parent_key, d))
     return items
+
+def _to_str(v):
+    # keep it uniform so the "Value" column stays String
+    try:
+        if isinstance(v, (dict, list, tuple)):
+            return json.dumps(v, ensure_ascii=False)
+        return str(v)
+    except Exception:
+        return repr(v)
 
 class Role(Enum):
     """
@@ -1203,12 +1213,10 @@ class RayPPOTrainer:
         if "wandb" in self.config.trainer.logger and wandb.run is not None:
             flat_cfg = _flatten(cfg_dict)
 
-            # Build a W&B Table: two columns (key, value)
             table = wandb.Table(columns=["Key", "Value"])
             for k, v in flat_cfg:
-                table.add_data(k, v)
+                table.add_data(k, _to_str(v))  # <- force string
 
-            # Log it once at step 0
             wandb.log({"config_table": table}, step=0)
 
         self.global_steps = 0
