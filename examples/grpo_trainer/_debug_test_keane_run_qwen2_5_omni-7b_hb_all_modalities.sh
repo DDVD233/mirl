@@ -74,6 +74,9 @@ unset ROCR_VISIBLE_DEVICES
 # actor_rollout_ref.rollout.max_num_seqs=4
 # actor_rollout_ref.rollout.max_num_batched_tokens=2048
 # actor_rollout_ref.rollout.n=1
+# trainer.val_before_train= True \
+# trainer.val_only=True \
+
 export CUDA_VISIBLE_DEVICES=0,1
 
 PYTHONUNBUFFERED=1 HYDRA_FULL_ERROR=1 PYTHONPATH="/home/keaneong/human-behavior/verl:$PYTHONPATH" NCCL_ASYNC_ERROR_HANDLING=1 python3 -m verl.trainer.main_ppo \
@@ -141,4 +144,4 @@ PYTHONUNBUFFERED=1 HYDRA_FULL_ERROR=1 PYTHONPATH="/home/keaneong/human-behavior/
     trainer.test_freq=10 \
     trainer.total_epochs=1 $@ \
     trainer.default_local_dir=/scratch/keane/human_behaviour/mixed_modal_verl_models_hb_omni \
-    trainer.resume_mode=auto \
+    # trainer.resume_mode=auto \
