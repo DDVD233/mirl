@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -x
 
-
+export CUDA_VISIBLE_DEVICES=2,3
 unset ROCR_VISIBLE_DEVICES
 export PYTHONUNBUFFERED=1
 export HYDRA_FULL_ERROR=1
