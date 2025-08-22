@@ -50,7 +50,7 @@ def log_modality_budgets(batch, step):
     bd_store = batch.non_tensor_batch.get("modality_token_breakdown", None)
     if bd_store is None:
         return
-
+    print(f"Loggin modality budget for {bd_store}")
     N = _len_from_batch(batch)
     sigs = batch.non_tensor_batch.get("modality_signature", None)
     # Normalize signatures to list[str]
