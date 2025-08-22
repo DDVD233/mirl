@@ -11,8 +11,8 @@ export NCCL_ASYNC_ERROR_HANDLING=1
 
 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
-    data.train_files=/scratch/keane/human_behaviour/human_behaviour_data/0.1_train.jsonl \
-    data.val_files=/scratch/keane/human_behaviour/human_behaviour_data/0.1_val.jsonl \
+    data.train_files=/scratch/keane/human_behaviour/human_behaviour_data/fixed_0.1_train.jsonl \
+    data.val_files=/scratch/keane/human_behaviour/human_behaviour_data/fixed_0.1_val.jsonl \
     data.train_batch_size=240 \
     data.val_batch_size=120 \
     data.max_prompt_length=4096 \
