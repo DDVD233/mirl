@@ -1,20 +1,21 @@
-# ---- utils: log modality budgets straight from batch_dict (pre-repeat, pre-DataProto) ----
-import numpy as np, wandb
+# ---- utils: log modality token budgets from batch_dict (mean/min/max) ----
+import numpy as np
+import wandb
 from collections import defaultdict
 
+def _sanitize_tag(s):
+    # keep W&B keys clean and avoid accidental nesting
+    return str(s).replace("/", "_").replace(" ", "_")
+
 def _normalize_bd_store_to_list_of_dicts(bd_store, N):
-    """Always return list[dict] of length N."""
-    import numpy as np
-    # numpy array of dicts -> list
+    """Return list[dict] of length N (handles list, np.array(dtype=object), dict-of-arrays)."""
     if isinstance(bd_store, np.ndarray):
         try:
             bd_store = bd_store.tolist()
         except Exception:
             pass
-    # list of dicts
     if isinstance(bd_store, list):
         return list(bd_store)[:N]
-    # dict-of-arrays (possibly with nested dict-of-arrays under 'placeholders')
     if isinstance(bd_store, dict):
         def _ith(v, i):
             if hasattr(v, "cpu"):
@@ -30,7 +31,7 @@ def _normalize_bd_store_to_list_of_dicts(bd_store, N):
         for i in range(N):
             d = {}
             for k, v in bd_store.items():
-                if isinstance(v, dict):
+                if isinstance(v, dict):  # e.g., placeholders dict-of-arrays
                     d[k] = {kk: _ith(vv, i) for kk, vv in v.items()}
                 else:
                     d[k] = _ith(v, i)
@@ -39,28 +40,22 @@ def _normalize_bd_store_to_list_of_dicts(bd_store, N):
     return []
 
 def _infer_batch_size_from_batch_dict(batch_dict):
-    # Prefer the same source you’ll read: modality_token_breakdown
     bd = batch_dict.get("modality_token_breakdown", None)
     if bd is None:
-        # fallback: try modality_signature
         sigs = batch_dict.get("modality_signature", None)
         if sigs is not None:
             return len(sigs)
-        # last resort: try any list-like field
         for v in batch_dict.values():
             try:
                 return len(v)
             except Exception:
                 continue
         return 0
-    import numpy as np
     if isinstance(bd, (list, np.ndarray)):
         return len(bd)
     if isinstance(bd, dict):
-        # use first non-dict value’s length
         for v in bd.values():
             if isinstance(v, dict):
-                # nested dict: take its first value’s length
                 for vv in v.values():
                     try: return len(vv)
                     except Exception: pass
@@ -69,7 +64,7 @@ def _infer_batch_size_from_batch_dict(batch_dict):
                 except Exception: pass
     return 0
 
-def _vec_from_bd_list(bd_list, key, sub=None):
+def _vec(bd_list, key, sub=None):
     xs = []
     for d in bd_list:
         val = d.get(key, 0)
@@ -81,7 +76,19 @@ def _vec_from_bd_list(bd_list, key, sub=None):
             xs.append(0.0)
     return xs
 
+def _mean(xs): return float(np.mean(xs)) if xs else 0.0
+def _min(xs):  return float(np.min(xs))  if xs else 0.0
+def _max(xs):  return float(np.max(xs))  if xs else 0.0
+
 def log_modality_budgets(batch_dict, step):
+    """
+    Logs mean/min/max for:
+      - input_ids_len (pre-truncation), text_tokens_est (pre-truncation)
+      - image_kv_tokens_est, video_kv_tokens_est
+      - audio_secs
+      - placeholders (image/video/audio)
+    Plus per-signature (modality_signature) aggregates.
+    """
     bd_store = batch_dict.get("modality_token_breakdown", None)
     if bd_store is None:
         return
@@ -97,64 +104,112 @@ def log_modality_budgets(batch_dict, step):
     if sigs is not None and hasattr(sigs, "tolist"):
         sigs = sigs.tolist()
 
-    input_ids_len = _vec_from_bd_list(bd_list, "input_ids_len")          # pre-truncation
-    text_tokens   = _vec_from_bd_list(bd_list, "text_tokens_est")        # pre-truncation
-    img_kv        = _vec_from_bd_list(bd_list, "image_kv_tokens_est")
-    vid_kv        = _vec_from_bd_list(bd_list, "video_kv_tokens_est")
-    aud_secs      = _vec_from_bd_list(bd_list, "audio_secs")
-    ph_img        = _vec_from_bd_list(bd_list, "placeholders", "image_ph")
-    ph_vid        = _vec_from_bd_list(bd_list, "placeholders", "video_ph")
-    ph_aud        = _vec_from_bd_list(bd_list, "placeholders", "audio_ph")
+    # vectors
+    input_ids_len = _vec(bd_list, "input_ids_len")          # pre-truncation
+    text_tokens   = _vec(bd_list, "text_tokens_est")        # pre-truncation
+    img_kv        = _vec(bd_list, "image_kv_tokens_est")
+    vid_kv        = _vec(bd_list, "video_kv_tokens_est")
+    aud_secs      = _vec(bd_list, "audio_secs")
+    ph_img        = _vec(bd_list, "placeholders", "image_ph")
+    ph_vid        = _vec(bd_list, "placeholders", "video_ph")
+    ph_aud        = _vec(bd_list, "placeholders", "audio_ph")
 
-    p50 = lambda x: float(np.median(x)) if x else 0.0
-    p95 = lambda x: float(np.percentile(x, 95)) if x else 0.0
-    pmin = lambda x: float(np.min(x)) if x else 0.0
-    pmax = lambda x: float(np.max(x)) if x else 0.0
-
-    # Batch-level summaries
+    # batch-level summaries (mean/min/max)
     wandb.log({
-        "budget/input_ids/p50": p50(input_ids_len),
-        "budget/input_ids/p95": p95(input_ids_len),
-        "budget/input_ids/min": pmin(input_ids_len),
-        "budget/input_ids/max": pmax(input_ids_len),
-        "budget/text/p50":      p50(text_tokens),
-        "budget/text/p95":      p95(text_tokens),
-        "budget/img_kv/p50":    p50(img_kv),
-        "budget/vid_kv/p50":    p50(vid_kv),
-        "budget/audio_secs/p50":p50(aud_secs),
-        "budget/ph/image/p50":  p50(ph_img),
-        "budget/ph/video/p50":  p50(ph_vid),
-        "budget/ph/audio/p50":  p50(ph_aud),
+        "modality_token_budgets/input_ids/mean": _mean(input_ids_len),
+        "modality_token_budgets/input_ids/min":  _min(input_ids_len),
+        "modality_token_budgets/input_ids/max":  _max(input_ids_len),
+
+        "modality_token_budgets/text/mean": _mean(text_tokens),
+        "modality_token_budgets/text/min":  _min(text_tokens),
+        "modality_token_budgets/text/max":  _max(text_tokens),
+
+        "modality_token_budgets/img_kv/mean": _mean(img_kv),
+        "modality_token_budgets/img_kv/min":  _min(img_kv),
+        "modality_token_budgets/img_kv/max":  _max(img_kv),
+
+        "modality_token_budgets/vid_kv/mean": _mean(vid_kv),
+        "modality_token_budgets/vid_kv/min":  _min(vid_kv),
+        "modality_token_budgets/vid_kv/max":  _max(vid_kv),
+
+        "modality_token_budgets/audio_secs/mean": _mean(aud_secs),
+        "modality_token_budgets/audio_secs/min":  _min(aud_secs),
+        "modality_token_budgets/audio_secs/max":  _max(aud_secs),
+
+        "modality_token_budgets/placeholders/image/mean": _mean(ph_img),
+        "modality_token_budgets/placeholders/image/min":  _min(ph_img),
+        "modality_token_budgets/placeholders/image/max":  _max(ph_img),
+
+        "modality_token_budgets/placeholders/video/mean": _mean(ph_vid),
+        "modality_token_budgets/placeholders/video/min":  _min(ph_vid),
+        "modality_token_budgets/placeholders/video/max":  _max(ph_vid),
+
+        "modality_token_budgets/placeholders/audio/mean": _mean(ph_aud),
+        "modality_token_budgets/placeholders/audio/min":  _min(ph_aud),
+        "modality_token_budgets/placeholders/audio/max":  _max(ph_aud),
     }, step=step)
 
-    # Per-signature medians
+    # per-signature aggregates (mean/min/max)
     if sigs is not None and len(sigs) == len(bd_list):
-        buckets = defaultdict(lambda: {"L":[], "T":[], "Ikv":[], "Vkv":[], "As":[]})
+        buckets = defaultdict(lambda: {"L":[], "T":[], "Ikv":[], "Vkv":[], "As":[], "Phi":[], "Phv":[], "Pha":[]})
         for s, d in zip(sigs, bd_list):
             buckets[s]["L"].append(float(d.get("input_ids_len", 0)))
             buckets[s]["T"].append(float(d.get("text_tokens_est", 0)))
             buckets[s]["Ikv"].append(float(d.get("image_kv_tokens_est", 0)))
             buckets[s]["Vkv"].append(float(d.get("video_kv_tokens_est", 0)))
             buckets[s]["As"].append(float(d.get("audio_secs", 0.0)))
+            ph = d.get("placeholders", {}) or {}
+            buckets[s]["Phi"].append(float(ph.get("image_ph", 0)))
+            buckets[s]["Phv"].append(float(ph.get("video_ph", 0)))
+            buckets[s]["Pha"].append(float(ph.get("audio_ph", 0)))
+
         payload = {}
         for s, b in buckets.items():
+            tag = _sanitize_tag(s)
             payload.update({
-                f"budget_by_sig/{s}/n": len(b["L"]),
-                f"budget_by_sig/{s}/input_ids_p50": p50(b["L"]),
-                f"budget_by_sig/{s}/text_p50":      p50(b["T"]),
-                f"budget_by_sig/{s}/img_kv_p50":    p50(b["Ikv"]),
-                f"budget_by_sig/{s}/vid_kv_p50":    p50(b["Vkv"]),
-                f"budget_by_sig/{s}/audio_secs_p50":p50(b["As"]),
+                f"modality_token_budgets_by_sig/{tag}/n": len(b["L"]),
+
+                f"modality_token_budgets_by_sig/{tag}/input_ids/mean": _mean(b["L"]),
+                f"modality_token_budgets_by_sig/{tag}/input_ids/min":  _min(b["L"]),
+                f"modality_token_budgets_by_sig/{tag}/input_ids/max":  _max(b["L"]),
+
+                f"modality_token_budgets_by_sig/{tag}/text/mean": _mean(b["T"]),
+                f"modality_token_budgets_by_sig/{tag}/text/min":  _min(b["T"]),
+                f"modality_token_budgets_by_sig/{tag}/text/max":  _max(b["T"]),
+
+                f"modality_token_budgets_by_sig/{tag}/img_kv/mean": _mean(b["Ikv"]),
+                f"modality_token_budgets_by_sig/{tag}/img_kv/min":  _min(b["Ikv"]),
+                f"modality_token_budgets_by_sig/{tag}/img_kv/max":  _max(b["Ikv"]),
+
+                f"modality_token_budgets_by_sig/{tag}/vid_kv/mean": _mean(b["Vkv"]),
+                f"modality_token_budgets_by_sig/{tag}/vid_kv/min":  _min(b["Vkv"]),
+                f"modality_token_budgets_by_sig/{tag}/vid_kv/max":  _max(b["Vkv"]),
+
+                f"modality_token_budgets_by_sig/{tag}/audio_secs/mean": _mean(b["As"]),
+                f"modality_token_budgets_by_sig/{tag}/audio_secs/min":  _min(b["As"]),
+                f"modality_token_budgets_by_sig/{tag}/audio_secs/max":  _max(b["As"]),
+
+                f"modality_token_budgets_by_sig/{tag}/placeholders/image/mean": _mean(b["Phi"]),
+                f"modality_token_budgets_by_sig/{tag}/placeholders/image/min":  _min(b["Phi"]),
+                f"modality_token_budgets_by_sig/{tag}/placeholders/image/max":  _max(b["Phi"]),
+
+                f"modality_token_budgets_by_sig/{tag}/placeholders/video/mean": _mean(b["Phv"]),
+                f"modality_token_budgets_by_sig/{tag}/placeholders/video/min":  _min(b["Phv"]),
+                f"modality_token_budgets_by_sig/{tag}/placeholders/video/max":  _max(b["Phv"]),
+
+                f"modality_token_budgets_by_sig/{tag}/placeholders/audio/mean": _mean(b["Pha"]),
+                f"modality_token_budgets_by_sig/{tag}/placeholders/audio/min":  _min(b["Pha"]),
+                f"modality_token_budgets_by_sig/{tag}/placeholders/audio/max":  _max(b["Pha"]),
             })
         if payload:
             wandb.log(payload, step=step)
 
-    # Optional histograms
+    # Optional histograms under the new namespace
     try:
         wandb.log({
-            "budget/hist_input_ids": wandb.Histogram(input_ids_len),
-            "budget/hist_img_kv":    wandb.Histogram(img_kv),
-            "budget/hist_vid_kv":    wandb.Histogram(vid_kv),
+            "modality_token_budgets/hist/input_ids": wandb.Histogram(input_ids_len),
+            "modality_token_budgets/hist/img_kv":    wandb.Histogram(img_kv),
+            "modality_token_budgets/hist/vid_kv":    wandb.Histogram(vid_kv),
         }, step=step)
     except Exception:
         pass

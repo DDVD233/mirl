@@ -60,7 +60,7 @@ def human_behaviour_compute_score_batch(
         List of score dictionaries
     """
     batch_scores = []
-    format_weight = 0.3 # weight for format correctness
+    format_weight = 0.2 # weight for format correctness
 
     for data_source, predict_str, ground_truth, extra_info in zip(data_sources, solution_strs, ground_truths, extra_infos):
         # Normalize response formatting (e.g., qwen2.5vl quirks)
