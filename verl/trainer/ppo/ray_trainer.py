@@ -1183,6 +1183,14 @@ class RayPPOTrainer:
             config=OmegaConf.to_container(self.config, resolve=True),
         )
 
+        # --- Add this block ---
+        if "wandb" in self.config.trainer.logger and wandb.run is not None:
+            # Log full resolved config
+            wandb.config.update(
+                OmegaConf.to_container(self.config, resolve=True),
+                allow_val_change=True
+            )
+
         self.global_steps = 0
 
         # load checkpoint before doing anything
