@@ -64,7 +64,8 @@ unset ROCR_VISIBLE_DEVICES
 # actor_rollout_ref.rollout.max_model_len=4096
 # +actor_rollout_ref.rollout.engine_kwargs.vllm.kv_cache_dtype=fp8   # use fp16 if fp8 unsupported
 # actor_rollout_ref.rollout.enforce_eager=True                       # avoids CUDA graph preallocs
-# actor_rollout_ref.rollout.gpu_memory_utilization=0.55              # conservative; can raise later (requires restart)
+# actor_rollout_ref.rollout.gpu_memory_utilization=0.5              # conservative; can raise later (requires restart)
+# you can also try a batch size of 3; for now and 3 gpus
 
 # # prefill strategy
 # actor_rollout_ref.rollout.enable_chunked_prefill=False             # keep off unless you set batched_tokens >= max_model_len
@@ -79,8 +80,8 @@ PYTHONUNBUFFERED=1 HYDRA_FULL_ERROR=1 PYTHONPATH="/home/keaneong/human-behavior/
     algorithm.adv_estimator=grpo \
     data.train_files=/scratch/keane/human_behaviour/human_behaviour_data/sigs_train_no_lmvd_discretized_v3_template_prompts.jsonl \
     data.val_files=/scratch/keane/human_behaviour/human_behaviour_data/0.005_sigs_val_no_lmvd_discretized_v3_template_prompts.jsonl \
-    data.train_batch_size=3 \
-    data.val_batch_size=3 \
+    data.train_batch_size=2 \
+    data.val_batch_size=2 \
     data.max_prompt_length=4096 \
     data.max_response_length=4096 \
     data.filter_overlong_prompts=False \
@@ -98,7 +99,7 @@ PYTHONUNBUFFERED=1 HYDRA_FULL_ERROR=1 PYTHONPATH="/home/keaneong/human-behavior/
     actor_rollout_ref.model.path=Qwen/Qwen2.5-Omni-7B \
     actor_rollout_ref.actor.optim.lr=1e-6 \
     actor_rollout_ref.model.use_remove_padding=False \
-    actor_rollout_ref.actor.ppo_mini_batch_size=3 \
+    actor_rollout_ref.actor.ppo_mini_batch_size=2 \
     actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=1 \
     actor_rollout_ref.actor.use_kl_loss=False \
     actor_rollout_ref.actor.kl_loss_coef=0 \
@@ -131,7 +132,7 @@ PYTHONUNBUFFERED=1 HYDRA_FULL_ERROR=1 PYTHONPATH="/home/keaneong/human-behavior/
     trainer.logger='["console","wandb"]' \
     trainer.project_name='test_mixed_modal_omni' \
     trainer.experiment_name='mixed_modal_omni' \
-    trainer.n_gpus_per_node=3 \
+    trainer.n_gpus_per_node=2 \
     trainer.nnodes=1 \
     trainer.save_freq=-1 \
     trainer.val_before_train=False \
