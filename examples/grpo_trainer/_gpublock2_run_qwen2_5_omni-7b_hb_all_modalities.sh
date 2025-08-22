@@ -30,7 +30,8 @@ python3 -m verl.trainer.main_ppo \
     data.val_modality_batching.drop_last=False \
     data.format_prompt=/home/keaneong/human-behavior/verl/examples/format_prompt/default.jinja \
     actor_rollout_ref.model.path=Qwen/Qwen2.5-Omni-7B \
-    actor_rollout_ref.actor.optim.lr=1e-4 \
+    actor_rollout_ref.actor.optim.lr=1e-6 \
+    actor_rollout_ref.actor.optim.weight_decay=0 \
     actor_rollout_ref.model.use_remove_padding=False \
     actor_rollout_ref.actor.ppo_mini_batch_size=60 \
     actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=2 \
@@ -71,4 +72,4 @@ python3 -m verl.trainer.main_ppo \
     trainer.validation_data_dir=/home/keaneong/human-behavior/verl/examples/grpo_trainer/val_logs_mixed_modal_verl_models_hb_omni_gpus12 \
     trainer.test_freq=5 \
     trainer.total_epochs=5 $@ \
-    trainer.default_local_dir=/scratch/keane/human_behaviour/mixed_modal_verl_models_hb_omni_gpu_block2
+    trainer.default_local_dir=/scratch/keane/human_behaviour/mixed_modal_verl_models_hb_omni_gpublock2
