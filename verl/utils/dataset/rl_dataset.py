@@ -28,10 +28,10 @@ from omegaconf import DictConfig, ListConfig
 from torch.utils.data import Dataset
 from transformers import PreTrainedTokenizer, ProcessorMixin
 import warnings
-
 import verl.utils.torch_functional as verl_F
 from verl.utils.model import compute_position_id_with_mask
 import time, os, math, warnings
+from count_mm_tokens import compute_modality_token_breakdown
 
 logger = logging.getLogger(__name__)
 
@@ -496,23 +496,6 @@ class RLHFDataset(Dataset):
                     print(f"[video] n={len(videos)} shapes={shapes} est_tokens={toks} "
                         f"sum_est_tokens={sum(toks)} p99_est={_p99(toks)}")
 
-
-            # NOTE: PROCESSING OF THE AUDIO TUPLES
-            # if "audio" in self.modalities and self.audio_key in row_dict and row_dict.get(self.audio_key, None) is not None and len(row_dict[self.audio_key]) > 0:
-            #     audios = []
-            #     audio_tuples = []  # Keep tuples for multi_modal_data
-            #     for audio in row_dict.get(self.audio_key):
-            #         audio_path = os.path.join(self.base_dir, audio) if isinstance(audio, str) else audio
-            #         audio_data, sampling_rate = process_audio(audio_path, self.processor)
-            #         audio_tuples.append((audio_data, sampling_rate))
-            #         # audios.append(audio_data.numpy())  # Convert to numpy array for Whisper
-            #         audios.append(audio_data.detach().cpu().numpy().astype("float32"))
-
-            #     # multi_modal_data["audio"] = audio_tuples  # Store tuples for reference
-            #     multi_modal_data["audio"] = audios  # Store numpy arrays (it should not accept tuples)
-
-            #     processor_kwargs["audio"] = audios  # Pass numpy arrays to processor
-
             if (
                 "audio" in self.modalities
                 and self.audio_key in row_dict
@@ -597,6 +580,12 @@ class RLHFDataset(Dataset):
             input_ids = model_inputs.pop("input_ids")
             attention_mask = model_inputs.pop("attention_mask")
 
+        row_dict["modality_token_breakdown"] = compute_modality_token_breakdown(
+                                                    model_inputs=model_inputs,
+                                                    tokenizer=self.tokenizer,
+                                                    row_dict=row_dict,           # for audio seconds
+                                                )
+        
         input_ids, attention_mask = verl_F.postprocess_data(
             input_ids=input_ids,
             attention_mask=attention_mask,
@@ -623,7 +612,7 @@ class RLHFDataset(Dataset):
                     second_per_grid_ts=model_inputs.get("second_per_grid_ts"),
                     attention_mask=attention_mask[0],
                 )
-            ]  # (1, 3, seq_len)
+            ]  
 
         else:
             position_ids = compute_position_id_with_mask(attention_mask)

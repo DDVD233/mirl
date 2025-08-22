@@ -63,6 +63,7 @@ from verl.utils.rollout_skip import RolloutSkip
 from verl.utils.seqlen_balancing import get_seqlen_balanced_partitions, log_seqlen_unbalance
 from verl.utils.torch_functional import masked_mean
 from verl.utils.tracking import ValidationGenerationsLogger
+from verl.utils.dataset.log_mm_tokens import log_modality_budgets
 from examples.reward_function.hb_evaluation import compute_metrics_by_data_source
 
 WorkerType = type[Worker]
@@ -726,6 +727,9 @@ class RayPPOTrainer:
         all_data_sources = []
         data_source_lst = []
 
+        # dump generations here, as well as the other reward extra info
+        val_data_dir = self.config.trainer.get("validation_data_dir", self.config.trainer.default_local_dir)
+
         for test_data in self.val_dataloader:
             test_batch = DataProto.from_single_dict(test_data)
 
@@ -841,7 +845,8 @@ class RayPPOTrainer:
         #                                          all_data_sources, all_datasets, all_demographics)
   
         # NOTE: KEANE's IMPLEMENTATION
-        metrics = compute_metrics_by_data_source(all_predictions, all_ground_truths, all_datasets)
+        metrics = compute_metrics_by_data_source(all_predictions, all_ground_truths, 
+                                                 all_datasets, val_data_dir, self.global_steps)
 
         wandb.log(metrics, step=self.global_steps)
 
@@ -878,10 +883,11 @@ class RayPPOTrainer:
                     pfx = f"{metric_sec}/{data_source}/{var_name}/{metric_name}"
                     metric_dict[pfx] = metric_val
 
-        # dump generations
-        # TODO: dumping of the data directories
-        val_data_dir = self.config.trainer.get("validation_data_dir", self.config.trainer.default_local_dir)
+
+        reward_val_data_dir = os.path.join(val_data_dir, "val_generation_reward_scores")
+
         if val_data_dir:
+
             # basically appending the all_datasets will just mean that it will dump the generations into these subdirectories
             self._dump_generations(
                 inputs=sample_inputs,
@@ -889,7 +895,7 @@ class RayPPOTrainer:
                 gts=sample_gts,
                 scores=sample_scores,
                 reward_extra_infos_dict=reward_extra_infos_dict,
-                dump_path=val_data_dir,
+                dump_path=reward_val_data_dir,
                 datasets=all_datasets,
                 data_paths=data_sources,
             )
@@ -1265,7 +1271,6 @@ class RayPPOTrainer:
             for batch_idx, batch_dict in enumerate(self.train_dataloader):
                 #--- DEBUG: log batch content into debug_file ---
 
-
                 if debug_file is not None:
                     with open(debug_file, "a", encoding="utf-8") as f:
                         log_entry = {
@@ -1287,7 +1292,10 @@ class RayPPOTrainer:
                     )
 
                 batch: DataProto = DataProto.from_single_dict(batch_dict)
-
+                                
+                # log modality budgets                
+                log_modality_budgets(batch, step=self.global_steps)
+                
                 # add uid to batch
                 batch.non_tensor_batch["uid"] = np.array(
                     [str(uuid.uuid4()) for _ in range(len(batch.batch))], dtype=object
@@ -1317,7 +1325,6 @@ class RayPPOTrainer:
                 #     )
 
                 if "multi_modal_data" in batch.non_tensor_batch:
-                    # TODO: Fix the audio generation for this
                     non_tensor_batch_keys_to_pop.append("multi_modal_data")
                 if "raw_prompt" in batch.non_tensor_batch:
                     non_tensor_batch_keys_to_pop.append("raw_prompt")
@@ -1334,7 +1341,6 @@ class RayPPOTrainer:
                     batch_keys=batch_keys_to_pop,
                     non_tensor_batch_keys=non_tensor_batch_keys_to_pop,
                 )
-
                 # pass global_steps to trace
                 gen_batch.meta_info["global_steps"] = self.global_steps
                 gen_batch = gen_batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)

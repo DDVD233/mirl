@@ -164,16 +164,16 @@ def compute_metrics_by_data_source(
     predictions: List[str],
     ground_truths: List[str],
     datasets: List[str],
+    save_path: str = None,
+    global_steps: int = None,
 ) -> Dict[str, float]:
     """
     Compute metrics at the dataset level and a global mean across datasets (no data sources).
     Aggregates the prefixed dataset-level metrics produced by compute_dataset_metrics.
     """
-    # Save inputs (no data sources) to outputs/
-    output_dir = "outputs"
-    os.makedirs(output_dir, exist_ok=True)
+
     with open(
-        os.path.join(output_dir, f"input_data_{datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.json"), "w"
+        os.path.join(save_path, f"val_generations_{global_steps}.json"), "w"
     ) as f:
         json.dump(
             {
