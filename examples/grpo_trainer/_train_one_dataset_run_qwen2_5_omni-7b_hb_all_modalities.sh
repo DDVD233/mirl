@@ -132,14 +132,14 @@ PYTHONUNBUFFERED=1 HYDRA_FULL_ERROR=1 PYTHONPATH="/home/keaneong/human-behavior/
     trainer.critic_warmup=0 \
     trainer.logger='["console","wandb"]' \
     trainer.project_name='full_chsimsv2_mixed_modal_omni' \
-    trainer.experiment_name='2_full_chsimsv2_mixed_modal_omni' \
+    trainer.experiment_name='3_full_chsimsv2_mixed_modal_omni' \
     trainer.n_gpus_per_node=2 \
     trainer.nnodes=1 \
     trainer.save_freq=-1 \
     trainer.val_before_train=False \
     trainer.val_only=False \
-    trainer.validation_data_dir=/home/keaneong/human-behavior/verl/examples/grpo_trainer/2_val_full_chsimsv2_hb_omni \
+    trainer.validation_data_dir=/home/keaneong/human-behavior/verl/examples/grpo_trainer/3_val_full_chsimsv2_hb_omni \
     trainer.test_freq=2 \
     trainer.total_epochs=10 $@ \
-    trainer.default_local_dir=/scratch/keane/human_behaviour/2_full_chsimsv2_mixed_modal_omni \
+    trainer.default_local_dir=/scratch/keane/human_behaviour/3_full_chsimsv2_mixed_modal_omni \
     # trainer.resume_mode=auto \
