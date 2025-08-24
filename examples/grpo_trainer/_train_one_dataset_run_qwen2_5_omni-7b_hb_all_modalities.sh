@@ -81,8 +81,8 @@ export CUDA_VISIBLE_DEVICES=0,1
 
 PYTHONUNBUFFERED=1 HYDRA_FULL_ERROR=1 PYTHONPATH="/home/keaneong/human-behavior/verl:$PYTHONPATH" NCCL_ASYNC_ERROR_HANDLING=1 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
-    data.train_files=/scratch/keane/human_behaviour/human_behaviour_data/0.2_indiv_train_mosei_sig.jsonl \
-    data.val_files=/scratch/keane/human_behaviour/human_behaviour_data/0.2_indiv_val_mosei_sig.jsonl \
+    data.train_files=/scratch/keane/human_behaviour/human_behaviour_data/train_chsimsv2_only.jsonl \
+    data.val_files=/scratch/keane/human_behaviour/human_behaviour_data/val_chsimsv2_only.jsonl \
     data.train_batch_size=240 \
     data.val_batch_size=120 \
     data.max_prompt_length=4096 \
@@ -131,15 +131,15 @@ PYTHONUNBUFFERED=1 HYDRA_FULL_ERROR=1 PYTHONPATH="/home/keaneong/human-behavior/
     reward_model.reward_manager=batch \
     trainer.critic_warmup=0 \
     trainer.logger='["console","wandb"]' \
-    trainer.project_name='0.2_mosei_mixed_modal_omni' \
-    trainer.experiment_name='from_scratch_mixed_modal_omni' \
+    trainer.project_name='full_chsimsv2_mixed_modal_omni' \
+    trainer.experiment_name='full_chsimsv2_mixed_modal_omni' \
     trainer.n_gpus_per_node=2 \
     trainer.nnodes=1 \
     trainer.save_freq=-1 \
     trainer.val_before_train=False \
     trainer.val_only=False \
-    trainer.validation_data_dir=/scratch/keane/human_behaviour/0.2_mosei_from_scratch_mixed_modal_verl_models_hb_omni \
+    trainer.validation_data_dir=/home/keaneong/human-behavior/verl/examples/grpo_trainer/val_full_chsimsv2_hb_omni \
     trainer.test_freq=10 \
     trainer.total_epochs=5 $@ \
-    trainer.default_local_dir=/scratch/keane/human_behaviour/0.2_mosei_from_scratch_mixed_modal_verl_models_hb_omni \
+    trainer.default_local_dir=/scratch/keane/human_behaviour/full_chsimsv2_mixed_modal_omni \
     # trainer.resume_mode=auto \
