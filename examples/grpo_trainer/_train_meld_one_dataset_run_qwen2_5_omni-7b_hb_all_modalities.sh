@@ -81,8 +81,8 @@ export CUDA_VISIBLE_DEVICES=0,1
 
 PYTHONUNBUFFERED=1 HYDRA_FULL_ERROR=1 PYTHONPATH="/home/keaneong/human-behavior/verl:$PYTHONPATH" NCCL_ASYNC_ERROR_HANDLING=1 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
-    data.train_files=/scratch/keane/human_behaviour/human_behaviour_data/audio_sigs_train_chsimsv2_only.jsonl \
-    data.val_files=/scratch/keane/human_behaviour/human_behaviour_data/audio_sigs_val_chsimsv2_only.jsonl \
+    data.train_files=/scratch/keane/human_behaviour/human_behaviour_data/audio_sigs_train_meld.jsonl \
+    data.val_files=/scratch/keane/human_behaviour/human_behaviour_data/audio_sigs_val_meld.jsonl \
     data.train_batch_size=512 \
     data.val_batch_size=128 \
     data.max_prompt_length=4096 \
