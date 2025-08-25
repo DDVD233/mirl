@@ -1,0 +1,145 @@
+set -x
+
+unset ROCR_VISIBLE_DEVICES
+
+# actor_rollout_ref.model.path=Qwen/Qwen2.5-VL-7B-Instruct
+# actor_rollout_ref.model.path=Qwen/Qwen2.5-Omni-7B
+# data.train_files=/scratch/keane/human_behaviour/human_behaviour_data/train_no_meld_no_chalearn_vision_v2_template_prompts.jsonl \
+# data.val_files=/scratch/keane/human_behaviour/human_behaviour_data/val_no_meld_no_chalearn_vision_v2_template_prompts.jsonl \
+# data.modalities=\'audio,videos\' \
+
+# SETTING OF SAVE PATH: trainer.default_local_dir=/scratch/keane/human_behaviour/mixed_modal_verl_models_hb_omni
+# SETTING OF THE LOAD PATH from directory of checkpoints is also: trainer.default_local_dir
+
+# TRAINING FROM scratch: trainer.resume_mode ==  "disable" (default will save into default_local_dir, and it will not load any checkpoint)
+
+# TRAINING AUTOMATICALLY (i.e. from scratch or from latest checkpoint) : 
+    # trainer.resume_mode == "auto" and then the model will take the latest ckpt from trainer.default_local_dir
+
+# TRAINING from specific CHECKPOINT: trainer.resume_mode == "resume_path" and then specify trainer.resume_from_path
+    # Setting of path to resume training from trainer.resume_from_path (exact path of checkpoint)
+    # the model will take from resume_from_path directly (absolute path), and ignore default_local_dir
+
+# for validation, set val_before_train=True ; make sure that the checkpoint is loaded and put val_only=True
+# the checkpoint should already be loaded before that
+# and then we will just evaluate
+
+# ALTERNATIVES
+# /scratch/keane/human_behaviour/human_behaviour_data/discretized_no_lmvd_no_chsimsv2_v3_template_prompts.jsonl
+# /scratch/keane/human_behaviour/human_behaviour_data/discretized_no_lmvd_no_chsimsv2_no_chalearn_v3_template_prompts.jsonl
+
+# when resuming training from a loaded checkpoint cuda OOM error
+
+# alt: /scratch/keane/human_behaviour/human_behaviour_data/0.1_train_no_lmvd_discretized_v3_template_prompts.jsonl
+# org: /scratch/keane/human_behaviour/human_behaviour_data/train_no_lmvd_discretized_v3_template_prompts.jsonl
+
+# LORA:
+    # actor_rollout_ref.model.use_shm=True \
+    # actor_rollout_ref.model.lora_rank=32 \
+    # actor_rollout_ref.model.lora_alpha=32 \
+    # actor_rollout_ref.rollout.load_format=safetensors \
+    # actor_rollout_ref.model.target_modules=all-linear \
+    # actor_rollout_ref.rollout.layered_summon=True \
+
+# Set PyTorch CUDA memory allocator policies
+# export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True,max_split_size_mb=128
+
+# data:
+#   train_batch_size: 8
+#   val_batch_size: 8
+
+# NOTE: THESE NEED TO BE TOGGLED AS TRUE 
+#   train_modality_batching:
+#     enabled: true
+#     drop_last: true
+
+#   val_modality_batching:
+#     enabled: true
+#     drop_last: false
+
+# TEST ONLY CONFIG TO PREVENT KV CACHE OOM
+
+# To prevent the KV cache OOM alter these parameters:
+# vLLM memory & precision (static planning)
+# actor_rollout_ref.rollout.max_model_len=4096
+# +actor_rollout_ref.rollout.engine_kwargs.vllm.kv_cache_dtype=fp8   # use fp16 if fp8 unsupported
+# actor_rollout_ref.rollout.enforce_eager=True                       # avoids CUDA graph preallocs
+# actor_rollout_ref.rollout.gpu_memory_utilization=0.5              # conservative; can raise later (requires restart)
+# you can also try a batch size of 3; for now and 3 gpus
+
+# # prefill strategy
+# actor_rollout_ref.rollout.enable_chunked_prefill=False             # keep off unless you set batched_tokens >= max_model_len
+
+# # startup concurrency (conservative)
+# actor_rollout_ref.rollout.max_num_seqs=4
+# actor_rollout_ref.rollout.max_num_batched_tokens=2048
+# actor_rollout_ref.rollout.n=1
+# trainer.val_before_train= True \
+# trainer.val_only=True \
+
+export CUDA_VISIBLE_DEVICES=0,1
+
+PYTHONUNBUFFERED=1 HYDRA_FULL_ERROR=1 PYTHONPATH="/home/keaneong/human-behavior/verl:$PYTHONPATH" NCCL_ASYNC_ERROR_HANDLING=1 python3 -m verl.trainer.main_ppo \
+    algorithm.adv_estimator=grpo \
+    data.train_files=/scratch/keane/human_behaviour/human_behaviour_data/audio_sigs_train_chsimsv2_only.jsonl \
+    data.val_files=/scratch/keane/human_behaviour/human_behaviour_data/audio_sigs_val_chsimsv2_only.jsonl \
+    data.train_batch_size=512 \
+    data.val_batch_size=128 \
+    data.max_prompt_length=4096 \
+    data.max_response_length=4096 \
+    data.filter_overlong_prompts=False \
+    data.truncation='right' \
+    data.image_key=images \
+    data.video_key=videos \
+    data.prompt_key=problem \
+    data.dataloader_num_workers=8 \
+    data.modalities=\'audio,videos\' \
+    data.train_modality_batching.enabled=True \
+    data.train_modality_batching.drop_last=True \
+    data.val_modality_batching.enabled=True \
+    data.val_modality_batching.drop_last=False \
+    data.format_prompt=/home/keaneong/human-behavior/verl/examples/format_prompt/default.jinja \
+    actor_rollout_ref.model.path=Qwen/Qwen2.5-Omni-7B \
+    actor_rollout_ref.actor.optim.lr=1e-7 \
+    actor_rollout_ref.model.use_remove_padding=False \
+    actor_rollout_ref.actor.ppo_mini_batch_size=128 \
+    actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=2 \
+    actor_rollout_ref.actor.use_kl_loss=False \
+    actor_rollout_ref.actor.kl_loss_coef=0 \
+    actor_rollout_ref.actor.kl_loss_type=low_var_kl \
+    actor_rollout_ref.actor.entropy_coeff=0 \
+    actor_rollout_ref.actor.ulysses_sequence_parallel_size=1 \
+    actor_rollout_ref.model.enable_gradient_checkpointing=True \
+    actor_rollout_ref.actor.fsdp_config.param_offload=False \
+    actor_rollout_ref.actor.fsdp_config.optimizer_offload=False \
+    actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=2 \
+    actor_rollout_ref.rollout.tensor_model_parallel_size=1 \
+    actor_rollout_ref.rollout.name=vllm \
+    actor_rollout_ref.rollout.engine_kwargs.vllm.disable_mm_preprocessor_cache=True \
+    actor_rollout_ref.rollout.gpu_memory_utilization=0.6 \
+    actor_rollout_ref.rollout.enable_chunked_prefill=False \
+    actor_rollout_ref.rollout.enforce_eager=False \
+    actor_rollout_ref.rollout.free_cache_engine=True \
+    actor_rollout_ref.rollout.n=5 \
+    actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=2 \
+    actor_rollout_ref.ref.fsdp_config.param_offload=True \
+    actor_rollout_ref.rollout.max_model_len=8192 \
+    actor_rollout_ref.rollout.max_num_batched_tokens=8192 \
+    algorithm.use_kl_in_reward=False \
+    custom_reward_function.path=/home/keaneong/human-behavior/verl/examples/reward_function/human_behaviour.py \
+    custom_reward_function.name=human_behaviour_compute_score_batch \
+    reward_model.reward_manager=batch \
+    trainer.critic_warmup=0 \
+    trainer.logger='["console","wandb"]' \
+    trainer.project_name='add_audio_chsimsv2_hb_omni' \
+    trainer.experiment_name='add_audio_chsimsv2_hb_omni ' \
+    trainer.n_gpus_per_node=2 \
+    trainer.nnodes=1 \
+    trainer.save_freq=-1 \
+    trainer.val_before_train=False \
+    trainer.val_only=False \
+    trainer.validation_data_dir=/home/keaneong/human-behavior/verl/examples/grpo_trainer/val_add_audio_chsimsv2_hb_omni \
+    trainer.test_freq=2 \
+    trainer.total_epochs=10 $@ \
+    trainer.default_local_dir=/scratch/keane/human_behaviour/add_audio_chsimsv2_hb_omni \
+    # trainer.resume_mode=auto \
