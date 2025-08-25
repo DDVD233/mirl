@@ -55,8 +55,8 @@ def process_audio(
         if max_seconds:
             max_samples = int(max_seconds * target_sr)
             
-            print(f"Processing Audio {audio_path}, shape={audio_data.shape}, "
-                    f"sr={target_sr}, max_samples={max_samples}")
+            # print(f"Processing Audio {audio_path}, shape={audio_data.shape}, "
+            #         f"sr={target_sr}, max_samples={max_samples}")
             # ValueError("Audio was processed")
 
             if audio_data.shape[0] > max_samples:
