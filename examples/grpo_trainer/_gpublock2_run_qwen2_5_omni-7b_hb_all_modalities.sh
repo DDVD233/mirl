@@ -12,8 +12,8 @@ python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
     data.train_files=/scratch/keane/human_behaviour/human_behaviour_data/audio_sigs_no_chalearn_no_expw_no_mosei_fixed_0.1_train.jsonl \
     data.val_files=/scratch/keane/human_behaviour/human_behaviour_data/audio_sigs_no_chalearn_no_expw_no_mosei_fixed_0.1_val.jsonl \
-    data.train_batch_size=320 \
-    data.val_batch_size=160 \
+    data.train_batch_size=512 \
+    data.val_batch_size=128 \
     data.max_prompt_length=4096 \
     data.max_response_length=4096 \
     data.filter_overlong_prompts=False \
@@ -32,7 +32,7 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.actor.optim.lr=1e-7 \
     actor_rollout_ref.actor.optim.weight_decay=0 \
     actor_rollout_ref.model.use_remove_padding=False \
-    actor_rollout_ref.actor.ppo_mini_batch_size=80 \
+    actor_rollout_ref.actor.ppo_mini_batch_size=128 \
     actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=2 \
     actor_rollout_ref.actor.use_kl_loss=False \
     actor_rollout_ref.actor.kl_loss_coef=0 \

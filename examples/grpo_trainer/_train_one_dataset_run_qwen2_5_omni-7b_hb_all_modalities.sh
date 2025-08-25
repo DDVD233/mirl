@@ -83,10 +83,10 @@ PYTHONUNBUFFERED=1 HYDRA_FULL_ERROR=1 PYTHONPATH="/home/keaneong/human-behavior/
     algorithm.adv_estimator=grpo \
     data.train_files=/scratch/keane/human_behaviour/human_behaviour_data/audio_sigs_train_chsimsv2_only.jsonl \
     data.val_files=/scratch/keane/human_behaviour/human_behaviour_data/audio_sigs_val_chsimsv2_only.jsonl \
-    data.train_batch_size=240 \
-    data.val_batch_size=120 \
-    data.max_prompt_length=8192 \
-    data.max_response_length=8192 \
+    data.train_batch_size=512 \
+    data.val_batch_size=128 \
+    data.max_prompt_length=4096 \
+    data.max_response_length=4096 \
     data.filter_overlong_prompts=False \
     data.truncation='right' \
     data.image_key=images \
@@ -102,7 +102,7 @@ PYTHONUNBUFFERED=1 HYDRA_FULL_ERROR=1 PYTHONPATH="/home/keaneong/human-behavior/
     actor_rollout_ref.model.path=Qwen/Qwen2.5-Omni-7B \
     actor_rollout_ref.actor.optim.lr=1e-7 \
     actor_rollout_ref.model.use_remove_padding=False \
-    actor_rollout_ref.actor.ppo_mini_batch_size=60 \
+    actor_rollout_ref.actor.ppo_mini_batch_size=128 \
     actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=2 \
     actor_rollout_ref.actor.use_kl_loss=False \
     actor_rollout_ref.actor.kl_loss_coef=0 \
