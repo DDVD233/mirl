@@ -10,8 +10,8 @@ export NCCL_ASYNC_ERROR_HANDLING=1
 
 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
-    data.train_files=/scratch/keane/human_behaviour/human_behaviour_data/audio_sigs_no_expw_no_mosei_fixed_0.1_train.jsonl \
-    data.val_files=/scratch/keane/human_behaviour/human_behaviour_data/audio_sigs_no_expw_no_mosei_fixed_0.1_val.jsonl \
+    data.train_files=/scratch/keane/human_behaviour/human_behaviour_data/audio_sigs_no_chalearn_no_expw_no_mosei_fixed_0.1_train.jsonl \
+    data.val_files=/scratch/keane/human_behaviour/human_behaviour_data/audio_sigs_no_chalearn_no_expw_no_mosei_fixed_0.1_val.jsonl \
     data.train_batch_size=320 \
     data.val_batch_size=160 \
     data.max_prompt_length=8192 \
