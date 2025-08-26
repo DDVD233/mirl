@@ -58,7 +58,4 @@ class OmniClassifierDataset(RLHFDataset):
         # labels must be Long for CrossEntropyLoss
         row_dict["labels"] = torch.tensor(label, dtype=torch.long)
 
-        print(row_dict)
-        raise Exception("Debugging")
-        
         return row_dict
