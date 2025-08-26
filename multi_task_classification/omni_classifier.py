@@ -1,21 +1,38 @@
 import torch.nn as nn
 from transformers import Qwen2_5OmniThinkerForConditionalGeneration
 from peft import LoraConfig, get_peft_model, TaskType
+import torch
 
 class OmniClassifier(nn.Module):
-    """
-    Qwen2.5 Omni backbone encoder + classification head for cross-entropy classification tasks.
-    Set freeze_backbone=True to freeze the backbone parameters.
-    Enable LoRA by passing a lora_config dictionary for efficient fine-tuning.
-    """
-    def __init__(self, num_classes=5, freeze_backbone="head_only", backbone_name='Qwen/Qwen2.5-Omni-7B', 
-                 lora_config=None):
+    def __init__(self, num_classes=5, freeze_backbone="head_only",
+                 backbone_name='Qwen/Qwen2.5-Omni-7B', lora_config=None, **from_pretrained_kwargs):
         super().__init__()
-        self.backbone = Qwen2_5OmniThinkerForConditionalGeneration.from_pretrained(backbone_name)
-        self.classifier = nn.Linear(self.backbone.config.hidden_size, num_classes)
-        
-        # Handle different freezing strategies
+        self.backbone = Qwen2_5OmniThinkerForConditionalGeneration.from_pretrained(
+            backbone_name, **from_pretrained_kwargs
+        )
+
+        hidden_size = self._resolve_hidden_size(self.backbone)
+        self.classifier = nn.Linear(hidden_size, num_classes)
+
         self._setup_training_strategy(freeze_backbone, lora_config)
+
+    @staticmethod
+    def _resolve_hidden_size(backbone):
+        cfg = backbone.config
+        # Prefer the text encoder's hidden size (the one you’ll pool over)
+        if hasattr(cfg, "text_config") and hasattr(cfg.text_config, "hidden_size"):
+            return cfg.text_config.hidden_size
+        # Some composite configs may also nest other subconfigs (vision/audio/talker)
+        for sub in ("language_config", "vision_config", "audio_config", "encoder_config"):
+            if hasattr(cfg, sub) and hasattr(getattr(cfg, sub), "hidden_size"):
+                return getattr(cfg, sub).hidden_size
+        # Last-resort: run a tiny forward to discover the width
+        device = next(backbone.parameters()).device
+        with torch.no_grad():
+            dummy = torch.ones(1, 1, dtype=torch.long, device=device)
+            out = backbone(input_ids=dummy, output_hidden_states=True)
+            # last layer width
+            return out.hidden_states[-1].shape[-1]
 
     def _apply_lora(self, lora_config):
         """
@@ -84,12 +101,25 @@ class OmniClassifier(nn.Module):
             print("Training strategy: Head-only (default)")
 
     def forward(self, input_ids, attention_mask=None, **kwargs):
-        # Forward through backbone, get last hidden state
-        outputs = self.backbone(input_ids=input_ids, attention_mask=attention_mask, output_hidden_states=True)
-        # Pool: mean over sequence (can change to [CLS] or other pooling)
-        pooled = outputs.last_hidden_state.mean(dim=1)
-        logits = self.classifier(pooled)
-        return logits
+        # NOTE: We do not care about the modality imbalance for now when we average everything 
+        # for pooling
+        out = self.backbone(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            output_hidden_states=True,
+            **kwargs
+        )
+        # hidden states: tuple of [layer_0, ..., layer_n]
+        h = out.hidden_states[-2]          # penultimate layer, [B, T, H]
+
+        if attention_mask is not None:
+            # mean-pool only over non-padding tokens
+            pooled = (h * attention_mask.unsqueeze(-1)).sum(1) / attention_mask.sum(1, keepdim=True)
+        else:
+            pooled = h.mean(dim=1)         # fallback: plain mean over sequence
+
+        return self.classifier(pooled)     # [B, num_classes]
+
 
     def unfreeze_backbone(self):
         for param in self.backbone.parameters():
