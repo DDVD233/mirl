@@ -13,23 +13,14 @@ from collections import defaultdict
 # Hardcoded paths
 # ------------------
 INPUT_JSONLS = [
-    "/Users/keane/Desktop/research/human-behavior/data/splits/audio_sigs_fixed_full_train.jsonl",
-    "/Users/keane/Desktop/research/human-behavior/data/splits/audio_sigs_fixed_full_val.jsonl"
+    "/scratch/keane/human_behaviour/human_behaviour_data/audio_sigs_train_meld.jsonl"
 ]
-OUTPUT_JSON = "/Users/keane/Desktop/research/human-behavior/verl/multi_task_classification/label_map.json"
+OUTPUT_JSON = "/Users/keane/Desktop/research/human-behavior/verl/multi_task_classification/meld_label_map.json"
 
 # ------------------
 # Helpers
 # ------------------
 SAFE_RE = re.compile(r"[^a-z0-9_]+")
-
-def sanitize(s: str) -> str:
-    s = s.strip().lower()
-    s = s.replace("-", "_").replace(" ", "_").replace("/", "_")
-    s = SAFE_RE.sub("_", s)
-    s = re.sub(r"_+", "_", s).strip("_")
-    return s
-
 def open_maybe_gzip(path):
     return gzip.open(path, "rt", encoding="utf-8") if path.endswith(".gz") else open(path, "r", encoding="utf-8")
 
@@ -50,7 +41,7 @@ def read_pairs(paths):
                 ans = obj.get("answer")
                 if ds is None or ans is None:
                     continue
-                yield sanitize(ds), sanitize(ans)
+                yield ds, ans
 
 # ------------------
 # Main

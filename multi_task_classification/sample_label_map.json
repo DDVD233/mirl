@@ -1,0 +1,16 @@
+{
+  "label_mapping": {
+    "mosei_senti_positive": 0,
+    "mosei_senti_weakly positive": 1
+  },
+  "dataset_labels": {
+    "mosei_senti": [
+      "positive",
+      "weakly positive"
+    ]
+  },
+  "num_classes": 2,
+  "datasets": [
+    "mosei_senti"
+  ]
+}

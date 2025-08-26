@@ -16,7 +16,7 @@ from omegaconf import OmegaConf
 # ---------------------------
 # CONFIG
 # ---------------------------
-DATA_FILES = ["//Users/keane/Desktop/research/human-behavior/data/indiv/sample.jsonl"]
+DATA_FILES = ["/Users/keane/Desktop/research/human-behavior/data/indiv/sample.jsonl"]
 TOKENIZER_NAME = "Qwen/Qwen2.5-Omni-7B"
 PROCESSOR_NAME = "Qwen/Qwen2.5-Omni-7B"
 FREEZE_BACKBONE = "head_only"  # Options: "head_only", "lora", "full" (or True/False for backward compatibility)
@@ -27,7 +27,7 @@ CHECKPOINT_DIR = None
 DEBUG_DRY_RUN = True  # <<< set True to avoid loading the real model
 
 # Load label mapping from JSON file
-LABEL_MAP_PATH = os.path.join(os.path.dirname(__file__), "label_map.json")
+LABEL_MAP_PATH = os.path.join(os.path.dirname(__file__), "sample_label_map.json")
 with open(LABEL_MAP_PATH, 'r') as f:
     label_config = json.load(f)
 
