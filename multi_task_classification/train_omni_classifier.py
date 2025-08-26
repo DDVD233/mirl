@@ -286,4 +286,4 @@ if __name__ == "__main__":
     # trainer.debug_batch_loader()
 
     # 2) Optional: run a VERY short training dry-run (e.g., 3 steps) to test loss/backward/optimizer/checkpoint
-    trainer.train(max_steps=3)
+    trainer.train(max_steps=100)
