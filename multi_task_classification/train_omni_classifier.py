@@ -24,7 +24,7 @@ BATCH_SIZE = 1
 LR = 1e-3
 EPOCHS = 3
 CHECKPOINT_DIR = None
-DEBUG_DRY_RUN = True  # <<< set True to avoid loading the real model
+DEBUG_DRY_RUN = False  # <<< set True to avoid loading the real model
 
 # Load label mapping from JSON file
 LABEL_MAP_PATH = os.path.join(os.path.dirname(__file__), "sample_label_map.json")
