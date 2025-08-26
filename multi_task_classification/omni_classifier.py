@@ -114,11 +114,9 @@ class OmniClassifier(nn.Module):
         h = out.hidden_states[-2]          # penultimate layer, [B, T, H]
 
         if attention_mask is not None:
-            raise Exception(f"Debugging, attention mask found, {attention_mask}")
             # mean-pool only over non-padding tokens
             pooled = (h * attention_mask.unsqueeze(-1)).sum(1) / attention_mask.sum(1, keepdim=True)
         else:
-            raise Exception(f"Debugging, attention mask not found, {attention_mask}")
             pooled = h.mean(dim=1)         # fallback: plain mean over sequence
 
         return self.classifier(pooled)     # [B, num_classes]
