@@ -16,18 +16,17 @@ class OmniClassifierDataset(RLHFDataset):
         # connects to RLHFDataset __getitem__
         # gets the row dict which includes processed inputs 
         # from Qwen etc.
-        # row = super().__getitem__(item)
+        row_dict = super().__getitem__(item)
         
         # -------------------------------------------------------------------
         # NOTE: ONLY FOR DEBUGGING, remove after done.
-        row_dict: dict = self.dataframe[item]
-        if "input_ids" not in row_dict:
-            row_dict["input_ids"] = torch.randint(
-                low=0, high=1000, size=(32,), dtype=torch.long)  # e.g., seq_len=32
-        if "attention_mask" not in row_dict:
-            row_dict["attention_mask"] = torch.ones_like(row_dict["input_ids"])
+        # row_dict: dict = self.dataframe[item]
+        # if "input_ids" not in row_dict:
+        #     row_dict["input_ids"] = torch.randint(
+        #         low=0, high=1000, size=(32,), dtype=torch.long)  # e.g., seq_len=32
+        # if "attention_mask" not in row_dict:
+        #     row_dict["attention_mask"] = torch.ones_like(row_dict["input_ids"])
 
-        row = row_dict
         # -------------------------------------------------------------------
 
         # --- your existing label extraction ---
@@ -59,4 +58,7 @@ class OmniClassifierDataset(RLHFDataset):
         # labels must be Long for CrossEntropyLoss
         row_dict["labels"] = torch.tensor(label, dtype=torch.long)
 
-        return row
+        print(row_dict)
+        raise Exception("Debugging")
+        
+        return row_dict

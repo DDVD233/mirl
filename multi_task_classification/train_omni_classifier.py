@@ -16,7 +16,7 @@ from omegaconf import OmegaConf
 # ---------------------------
 # CONFIG
 # ---------------------------
-DATA_FILES = ["/Users/keane/Desktop/research/human-behavior/data/indiv/sample.jsonl"]
+DATA_FILES = ["/scratch/keane/human_behaviour/human_behaviour_data/audio_sigs_train_meld.jsonl"]
 TOKENIZER_NAME = "Qwen/Qwen2.5-Omni-7B"
 PROCESSOR_NAME = "Qwen/Qwen2.5-Omni-7B"
 FREEZE_BACKBONE = "head_only"  # Options: "head_only", "lora", "full" (or True/False for backward compatibility)
@@ -50,7 +50,7 @@ tokenizer = AutoTokenizer.from_pretrained(TOKENIZER_NAME)
 processor = AutoProcessor.from_pretrained(PROCESSOR_NAME)
 
 config = OmegaConf.create({
-    "max_prompt_length": 1024,
+    "max_prompt_length": 4096,
     "modalities": "images,videos,audio",
     "prompt_key": "problem",
     "image_key": "images",
@@ -61,8 +61,7 @@ config = OmegaConf.create({
     "return_multi_modal_inputs": True,
     "num_workers": 0,  # for debug, avoid multiprocessing noise
     "filter_overlong_prompts_workers": 0,
-    "cache_dir": "/Users/keane/Desktop/research/human-behavior/data",
-    "format_prompt": "/Users/keane/Desktop/research/human-behavior/verl/examples/format_prompt/default.jinja"
+    "format_prompt": "/home/keaneong/human-behavior/verl/examples/format_prompt/default.jinja"
 })
 
 # ---------------------------
