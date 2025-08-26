@@ -20,7 +20,7 @@ from tqdm import tqdm
 DATA_FILES = ["/scratch/keane/human_behaviour/human_behaviour_data/audio_sigs_train_meld.jsonl"]
 TOKENIZER_NAME = "Qwen/Qwen2.5-Omni-7B"
 PROCESSOR_NAME = "Qwen/Qwen2.5-Omni-7B"
-FREEZE_BACKBONE = "head_only"  # Options: "head_only", "lora", "full" (or True/False for backward compatibility)
+FREEZE_BACKBONE = "lora"  # Options: "head_only", "lora", "full" (or True/False for backward compatibility)
 BATCH_SIZE = 1
 LR = 1e-3
 EPOCHS = 3
