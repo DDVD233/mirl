@@ -27,7 +27,7 @@ CHECKPOINT_DIR = None
 DEBUG_DRY_RUN = False  # <<< set True to avoid loading the real model
 
 # Load label mapping from JSON file
-LABEL_MAP_PATH = os.path.join(os.path.dirname(__file__), "sample_label_map.json")
+LABEL_MAP_PATH = os.path.join(os.path.dirname(__file__), "meld_label_map.json")
 with open(LABEL_MAP_PATH, 'r') as f:
     label_config = json.load(f)
 
