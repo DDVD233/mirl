@@ -15,7 +15,7 @@ from collections import defaultdict
 INPUT_JSONLS = [
     "/scratch/keane/human_behaviour/human_behaviour_data/audio_sigs_train_meld.jsonl"
 ]
-OUTPUT_JSON = "/Users/keane/Desktop/research/human-behavior/verl/multi_task_classification/meld_label_map.json"
+OUTPUT_JSON = "/home/keaneong/human-behavior/verl/multi_task_classification/meld_label_map.json"
 
 # ------------------
 # Helpers
