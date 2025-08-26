@@ -12,6 +12,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 from verl.utils.dataset.rl_dataset import collate_fn
 from transformers import AutoTokenizer, AutoProcessor
 from omegaconf import OmegaConf
+from tqdm import tqdm
 
 # ---------------------------
 # CONFIG
@@ -175,12 +176,12 @@ class OmniClassifierTrainer:
         start_epoch = self.load_checkpoint(optimizer)
 
         global_step = 0
-        for epoch in range(start_epoch, self.epochs):
+        for epoch in tqdm(range(start_epoch, self.epochs), desc="Epochs", position=0):
             total_loss = 0.0
             correct = 0
             total = 0
 
-            for batch in dataloader:
+            for batch in tqdm(dataloader, desc="Batches", total=len(dataloader)):
                 # --- defensive checks
                 if 'input_ids' not in batch or 'labels' not in batch:
                     raise KeyError(f"Batch missing required keys. Got: {list(batch.keys())}")
@@ -219,6 +220,7 @@ class OmniClassifierTrainer:
                     preds = logits.argmax(dim=1)
                     correct += (preds == labels).sum().item()
                     total += labels.size(0)
+                    print(f"Printing, Preds:{preds}, Labels:{labels}, Correct:{correct}")
 
                 global_step += 1
                 if max_steps is not None and global_step >= max_steps:
