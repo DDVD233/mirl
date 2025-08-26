@@ -229,25 +229,25 @@ class OmniClassifierTrainer:
             print(f"Epoch {epoch+1}/{self.epochs} - Loss: {avg_loss:.4f} - Acc: {acc:.4f}")
 
             # --- SAVE CHECKPOINT ---
-            try:
-                # Create checkpoint directory if it doesn't exist
-                os.makedirs(self.checkpoint_dir, exist_ok=True)
+            # try:
+            #     # Create checkpoint directory if it doesn't exist
+            #     os.makedirs(self.checkpoint_dir, exist_ok=True)
                 
-                # Save checkpoint with epoch number
-                checkpoint_path = os.path.join(self.checkpoint_dir, f"checkpoint_epoch_{epoch + 1}.pt")
+            #     # Save checkpoint with epoch number
+            #     checkpoint_path = os.path.join(self.checkpoint_dir, f"checkpoint_epoch_{epoch + 1}.pt")
                 
-                # Prepare checkpoint data
-                checkpoint_data = {
-                    'model_state_dict': self.model.state_dict(),
-                    'optimizer_state_dict': optimizer.state_dict(),
-                    'epoch': epoch + 1,
-                }
+            #     # Prepare checkpoint data
+            #     checkpoint_data = {
+            #         'model_state_dict': self.model.state_dict(),
+            #         'optimizer_state_dict': optimizer.state_dict(),
+            #         'epoch': epoch + 1,
+            #     }
                 
-                torch.save(checkpoint_data, checkpoint_path)
-                print(f"Checkpoint saved to {checkpoint_path}")
+            #     torch.save(checkpoint_data, checkpoint_path)
+            #     print(f"Checkpoint saved to {checkpoint_path}")
                 
-            except Exception as e:
-                print(f"[WARN] Failed to save checkpoint: {e}")
+            # except Exception as e:
+            #     print(f"[WARN] Failed to save checkpoint: {e}")
 
             if max_steps is not None and global_step >= max_steps:
                 break
