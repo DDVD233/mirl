@@ -23,7 +23,7 @@ FREEZE_BACKBONE = "head_only"  # Options: "head_only", "lora", "full" (or True/F
 BATCH_SIZE = 1
 LR = 1e-3
 EPOCHS = 3
-CHECKPOINT_DIR = None
+CHECKPOINT_DIR = ""
 DEBUG_DRY_RUN = False  # <<< set True to avoid loading the real model
 
 # Load label mapping from JSON file
