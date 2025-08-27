@@ -228,6 +228,11 @@ class OmniClassifierTrainer:
                         raise ValueError(f"Unexpected labels shape {labels.shape}")
 
                 logits = self.model(input_ids, attention_mask=attention_mask)
+                
+                # Move labels to the same device as logits when using device_map="auto"
+                if self.device_map == "auto":
+                    labels = labels.to(logits.device)
+                
                 loss = criterion(logits, labels)
                 
                 total_loss += loss.item() * input_ids.size(0)
@@ -433,6 +438,10 @@ class OmniClassifierTrainer:
 
                 if not torch.isfinite(logits).all():
                     raise FloatingPointError("Non-finite logits encountered")
+
+                # Move labels to the same device as logits when using device_map="auto"
+                if self.device_map == "auto":
+                    labels = labels.to(logits.device)
 
                 loss = criterion(logits, labels)
                 if not torch.isfinite(loss):
