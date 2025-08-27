@@ -17,11 +17,6 @@ from datetime import datetime
 from multi_task_evaluation import evaluate_predictions, compute_dataset_metrics
 from wandb_utils import init_wandb, log_metrics, log_line_series, finish
 
-import logging
-
-logging.getLogger("video_reader_backend").setLevel(logging.ERROR)
-
-
 # ---------------------------
 # CONFIG (loaded from YAML)
 # ---------------------------
@@ -201,8 +196,19 @@ class OmniClassifierTrainer:
         all_datasets = []
         criterion = CrossEntropyLoss()
         
+        # Create validation progress bar
+        val_pbar = tqdm(
+            dataloader, 
+            desc=f"{split_name.capitalize()}", 
+            total=len(dataloader),
+            position=1, 
+            leave=False,
+            ncols=80,
+            bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]'
+        )
+        
         with torch.no_grad():
-            for batch in tqdm(dataloader, desc=f"{split_name.capitalize()}", leave=False):
+            for batch_idx, batch in enumerate(val_pbar):
                 if 'input_ids' not in batch or 'labels' not in batch:
                     raise KeyError(f"Batch missing required keys. Got: {list(batch.keys())}")
 
@@ -223,7 +229,8 @@ class OmniClassifierTrainer:
                 logits = self.model(input_ids, attention_mask=attention_mask)
                 loss = criterion(logits, labels)
                 
-                total_loss += loss.item() * input_ids.size(0)
+                batch_loss = loss.item()
+                total_loss += batch_loss * input_ids.size(0)
                 preds = logits.argmax(dim=1)
                 
                 all_predictions.extend(preds.cpu().numpy())
@@ -233,6 +240,16 @@ class OmniClassifierTrainer:
                 if 'dataset' in batch:
                     # feed the datasets in
                     all_datasets.extend(batch['dataset'])
+                
+                # Update progress bar with current loss
+                current_avg_loss = total_loss / (len(all_labels))
+                val_pbar.set_postfix({
+                    'Loss': f'{current_avg_loss:.4f}',
+                    'Batch_Loss': f'{batch_loss:.4f}'
+                })
+
+        # Close validation progress bar
+        val_pbar.close()
 
         # Calculate average loss
         avg_loss = total_loss / max(1, len(all_labels))
@@ -388,14 +405,28 @@ class OmniClassifierTrainer:
         # Load checkpoint if available
         start_epoch = self.load_checkpoint(optimizer)
 
-        for epoch in tqdm(range(start_epoch, self.epochs), desc="Epochs", position=0):
+        # Configure tqdm for better visibility
+        epoch_pbar = tqdm(range(start_epoch, self.epochs), desc="Epochs", position=0, leave=True)
+        
+        for epoch in epoch_pbar:
             # Training phase
             self.model.train()
             total_loss = 0.0
             correct = 0
             total = 0
+            
+            # Create batch progress bar with detailed info
+            batch_pbar = tqdm(
+                train_dataloader, 
+                desc=f"Epoch {epoch+1}/{self.epochs} - Training", 
+                total=len(train_dataloader), 
+                position=1, 
+                leave=False,
+                ncols=100,
+                bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]'
+            )
 
-            for batch in tqdm(train_dataloader, desc="Training", total=len(train_dataloader), leave=False):
+            for batch_idx, batch in enumerate(batch_pbar):
                 # --- defensive checks
                 if 'input_ids' not in batch or 'labels' not in batch:
                     raise KeyError(f"Batch missing required keys. Got: {list(batch.keys())}")
@@ -430,12 +461,37 @@ class OmniClassifierTrainer:
                 optimizer.step()
 
                 with torch.no_grad():
-                    total_loss += loss.item() * input_ids.size(0)
+                    batch_loss = loss.item()
+                    total_loss += batch_loss * input_ids.size(0)
                     preds = logits.argmax(dim=1)
-                    correct += (preds == labels).sum().item()
+                    batch_correct = (preds == labels).sum().item()
+                    correct += batch_correct
                     total += labels.size(0)
+                    
+                    # Calculate current metrics
+                    current_loss = total_loss / total
+                    current_acc = correct / total
 
-                # step completes
+                # Update batch progress bar with current metrics
+                batch_pbar.set_postfix({
+                    'Loss': f'{current_loss:.4f}',
+                    'Acc': f'{current_acc:.4f}',
+                    'Batch_Loss': f'{batch_loss:.4f}',
+                    'Batch_Acc': f'{batch_correct/input_ids.size(0):.4f}'
+                })
+                
+                # Log batch-level metrics to wandb every N batches (to avoid spam)
+                if USE_WANDB and batch_idx % 10 == 0:  # Log every 10 batches
+                    log_metrics('train_batch', {
+                        'batch_loss': batch_loss,
+                        'batch_accuracy': batch_correct / input_ids.size(0),
+                        'cumulative_loss': current_loss,
+                        'cumulative_accuracy': current_acc,
+                        'learning_rate': optimizer.param_groups[0]['lr']
+                    }, step=epoch * len(train_dataloader) + batch_idx)
+
+            # Close batch progress bar
+            batch_pbar.close()
 
             # Calculate training metrics
             avg_train_loss = total_loss / max(1, total)
@@ -444,6 +500,13 @@ class OmniClassifierTrainer:
             # Store training metrics
             self.training_history['train_loss'].append(avg_train_loss)
             self.training_history['train_acc'].append(train_acc)
+            
+            # Update epoch progress bar
+            epoch_pbar.set_postfix({
+                'Train_Loss': f'{avg_train_loss:.4f}',
+                'Train_Acc': f'{train_acc:.4f}',
+                'Best_Val_F1': f'{self.best_val_acc:.4f}'
+            })
             
             print(f"Epoch {epoch+1}/{self.epochs} - Train Loss: {avg_train_loss:.4f} - Train Acc: {train_acc:.4f}")
 
@@ -510,7 +573,8 @@ class OmniClassifierTrainer:
                 print(f"Early stopping triggered after {EARLY_STOPPING_PATIENCE} epochs without improvement")
                 break
 
-            # continue to next epoch
+        # Close epoch progress bar
+        epoch_pbar.close()
 
         # Log final training history
         if USE_WANDB:
