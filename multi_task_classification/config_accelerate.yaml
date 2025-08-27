@@ -30,7 +30,7 @@ train:
   debug_dry_run: false
   validate_every_n_epochs: 1
   early_stopping_patience: 3
-  gradient_accumulation_steps: 16  # Higher gradient accumulation for full training
+  gradient_accumulation_steps: 4  # Higher gradient accumulation for full training
   num_workers: 2  # Reduced for memory constraints
 
 dataset_config:
