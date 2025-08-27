@@ -17,6 +17,11 @@ from datetime import datetime
 from multi_task_evaluation import evaluate_predictions, compute_dataset_metrics
 from wandb_utils import init_wandb, log_metrics, log_line_series, finish
 
+import logging
+
+logging.getLogger("video_reader_backend").setLevel(logging.ERROR)
+
+
 # ---------------------------
 # CONFIG (loaded from YAML)
 # ---------------------------

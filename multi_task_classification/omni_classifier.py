@@ -26,9 +26,8 @@ class OmniClassifier(nn.Module):
 
         self._setup_training_strategy(freeze_backbone, lora_config)
         
-        # Ensure classifier is on the same device as backbone output when using device_map="auto"
-        if device_map == "auto":
-            self._ensure_classifier_device_alignment()
+        # Ensure classifier is on the same device and dtype as backbone output for all device mapping cases
+        self._ensure_classifier_alignment()
 
     @staticmethod
     def _resolve_hidden_size(backbone):
@@ -157,12 +156,20 @@ class OmniClassifier(nn.Module):
         print(f"trainable params: {trainable_params:,} || all params: {all_param:,} || trainable%: {100 * trainable_params / all_param:.2f}%")
         return trainable_params, all_param
 
-    def _ensure_classifier_device_alignment(self):
-        """Ensure classifier head is on the same device as backbone output."""
-        # Get the device of the backbone's output (last layer)
+    def _ensure_classifier_alignment(self):
+        """Ensure classifier head is on the same device and dtype as backbone output."""
+        # Get the device and dtype of the backbone's output (last layer)
         backbone_device = next(self.backbone.parameters()).device
+        backbone_dtype = next(self.backbone.parameters()).dtype
         classifier_device = next(self.classifier.parameters()).device
+        classifier_dtype = next(self.classifier.parameters()).dtype
         
-        if backbone_device != classifier_device:
-            print(f"[INFO] Moving classifier from {classifier_device} to {backbone_device} for device alignment")
-            self.classifier = self.classifier.to(backbone_device)
+        # Check if alignment is needed
+        device_mismatch = backbone_device != classifier_device
+        dtype_mismatch = backbone_dtype != classifier_dtype
+        
+        if device_mismatch or dtype_mismatch:
+            print(f"[INFO] Aligning classifier: device {classifier_device}→{backbone_device}, dtype {classifier_dtype}→{backbone_dtype}")
+            self.classifier = self.classifier.to(device=backbone_device, dtype=backbone_dtype)
+        else:
+            print(f"[INFO] Classifier already aligned on device: {backbone_device}, dtype: {backbone_dtype}")
