@@ -23,6 +23,9 @@ class OmniClassifier(nn.Module):
 
         hidden_size = self._resolve_hidden_size(self.backbone)
         self.classifier = nn.Linear(hidden_size, num_classes)
+        
+        # Store device_map for later use
+        self.device_map = device_map
 
         self._setup_training_strategy(freeze_backbone, lora_config)
         
@@ -158,6 +161,29 @@ class OmniClassifier(nn.Module):
 
     def _ensure_classifier_alignment(self):
         """Ensure classifier head is on the same device and dtype as backbone output."""
+        if self.device_map == "auto":
+            # For auto device mapping, determine where the pooled output will be and place classifier there
+            print("[INFO] Using auto device mapping - determining optimal classifier placement...")
+            
+            # Run a small forward pass to see where the pooled output ends up
+            with torch.no_grad():
+                # Create a small dummy input
+                dummy_input = torch.ones(1, 10, dtype=torch.long)  # Small sequence
+                dummy_mask = torch.ones(1, 10, dtype=torch.long)
+                
+                # Forward pass to see where pooled output is
+                out = self.backbone(input_ids=dummy_input, attention_mask=dummy_mask, output_hidden_states=True)
+                h = out.hidden_states[-2]  # penultimate layer
+                pooled = h.mean(dim=1)  # Same pooling as in forward
+                
+                # Place classifier on the same device as pooled output
+                target_device = pooled.device
+                target_dtype = pooled.dtype
+                
+                print(f"[INFO] Placing classifier on {target_device} with dtype {target_dtype}")
+                self.classifier = self.classifier.to(device=target_device, dtype=target_dtype)
+            return
+        
         # Get the device and dtype of the backbone's output (last layer)
         backbone_device = next(self.backbone.parameters()).device
         backbone_dtype = next(self.backbone.parameters()).dtype
