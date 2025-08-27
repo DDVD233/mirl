@@ -1,5 +1,5 @@
 system:
-  cuda_visible_devices: "0,1"  # Use all available GPUs
+  cuda_visible_devices: "2,3"  # Use all available GPUs
 
 data:
   train_file: "/scratch/keane/human_behaviour/human_behaviour_data/0.1_audio_sigs_train_meld.jsonl"
@@ -10,7 +10,7 @@ data:
 model:
   tokenizer_name: "Qwen/Qwen2.5-Omni-7B"
   processor_name: "Qwen/Qwen2.5-Omni-7B"
-  training_strategy: "lora"  # options: head_only, lora, full
+  training_strategy: "full"  # options: head_only, lora, full
   device_map: "auto"  # "auto" for automatic distribution, "cpu", or specific device like "cuda:0"
   torch_dtype: "bfloat16"  # "float16", "float32", or "bfloat16" - using bfloat16 for better stability with FSDP
   lora_config:

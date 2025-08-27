@@ -5,6 +5,10 @@
 
 echo "Setting up Accelerate training environment..."
 
+# Set CUDA_VISIBLE_DEVICES to use GPUs 0 and 1
+export CUDA_VISIBLE_DEVICES="2,3"
+echo "Using GPUs: $CUDA_VISIBLE_DEVICES"
+
 # Check if accelerate config exists, if not create it
 if [ ! -f "accelerate_config.yaml" ]; then
     echo "Creating accelerate config..."
