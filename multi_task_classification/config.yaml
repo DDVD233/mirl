@@ -17,7 +17,7 @@ model:
     r: 16
     alpha: 32
     dropout: 0.1
-    target_modules: ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
+    target_modules: ["q_proj", "k_proj", "v_proj", "o_proj"]  # Reduced: removed MLP modules
 
 train:
   train_batch_size: 4

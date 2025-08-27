@@ -118,6 +118,8 @@ class OmniClassifierTrainer:
         self.label_key = config.get("label_key", "answer")
         # Use the label map loaded from JSON
         self.label_map = LABEL_MAP
+        # Store device_map for later use
+        self.device_map = device_map
         
         # Checkpoint IO setup
         self.checkpoint_dir = save_checkpoint_dir
@@ -144,6 +146,10 @@ class OmniClassifierTrainer:
             # anchor inputs on the device of the first shard/parameter
             first_device = next(self.model.parameters()).device
             self.device = torch.device(first_device)
+            print(f"[INFO] Model distributed across devices. First device: {first_device}")
+            print(f"[INFO] Available GPUs: {torch.cuda.device_count()}")
+            for i in range(torch.cuda.device_count()):
+                print(f"[INFO] GPU {i}: {torch.cuda.get_device_name(i)}")
         else:
             self.device = torch.device(device_map)
 
@@ -201,12 +207,18 @@ class OmniClassifierTrainer:
                 if 'input_ids' not in batch or 'labels' not in batch:
                     raise KeyError(f"Batch missing required keys. Got: {list(batch.keys())}")
 
-                input_ids = batch['input_ids'].to(self.device)
-                labels = batch['labels'].to(self.device)
-                attention_mask = batch.get('attention_mask', None)
-                
-                if attention_mask is not None:
-                    attention_mask = attention_mask.to(self.device)
+                # When using device_map="auto", let the model handle device placement
+                if hasattr(self, 'device_map') and self.device_map == "auto":
+                    input_ids = batch['input_ids']
+                    labels = batch['labels']
+                    attention_mask = batch.get('attention_mask', None)
+                else:
+                    input_ids = batch['input_ids'].to(self.device)
+                    labels = batch['labels'].to(self.device)
+                    attention_mask = batch.get('attention_mask', None)
+                    
+                    if attention_mask is not None:
+                        attention_mask = attention_mask.to(self.device)
 
                 # Handle labels shape
                 if labels.dim() != 1:
@@ -395,8 +407,18 @@ class OmniClassifierTrainer:
                 if 'input_ids' not in batch or 'labels' not in batch:
                     raise KeyError(f"Batch missing required keys. Got: {list(batch.keys())}")
 
-                input_ids = batch['input_ids'].to(self.device)
-                labels = batch['labels'].to(self.device)
+                # When using device_map="auto", let the model handle device placement
+                if self.device_map == "auto":
+                    input_ids = batch['input_ids']
+                    labels = batch['labels']
+                    attention_mask = batch.get('attention_mask', None)
+                else:
+                    input_ids = batch['input_ids'].to(self.device)
+                    labels = batch['labels'].to(self.device)
+                    attention_mask = batch.get('attention_mask', None)
+                    
+                    if attention_mask is not None:
+                        attention_mask = attention_mask.to(self.device)
 
                 # labels sanity
                 if labels.dim() != 1:
@@ -405,11 +427,6 @@ class OmniClassifierTrainer:
                         labels = labels.argmax(dim=1)
                     else:
                         raise ValueError(f"Unexpected labels shape {labels.shape} (expected [B] or [B, C])")
-
-                attention_mask = batch.get('attention_mask', None)
-
-                if attention_mask is not None:
-                    attention_mask = attention_mask.to(self.device)
             
                 optimizer.zero_grad(set_to_none=True)
                 logits = self.model(input_ids, attention_mask=attention_mask)
