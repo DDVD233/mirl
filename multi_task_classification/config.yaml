@@ -20,8 +20,8 @@ model:
     target_modules: ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
 
 train:
-  train_batch_size: 16
-  val_batch_size: 16
+  train_batch_size: 4
+  val_batch_size: 4
   lr: 0.001
   epochs: 2
   save_checkpoint_dir: "/scratch/keane/human_behaviour/lora_sft_meld_trial"
