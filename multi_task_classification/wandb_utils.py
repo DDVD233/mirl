@@ -108,7 +108,7 @@ def init_wandb(project: str, entity: str | None, config: dict, run_name: str | N
     return run
 
 
-def log_metrics(split_name: str, metrics: dict, epoch: int | None = None):
+def log_metrics(split_name: str, metrics: dict, step: int | None = None):
     """Log a flat dict of metrics with split prefix. Accepts already-prefixed keys too."""
     if not wandb.run:
         return
@@ -120,10 +120,10 @@ def log_metrics(split_name: str, metrics: dict, epoch: int | None = None):
             log_dict[key] = value
         else:
             log_dict[f"{split_name}/{key}"] = value
-    
-    # Use epoch as step if provided, otherwise just log without step
-    if epoch is not None:
-        wandb.log(log_dict, step=epoch)
+
+    # Log with the step
+    if step is not None:
+        wandb.log(log_dict, step=step)
     else:
         wandb.log(log_dict)
 
