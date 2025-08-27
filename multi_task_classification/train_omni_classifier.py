@@ -1,10 +1,22 @@
 import os
+import sys
+
+# Set CUDA_VISIBLE_DEVICES before any other imports that might initialize CUDA
+CFG_PATH = os.path.join(os.path.dirname(__file__), "config.yaml")
+if os.path.exists(CFG_PATH):
+    import yaml
+    with open(CFG_PATH, 'r') as f:
+        config_data = yaml.safe_load(f)
+    
+    if 'system' in config_data and 'cuda_visible_devices' in config_data['system']:
+        os.environ['CUDA_VISIBLE_DEVICES'] = config_data['system']['cuda_visible_devices']
+        print(f"[INFO] Set CUDA_VISIBLE_DEVICES to: {config_data['system']['cuda_visible_devices']}")
+
 import json
 import torch
 from torch.utils.data import DataLoader
 from torch.optim import Adam
 from torch.nn import CrossEntropyLoss
-import sys
 from dummy_classifier import DummyClassifier
 from omni_classifier import OmniClassifier
 from omni_classifier_dataset import OmniClassifierDataset
@@ -20,13 +32,7 @@ from wandb_utils import init_wandb, log_metrics, log_line_series, finish
 # ---------------------------
 # CONFIG (loaded from YAML)
 # ---------------------------
-CFG_PATH = os.path.join(os.path.dirname(__file__), "config.yaml")
 cfg = OmegaConf.load(CFG_PATH)
-
-# Set CUDA_VISIBLE_DEVICES from config before any CUDA operations
-if hasattr(cfg, 'system') and hasattr(cfg.system, 'cuda_visible_devices'):
-    os.environ['CUDA_VISIBLE_DEVICES'] = cfg.system.cuda_visible_devices
-    print(f"[INFO] Set CUDA_VISIBLE_DEVICES to: {cfg.system.cuda_visible_devices}")
 
 TRAIN_DATA_FILE =  cfg.data.train_file
 VAL_DATA_FILE = cfg.data.val_file
@@ -36,7 +42,7 @@ TOKENIZER_NAME = cfg.model.tokenizer_name
 PROCESSOR_NAME = cfg.model.processor_name
 TRAINING_STRATEGY = cfg.model.training_strategy
 
-TRAIN_BATCH_SIZE = cfg.train.batch_size
+TRAIN_BATCH_SIZE = cfg.train.train_batch_size
 VAL_BATCH_SIZE = cfg.train.val_batch_size
 LR = float(cfg.train.lr)
 EPOCHS = int(cfg.train.epochs)
