@@ -4,7 +4,6 @@ from collections import defaultdict
 from typing import Dict, List, Optional, Tuple
 import numpy as np
 from sklearn.metrics import confusion_matrix
-import wandb
 
 def _safe_div(num: float, den: float) -> float:
     """Safe division that returns 0.0 if denominator is 0."""
@@ -221,9 +220,9 @@ def compute_metrics_by_dataset(
             global_accum[k] += ds_metrics.get(k, 0.0)
         n_datasets += 1
 
-    if n_datasets > 0:
-        for k in discovered_metric_keys:
-            result[f"val/averaged_{k}"] = global_accum[k] / n_datasets
+    # if n_datasets > 0:
+    #     for k in discovered_metric_keys:
+    #         result[f"val/averaged_{k}"] = global_accum[k] / n_datasets
 
     return result
 
@@ -260,56 +259,7 @@ def compute_confusion_matrix_metrics(
     
     return cm, metrics
 
-def log_metrics_to_wandb(
-    metrics: Dict[str, float],
-    predictions: List[int],
-    ground_truths: List[int],
-    num_classes: int,
-    split_name: str = "validation",
-    epoch: Optional[int] = None,
-    class_names: Optional[List[str]] = None,
-) -> None:
-    """
-    Log metrics to wandb with proper formatting.
-    
-    Args:
-        metrics: Dictionary of metrics to log
-        predictions: List of predicted class indices
-        ground_truths: List of ground truth class indices
-        num_classes: Total number of classes
-        split_name: Name of the split (validation/test)
-        epoch: Current epoch number
-        class_names: List of class names for confusion matrix
-    """
-    if not wandb.run:
-        return
-    
-    # Prepare metrics for logging
-    log_dict = {}
-    
-    # Add epoch if provided
-    if epoch is not None:
-        log_dict['epoch'] = epoch
-    
-    # Add metrics with split prefix
-    for key, value in metrics.items():
-        log_dict[f"{split_name}/{key}"] = value
-    
-    # Log confusion matrix
-    cm, _ = compute_confusion_matrix_metrics(predictions, ground_truths, num_classes)
-    
-    if class_names is None:
-        class_names = [f"class_{i}" for i in range(num_classes)]
-    
-    log_dict[f"{split_name}/confusion_matrix"] = wandb.plot.confusion_matrix(
-        probs=None,
-        y_true=ground_truths,
-        preds=predictions,
-        class_names=class_names
-    )
-    
-    # Log the metrics
-    wandb.log(log_dict)
+# All logging is intentionally moved out to wandb_utils. This module only computes metrics.
 
 def evaluate_predictions(
     predictions: List[int],
@@ -319,7 +269,6 @@ def evaluate_predictions(
     split_name: str = "validation",
     save_path: Optional[str] = None,
     global_steps: Optional[int] = None,
-    log_to_wandb: bool = True,
     class_names: Optional[List[str]] = None,
 ) -> Dict[str, object]:
     """
@@ -340,9 +289,11 @@ def evaluate_predictions(
         Dictionary containing all evaluation results
     """
     if num_classes is None:
+        # Assuming that the class start from 0, this is the maximum number of classes involved
         num_classes = max(max(predictions), max(ground_truths)) + 1
     
     # Compute basic dataset metrics
+    # This is basically the overall metrics for the entire validation set
     dataset_results = compute_dataset_metrics(predictions, ground_truths, num_classes)
     
     # Compute confusion matrix
@@ -350,15 +301,15 @@ def evaluate_predictions(
     
     # Prepare results
     results = {
-        "predictions": predictions,
-        "ground_truths": ground_truths,
-        "num_classes": num_classes,
+        "aggregate_predictions": predictions,
+        "aggregate_ground_truths": ground_truths,
+        "aggregate_num_classes": num_classes,
         "split_name": split_name,
-        "dataset_metrics": dataset_results["dataset_metrics"],
-        "class_metrics": dataset_results["class_metrics"],
-        "confusion_matrix": cm.tolist(),
-        "confusion_matrix_metrics": cm_metrics,
-        "active_classes": dataset_results["active_classes"],
+        "aggregate_metrics": dataset_results["dataset_metrics"],
+        "aggregate_class_metrics": dataset_results["class_metrics"],
+        "aggregate_confusion_matrix": cm.tolist(),
+        "aggregate_confusion_matrix_metrics": cm_metrics,
+        "aggregate_active_classes": dataset_results["active_classes"],
     }
     
     # Add per-dataset metrics if datasets are provided
@@ -367,17 +318,6 @@ def evaluate_predictions(
             predictions, ground_truths, datasets, num_classes, save_path, global_steps
         )
         results["per_dataset_metrics"] = per_dataset_metrics
-    
-    # Log to wandb if requested
-    if log_to_wandb:
-        log_metrics_to_wandb(
-            dataset_results["dataset_metrics"],
-            predictions,
-            ground_truths,
-            num_classes,
-            split_name,
-            class_names=class_names
-        )
     
     return results
 
@@ -400,7 +340,7 @@ if __name__ == "__main__":
     )
     
     print("Dataset Metrics:")
-    for key, value in results["dataset_metrics"].items():
+    for key, value in results["aggregate_metrics"].items():
         print(f"  {key}: {value:.4f}")
     
     print("\nPer-Dataset Metrics:")
@@ -408,4 +348,4 @@ if __name__ == "__main__":
         print(f"  {key}: {value:.4f}")
     
     print("\nConfusion Matrix:")
-    print(np.array(results["confusion_matrix"]))
+    print(np.array(results["aggregate_confusion_matrix"]))
