@@ -488,7 +488,7 @@ class OmniClassifierTrainer:
                     log_metrics('batch_metrics_at_effective_batch_size_step', batch_info)
 
                 # Log training progress statistics to wandb
-                if USE_WANDB and (batch_idx + 1) % self.gradient_accumulation_steps == 0:
+                if USE_WANDB:
                     # Calculate progress statistics
                     batch_progress = (batch_idx + 1) / len(train_dataloader)
                     epoch_progress = (epoch + 1) / self.epochs
