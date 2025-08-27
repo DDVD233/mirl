@@ -20,7 +20,7 @@ model:
     target_modules: ["q_proj", "k_proj", "v_proj", "o_proj"]
 
 train:
-  train_batch_size: 1  # Very small batch size for full training of large model
+  train_batch_size: 4  # Very small batch size for full training of large model
   val_batch_size: 1
   lr: 5e-6  # Much lower learning rate for full training
   epochs: 3
@@ -30,7 +30,7 @@ train:
   debug_dry_run: false
   validate_every_n_epochs: 1
   early_stopping_patience: 3
-  gradient_accumulation_steps: 16  # Higher gradient accumulation for full training
+  gradient_accumulation_steps: 1  # Higher gradient accumulation for full training
   num_workers: 2  # Reduced for memory constraints
 
 dataset_config:

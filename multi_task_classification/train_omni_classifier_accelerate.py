@@ -519,7 +519,7 @@ class OmniClassifierAccelerateTrainer:
                             print("  WARNING: All predictions are the same!")
                         if logits.max() - logits.min() < 0.1:
                             print("  WARNING: Logits are very close to each other!")
-                        raise Exception("Debugging")
+                        
 
                 # Log batch information to wandb (only on main process)
                 if USE_WANDB and self.accelerator.is_main_process and (batch_idx + 1) % self.gradient_accumulation_steps == 0:
@@ -571,6 +571,7 @@ class OmniClassifierAccelerateTrainer:
                     }
                     
                     log_metrics('training_progress', progress_stats)
+                    raise Exception("Debugging")
 
             # Calculate training metrics
             avg_train_loss = total_loss / max(1, total)
