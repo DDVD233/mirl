@@ -515,7 +515,7 @@ class OmniClassifierTrainer:
                     
                     # Log progress statistics (numeric values only to avoid wandb media warnings)
                     progress_stats = {
-                        'batch_progress': batch_progress,  # 0.0 to 1.0
+                        'batch_progress': batch_progress,  # 0.0 to 1.0 # progress of the current batches in the current epoch
                         'epoch_progress': epoch_progress,  # 0.0 to 1.0
                         'overall_progress': overall_progress,  # 0.0 to 1.0
                         'epoch_elapsed_time_seconds': elapsed_time,  # raw seconds

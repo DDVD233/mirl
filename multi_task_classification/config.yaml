@@ -22,7 +22,7 @@ model:
 train:
   train_batch_size: 4
   val_batch_size: 4
-  lr: 0.001
+  lr: 2e-4
   epochs: 2
   save_checkpoint_dir: "/scratch/keane/human_behaviour/lora_sft_meld_trial"
   load_checkpoint_path: null
