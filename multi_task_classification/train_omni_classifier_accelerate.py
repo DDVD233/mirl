@@ -171,6 +171,28 @@ class OmniClassifierAccelerateTrainer:
         
         # Initialize training start time
         self.start_time = time.time()
+        
+        # Debug: Print model configuration
+        if self.accelerator.is_main_process:
+            print(f"\n[DEBUG] Model Configuration:")
+            print(f"  Training strategy: {TRAINING_STRATEGY}")
+            print(f"  Number of classes: {NUM_CLASSES}")
+            print(f"  Label mapping: {LABEL_MAP}")
+            print(f"  Batch size: {self.batch_size}")
+            print(f"  Gradient accumulation steps: {self.gradient_accumulation_steps}")
+            print(f"  Effective batch size: {self.batch_size * self.gradient_accumulation_steps}")
+            print(f"  Learning rate: {self.lr}")
+            
+            # Check if backbone is frozen
+            backbone_frozen = all(not param.requires_grad for param in self.model.backbone.parameters())
+            classifier_frozen = all(not param.requires_grad for param in self.model.classifier.parameters())
+            print(f"  Backbone frozen: {backbone_frozen}")
+            print(f"  Classifier frozen: {classifier_frozen}")
+            
+            # Print classifier info
+            print(f"  Classifier shape: {self.model.classifier.weight.shape}")
+            print(f"  Classifier device: {self.model.classifier.weight.device}")
+            print(f"  Classifier dtype: {self.model.classifier.weight.dtype}")
 
     def _init_wandb(self):
         """Initialize wandb logging via wandb_utils."""
@@ -251,6 +273,21 @@ class OmniClassifierAccelerateTrainer:
                 if self.accelerator.is_main_process:
                     all_predictions.extend(gathered_preds.cpu().numpy())
                     all_labels.extend(gathered_labels.cpu().numpy())
+                    
+                    # Debug prints for validation
+                    if batch_idx < 2:  # Only print first 2 validation batches
+                        print(f"\n[DEBUG] Validation Batch {batch_idx}:")
+                        print(f"  Labels: {gathered_labels}")
+                        print(f"  Predictions: {gathered_preds}")
+                        print(f"  Correct: {(gathered_preds == gathered_labels).sum().item()}/{gathered_labels.size(0)}")
+                        
+                        # Check for potential issues
+                        if torch.isnan(logits).any():
+                            print("  WARNING: NaN values in validation logits!")
+                        if torch.isinf(logits).any():
+                            print("  WARNING: Inf values in validation logits!")
+                        if len(torch.unique(gathered_preds)) == 1:
+                            print("  WARNING: All validation predictions are the same!")
                     
                     # Extract dataset information if available
                     if 'dataset' in batch:
@@ -463,6 +500,26 @@ class OmniClassifierAccelerateTrainer:
                     preds = logits.argmax(dim=1)
                     correct += (preds == labels).sum().item()
                     total += labels.size(0)
+                    
+                    # Debug prints for predictions and labels
+                    if self.accelerator.is_main_process and batch_idx < 3:  # Only print first 3 batches
+                        print(f"\n[DEBUG] Batch {batch_idx} - Sample {0}:")
+                        print(f"  Labels: {labels}")
+                        print(f"  Logits: {logits}")
+                        print(f"  Predictions: {preds}")
+                        print(f"  Correct: {(preds == labels).sum().item()}/{labels.size(0)}")
+                        print(f"  Accuracy so far: {correct}/{total} = {correct/max(1, total):.4f}")
+                        
+                        # Check for potential issues
+                        if torch.isnan(logits).any():
+                            print("  WARNING: NaN values in logits!")
+                        if torch.isinf(logits).any():
+                            print("  WARNING: Inf values in logits!")
+                        if len(torch.unique(preds)) == 1:
+                            print("  WARNING: All predictions are the same!")
+                        if logits.max() - logits.min() < 0.1:
+                            print("  WARNING: Logits are very close to each other!")
+                        raise Exception("Debugging")
 
                 # Log batch information to wandb (only on main process)
                 if USE_WANDB and self.accelerator.is_main_process and (batch_idx + 1) % self.gradient_accumulation_steps == 0:
