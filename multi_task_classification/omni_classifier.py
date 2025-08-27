@@ -182,20 +182,19 @@ class OmniClassifier(nn.Module):
                 
                 print(f"[INFO] Placing classifier on {target_device} with dtype {target_dtype}")
                 self.classifier = self.classifier.to(device=target_device, dtype=target_dtype)
-            return
-        
-        # Get the device and dtype of the backbone's output (last layer)
-        backbone_device = next(self.backbone.parameters()).device
-        backbone_dtype = next(self.backbone.parameters()).dtype
-        classifier_device = next(self.classifier.parameters()).device
-        classifier_dtype = next(self.classifier.parameters()).dtype
-        
-        # Check if alignment is needed
-        device_mismatch = backbone_device != classifier_device
-        dtype_mismatch = backbone_dtype != classifier_dtype
-        
-        if device_mismatch or dtype_mismatch:
-            print(f"[INFO] Aligning classifier: device {classifier_device}→{backbone_device}, dtype {classifier_dtype}→{backbone_dtype}")
-            self.classifier = self.classifier.to(device=backbone_device, dtype=backbone_dtype)
         else:
-            print(f"[INFO] Classifier already aligned on device: {backbone_device}, dtype: {backbone_dtype}")
+            # Get the device and dtype of the backbone's output (last layer)
+            backbone_device = next(self.backbone.parameters()).device
+            backbone_dtype = next(self.backbone.parameters()).dtype
+            classifier_device = next(self.classifier.parameters()).device
+            classifier_dtype = next(self.classifier.parameters()).dtype
+            
+            # Check if alignment is needed
+            device_mismatch = backbone_device != classifier_device
+            dtype_mismatch = backbone_dtype != classifier_dtype
+            
+            if device_mismatch or dtype_mismatch:
+                print(f"[INFO] Aligning classifier: device {classifier_device}→{backbone_device}, dtype {classifier_dtype}→{backbone_dtype}")
+                self.classifier = self.classifier.to(device=backbone_device, dtype=backbone_dtype)
+            else:
+                print(f"[INFO] Classifier already aligned on device: {backbone_device}, dtype: {backbone_dtype}")

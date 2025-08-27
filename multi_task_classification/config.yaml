@@ -20,7 +20,7 @@ model:
     target_modules: ["q_proj", "k_proj", "v_proj", "o_proj"]  # Reduced: removed MLP modules
 
 train:
-  train_batch_size: 4
+  train_batch_size: 8
   val_batch_size: 1
   lr: 0.001
   epochs: 2
