@@ -1,5 +1,5 @@
 system:
-  cuda_visible_devices: "0,1"  # Use all available GPUs
+  cuda_visible_devices: "2,3"  # Use all available GPUs
 
 data:
   train_file: "/scratch/keane/human_behaviour/human_behaviour_data/0.1_audio_sigs_train_meld.jsonl"
