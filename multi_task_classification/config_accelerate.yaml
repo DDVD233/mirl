@@ -29,10 +29,10 @@ train:
   save_every_n_epochs: 1
   debug_dry_run: false
   validate_every_n_epochs: null
-  validate_every_n_steps: 1  # New: validate every N steps (null = use epoch-based validation)
+  validate_every_n_steps: 50  # New: validate every N steps (null = use epoch-based validation)
   early_stopping_patience: 3
-  gradient_accumulation_steps: 4  # Higher gradient accumulation for full training
-  num_workers: 2  # Reduced for memory constraints
+  gradient_accumulation_steps: 8  # Higher gradient accumulation for full training
+  num_workers: 8  # Reduced for memory constraints
 
 dataset_config:
   max_prompt_length: 4096
