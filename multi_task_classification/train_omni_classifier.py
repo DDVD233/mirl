@@ -103,7 +103,7 @@ config = OmegaConf.create(dict(cfg.dataset_config))
 # ---------------------------
 class OmniClassifierTrainer:
     def __init__(self, data_files, val_data_files, test_data_files, tokenizer, processor, config, 
-                 batch_size, val_batch_size, lr, epochs, save_checkpoint_dir, load_checkpoint_path, model, use_lora=False):
+                 batch_size, val_batch_size, lr, epochs, save_checkpoint_dir, load_checkpoint_path, model, device_map, use_lora=False):
         self.data_files = data_files
         self.val_data_files = val_data_files
         self.test_data_files = test_data_files
@@ -118,7 +118,7 @@ class OmniClassifierTrainer:
         self.label_key = config.get("label_key", "answer")
         # Use the label map loaded from JSON
         self.label_map = LABEL_MAP
-        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        
         # Checkpoint IO setup
         self.checkpoint_dir = save_checkpoint_dir
         self.load_checkpoint_path = load_checkpoint_path
@@ -138,7 +138,15 @@ class OmniClassifierTrainer:
             'val_weighted_f1': [],
             'val_micro_f1': []
         }
-        
+
+        if device_map == "auto":
+            print("[INFO] Using device_map='auto' — model is already distributed/sharded")
+            # anchor inputs on the device of the first shard/parameter
+            first_device = next(self.model.parameters()).device
+            self.device = torch.device(first_device)
+        else:
+            self.device = torch.device(device_map)
+
         # Initialize wandb
         if USE_WANDB:
             self._init_wandb()
@@ -369,7 +377,6 @@ class OmniClassifierTrainer:
         train_dataloader = self.get_dataloader(self.data_files, self.batch_size, shuffle=True)
         val_dataloader = self.get_dataloader(self.val_data_files, self.val_batch_size, shuffle=False)
         
-        self.model.train().to(self.device)
         optimizer = Adam(self.model.parameters(), lr=self.lr)
         criterion = CrossEntropyLoss()
 
@@ -620,7 +627,8 @@ if __name__ == "__main__":
         epochs=EPOCHS,
         save_checkpoint_dir=SAVE_CHECKPOINT_DIR,
         load_checkpoint_path=LOAD_CHECKPOINT_PATH,
-        model=model
+        model=model,
+        device_map=DEVICE_MAP
     )
 
     # 1) Dataloader probe (prints batch structure)
