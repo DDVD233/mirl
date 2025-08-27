@@ -1,0 +1,54 @@
+system:
+  cuda_visible_devices: "0,1"  # Use all available GPUs
+
+data:
+  train_file: "/scratch/keane/human_behaviour/human_behaviour_data/0.1_audio_sigs_train_meld.jsonl"
+  val_file: "/scratch/keane/human_behaviour/human_behaviour_data/audio_sigs_val_meld.jsonl"
+  test_file: "/scratch/keane/human_behaviour/human_behaviour_data/audio_sigs_test_meld.jsonl"
+  label_map_path: "/home/keaneong/human-behavior/verl/multi_task_classification/meld_label_map.json"
+
+model:
+  tokenizer_name: "Qwen/Qwen2.5-Omni-7B"
+  processor_name: "Qwen/Qwen2.5-Omni-7B"
+  training_strategy: "lora"  # options: head_only, lora, full
+  device_map: "auto"  # "auto" for automatic distribution, "cpu", or specific device like "cuda:0"
+  torch_dtype: "bfloat16"  # "float16", "float32", or "bfloat16" - using bfloat16 for better stability with FSDP
+  lora_config:
+    r: 16
+    alpha: 32
+    dropout: 0.1
+    target_modules: ["q_proj", "k_proj", "v_proj", "o_proj"]  # Reduced: removed MLP modules
+
+train:
+  train_batch_size: 2  # Reduced batch size per GPU for FSDP
+  val_batch_size: 2
+  lr: 2e-4
+  epochs: 2
+  save_checkpoint_dir: "/scratch/keane/human_behaviour/lora_sft_meld_accelerate"
+  load_checkpoint_path: null
+  save_every_n_epochs: 1
+  debug_dry_run: false
+  validate_every_n_epochs: 1
+  early_stopping_patience: 2
+  gradient_accumulation_steps: 8  # Increased for FSDP (effective batch size = 2 * 8 * num_gpus)
+  num_workers: 4  # Reduced for multi-GPU setup
+
+dataset_config:
+  max_prompt_length: 4096
+  modalities: "images,videos,audio"
+  prompt_key: "problem"
+  image_key: "images"
+  video_key: "videos"
+  audio_key: "audios"
+  label_key: "answer"
+  return_multi_modal_inputs: true
+  num_workers: 0
+  filter_overlong_prompts_workers: 0
+  filter_overlong_prompts: false
+  truncation: "right"
+  format_prompt: "/home/keaneong/human-behavior/verl/examples/format_prompt/default.jinja"
+
+wandb:
+  use: true
+  project: "omni-classifier-accelerate"
+  entity: null
