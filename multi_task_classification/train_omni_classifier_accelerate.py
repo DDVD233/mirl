@@ -274,21 +274,6 @@ class OmniClassifierAccelerateTrainer:
                     all_predictions.extend(gathered_preds.cpu().numpy())
                     all_labels.extend(gathered_labels.cpu().numpy())
                     
-                    # Debug prints for validation
-                    if batch_idx < 2:  # Only print first 2 validation batches
-                        print(f"\n[DEBUG] Validation Batch {batch_idx}:")
-                        print(f"  Labels: {gathered_labels}")
-                        print(f"  Predictions: {gathered_preds}")
-                        print(f"  Correct: {(gathered_preds == gathered_labels).sum().item()}/{gathered_labels.size(0)}")
-                        
-                        # Check for potential issues
-                        if torch.isnan(logits).any():
-                            print("  WARNING: NaN values in validation logits!")
-                        if torch.isinf(logits).any():
-                            print("  WARNING: Inf values in validation logits!")
-                        if len(torch.unique(gathered_preds)) == 1:
-                            print("  WARNING: All validation predictions are the same!")
-                    
                     # Extract dataset information if available
                     if 'dataset' in batch:
                         all_datasets.extend(batch['dataset'])
