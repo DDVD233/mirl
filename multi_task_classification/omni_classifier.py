@@ -25,6 +25,10 @@ class OmniClassifier(nn.Module):
         self.classifier = nn.Linear(hidden_size, num_classes)
 
         self._setup_training_strategy(freeze_backbone, lora_config)
+        
+        # Ensure classifier is on the same device as backbone output when using device_map="auto"
+        if device_map == "auto":
+            self._ensure_classifier_device_alignment()
 
     @staticmethod
     def _resolve_hidden_size(backbone):
@@ -152,3 +156,13 @@ class OmniClassifier(nn.Module):
         
         print(f"trainable params: {trainable_params:,} || all params: {all_param:,} || trainable%: {100 * trainable_params / all_param:.2f}%")
         return trainable_params, all_param
+
+    def _ensure_classifier_device_alignment(self):
+        """Ensure classifier head is on the same device as backbone output."""
+        # Get the device of the backbone's output (last layer)
+        backbone_device = next(self.backbone.parameters()).device
+        classifier_device = next(self.classifier.parameters()).device
+        
+        if backbone_device != classifier_device:
+            print(f"[INFO] Moving classifier from {classifier_device} to {backbone_device} for device alignment")
+            self.classifier = self.classifier.to(backbone_device)
