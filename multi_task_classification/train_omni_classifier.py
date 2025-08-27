@@ -62,6 +62,7 @@ SAVE_CHECKPOINT_DIR = cfg.train.save_checkpoint_dir
 LOAD_CHECKPOINT_PATH = cfg.train.load_checkpoint_path
 SAVE_EVERY_N_EPOCHS = int(cfg.train.save_every_n_epochs)
 DEBUG_DRY_RUN = bool(cfg.train.debug_dry_run)
+GRADIENT_ACCUMULATION_STEPS = int(cfg.train.gradient_accumulation_steps)
 
 # Validation configuration
 VALIDATE_EVERY_N_EPOCHS = int(cfg.train.validate_every_n_epochs)
@@ -83,6 +84,7 @@ NUM_CLASSES = label_config["num_classes"]
 
 print(f"[INFO] Loaded label mapping with {NUM_CLASSES} classes from {LABEL_MAP_PATH}")
 print(f"[INFO] Available datasets: {', '.join(label_config['datasets'])}")
+print(f"[INFO] Gradient accumulation: {GRADIENT_ACCUMULATION_STEPS} steps (effective batch size: {TRAIN_BATCH_SIZE * GRADIENT_ACCUMULATION_STEPS})")
 
 # LoRA Configuration (only used when TRAINING_STRATEGY = "lora")
 LORA_CONFIG = {
@@ -103,7 +105,7 @@ config = OmegaConf.create(dict(cfg.dataset_config))
 # ---------------------------
 class OmniClassifierTrainer:
     def __init__(self, data_files, val_data_files, test_data_files, tokenizer, processor, config, 
-                 batch_size, val_batch_size, lr, epochs, save_checkpoint_dir, load_checkpoint_path, model, device_map, use_lora=False):
+                 batch_size, val_batch_size, lr, epochs, save_checkpoint_dir, load_checkpoint_path, model, device_map, gradient_accumulation_steps, use_lora=False):
         self.data_files = data_files
         self.val_data_files = val_data_files
         self.test_data_files = test_data_files
@@ -112,6 +114,7 @@ class OmniClassifierTrainer:
         self.config = config
         self.batch_size = batch_size
         self.val_batch_size = val_batch_size
+        self.gradient_accumulation_steps = gradient_accumulation_steps
         self.lr = lr
         self.epochs = epochs
         self.model = model
@@ -164,6 +167,8 @@ class OmniClassifierTrainer:
             "training_strategy": TRAINING_STRATEGY,
             "batch_size": self.batch_size,
             "val_batch_size": self.val_batch_size,
+            "gradient_accumulation_steps": self.gradient_accumulation_steps,
+            "effective_batch_size": self.batch_size * self.gradient_accumulation_steps,
             "learning_rate": self.lr,
             "epochs": self.epochs,
             "num_classes": NUM_CLASSES,
@@ -433,7 +438,10 @@ class OmniClassifierTrainer:
                     else:
                         raise ValueError(f"Unexpected labels shape {labels.shape} (expected [B] or [B, C])")
             
-                optimizer.zero_grad(set_to_none=True)
+                # Gradient accumulation: only zero gradients at the start of accumulation cycle
+                if batch_idx % self.gradient_accumulation_steps == 0:
+                    optimizer.zero_grad(set_to_none=True)
+                
                 logits = self.model(input_ids, attention_mask=attention_mask)
 
                 if not torch.isfinite(logits).all():
@@ -447,27 +455,37 @@ class OmniClassifierTrainer:
                 if not torch.isfinite(loss):
                     raise FloatingPointError("Non-finite loss encountered")
 
+                # Scale loss for gradient accumulation
+                loss = loss / self.gradient_accumulation_steps
                 loss.backward()
-                optimizer.step()
+                
+                # Only step optimizer at the end of accumulation cycle
+                if (batch_idx + 1) % self.gradient_accumulation_steps == 0:
+                    optimizer.step()
 
                 with torch.no_grad():
-                    total_loss += loss.item() * input_ids.size(0)
+                    total_loss += loss.item() * input_ids.size(0) * self.gradient_accumulation_steps
                     preds = logits.argmax(dim=1)
                     correct += (preds == labels).sum().item()
                     total += labels.size(0)
 
-                # Log batch information to wandb
-                if USE_WANDB:
+                # Log batch information to wandb (only log at accumulation boundaries for cleaner logs)
+                if USE_WANDB and (batch_idx + 1) % self.gradient_accumulation_steps == 0:
                     batch_info = {
-                        'batch_loss': loss.item(),
+                        'batch_loss': loss.item() * self.gradient_accumulation_steps,  # Scale back for logging
                         'batch_accuracy': (preds == labels).float().mean().item(),
                         'batch_idx': batch_idx,
+                        'effective_batch_size': self.batch_size * self.gradient_accumulation_steps,
                     }
                     
                     # Log batch metrics
                     log_metrics('batch_metrics', batch_info)
 
                 # step completes
+
+            # Handle any remaining gradients at the end of epoch
+            if len(train_dataloader) % self.gradient_accumulation_steps != 0:
+                optimizer.step()
 
             # Calculate training metrics
             avg_train_loss = total_loss / max(1, total)
@@ -665,7 +683,8 @@ if __name__ == "__main__":
         save_checkpoint_dir=SAVE_CHECKPOINT_DIR,
         load_checkpoint_path=LOAD_CHECKPOINT_PATH,
         model=model,
-        device_map=DEVICE_MAP
+        device_map=DEVICE_MAP,
+        gradient_accumulation_steps=GRADIENT_ACCUMULATION_STEPS
     )
 
     # 1) Dataloader probe (prints batch structure)

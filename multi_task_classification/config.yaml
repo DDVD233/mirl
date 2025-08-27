@@ -20,7 +20,7 @@ model:
     target_modules: ["q_proj", "k_proj", "v_proj", "o_proj"]  # Reduced: removed MLP modules
 
 train:
-  train_batch_size: 8
+  train_batch_size: 6
   val_batch_size: 1
   lr: 0.001
   epochs: 2
@@ -30,6 +30,7 @@ train:
   debug_dry_run: false
   validate_every_n_epochs: 1
   early_stopping_patience: 2
+  gradient_accumulation_steps: 4  # Accumulate gradients over 4 batches (effective batch size = 8 * 4 = 32)
 
 dataset_config:
   max_prompt_length: 4096

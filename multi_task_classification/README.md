@@ -25,6 +25,12 @@ This enhanced trainer includes comprehensive validation, testing, and experiment
 - **Training state recovery**: Resumes training from checkpoints
 - **Complete state saving**: Model, optimizer, and training history
 
+### 🚀 Gradient Accumulation
+- **Memory efficient training**: Accumulate gradients over multiple batches
+- **Effective batch size control**: Configure effective batch size via `gradient_accumulation_steps`
+- **Training stability**: Improves training stability with limited GPU memory
+- **Configurable accumulation**: Set accumulation steps in config.yaml
+
 ## Configuration
 
 ### Data Files
@@ -39,6 +45,13 @@ TEST_DATA_FILES = ["/path/to/test.jsonl"]
 VALIDATE_EVERY_N_EPOCHS = 1  # Validate every N epochs
 SAVE_BEST_MODEL = True       # Save best model based on validation accuracy
 EARLY_STOPPING_PATIENCE = 5  # Stop training if no improvement for N epochs
+```
+
+### Gradient Accumulation Settings
+```yaml
+train:
+  train_batch_size: 8
+  gradient_accumulation_steps: 4  # Effective batch size = 8 * 4 = 32
 ```
 
 ### Wandb Settings
@@ -98,6 +111,35 @@ Performs validation on the given dataloader and returns comprehensive metrics us
 
 ### `test()`
 Loads the best model and performs final testing on the test set.
+
+## Gradient Accumulation
+
+Gradient accumulation allows you to simulate larger batch sizes when GPU memory is limited. Here's how it works:
+
+### How It Works
+1. **Forward Pass**: Process a small batch (e.g., batch_size=8)
+2. **Backward Pass**: Compute gradients for the small batch
+3. **Accumulate**: Add gradients to existing gradients (don't zero them)
+4. **Repeat**: Process more batches until accumulation_steps is reached
+5. **Update**: Zero gradients and perform optimizer step with accumulated gradients
+
+### Benefits
+- **Memory Efficiency**: Use smaller batches to fit in GPU memory
+- **Training Stability**: Larger effective batch size improves gradient estimates
+- **Flexible Configuration**: Adjust accumulation steps based on available memory
+
+### Example Configuration
+```yaml
+train:
+  train_batch_size: 8                    # Actual batch size per forward pass
+  gradient_accumulation_steps: 4         # Number of batches to accumulate
+  # Effective batch size = 8 * 4 = 32
+```
+
+### Monitoring
+- Wandb logs show both actual and effective batch sizes
+- Training metrics are logged at accumulation boundaries
+- Loss scaling is automatically handled
 
 ### `save_checkpoint(optimizer, epoch, is_best)`
 Saves model checkpoint with complete training state.
