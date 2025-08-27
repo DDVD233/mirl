@@ -571,7 +571,6 @@ class OmniClassifierAccelerateTrainer:
                     }
                     
                     log_metrics('training_progress', progress_stats)
-                    raise Exception("Debugging")
 
             # Calculate training metrics
             avg_train_loss = total_loss / max(1, total)
