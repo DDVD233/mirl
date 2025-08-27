@@ -31,7 +31,7 @@ train:
   validate_every_n_epochs: 1
   early_stopping_patience: 2
   gradient_accumulation_steps: 4  # Accumulate gradients over 4 batches (effective batch size = 8 * 4 = 32)
-  num_workers: 4  # Number of worker processes for data loading (0 for single-threaded, 4+ for multi-threaded)
+  num_workers: 8  # Number of worker processes for data loading (0 for single-threaded, 4+ for multi-threaded)
 
 dataset_config:
   max_prompt_length: 4096
