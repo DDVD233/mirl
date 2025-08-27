@@ -435,10 +435,11 @@ class OmniClassifierTrainer:
                     batch_info = {
                         'batch_loss': loss.item(),
                         'batch_accuracy': (preds == labels).float().mean().item(),
+                        'batch_idx': batch_idx,
                     }
                     
-                    # Log batch metrics (using batch index as the step)
-                    log_metrics('batch', batch_info, step=batch_idx)
+                    # Log batch metrics
+                    log_metrics('batch', batch_info, epoch=epoch + 1)
 
                 # step completes
 
