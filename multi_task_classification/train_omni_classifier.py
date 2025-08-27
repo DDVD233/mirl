@@ -41,6 +41,18 @@ TEST_DATA_FILE = cfg.data.test_file
 TOKENIZER_NAME = cfg.model.tokenizer_name
 PROCESSOR_NAME = cfg.model.processor_name
 TRAINING_STRATEGY = cfg.model.training_strategy
+DEVICE_MAP = cfg.model.device_map
+TORCH_DTYPE = cfg.model.torch_dtype
+
+# Convert torch_dtype string to actual torch dtype
+if TORCH_DTYPE == "float16":
+    TORCH_DTYPE = torch.float16
+elif TORCH_DTYPE == "float32":
+    TORCH_DTYPE = torch.float32
+elif TORCH_DTYPE == "bfloat16":
+    TORCH_DTYPE = torch.bfloat16
+else:
+    TORCH_DTYPE = torch.float16  # default
 
 TRAIN_BATCH_SIZE = cfg.train.train_batch_size
 VAL_BATCH_SIZE = cfg.train.val_batch_size
@@ -588,7 +600,9 @@ if __name__ == "__main__":
         model = OmniClassifier(
             num_classes=NUM_CLASSES, 
             freeze_backbone=TRAINING_STRATEGY,
-            lora_config=LORA_CONFIG if TRAINING_STRATEGY == "lora" else None
+            lora_config=LORA_CONFIG if TRAINING_STRATEGY == "lora" else None,
+            device_map=DEVICE_MAP,
+            torch_dtype=TORCH_DTYPE
         )
         # Print trainable parameters info
         model.get_trainable_parameters()

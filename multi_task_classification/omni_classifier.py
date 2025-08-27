@@ -5,10 +5,20 @@ import torch
 
 class OmniClassifier(nn.Module):
     def __init__(self, num_classes=5, freeze_backbone="head_only",
-                 backbone_name='Qwen/Qwen2.5-Omni-7B', lora_config=None, **from_pretrained_kwargs):
+                 backbone_name='Qwen/Qwen2.5-Omni-7B', lora_config=None, 
+                 device_map="auto", torch_dtype=torch.float16, **from_pretrained_kwargs):
         super().__init__()
+        
+        # Memory optimization parameters
+        model_kwargs = {
+            "device_map": device_map,
+            "torch_dtype": torch_dtype,
+            "low_cpu_mem_usage": True,
+            **from_pretrained_kwargs
+        }
+        
         self.backbone = Qwen2_5OmniThinkerForConditionalGeneration.from_pretrained(
-            backbone_name, **from_pretrained_kwargs
+            backbone_name, **model_kwargs
         )
 
         hidden_size = self._resolve_hidden_size(self.backbone)

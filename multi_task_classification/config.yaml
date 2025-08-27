@@ -11,6 +11,8 @@ model:
   tokenizer_name: "Qwen/Qwen2.5-Omni-7B"
   processor_name: "Qwen/Qwen2.5-Omni-7B"
   training_strategy: "lora"  # options: head_only, lora, full
+  device_map: "auto"  # "auto" for automatic distribution, "cpu", or specific device like "cuda:0"
+  torch_dtype: "float32"  # "float16", "float32", or "bfloat16"
   lora_config:
     r: 16
     alpha: 32
