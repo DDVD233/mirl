@@ -412,7 +412,7 @@ class OmniClassifierTrainer:
             correct = 0
             total = 0
 
-            for batch_idx, batch in enumerate(tqdm(train_dataloader, desc="Training", total=len(train_dataloader), leave=False)):
+            for batch_idx, batch in tqdm(enumerate(train_dataloader), desc="Training", total=len(train_dataloader), leave=False):
                 # --- defensive checks
                 if 'input_ids' not in batch or 'labels' not in batch:
                     raise KeyError(f"Batch missing required keys. Got: {list(batch.keys())}")
@@ -479,7 +479,7 @@ class OmniClassifierTrainer:
                     }
                     
                     # Log batch metrics
-                    log_metrics('batch_metrics', batch_info)
+                    log_metrics('batch_metrics_at_effective_batch_size_step', batch_info)
 
                 # step completes
 
