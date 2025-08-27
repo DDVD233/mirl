@@ -13,6 +13,7 @@ from verl.utils.dataset.rl_dataset import collate_fn
 from transformers import AutoTokenizer, AutoProcessor
 from omegaconf import OmegaConf
 from tqdm import tqdm
+from wandb_utils import create_wandb_tqdm, log_tqdm_progress
 from datetime import datetime
 from multi_task_evaluation import evaluate_predictions, compute_dataset_metrics
 from wandb_utils import init_wandb, log_metrics, log_line_series, finish
@@ -208,7 +209,8 @@ class OmniClassifierTrainer:
         criterion = CrossEntropyLoss()
         
         with torch.no_grad():
-            for batch in tqdm(dataloader, desc=f"{split_name.capitalize()}", leave=False):
+            val_pbar = create_wandb_tqdm(dataloader, desc=f"{split_name.capitalize()}", leave=False)
+            for batch in val_pbar:
                 if 'input_ids' not in batch or 'labels' not in batch:
                     raise KeyError(f"Batch missing required keys. Got: {list(batch.keys())}")
 
@@ -250,6 +252,10 @@ class OmniClassifierTrainer:
                 if 'dataset' in batch:
                     # feed the datasets in
                     all_datasets.extend(batch['dataset'])
+                
+                # Log tqdm progress to wandb
+                if USE_WANDB:
+                    log_tqdm_progress(val_pbar, 1)
 
         # Calculate average loss
         avg_loss = total_loss / max(1, len(all_labels))
@@ -405,14 +411,16 @@ class OmniClassifierTrainer:
         # Load checkpoint if available
         start_epoch = self.load_checkpoint(optimizer)
 
-        for epoch in tqdm(range(start_epoch, self.epochs), desc="Epochs", position=0):
+        epoch_pbar = create_wandb_tqdm(range(start_epoch, self.epochs), desc="Epochs", position=0)
+        for epoch in epoch_pbar:
             # Training phase
             self.model.train()
             total_loss = 0.0
             correct = 0
             total = 0
 
-            for batch_idx, batch in tqdm(enumerate(train_dataloader), desc="Training", total=len(train_dataloader)):
+            train_pbar = create_wandb_tqdm(enumerate(train_dataloader), desc="Training", total=len(train_dataloader))
+            for batch_idx, batch in train_pbar:
                 # --- defensive checks
                 if 'input_ids' not in batch or 'labels' not in batch:
                     raise KeyError(f"Batch missing required keys. Got: {list(batch.keys())}")
@@ -481,6 +489,10 @@ class OmniClassifierTrainer:
                     # Log batch metrics
                     log_metrics('batch_metrics_at_effective_batch_size_step', batch_info)
 
+                # Log tqdm progress to wandb
+                if USE_WANDB:
+                    log_tqdm_progress(train_pbar, 1)
+
                 # step completes
 
             # Handle any remaining gradients at the end of epoch
@@ -496,6 +508,10 @@ class OmniClassifierTrainer:
             self.training_history['train_acc'].append(train_acc)
             
             print(f"Epoch {epoch+1}/{self.epochs} - Train Loss: {avg_train_loss:.4f} - Train Acc: {train_acc:.4f}")
+            
+            # Log epoch progress to wandb
+            if USE_WANDB:
+                log_tqdm_progress(epoch_pbar, 1)
 
             # Validation phase
             is_best = False

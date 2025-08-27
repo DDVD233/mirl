@@ -1,4 +1,69 @@
 import wandb
+from tqdm import tqdm
+import time
+
+
+class WandbTqdmCallback:
+    """Custom tqdm callback to log progress to wandb."""
+    
+    def __init__(self, name: str, total: int, log_interval: int = 1):
+        self.name = name
+        self.total = total
+        self.log_interval = log_interval
+        self.current = 0
+        self.start_time = time.time()
+        self.last_log_time = self.start_time
+        
+    def __call__(self, n: int = 1):
+        self.current += n
+        current_time = time.time()
+        
+        # Log to wandb at specified intervals
+        if (self.current % self.log_interval == 0 or 
+            self.current == self.total or 
+            current_time - self.last_log_time >= 5.0):  # Log at least every 5 seconds
+            
+            if wandb.run:
+                progress = self.current / self.total if self.total > 0 else 0
+                elapsed_time = current_time - self.start_time
+                eta = (elapsed_time / max(1, self.current)) * (self.total - self.current) if self.current > 0 else 0
+                
+                wandb.log({
+                    f"progress/{self.name}": {
+                        "current": self.current,
+                        "total": self.total,
+                        "progress": progress,
+                        "elapsed_time": elapsed_time,
+                        "eta": eta,
+                        "rate": self.current / max(1, elapsed_time)
+                    }
+                })
+            
+            self.last_log_time = current_time
+
+
+def create_wandb_tqdm(iterable=None, desc=None, total=None, **kwargs):
+    """Create a tqdm progress bar that logs to wandb."""
+    if not wandb.run:
+        # If wandb is not initialized, return regular tqdm
+        return tqdm(iterable=iterable, desc=desc, total=total, **kwargs)
+    
+    # Create custom callback for wandb logging
+    callback = WandbTqdmCallback(name=desc or "progress", total=total)
+    
+    # Create tqdm with custom callback
+    pbar = tqdm(iterable=iterable, desc=desc, total=total, **kwargs)
+    
+    # Store callback for later use
+    pbar.wandb_callback = callback
+    
+    return pbar
+
+
+def log_tqdm_progress(pbar, n=1):
+    """Log progress from a tqdm bar to wandb."""
+    if hasattr(pbar, 'wandb_callback') and pbar.wandb_callback:
+        pbar.wandb_callback(n)
 
 
 def init_wandb(project: str, entity: str | None, config: dict, run_name: str | None = None):

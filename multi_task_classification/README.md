@@ -18,6 +18,8 @@ This enhanced trainer includes comprehensive validation, testing, and experiment
 - **Confusion matrices**: Visual confusion matrices for validation and test
 - **Classification reports**: Detailed per-class performance metrics
 - **Multi-metric tracking**: Micro, macro, and weighted F1 scores
+- **Progress bar tracking**: Tqdm progress bars automatically logged to wandb
+- **Real-time monitoring**: Live progress updates with ETA and processing rates
 
 ### 💾 Checkpoint Management
 - **Automatic checkpointing**: Saves model state every epoch
@@ -84,6 +86,34 @@ python train_omni_classifier.py
 - Training progress is logged to wandb dashboard
 - Checkpoints are saved locally
 - Best model is automatically saved
+- **Tqdm progress bars**: All progress bars are automatically logged to wandb with real-time metrics
+
+### 4. Tqdm Integration Features
+The training script now includes enhanced tqdm integration with wandb:
+
+- **Automatic logging**: All tqdm progress bars are automatically logged to wandb
+- **Real-time metrics**: Progress includes current/total, elapsed time, ETA, and processing rate
+- **Nested progress**: Both epoch-level and batch-level progress are tracked
+- **Smart logging**: Progress is logged at reasonable intervals to avoid overwhelming wandb
+- **Fallback support**: If wandb is not initialized, regular tqdm behavior is maintained
+
+#### Example Usage:
+```python
+from wandb_utils import create_wandb_tqdm, log_tqdm_progress
+
+# Create a wandb-enabled tqdm progress bar
+pbar = create_wandb_tqdm(range(100), desc="Processing", total=100)
+for i in pbar:
+    # Do work...
+    time.sleep(0.1)
+    # Progress is automatically logged to wandb
+```
+
+#### Wandb Dashboard Features:
+- **Progress tracking**: Real-time progress bars in wandb dashboard
+- **Time estimates**: ETA and processing rate calculations
+- **Nested progress**: Multiple progress bars for different training phases
+- **Historical data**: Progress history across training runs
 
 ## Output Structure
 
