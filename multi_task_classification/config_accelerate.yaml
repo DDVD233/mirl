@@ -20,18 +20,18 @@ model:
     target_modules: ["q_proj", "k_proj", "v_proj", "o_proj"]
 
 train:
-  train_batch_size: 2  # Reduced batch size per GPU for FSDP
-  val_batch_size: 2
-  lr: 2e-4
-  epochs: 2
-  save_checkpoint_dir: "/scratch/keane/human_behaviour/lora_sft_meld_accelerate"
+  train_batch_size: 1  # Very small batch size for full training of large model
+  val_batch_size: 1
+  lr: 5e-6  # Much lower learning rate for full training
+  epochs: 3
+  save_checkpoint_dir: "/scratch/keane/human_behaviour/full_finetune_meld_accelerate"
   load_checkpoint_path: null
   save_every_n_epochs: 1
   debug_dry_run: false
   validate_every_n_epochs: 1
-  early_stopping_patience: 2
-  gradient_accumulation_steps: 8  # Increased for FSDP (effective batch size = 2 * 8 * num_gpus)
-  num_workers: 4  # Reduced for multi-GPU setup
+  early_stopping_patience: 3
+  gradient_accumulation_steps: 16  # Higher gradient accumulation for full training
+  num_workers: 2  # Reduced for memory constraints
 
 dataset_config:
   max_prompt_length: 4096
