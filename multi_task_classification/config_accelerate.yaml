@@ -20,7 +20,7 @@ model:
     target_modules: ["q_proj", "k_proj", "v_proj", "o_proj"]
 
 train:
-  train_batch_size: 4  # Very small batch size for full training of large model
+  train_batch_size: 2  # Very small batch size for full training of large model
   val_batch_size: 1
   lr: 5e-6  # Much lower learning rate for full training
   epochs: 3
