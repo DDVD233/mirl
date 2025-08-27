@@ -23,6 +23,11 @@ from wandb_utils import init_wandb, log_metrics, log_line_series, finish
 CFG_PATH = os.path.join(os.path.dirname(__file__), "config.yaml")
 cfg = OmegaConf.load(CFG_PATH)
 
+# Set CUDA_VISIBLE_DEVICES from config before any CUDA operations
+if hasattr(cfg, 'system') and hasattr(cfg.system, 'cuda_visible_devices'):
+    os.environ['CUDA_VISIBLE_DEVICES'] = cfg.system.cuda_visible_devices
+    print(f"[INFO] Set CUDA_VISIBLE_DEVICES to: {cfg.system.cuda_visible_devices}")
+
 TRAIN_DATA_FILE =  cfg.data.train_file
 VAL_DATA_FILE = cfg.data.val_file
 TEST_DATA_FILE = cfg.data.test_file

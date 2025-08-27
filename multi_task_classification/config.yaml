@@ -1,3 +1,6 @@
+system:
+  cuda_visible_devices: "2,3"  # Set to specific GPU IDs, e.g., "0" for single GPU, "0,1" for multi-GPU
+
 data:
   train_file: "/scratch/keane/human_behaviour/human_behaviour_data/0.1_audio_sigs_train_meld.jsonl"
   val_file: "/scratch/keane/human_behaviour/human_behaviour_data/audio_sigs_val_meld.jsonl"
