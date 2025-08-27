@@ -14,7 +14,7 @@ from verl.utils.dataset.rl_dataset import collate_fn
 from transformers import AutoTokenizer, AutoProcessor
 from omegaconf import OmegaConf
 from tqdm import tqdm
-from wandb_utils import log_metrics, log_formatted_metrics, format_time, format_percentage
+from wandb_utils import log_metrics
 from datetime import datetime
 from multi_task_evaluation import evaluate_predictions, compute_dataset_metrics
 from wandb_utils import init_wandb, log_metrics, log_line_series, finish
