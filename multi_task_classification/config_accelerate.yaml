@@ -3,7 +3,7 @@ system:
 
 data:
   train_file: "/scratch/keane/human_behaviour/human_behaviour_data/0.1_audio_sigs_train_meld.jsonl"
-  val_file: "/scratch/keane/human_behaviour/human_behaviour_data/audio_sigs_val_meld.jsonl"
+  val_file: "/scratch/keane/human_behaviour/human_behaviour_data/0.1_audio_sigs_train_meld.jsonl"
   test_file: "/scratch/keane/human_behaviour/human_behaviour_data/audio_sigs_test_meld.jsonl"
   label_map_path: "/home/keaneong/human-behavior/verl/multi_task_classification/meld_label_map.json"
 
@@ -28,8 +28,8 @@ train:
   load_checkpoint_path: null
   save_every_n_epochs: 1
   debug_dry_run: false
-  validate_every_n_epochs: 1
-  validate_every_n_steps: 4  # New: validate every N steps (null = use epoch-based validation)
+  validate_every_n_epochs: null
+  validate_every_n_steps: 1  # New: validate every N steps (null = use epoch-based validation)
   early_stopping_patience: 3
   gradient_accumulation_steps: 4  # Higher gradient accumulation for full training
   num_workers: 2  # Reduced for memory constraints

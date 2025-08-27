@@ -75,10 +75,12 @@ GRADIENT_ACCUMULATION_STEPS = int(cfg.train.gradient_accumulation_steps)
 NUM_WORKERS = int(cfg.train.num_workers)
 
 # Validation configuration
-VALIDATE_EVERY_N_EPOCHS = int(cfg.train.validate_every_n_epochs)
+VALIDATE_EVERY_N_EPOCHS = cfg.train.validate_every_n_epochs
 VALIDATE_EVERY_N_STEPS = cfg.train.validate_every_n_steps
 if VALIDATE_EVERY_N_STEPS is not None:
     VALIDATE_EVERY_N_STEPS = int(VALIDATE_EVERY_N_STEPS)
+if VALIDATE_EVERY_N_EPOCHS is not None:
+    VALIDATE_EVERY_N_EPOCHS = int(VALIDATE_EVERY_N_EPOCHS)
 SAVE_BEST_MODEL = True
 EARLY_STOPPING_PATIENCE = int(cfg.train.early_stopping_patience)
 
@@ -176,28 +178,6 @@ class OmniClassifierAccelerateTrainer:
         # Initialize training start time
         self.start_time = time.time()
         
-        # Debug: Print model configuration
-        if self.accelerator.is_main_process:
-            print(f"\n[DEBUG] Model Configuration:")
-            print(f"  Training strategy: {TRAINING_STRATEGY}")
-            print(f"  Number of classes: {NUM_CLASSES}")
-            print(f"  Label mapping: {LABEL_MAP}")
-            print(f"  Batch size: {self.batch_size}")
-            print(f"  Gradient accumulation steps: {self.gradient_accumulation_steps}")
-            print(f"  Effective batch size: {self.batch_size * self.gradient_accumulation_steps}")
-            print(f"  Learning rate: {self.lr}")
-            
-            # Check if backbone is frozen
-            backbone_frozen = all(not param.requires_grad for param in self.model.backbone.parameters())
-            classifier_frozen = all(not param.requires_grad for param in self.model.classifier.parameters())
-            print(f"  Backbone frozen: {backbone_frozen}")
-            print(f"  Classifier frozen: {classifier_frozen}")
-            
-            # Print classifier info
-            print(f"  Classifier shape: {self.model.classifier.weight.shape}")
-            print(f"  Classifier device: {self.model.classifier.weight.device}")
-            print(f"  Classifier dtype: {self.model.classifier.weight.dtype}")
-
     def _init_wandb(self):
         """Initialize wandb logging via wandb_utils."""
         wandb_config = {
@@ -240,7 +220,7 @@ class OmniClassifierAccelerateTrainer:
         return DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, collate_fn=collate_fn,
                           num_workers=self.num_workers, pin_memory=True, persistent_workers=self.num_workers > 0)
 
-    def validate(self, dataloader, split_name="validation"):
+    def validate(self, val_dataloader, split_name="validation"):
         """Validate the model on the given dataloader."""
         self.model.eval()
         total_loss = 0.0
@@ -250,7 +230,7 @@ class OmniClassifierAccelerateTrainer:
         criterion = CrossEntropyLoss()
         
         with torch.no_grad():
-            for batch in tqdm(dataloader, desc=f"{split_name.capitalize()}", leave=False, disable=not self.accelerator.is_main_process):
+            for batch in tqdm(val_dataloader, desc="Validating", total=len(val_dataloader)):
                 if 'input_ids' not in batch or 'labels' not in batch:
                     raise KeyError(f"Batch missing required keys. Got: {list(batch.keys())}")
 
@@ -568,49 +548,49 @@ class OmniClassifierAccelerateTrainer:
                     # Log progress with step information
                     log_metrics('training_progress', progress_stats, step=current_step)
 
-            # Step-based validation (if configured)
-            if VALIDATE_EVERY_N_STEPS is not None and current_step % VALIDATE_EVERY_N_STEPS == 0:
-                if self.accelerator.is_main_process:
-                    print(f"\n[STEP {current_step}] Running step-based validation...")
-                val_results = self.validate(val_dataloader, "validation")
-                
-                if self.accelerator.is_main_process and val_results is not None:
-                    # Store validation metrics
-                    self.training_history['val_loss'].append(val_results['loss'])
-                    self.training_history['val_acc'].append(val_results['accuracy'])
-                    self.training_history['val_precision'].append(val_results['precision'])
-                    self.training_history['val_recall'].append(val_results['recall'])
-                    self.training_history['val_f1'].append(val_results['f1'])
+                # Step-based validation (if configured)
+                if VALIDATE_EVERY_N_STEPS is not None and current_step % VALIDATE_EVERY_N_STEPS == 0:
+                    if self.accelerator.is_main_process:
+                        print(f"\n[STEP {current_step}] Running step-based validation...")
+                    val_results = self.validate(val_dataloader, "validation")
                     
-                    # Store additional F1 metrics from aggregate_metrics
-                    aggregate_metrics = val_results['aggregate_metrics']
-                    self.training_history['val_macro_f1'].append(aggregate_metrics.get('macro_f1', 0.0))
-                    self.training_history['val_weighted_f1'].append(aggregate_metrics.get('weighted_f1', 0.0))
-                    self.training_history['val_micro_f1'].append(aggregate_metrics.get('micro_f1', 0.0))
-                    
-                    # Check if this is the best model (using micro F1 as primary metric)
-                    val_f1 = val_results['f1']
-                    if val_f1 > self.best_val_acc:
-                        self.best_val_acc = val_f1
-                        self.steps_without_improvement = 0
-                        print(f"[STEP {current_step}] New best model! F1: {val_f1:.4f}")
-                    else:
-                        self.steps_without_improvement += 1
-                    
-                    print(f"[STEP {current_step}] Validation - Loss: {val_results['loss']:.4f} - Acc: {val_results['accuracy']:.4f} - F1: {val_f1:.4f}")
-                    print(f"[STEP {current_step}] Best validation F1 so far: {self.best_val_acc:.4f}")
-                    print(f"[STEP {current_step}] Steps without improvement: {self.steps_without_improvement}")
-                    
-                    # Log to wandb
-                    if USE_WANDB:
-                        # Log validation metrics at current step
-                        vm = {'loss': val_results['loss'], 'best_val_f1': self.best_val_acc, 'steps_without_improvement': self.steps_without_improvement}
-                        for key, value in val_results['aggregate_metrics'].items():
-                            vm[key] = value
-                        log_metrics('val', vm, step=current_step)
-                        # Log per-dataset metrics if available
-                        if 'per_dataset_metrics' in val_results['evaluation_results']:
-                            log_metrics('val', val_results['evaluation_results']['per_dataset_metrics'], step=current_step)
+                    if self.accelerator.is_main_process and val_results is not None:
+                        # Store validation metrics
+                        self.training_history['val_loss'].append(val_results['loss'])
+                        self.training_history['val_acc'].append(val_results['accuracy'])
+                        self.training_history['val_precision'].append(val_results['precision'])
+                        self.training_history['val_recall'].append(val_results['recall'])
+                        self.training_history['val_f1'].append(val_results['f1'])
+                        
+                        # Store additional F1 metrics from aggregate_metrics
+                        aggregate_metrics = val_results['aggregate_metrics']
+                        self.training_history['val_macro_f1'].append(aggregate_metrics.get('macro_f1', 0.0))
+                        self.training_history['val_weighted_f1'].append(aggregate_metrics.get('weighted_f1', 0.0))
+                        self.training_history['val_micro_f1'].append(aggregate_metrics.get('micro_f1', 0.0))
+                        
+                        # Check if this is the best model (using micro F1 as primary metric)
+                        val_f1 = val_results['f1']
+                        if val_f1 > self.best_val_acc:
+                            self.best_val_acc = val_f1
+                            self.steps_without_improvement = 0
+                            print(f"[STEP {current_step}] New best model! F1: {val_f1:.4f}")
+                        else:
+                            self.steps_without_improvement += 1
+                        
+                        print(f"[STEP {current_step}] Validation - Loss: {val_results['loss']:.4f} - Acc: {val_results['accuracy']:.4f} - F1: {val_f1:.4f}")
+                        print(f"[STEP {current_step}] Best validation F1 so far: {self.best_val_acc:.4f}")
+                        print(f"[STEP {current_step}] Steps without improvement: {self.steps_without_improvement}")
+                        
+                        # Log to wandb
+                        if USE_WANDB:
+                            # Log validation metrics at current step
+                            vm = {'loss': val_results['loss'], 'best_val_f1': self.best_val_acc, 'steps_without_improvement': self.steps_without_improvement}
+                            for key, value in val_results['aggregate_metrics'].items():
+                                vm[key] = value
+                            log_metrics('val', vm, step=current_step)
+                            # Log per-dataset metrics if available
+                            if 'per_dataset_metrics' in val_results['evaluation_results']:
+                                log_metrics('val', val_results['evaluation_results']['per_dataset_metrics'], step=current_step)
 
             # Calculate training metrics
             avg_train_loss = total_loss / max(1, total)
@@ -625,7 +605,7 @@ class OmniClassifierAccelerateTrainer:
 
             # Epoch-based validation phase (only if step-based validation is not configured)
             is_best = False
-            if VALIDATE_EVERY_N_STEPS is None and (epoch + 1) % VALIDATE_EVERY_N_EPOCHS == 0:
+            if VALIDATE_EVERY_N_EPOCHS is not None and (epoch + 1) % VALIDATE_EVERY_N_EPOCHS == 0:
                 val_results = self.validate(val_dataloader, "validation")
                 
                 if self.accelerator.is_main_process and val_results is not None:
