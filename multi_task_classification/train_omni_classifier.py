@@ -511,8 +511,8 @@ class OmniClassifierTrainer:
                     
                     # Log progress statistics
                     progress_stats = {
-                        'batch_progress_percentage': format_percentage(batch_progress),
-                        'epoch_progress_percentage': format_percentage(epoch_progress),
+                        'batch_progress_percentage': format_percentage(batch_idx + 1, len(train_dataloader)),
+                        'epoch_progress_percentage': format_percentage(epoch + 1, self.epochs),
                         'overall_progress_percentage': format_percentage((epoch * len(train_dataloader)) + batch_idx + 1, self.epochs * len(train_dataloader)),
                         'epoch_elapsed_time': format_time(elapsed_time),
                         'epoch_eta': format_time(epoch_eta),
