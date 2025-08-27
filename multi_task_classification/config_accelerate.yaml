@@ -10,9 +10,9 @@ data:
 model:
   tokenizer_name: "Qwen/Qwen2.5-Omni-7B"
   processor_name: "Qwen/Qwen2.5-Omni-7B"
-  training_strategy: "full"  # options: head_only, lora, full
+  training_strategy: "head_only"  # options: head_only, lora, full
   device_map: null  # Changed from "auto" to "cpu" for Accelerate compatibility
-  torch_dtype: "bfloat16"
+  torch_dtype: "float32"
   lora_config:
     r: 16
     alpha: 32
@@ -22,7 +22,7 @@ model:
 train:
   train_batch_size: 2  # Very small batch size for full training of large model
   val_batch_size: 1
-  lr: 5e-6  # Much lower learning rate for full training
+  lr: 1e-4  # Much lower learning rate for full training
   epochs: 3
   save_checkpoint_dir: "/scratch/keane/human_behaviour/full_finetune_meld_accelerate"
   load_checkpoint_path: null
