@@ -54,7 +54,15 @@ EARLY_STOPPING_PATIENCE = 5  # Stop training if no improvement for N epochs
 train:
   train_batch_size: 8
   gradient_accumulation_steps: 4  # Effective batch size = 8 * 4 = 32
+  num_workers: 4  # Number of worker processes for data loading
 ```
+
+### Data Loading Configuration
+- **num_workers: 0**: Single-threaded data loading (good for debugging)
+- **num_workers: 1-4**: Multi-threaded data loading (good for most setups)
+- **num_workers: 8+**: High-performance data loading (for powerful systems)
+
+**Note**: Higher num_workers values can improve data loading speed but may increase memory usage.
 
 ### Wandb Settings
 ```python

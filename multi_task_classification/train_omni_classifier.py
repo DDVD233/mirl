@@ -14,7 +14,7 @@ from verl.utils.dataset.rl_dataset import collate_fn
 from transformers import AutoTokenizer, AutoProcessor
 from omegaconf import OmegaConf
 from tqdm import tqdm
-from wandb_utils import log_metrics, format_time, format_percentage
+from wandb_utils import log_metrics, log_formatted_metrics, format_time, format_percentage
 from datetime import datetime
 from multi_task_evaluation import evaluate_predictions, compute_dataset_metrics
 from wandb_utils import init_wandb, log_metrics, log_line_series, finish
@@ -65,6 +65,7 @@ LOAD_CHECKPOINT_PATH = cfg.train.load_checkpoint_path
 SAVE_EVERY_N_EPOCHS = int(cfg.train.save_every_n_epochs)
 DEBUG_DRY_RUN = bool(cfg.train.debug_dry_run)
 GRADIENT_ACCUMULATION_STEPS = int(cfg.train.gradient_accumulation_steps)
+NUM_WORKERS = int(cfg.train.num_workers)
 
 # Validation configuration
 VALIDATE_EVERY_N_EPOCHS = int(cfg.train.validate_every_n_epochs)
@@ -87,6 +88,7 @@ NUM_CLASSES = label_config["num_classes"]
 print(f"[INFO] Loaded label mapping with {NUM_CLASSES} classes from {LABEL_MAP_PATH}")
 print(f"[INFO] Available datasets: {', '.join(label_config['datasets'])}")
 print(f"[INFO] Gradient accumulation: {GRADIENT_ACCUMULATION_STEPS} steps (effective batch size: {TRAIN_BATCH_SIZE * GRADIENT_ACCUMULATION_STEPS})")
+print(f"[INFO] Data loading: {NUM_WORKERS} worker processes (0 = single-threaded, {NUM_WORKERS}+ = multi-threaded)")
 
 # LoRA Configuration (only used when TRAINING_STRATEGY = "lora")
 LORA_CONFIG = {
@@ -107,7 +109,7 @@ config = OmegaConf.create(dict(cfg.dataset_config))
 # ---------------------------
 class OmniClassifierTrainer:
     def __init__(self, data_files, val_data_files, test_data_files, tokenizer, processor, config, 
-                 batch_size, val_batch_size, lr, epochs, save_checkpoint_dir, load_checkpoint_path, model, device_map, gradient_accumulation_steps, use_lora=False):
+                 batch_size, val_batch_size, lr, epochs, save_checkpoint_dir, load_checkpoint_path, model, device_map, gradient_accumulation_steps, num_workers=0, use_lora=False):
         self.data_files = data_files
         self.val_data_files = val_data_files
         self.test_data_files = test_data_files
@@ -117,6 +119,7 @@ class OmniClassifierTrainer:
         self.batch_size = batch_size
         self.val_batch_size = val_batch_size
         self.gradient_accumulation_steps = gradient_accumulation_steps
+        self.num_workers = num_workers
         self.lr = lr
         self.epochs = epochs
         self.model = model
@@ -180,6 +183,7 @@ class OmniClassifierTrainer:
             "validate_every_n_epochs": VALIDATE_EVERY_N_EPOCHS,
             "early_stopping_patience": EARLY_STOPPING_PATIENCE,
             "save_best_model": SAVE_BEST_MODEL,
+            "num_workers": self.num_workers,
             "lora_config": LORA_CONFIG if TRAINING_STRATEGY == "lora" else None,
             "label_map_path": LABEL_MAP_PATH,
             "datasets": label_config['datasets']
@@ -201,7 +205,7 @@ class OmniClassifierTrainer:
             label_map=self.label_map
         )
         return DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, collate_fn=collate_fn,
-                          num_workers=0, pin_memory=False, persistent_workers=False)
+                          num_workers=self.num_workers, pin_memory=False, persistent_workers=self.num_workers > 0)
 
     def validate(self, dataloader, split_name="validation"):
         """Validate the model on the given dataloader."""
@@ -509,19 +513,34 @@ class OmniClassifierTrainer:
                     # Calculate training rate
                     training_rate = (batch_idx + 1) / max(1, elapsed_time)
                     
-                    # Log progress statistics
+                    # Log progress statistics (numeric values only to avoid wandb media warnings)
                     progress_stats = {
-                        'batch_progress_percentage': format_percentage(batch_idx + 1, len(train_dataloader)),
-                        'epoch_progress_percentage': format_percentage(epoch + 1, self.epochs),
-                        'overall_progress_percentage': format_percentage((epoch * len(train_dataloader)) + batch_idx + 1, self.epochs * len(train_dataloader)),
-                        'epoch_elapsed_time': format_time(elapsed_time),
-                        'epoch_eta': format_time(epoch_eta),
-                        'overall_eta': format_time(overall_eta),
-                        'training_rate_per_second': f"{training_rate:.2f}/s",
-                        'summary': f"Epoch {epoch+1}/{self.epochs} | Batch {batch_idx+1}/{len(train_dataloader)} | {format_percentage(batch_idx + 1, len(train_dataloader))} | ETA: {format_time(epoch_eta)}"
+                        'batch_progress': batch_progress,  # 0.0 to 1.0
+                        'epoch_progress': epoch_progress,  # 0.0 to 1.0
+                        'overall_progress': overall_progress,  # 0.0 to 1.0
+                        'epoch_elapsed_time_seconds': elapsed_time,  # raw seconds
+                        'epoch_eta_seconds': epoch_eta,  # raw seconds
+                        'overall_eta_seconds': overall_eta,  # raw seconds
+                        'training_rate': training_rate,  # batches per second
+                        'current_epoch': epoch + 1,
+                        'total_epochs': self.epochs,
+                        'current_batch': batch_idx + 1,
+                        'total_batches': len(train_dataloader)
                     }
                     
                     log_metrics('training_progress', progress_stats)
+                    
+                    # Optionally log formatted metrics as a table (uncomment if you want formatted strings)
+                    # formatted_stats = {
+                    #     'batch_progress': format_percentage(batch_idx + 1, len(train_dataloader)),
+                    #     'epoch_progress': format_percentage(epoch + 1, self.epochs),
+                    #     'overall_progress': format_percentage((epoch * len(train_dataloader)) + batch_idx + 1, self.epochs * len(train_dataloader)),
+                    #     'epoch_elapsed_time': format_time(elapsed_time),
+                    #     'epoch_eta': format_time(epoch_eta),
+                    #     'overall_eta': format_time(overall_eta),
+                    #     'training_rate': f"{training_rate:.2f}/s"
+                    # }
+                    # log_formatted_metrics('training_progress', formatted_stats)
 
                 # step completes
 
@@ -726,7 +745,8 @@ if __name__ == "__main__":
         load_checkpoint_path=LOAD_CHECKPOINT_PATH,
         model=model,
         device_map=DEVICE_MAP,
-        gradient_accumulation_steps=GRADIENT_ACCUMULATION_STEPS
+        gradient_accumulation_steps=GRADIENT_ACCUMULATION_STEPS,
+        num_workers=NUM_WORKERS
     )
 
     # 1) Dataloader probe (prints batch structure)
