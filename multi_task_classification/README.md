@@ -109,9 +109,34 @@ for i in pbar:
     # Progress is automatically logged to wandb
 ```
 
+#### Enhanced Metrics in Wandb:
+The progress tracking now includes user-friendly formatted metrics:
+
+```json
+{
+  "progress/Training": {
+    "current": 45,
+    "total": 100,
+    "progress": 0.45,
+    "progress_percentage": "45.00%",
+    "elapsed_time": 125.5,
+    "elapsed_time_formatted": "00:02:05",
+    "eta": 153.2,
+    "eta_formatted": "00:02:33",
+    "rate": 0.36,
+    "rate_per_second": "0.36/s",
+    "summary": "45.00% complete | Elapsed: 00:02:05 | ETA: 00:02:33 | Rate: 0.36/s"
+  }
+}
+```
+
 #### Wandb Dashboard Features:
 - **Progress tracking**: Real-time progress bars in wandb dashboard
-- **Time estimates**: ETA and processing rate calculations
+- **Time estimates**: ETA and processing rate calculations with HH:MM:SS formatting
+- **Percentage display**: Progress shown as percentages (e.g., "75.50%")
+- **Formatted time**: Elapsed time and ETA displayed as HH:MM:SS (e.g., "01:23:45")
+- **Rate display**: Processing rate shown as items/second
+- **Summary field**: Combined information in a single readable string
 - **Nested progress**: Multiple progress bars for different training phases
 - **Historical data**: Progress history across training runs
 

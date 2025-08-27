@@ -2,6 +2,7 @@ import os
 import sys
 import json
 import torch
+import time
 from torch.utils.data import DataLoader
 from torch.optim import Adam
 from torch.nn import CrossEntropyLoss
@@ -13,7 +14,7 @@ from verl.utils.dataset.rl_dataset import collate_fn
 from transformers import AutoTokenizer, AutoProcessor
 from omegaconf import OmegaConf
 from tqdm import tqdm
-from wandb_utils import create_wandb_tqdm, log_tqdm_progress
+from wandb_utils import log_metrics, format_time, format_percentage
 from datetime import datetime
 from multi_task_evaluation import evaluate_predictions, compute_dataset_metrics
 from wandb_utils import init_wandb, log_metrics, log_line_series, finish
@@ -160,6 +161,9 @@ class OmniClassifierTrainer:
         # Initialize wandb
         if USE_WANDB:
             self._init_wandb()
+        
+        # Initialize training start time
+        self.start_time = time.time()
 
     def _init_wandb(self):
         """Initialize wandb logging via wandb_utils."""
@@ -209,8 +213,7 @@ class OmniClassifierTrainer:
         criterion = CrossEntropyLoss()
         
         with torch.no_grad():
-            val_pbar = create_wandb_tqdm(dataloader, desc=f"{split_name.capitalize()}", leave=False)
-            for batch in val_pbar:
+            for batch in tqdm(dataloader, desc=f"{split_name.capitalize()}", leave=False):
                 if 'input_ids' not in batch or 'labels' not in batch:
                     raise KeyError(f"Batch missing required keys. Got: {list(batch.keys())}")
 
@@ -252,10 +255,6 @@ class OmniClassifierTrainer:
                 if 'dataset' in batch:
                     # feed the datasets in
                     all_datasets.extend(batch['dataset'])
-                
-                # Log tqdm progress to wandb
-                if USE_WANDB:
-                    log_tqdm_progress(val_pbar, 1)
 
         # Calculate average loss
         avg_loss = total_loss / max(1, len(all_labels))
@@ -411,16 +410,15 @@ class OmniClassifierTrainer:
         # Load checkpoint if available
         start_epoch = self.load_checkpoint(optimizer)
 
-        epoch_pbar = create_wandb_tqdm(range(start_epoch, self.epochs), desc="Epochs", position=0)
-        for epoch in epoch_pbar:
+        for epoch in tqdm(range(start_epoch, self.epochs), desc="Epochs", position=0):
             # Training phase
             self.model.train()
             total_loss = 0.0
             correct = 0
             total = 0
+            epoch_start_time = time.time()
 
-            train_pbar = create_wandb_tqdm(enumerate(train_dataloader), desc="Training", total=len(train_dataloader))
-            for batch_idx, batch in train_pbar:
+            for batch_idx, batch in tqdm(enumerate(train_dataloader), desc="Training", total=len(train_dataloader)):
                 # --- defensive checks
                 if 'input_ids' not in batch or 'labels' not in batch:
                     raise KeyError(f"Batch missing required keys. Got: {list(batch.keys())}")
@@ -489,9 +487,41 @@ class OmniClassifierTrainer:
                     # Log batch metrics
                     log_metrics('batch_metrics_at_effective_batch_size_step', batch_info)
 
-                # Log tqdm progress to wandb
-                if USE_WANDB:
-                    log_tqdm_progress(train_pbar, 1)
+                # Log training progress statistics to wandb
+                if USE_WANDB and (batch_idx + 1) % self.gradient_accumulation_steps == 0:
+                    # Calculate progress statistics
+                    batch_progress = (batch_idx + 1) / len(train_dataloader)
+                    epoch_progress = (epoch + 1) / self.epochs
+                    overall_progress = ((epoch * len(train_dataloader)) + batch_idx + 1) / (self.epochs * len(train_dataloader))
+                    
+                    # Calculate time statistics
+                    elapsed_time = time.time() - epoch_start_time
+                    total_elapsed = time.time() - self.start_time if hasattr(self, 'start_time') else elapsed_time
+                    
+                    # Calculate ETA
+                    if batch_progress > 0:
+                        epoch_eta = (elapsed_time / batch_progress) * (1 - batch_progress)
+                        overall_eta = (total_elapsed / overall_progress) * (1 - overall_progress) if overall_progress > 0 else 0
+                    else:
+                        epoch_eta = 0
+                        overall_eta = 0
+                    
+                    # Calculate training rate
+                    training_rate = (batch_idx + 1) / max(1, elapsed_time)
+                    
+                    # Log progress statistics
+                    progress_stats = {
+                        'batch_progress_percentage': format_percentage(batch_progress),
+                        'epoch_progress_percentage': format_percentage(epoch_progress),
+                        'overall_progress_percentage': format_percentage((epoch * len(train_dataloader)) + batch_idx + 1, self.epochs * len(train_dataloader)),
+                        'epoch_elapsed_time': format_time(elapsed_time),
+                        'epoch_eta': format_time(epoch_eta),
+                        'overall_eta': format_time(overall_eta),
+                        'training_rate_per_second': f"{training_rate:.2f}/s",
+                        'summary': f"Epoch {epoch+1}/{self.epochs} | Batch {batch_idx+1}/{len(train_dataloader)} | {format_percentage(batch_idx + 1, len(train_dataloader))} | ETA: {format_time(epoch_eta)}"
+                    }
+                    
+                    log_metrics('training_progress', progress_stats)
 
                 # step completes
 
@@ -508,10 +538,6 @@ class OmniClassifierTrainer:
             self.training_history['train_acc'].append(train_acc)
             
             print(f"Epoch {epoch+1}/{self.epochs} - Train Loss: {avg_train_loss:.4f} - Train Acc: {train_acc:.4f}")
-            
-            # Log epoch progress to wandb
-            if USE_WANDB:
-                log_tqdm_progress(epoch_pbar, 1)
 
             # Validation phase
             is_best = False

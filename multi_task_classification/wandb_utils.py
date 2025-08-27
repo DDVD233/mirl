@@ -3,6 +3,26 @@ from tqdm import tqdm
 import time
 
 
+def format_time(seconds):
+    """Convert seconds to HH:MM:SS format."""
+    if seconds < 0:
+        return "00:00:00"
+    
+    hours = int(seconds // 3600)
+    minutes = int((seconds % 3600) // 60)
+    seconds = int(seconds % 60)
+    
+    return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+
+
+def format_percentage(value, total):
+    """Convert value/total to percentage string."""
+    if total == 0:
+        return "0.00%"
+    percentage = (value / total) * 100
+    return f"{percentage:.2f}%"
+
+
 class WandbTqdmCallback:
     """Custom tqdm callback to log progress to wandb."""
     
@@ -27,15 +47,26 @@ class WandbTqdmCallback:
                 progress = self.current / self.total if self.total > 0 else 0
                 elapsed_time = current_time - self.start_time
                 eta = (elapsed_time / max(1, self.current)) * (self.total - self.current) if self.current > 0 else 0
+                rate = self.current / max(1, elapsed_time)
+                
+                # Format values for better readability
+                progress_percentage = format_percentage(self.current, self.total)
+                elapsed_time_formatted = format_time(elapsed_time)
+                eta_formatted = format_time(eta)
                 
                 wandb.log({
                     f"progress/{self.name}": {
                         "current": self.current,
                         "total": self.total,
                         "progress": progress,
+                        "progress_percentage": progress_percentage,
                         "elapsed_time": elapsed_time,
+                        "elapsed_time_formatted": elapsed_time_formatted,
                         "eta": eta,
-                        "rate": self.current / max(1, elapsed_time)
+                        "eta_formatted": eta_formatted,
+                        "rate": rate,
+                        "rate_per_second": f"{rate:.2f}/s",
+                        "summary": f"{progress_percentage} complete | Elapsed: {elapsed_time_formatted} | ETA: {eta_formatted} | Rate: {rate:.2f}/s"
                     }
                 })
             
