@@ -1,0 +1,411 @@
+import json
+import os
+from collections import defaultdict
+from typing import Dict, List, Optional, Tuple
+import numpy as np
+from sklearn.metrics import confusion_matrix
+import wandb
+
+def _safe_div(num: float, den: float) -> float:
+    """Safe division that returns 0.0 if denominator is 0."""
+    return num / den if den > 0 else 0.0
+
+def compute_class_counts_and_metrics(
+    predictions: List[int],
+    ground_truths: List[int],
+    num_classes: int,
+) -> Dict[str, object]:
+    """
+    Single-label multiclass evaluation:
+      1) Build per-class one-vs-rest TP/FP/FN and support (count).
+      2) Compute per-class metrics.
+         - Per-class 'accuracy' is defined as TP/support (i.e., recall).
+
+    Args:
+        predictions: List of predicted class indices
+        ground_truths: List of ground truth class indices
+        num_classes: Total number of classes
+
+    Returns dict with:
+      - class_metrics: {label: {precision, recall, f1, accuracy, count, confusion_matrix}}
+      - pooled_counts: {'tp','fp','fn'}
+      - active_classes: int
+      - total_support: int
+    """
+    assert len(predictions) == len(ground_truths)
+    
+    # Convert to numpy arrays for easier manipulation
+    y_pred = np.array(predictions)
+    y_true = np.array(ground_truths)
+    
+    # Get all unique labels (should be 0 to num_classes-1)
+    labels = list(range(num_classes))
+    
+    N = len(y_true)
+    # Per-class counts
+    matrices = {c: {"tp": 0, "fp": 0, "fn": 0, "count": 0} for c in labels}
+
+    for p, t in zip(y_pred, y_true):
+        for c in labels:
+            if t == c:
+                matrices[c]["count"] += 1
+            if p == c and t == c:
+                matrices[c]["tp"] += 1
+            elif p == c and t != c:
+                matrices[c]["fp"] += 1
+            elif p != c and t == c:
+                matrices[c]["fn"] += 1
+
+    # pooled counts for micro
+    pooled_tp = sum(m["tp"] for m in matrices.values())
+    pooled_fp = sum(m["fp"] for m in matrices.values())
+    pooled_fn = sum(m["fn"] for m in matrices.values())
+
+    # per-class metrics
+    class_metrics: Dict[str, Dict[str, float]] = {}
+    active_classes = 0
+    total_support = 0
+
+    for c, m in matrices.items():
+        tp, fp, fn = m["tp"], m["fp"], m["fn"]
+        support = m["count"]
+
+        precision = _safe_div(tp, (tp + fp))
+        recall    = _safe_div(tp, (tp + fn))
+        f1        = _safe_div(2 * precision * recall, (precision + recall))
+        accuracy  = recall  # per-class accuracy = TP / support
+
+        class_metrics[str(c)] = {
+            "precision": precision,
+            "recall": recall,
+            "f1": f1,
+            "accuracy": accuracy,
+            "count": support,
+            "confusion_matrix": {"tp": tp, "fp": fp, "fn": fn},
+        }
+
+        if support > 0:
+            active_classes += 1
+            total_support += support
+
+    return {
+        "class_metrics": class_metrics,
+        "pooled_counts": {"tp": pooled_tp, "fp": pooled_fp, "fn": pooled_fn},
+        "active_classes": active_classes,
+        "total_support": total_support,
+    }
+
+def compute_dataset_metrics(
+    predictions: List[int], 
+    ground_truths: List[int],
+    num_classes: int
+) -> Dict[str, Dict]:
+    """
+    Compute per-class metrics and dataset-level macro/micro/weighted metrics.
+    Accuracy is corrected for single-label multiclass:
+      - micro_accuracy = #correct / N
+      - per-class 'accuracy' = TP/support (== recall)
+    """
+    summary = compute_class_counts_and_metrics(predictions, ground_truths, num_classes)
+    class_metrics = summary["class_metrics"]
+    pooled = summary["pooled_counts"]
+    active_classes = summary["active_classes"]
+    total_support = summary["total_support"]  # == N
+
+    # Accumulate macro & weighted
+    keys = ["precision", "recall", "f1", "accuracy"]
+
+    macro_sum = {k: 0.0 for k in keys}
+    weighted_sum = {k: 0.0 for k in keys}
+
+    for c, cm in class_metrics.items():
+        support = cm["count"]
+        if support > 0:
+            for k in keys:
+                macro_sum[k] += cm[k]
+                weighted_sum[k] += cm[k] * support
+
+    # Macro
+    macro = {
+        f"macro_{k}": _safe_div(macro_sum[k], active_classes) if active_classes > 0 else 0.0
+        for k in keys
+    }
+
+    # Weighted
+    weighted = {
+        f"weighted_{k}": _safe_div(weighted_sum[k], total_support) if total_support > 0 else 0.0
+        for k in keys
+    }
+
+    # Micro (pooled). In single-label multiclass:
+    # micro_precision = micro_recall = micro_f1 = accuracy = pooled_tp / N
+    PTP, PFP, PFN = pooled["tp"], pooled["fp"], pooled["fn"]
+    micro_precision = _safe_div(PTP, (PTP + PFP))
+    micro_recall    = _safe_div(PTP, (PTP + PFN))
+    micro_f1        = _safe_div(2 * micro_precision * micro_recall, (micro_precision + micro_recall))
+    micro_accuracy  = _safe_div(PTP, total_support)
+
+    micro = {
+        "micro_precision": micro_precision,
+        "micro_recall": micro_recall,
+        "micro_f1": micro_f1,
+        "micro_accuracy": micro_accuracy,
+    }
+
+    dataset_metrics = {}
+    dataset_metrics.update(macro)
+    dataset_metrics.update(weighted)
+    dataset_metrics.update(micro)
+
+    return {
+        "class_metrics": class_metrics,
+        "dataset_metrics": dataset_metrics,
+        "active_classes": active_classes,
+    }
+
+def compute_metrics_by_dataset(
+    predictions: List[int],
+    ground_truths: List[int],
+    datasets: List[str],
+    num_classes: int,
+    save_path: Optional[str] = None,
+    global_steps: Optional[int] = None,
+) -> Dict[str, float]:
+    """
+    Compute metrics at the dataset level and a global mean across datasets.
+    Aggregates the prefixed dataset-level metrics produced by compute_dataset_metrics.
+    """
+    
+    # Save predictions and ground truths if save_path is provided
+    if save_path and global_steps is not None:
+        os.makedirs(save_path, exist_ok=True)
+        with open(os.path.join(save_path, f"val_generations_{global_steps}.json"), "w") as f:
+            json.dump(
+                {
+                    "predictions": predictions,
+                    "ground_truths": ground_truths,
+                    "datasets": datasets,
+                },
+                f,
+                indent=4,
+            )
+
+    # Group by dataset
+    grouped = defaultdict(lambda: {"preds": [], "gts": []})
+    for p, t, d in zip(predictions, ground_truths, datasets):
+        grouped[d]["preds"].append(p)
+        grouped[d]["gts"].append(t)
+
+    result: Dict[str, float] = {}
+    discovered_metric_keys: List[str] = []
+
+    global_accum = None
+    n_datasets = 0
+
+    for dataset_name, data in grouped.items():
+        ds_res = compute_dataset_metrics(data["preds"], data["gts"], num_classes)
+        ds_metrics = ds_res["dataset_metrics"]
+
+        if not discovered_metric_keys:
+            discovered_metric_keys = sorted(ds_metrics.keys())
+
+        for k in discovered_metric_keys:
+            result[f"{dataset_name}/{k}"] = ds_metrics.get(k, 0.0)
+
+        if ds_res["active_classes"] == 0:
+            continue
+
+        if global_accum is None:
+            global_accum = {k: 0.0 for k in discovered_metric_keys}
+        for k in discovered_metric_keys:
+            global_accum[k] += ds_metrics.get(k, 0.0)
+        n_datasets += 1
+
+    if n_datasets > 0:
+        for k in discovered_metric_keys:
+            result[f"val/averaged_{k}"] = global_accum[k] / n_datasets
+
+    return result
+
+def compute_confusion_matrix_metrics(
+    predictions: List[int],
+    ground_truths: List[int],
+    num_classes: int,
+) -> Tuple[np.ndarray, Dict[str, float]]:
+    """
+    Compute confusion matrix and basic metrics using sklearn.
+    
+    Returns:
+        confusion_matrix: numpy array of shape (num_classes, num_classes)
+        metrics: dict with accuracy, precision, recall, f1
+    """
+    cm = confusion_matrix(ground_truths, predictions, labels=list(range(num_classes)))
+    
+    # Calculate metrics
+    tp = np.diag(cm)
+    fp = np.sum(cm, axis=0) - tp
+    fn = np.sum(cm, axis=1) - tp
+    
+    precision = _safe_div(tp.sum(), (tp.sum() + fp.sum()))
+    recall = _safe_div(tp.sum(), (tp.sum() + fn.sum()))
+    f1 = _safe_div(2 * precision * recall, (precision + recall))
+    accuracy = _safe_div(tp.sum(), len(ground_truths))
+    
+    metrics = {
+        "accuracy": accuracy,
+        "precision": precision,
+        "recall": recall,
+        "f1": f1,
+    }
+    
+    return cm, metrics
+
+def log_metrics_to_wandb(
+    metrics: Dict[str, float],
+    predictions: List[int],
+    ground_truths: List[int],
+    num_classes: int,
+    split_name: str = "validation",
+    epoch: Optional[int] = None,
+    class_names: Optional[List[str]] = None,
+) -> None:
+    """
+    Log metrics to wandb with proper formatting.
+    
+    Args:
+        metrics: Dictionary of metrics to log
+        predictions: List of predicted class indices
+        ground_truths: List of ground truth class indices
+        num_classes: Total number of classes
+        split_name: Name of the split (validation/test)
+        epoch: Current epoch number
+        class_names: List of class names for confusion matrix
+    """
+    if not wandb.run:
+        return
+    
+    # Prepare metrics for logging
+    log_dict = {}
+    
+    # Add epoch if provided
+    if epoch is not None:
+        log_dict['epoch'] = epoch
+    
+    # Add metrics with split prefix
+    for key, value in metrics.items():
+        log_dict[f"{split_name}/{key}"] = value
+    
+    # Log confusion matrix
+    cm, _ = compute_confusion_matrix_metrics(predictions, ground_truths, num_classes)
+    
+    if class_names is None:
+        class_names = [f"class_{i}" for i in range(num_classes)]
+    
+    log_dict[f"{split_name}/confusion_matrix"] = wandb.plot.confusion_matrix(
+        probs=None,
+        y_true=ground_truths,
+        preds=predictions,
+        class_names=class_names
+    )
+    
+    # Log the metrics
+    wandb.log(log_dict)
+
+def evaluate_predictions(
+    predictions: List[int],
+    ground_truths: List[int],
+    datasets: Optional[List[str]] = None,
+    num_classes: int = None,
+    split_name: str = "validation",
+    save_path: Optional[str] = None,
+    global_steps: Optional[int] = None,
+    log_to_wandb: bool = True,
+    class_names: Optional[List[str]] = None,
+) -> Dict[str, object]:
+    """
+    Comprehensive evaluation function that computes all metrics.
+    
+    Args:
+        predictions: List of predicted class indices
+        ground_truths: List of ground truth class indices
+        datasets: Optional list of dataset names for per-dataset evaluation
+        num_classes: Total number of classes
+        split_name: Name of the split (validation/test)
+        save_path: Optional path to save results
+        global_steps: Optional global step for saving
+        log_to_wandb: Whether to log to wandb
+        class_names: Optional list of class names
+    
+    Returns:
+        Dictionary containing all evaluation results
+    """
+    if num_classes is None:
+        num_classes = max(max(predictions), max(ground_truths)) + 1
+    
+    # Compute basic dataset metrics
+    dataset_results = compute_dataset_metrics(predictions, ground_truths, num_classes)
+    
+    # Compute confusion matrix
+    cm, cm_metrics = compute_confusion_matrix_metrics(predictions, ground_truths, num_classes)
+    
+    # Prepare results
+    results = {
+        "predictions": predictions,
+        "ground_truths": ground_truths,
+        "num_classes": num_classes,
+        "split_name": split_name,
+        "dataset_metrics": dataset_results["dataset_metrics"],
+        "class_metrics": dataset_results["class_metrics"],
+        "confusion_matrix": cm.tolist(),
+        "confusion_matrix_metrics": cm_metrics,
+        "active_classes": dataset_results["active_classes"],
+    }
+    
+    # Add per-dataset metrics if datasets are provided
+    if datasets is not None:
+        per_dataset_metrics = compute_metrics_by_dataset(
+            predictions, ground_truths, datasets, num_classes, save_path, global_steps
+        )
+        results["per_dataset_metrics"] = per_dataset_metrics
+    
+    # Log to wandb if requested
+    if log_to_wandb:
+        log_metrics_to_wandb(
+            dataset_results["dataset_metrics"],
+            predictions,
+            ground_truths,
+            num_classes,
+            split_name,
+            class_names=class_names
+        )
+    
+    return results
+
+if __name__ == "__main__":
+    # Test with synthetic data
+    predictions = [0, 1, 1, 0, 1, 2, 2, 1, 1, 2]
+    ground_truths = [0, 1, 1, 0, 0, 2, 2, 1, 2, 2]
+    datasets = ["DatasetA"] * 5 + ["DatasetB"] * 5
+    
+    print("=== Testing multi_task_evaluation ===")
+    
+    # Test basic evaluation
+    results = evaluate_predictions(
+        predictions=predictions,
+        ground_truths=ground_truths,
+        datasets=datasets,
+        num_classes=3,
+        split_name="test",
+        log_to_wandb=False
+    )
+    
+    print("Dataset Metrics:")
+    for key, value in results["dataset_metrics"].items():
+        print(f"  {key}: {value:.4f}")
+    
+    print("\nPer-Dataset Metrics:")
+    for key, value in results["per_dataset_metrics"].items():
+        print(f"  {key}: {value:.4f}")
+    
+    print("\nConfusion Matrix:")
+    print(np.array(results["confusion_matrix"]))
