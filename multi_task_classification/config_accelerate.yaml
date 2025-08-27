@@ -28,7 +28,7 @@ train:
   load_checkpoint_path: null
   save_every_n_epochs: 1
   debug_dry_run: false
-  validate_every_n_epochs: null
+  validate_every_n_epochs: 1
   validate_every_n_steps: 4  # New: validate every N steps (null = use epoch-based validation)
   early_stopping_patience: 3
   gradient_accumulation_steps: 4  # Higher gradient accumulation for full training
