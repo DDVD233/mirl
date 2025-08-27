@@ -17,7 +17,7 @@ from tqdm import tqdm
 from wandb_utils import log_metrics
 from datetime import datetime
 from multi_task_evaluation import evaluate_predictions, compute_dataset_metrics
-from wandb_utils import init_wandb, log_metrics, log_line_series, finish
+from wandb_utils import init_wandb, log_metrics, finish
 
 # Accelerate imports
 from accelerate import Accelerator
@@ -147,18 +147,6 @@ class OmniClassifierAccelerateTrainer:
         self.best_val_acc = 0.0
         self.epochs_without_improvement = 0
         self.steps_without_improvement = 0  # For step-based early stopping
-        self.training_history = {
-            'train_loss': [],
-            'train_acc': [],
-            'val_loss': [],
-            'val_acc': [],
-            'val_precision': [],
-            'val_recall': [],
-            'val_f1': [],
-            'val_macro_f1': [],
-            'val_weighted_f1': [],
-            'val_micro_f1': []
-        }
 
         # Initialize Accelerate
         self.accelerator = Accelerator(
@@ -255,13 +243,21 @@ class OmniClassifierAccelerateTrainer:
                 gathered_preds = self.accelerator.gather(preds)
                 gathered_labels = self.accelerator.gather(labels)
                 
+                # Gather datasets from all processes
+                if 'dataset' in batch:
+                    # Use accelerator.gather_object to gather the dataset strings directly
+                    gathered_datasets = self.accelerator.gather_object(batch['dataset'])
+                    
+                    if self.accelerator.is_main_process:
+                        # Flatten the gathered datasets (it comes as a list of lists)
+                        flattened_datasets = []
+                        for dataset_list in gathered_datasets:
+                            flattened_datasets.extend(dataset_list)
+                        all_datasets.extend(flattened_datasets)
+                
                 if self.accelerator.is_main_process:
                     all_predictions.extend(gathered_preds.cpu().numpy())
                     all_labels.extend(gathered_labels.cpu().numpy())
-                    
-                    # Extract dataset information if available
-                    if 'dataset' in batch:
-                        all_datasets.extend(batch['dataset'])
 
         # Calculate average loss
         avg_loss = total_loss / max(1, len(all_labels)) if self.accelerator.is_main_process else 0.0
@@ -363,8 +359,7 @@ class OmniClassifierAccelerateTrainer:
                     self.best_val_acc = checkpoint['best_val_acc']
                 if 'epochs_without_improvement' in checkpoint:
                     self.epochs_without_improvement = checkpoint['epochs_without_improvement']
-                if 'training_history' in checkpoint:
-                    self.training_history = checkpoint['training_history']
+                
                 
                 start_epoch = checkpoint.get('epoch', 0)
                 print(f"Successfully loaded checkpoint from epoch {start_epoch}")
@@ -389,7 +384,7 @@ class OmniClassifierAccelerateTrainer:
                 'epoch': epoch + 1,
                 'best_val_acc': self.best_val_acc,
                 'epochs_without_improvement': self.epochs_without_improvement,
-                'training_history': self.training_history,
+    
                 'config': {
                     'lr': self.lr,
                     'batch_size': self.batch_size,
@@ -552,53 +547,36 @@ class OmniClassifierAccelerateTrainer:
                 if VALIDATE_EVERY_N_STEPS is not None and current_step % VALIDATE_EVERY_N_STEPS == 0:
                     if self.accelerator.is_main_process:
                         print(f"\n[STEP {current_step}] Running step-based validation...")
-                    val_results = self.validate(val_dataloader, "validation")
-                    
-                    if self.accelerator.is_main_process and val_results is not None:
-                        # Store validation metrics
-                        self.training_history['val_loss'].append(val_results['loss'])
-                        self.training_history['val_acc'].append(val_results['accuracy'])
-                        self.training_history['val_precision'].append(val_results['precision'])
-                        self.training_history['val_recall'].append(val_results['recall'])
-                        self.training_history['val_f1'].append(val_results['f1'])
+                        val_results = self.validate(val_dataloader, "validation")
                         
-                        # Store additional F1 metrics from aggregate_metrics
-                        aggregate_metrics = val_results['aggregate_metrics']
-                        self.training_history['val_macro_f1'].append(aggregate_metrics.get('macro_f1', 0.0))
-                        self.training_history['val_weighted_f1'].append(aggregate_metrics.get('weighted_f1', 0.0))
-                        self.training_history['val_micro_f1'].append(aggregate_metrics.get('micro_f1', 0.0))
-                        
-                        # Check if this is the best model (using micro F1 as primary metric)
-                        val_f1 = val_results['f1']
-                        if val_f1 > self.best_val_acc:
-                            self.best_val_acc = val_f1
-                            self.steps_without_improvement = 0
-                            print(f"[STEP {current_step}] New best model! F1: {val_f1:.4f}")
-                        else:
-                            self.steps_without_improvement += 1
-                        
-                        print(f"[STEP {current_step}] Validation - Loss: {val_results['loss']:.4f} - Acc: {val_results['accuracy']:.4f} - F1: {val_f1:.4f}")
-                        print(f"[STEP {current_step}] Best validation F1 so far: {self.best_val_acc:.4f}")
-                        print(f"[STEP {current_step}] Steps without improvement: {self.steps_without_improvement}")
-                        
-                        # Log to wandb
-                        if USE_WANDB:
-                            # Log validation metrics at current step
-                            vm = {'loss': val_results['loss'], 'best_val_f1': self.best_val_acc, 'steps_without_improvement': self.steps_without_improvement}
-                            for key, value in val_results['aggregate_metrics'].items():
-                                vm[key] = value
-                            log_metrics('val', vm, step=current_step)
-                            # Log per-dataset metrics if available
-                            if 'per_dataset_metrics' in val_results['evaluation_results']:
-                                log_metrics('val', val_results['evaluation_results']['per_dataset_metrics'], step=current_step)
+                        if self.accelerator.is_main_process and val_results is not None:
+                            # Check if this is the best model (using micro F1 as primary metric)
+                            val_f1 = val_results['f1']
+                            if val_f1 > self.best_val_acc:
+                                self.best_val_acc = val_f1
+                                self.steps_without_improvement = 0
+                                print(f"[STEP {current_step}] New best model! F1: {val_f1:.4f}")
+                            else:
+                                self.steps_without_improvement += 1
+                            
+                            print(f"[STEP {current_step}] Validation - Loss: {val_results['loss']:.4f} - Acc: {val_results['accuracy']:.4f} - F1: {val_f1:.4f}")
+                            print(f"[STEP {current_step}] Best validation F1 so far: {self.best_val_acc:.4f}")
+                            print(f"[STEP {current_step}] Steps without improvement: {self.steps_without_improvement}")
+                            
+                            # Log to wandb
+                            if USE_WANDB:
+                                # Log validation metrics at current step
+                                vm = {'loss': val_results['loss'], 'best_val_f1': self.best_val_acc, 'steps_without_improvement': self.steps_without_improvement}
+                                for key, value in val_results['aggregate_metrics'].items():
+                                    vm[key] = value
+                                log_metrics('val', vm, step=current_step)
+                                # Log per-dataset metrics if available
+                                if 'per_dataset_metrics' in val_results['evaluation_results']:
+                                    log_metrics('val', val_results['evaluation_results']['per_dataset_metrics'], step=current_step)
 
             # Calculate training metrics
             avg_train_loss = total_loss / max(1, total)
             train_acc = correct / max(1, total)
-            
-            # Store training metrics
-            self.training_history['train_loss'].append(avg_train_loss)
-            self.training_history['train_acc'].append(train_acc)
             
             if self.accelerator.is_main_process:
                 print(f"Epoch {epoch+1}/{self.epochs} - Train Loss: {avg_train_loss:.4f} - Train Acc: {train_acc:.4f}")
@@ -609,18 +587,6 @@ class OmniClassifierAccelerateTrainer:
                 val_results = self.validate(val_dataloader, "validation")
                 
                 if self.accelerator.is_main_process and val_results is not None:
-                    # Store validation metrics
-                    self.training_history['val_loss'].append(val_results['loss'])
-                    self.training_history['val_acc'].append(val_results['accuracy'])
-                    self.training_history['val_precision'].append(val_results['precision'])
-                    self.training_history['val_recall'].append(val_results['recall'])
-                    self.training_history['val_f1'].append(val_results['f1'])
-                    
-                    # Store additional F1 metrics from aggregate_metrics
-                    aggregate_metrics = val_results['aggregate_metrics']
-                    self.training_history['val_macro_f1'].append(aggregate_metrics.get('macro_f1', 0.0))
-                    self.training_history['val_weighted_f1'].append(aggregate_metrics.get('weighted_f1', 0.0))
-                    self.training_history['val_micro_f1'].append(aggregate_metrics.get('micro_f1', 0.0))
                     
                     # Check if this is the best model (using micro F1 as primary metric)
                     val_f1 = val_results['f1']
@@ -682,38 +648,7 @@ class OmniClassifierAccelerateTrainer:
 
             # continue to next epoch
 
-        # Log final training history
-        if USE_WANDB and self.accelerator.is_main_process:
-            # Create training curves
-            epochs_list = list(range(1, len(self.training_history['train_loss']) + 1))
-            log_line_series(
-                name="training_curves",
-                xs=epochs_list,
-                ys_series=[self.training_history['train_loss'], self.training_history['val_loss']],
-                keys=["Train Loss", "Val Loss"],
-                title="Training and Validation Loss",
-                xname="Epoch",
-            )
-            log_line_series(
-                name="accuracy_curves",
-                xs=epochs_list,
-                ys_series=[self.training_history['train_acc'], self.training_history['val_acc']],
-                keys=["Train Accuracy", "Val Accuracy"],
-                title="Training and Validation Accuracy",
-                xname="Epoch",
-            )
-            log_line_series(
-                name="f1_curves",
-                xs=epochs_list,
-                ys_series=[
-                    self.training_history['val_micro_f1'],
-                    self.training_history['val_macro_f1'],
-                    self.training_history['val_weighted_f1'],
-                ],
-                keys=["Micro F1", "Macro F1", "Weighted F1"],
-                title="Validation F1 Scores",
-                xname="Epoch",
-            )
+
 
     def test(self):
         """Test the model on the test set."""

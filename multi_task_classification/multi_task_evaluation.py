@@ -198,7 +198,7 @@ def compute_metrics_by_dataset(
     result: Dict[str, float] = {}
     discovered_metric_keys: List[str] = []
 
-    global_accum = None
+    # global_accum = None
     n_datasets = 0
 
     for dataset_name, data in grouped.items():
@@ -214,11 +214,11 @@ def compute_metrics_by_dataset(
         if ds_res["active_classes"] == 0:
             continue
 
-        if global_accum is None:
-            global_accum = {k: 0.0 for k in discovered_metric_keys}
-        for k in discovered_metric_keys:
-            global_accum[k] += ds_metrics.get(k, 0.0)
-        n_datasets += 1
+        # if global_accum is None:
+        #     global_accum = {k: 0.0 for k in discovered_metric_keys}
+        # for k in discovered_metric_keys:
+        #     global_accum[k] += ds_metrics.get(k, 0.0)
+        # n_datasets += 1
 
     # if n_datasets > 0:
     #     for k in discovered_metric_keys:
@@ -226,38 +226,6 @@ def compute_metrics_by_dataset(
 
     return result
 
-def compute_confusion_matrix_metrics(
-    predictions: List[int],
-    ground_truths: List[int],
-    num_classes: int,
-) -> Tuple[np.ndarray, Dict[str, float]]:
-    """
-    Compute confusion matrix and basic metrics using sklearn.
-    
-    Returns:
-        confusion_matrix: numpy array of shape (num_classes, num_classes)
-        metrics: dict with accuracy, precision, recall, f1
-    """
-    cm = confusion_matrix(ground_truths, predictions, labels=list(range(num_classes)))
-    
-    # Calculate metrics
-    tp = np.diag(cm)
-    fp = np.sum(cm, axis=0) - tp
-    fn = np.sum(cm, axis=1) - tp
-    
-    precision = _safe_div(tp.sum(), (tp.sum() + fp.sum()))
-    recall = _safe_div(tp.sum(), (tp.sum() + fn.sum()))
-    f1 = _safe_div(2 * precision * recall, (precision + recall))
-    accuracy = _safe_div(tp.sum(), len(ground_truths))
-    
-    metrics = {
-        "accuracy": accuracy,
-        "precision": precision,
-        "recall": recall,
-        "f1": f1,
-    }
-    
-    return cm, metrics
 
 # All logging is intentionally moved out to wandb_utils. This module only computes metrics.
 
@@ -296,9 +264,7 @@ def evaluate_predictions(
     # This is basically the overall metrics for the entire validation set
     dataset_results = compute_dataset_metrics(predictions, ground_truths, num_classes)
     
-    # Compute confusion matrix
-    cm, cm_metrics = compute_confusion_matrix_metrics(predictions, ground_truths, num_classes)
-    
+
     # Prepare results
     results = {
         "aggregate_predictions": predictions,
@@ -307,17 +273,15 @@ def evaluate_predictions(
         "split_name": split_name,
         "aggregate_metrics": dataset_results["dataset_metrics"],
         "aggregate_class_metrics": dataset_results["class_metrics"],
-        "aggregate_confusion_matrix": cm.tolist(),
-        "aggregate_confusion_matrix_metrics": cm_metrics,
         "aggregate_active_classes": dataset_results["active_classes"],
     }
     
     # Add per-dataset metrics if datasets are provided
-    if datasets is not None:
-        per_dataset_metrics = compute_metrics_by_dataset(
-            predictions, ground_truths, datasets, num_classes, save_path, global_steps
-        )
-        results["per_dataset_metrics"] = per_dataset_metrics
+ 
+    per_dataset_metrics = compute_metrics_by_dataset(
+        predictions, ground_truths, datasets, num_classes, save_path, global_steps
+    )
+    results["per_dataset_metrics"] = per_dataset_metrics
     
     return results
 
@@ -325,7 +289,7 @@ if __name__ == "__main__":
     # Test with synthetic data
     predictions = [0, 1, 1, 0, 1, 2, 2, 1, 1, 2]
     ground_truths = [0, 1, 1, 0, 0, 2, 2, 1, 2, 2]
-    datasets = ["DatasetA"] * 5 + ["DatasetB"] * 5
+    datasets = ["DatasetA"] * 10
     
     print("=== Testing multi_task_evaluation ===")
     
@@ -336,7 +300,6 @@ if __name__ == "__main__":
         datasets=datasets,
         num_classes=3,
         split_name="test",
-        log_to_wandb=False
     )
     
     print("Dataset Metrics:")
@@ -347,5 +310,3 @@ if __name__ == "__main__":
     for key, value in results["per_dataset_metrics"].items():
         print(f"  {key}: {value:.4f}")
     
-    print("\nConfusion Matrix:")
-    print(np.array(results["aggregate_confusion_matrix"]))
