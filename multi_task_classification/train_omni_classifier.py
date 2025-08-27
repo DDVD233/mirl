@@ -1,17 +1,5 @@
 import os
 import sys
-
-# Set CUDA_VISIBLE_DEVICES before any other imports that might initialize CUDA
-CFG_PATH = os.path.join(os.path.dirname(__file__), "config.yaml")
-if os.path.exists(CFG_PATH):
-    import yaml
-    with open(CFG_PATH, 'r') as f:
-        config_data = yaml.safe_load(f)
-    
-    if 'system' in config_data and 'cuda_visible_devices' in config_data['system']:
-        os.environ['CUDA_VISIBLE_DEVICES'] = config_data['system']['cuda_visible_devices']
-        print(f"[INFO] Set CUDA_VISIBLE_DEVICES to: {config_data['system']['cuda_visible_devices']}")
-
 import json
 import torch
 from torch.utils.data import DataLoader
@@ -32,6 +20,8 @@ from wandb_utils import init_wandb, log_metrics, log_line_series, finish
 # ---------------------------
 # CONFIG (loaded from YAML)
 # ---------------------------
+CFG_PATH = os.path.join(os.path.dirname(__file__), "config.yaml")
+
 cfg = OmegaConf.load(CFG_PATH)
 
 TRAIN_DATA_FILE =  cfg.data.train_file
