@@ -17,15 +17,19 @@ def log_metrics(split_name: str, metrics: dict, epoch: int | None = None):
     if not wandb.run:
         return
     log_dict = {}
-    if epoch is not None:
-        log_dict["epoch"] = epoch
+    
     for key, value in metrics.items():
         # If key already has split prefix, keep it, else prefix
         if key.startswith(f"{split_name}/"):
             log_dict[key] = value
         else:
             log_dict[f"{split_name}/{key}"] = value
-    wandb.log(log_dict)
+    
+    # Use epoch as step if provided, otherwise just log without step
+    if epoch is not None:
+        wandb.log(log_dict, step=epoch)
+    else:
+        wandb.log(log_dict)
 
 
 def log_confusion_matrix(split_name: str, y_true: list[int], y_pred: list[int], class_names: list[str]):

@@ -439,7 +439,7 @@ class OmniClassifierTrainer:
                     }
                     
                     # Log batch metrics
-                    log_metrics('batch', batch_info, epoch=epoch + 1)
+                    log_metrics('batch_metrics', batch_info)
 
                 # step completes
 
