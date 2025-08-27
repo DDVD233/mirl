@@ -51,6 +51,7 @@ def custom_transformer_wrap_policy(
 QWEN_TRANSFORMER_LAYERS = {
     "Qwen2DecoderLayer",  # For Qwen2 models
     "Qwen2MoeDecoderLayer",  # For Qwen2 MoE models
+    "Qwen2_5OmniDecoderLayer",  # For Qwen2.5 Omni models
 }
 
 LLAMA_TRANSFORMER_LAYERS = {

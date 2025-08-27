@@ -6,7 +6,7 @@ fsdp_config:
   fsdp_backward_prefetch: "BACKWARD_PRE"
   fsdp_offload_params: false
   fsdp_state_dict_type: "FULL_STATE_DICT"
-  fsdp_transformer_layer_cls_to_wrap: "Qwen2DecoderLayer"
+  fsdp_transformer_layer_cls_to_wrap: "Qwen2_5OmniDecoderLayer"
   fsdp_use_orig_params: true
   fsdp_sharding_strategy: 1
 machine_rank: 0
