@@ -11,13 +11,13 @@ model:
   tokenizer_name: "Qwen/Qwen2.5-Omni-7B"
   processor_name: "Qwen/Qwen2.5-Omni-7B"
   training_strategy: "full"  # options: head_only, lora, full
-  device_map: "auto"  # "auto" for automatic distribution, "cpu", or specific device like "cuda:0"
-  torch_dtype: "bfloat16"  # "float16", "float32", or "bfloat16" - using bfloat16 for better stability with FSDP
+  device_map: null  # Changed from "auto" to "cpu" for Accelerate compatibility
+  torch_dtype: "bfloat16"
   lora_config:
     r: 16
     alpha: 32
     dropout: 0.1
-    target_modules: ["q_proj", "k_proj", "v_proj", "o_proj"]  # Reduced: removed MLP modules
+    target_modules: ["q_proj", "k_proj", "v_proj", "o_proj"]
 
 train:
   train_batch_size: 2  # Reduced batch size per GPU for FSDP

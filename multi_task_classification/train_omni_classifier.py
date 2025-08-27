@@ -30,9 +30,9 @@ if os.path.exists(CFG_PATH):
     with open(CFG_PATH, 'r') as f:
         config_data = yaml.safe_load(f)
     
-    # if 'system' in config_data and 'cuda_visible_devices' in config_data['system']:
-    #     os.environ['CUDA_VISIBLE_DEVICES'] = config_data['system']['cuda_visible_devices']
-    #     print(f"[INFO] Set CUDA_VISIBLE_DEVICES to: {config_data['system']['cuda_visible_devices']}")
+    if 'system' in config_data and 'cuda_visible_devices' in config_data['system']:
+        os.environ['CUDA_VISIBLE_DEVICES'] = config_data['system']['cuda_visible_devices']
+        print(f"[INFO] Set CUDA_VISIBLE_DEVICES to: {config_data['system']['cuda_visible_devices']}")
 
 cfg = OmegaConf.load(CFG_PATH)
 
