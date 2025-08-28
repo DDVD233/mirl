@@ -3,7 +3,7 @@ system:
 
 data:
   train_file: "/scratch/keane/human_behaviour/human_behaviour_data/0.1_audio_sigs_train_meld.jsonl"
-  val_file: "/scratch/keane/human_behaviour/human_behaviour_data/audio_sigs_val_meld.jsonl"
+  val_file: "/scratch/keane/human_behaviour/human_behaviour_data/0.1_audio_sigs_train_meld.jsonl"
   test_file: "/scratch/keane/human_behaviour/human_behaviour_data/audio_sigs_test_meld.jsonl"
   label_map_path: "/home/keaneong/human-behavior/verl/multi_task_classification/meld_label_map.json"
 
@@ -32,7 +32,7 @@ train:
   validate_every_n_steps: 1  # New: validate every N steps (null = use epoch-based validation)
   early_stopping_patience: 3
   gradient_accumulation_steps: 8  # Higher gradient accumulation for full training
-  num_workers: 0  # Reduced for memory constraints
+  num_workers: 0  # WARNING: SET THIS TO 0 AS IT SHOULD BE AUTOMATICALLY HANDLED BY ACCELERATE
 
 dataset_config:
   max_prompt_length: 4096

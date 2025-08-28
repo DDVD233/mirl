@@ -258,11 +258,11 @@ class OmniClassifierAccelerateTrainer:
                     all_labels.extend(gathered_labels.cpu().numpy())
                     all_datasets.extend(gathered_datasets)
 
-                with open('/home/keaneong/human-behavior/verl/multi_task_classification/debug_batch.txt', 'a') as f: 
-                    f.write(f"stop here after gather, all_predictions: {all_predictions}\n")
-                    f.write(f"stop here after gather, all_labels: {all_labels}\n")
-                    f.write(f"stop here after gather, all_datasets: {all_datasets}\n")
-                    raise Exception(f"Stop here, all_predictions: {all_predictions}, all_labels: {all_labels}, all_datasets: {all_datasets}")
+                # with open('/home/keaneong/human-behavior/verl/multi_task_classification/debug_batch.txt', 'a') as f: 
+                #     f.write(f"stop here after gather, all_predictions: {all_predictions}\n")
+                #     f.write(f"stop here after gather, all_labels: {all_labels}\n")
+                #     f.write(f"stop here after gather, all_datasets: {all_datasets}\n")
+                #     raise Exception(f"Stop here, all_predictions: {all_predictions}, all_labels: {all_labels}, all_datasets: {all_datasets}")
 
         # Calculate average loss
         avg_loss = total_loss / max(1, len(all_labels)) if self.accelerator.is_main_process else 0.0
@@ -287,6 +287,8 @@ class OmniClassifierAccelerateTrainer:
             print(f"{split_name.capitalize()} - Loss: {avg_loss:.4f} - Acc: {accuracy:.4f} - F1: {f1:.4f}")
             print(f"  Macro F1: {aggregate_metrics.get('macro_f1', 0.0):.4f} - Weighted F1: {aggregate_metrics.get('weighted_f1', 0.0):.4f}")
             
+            raise Exception(f"Stop here, all_predictions: {all_predictions}, all_labels: {all_labels}, all_datasets: {all_datasets}")
+
             return {
                 'loss': avg_loss,
                 'accuracy': accuracy,
@@ -656,8 +658,6 @@ class OmniClassifierAccelerateTrainer:
                         print(f"Early stopping triggered after {EARLY_STOPPING_PATIENCE} epochs without improvement")
                     break
 
-            # continue to next epoch
-
 
 
     def test(self):
@@ -710,8 +710,10 @@ class OmniClassifierAccelerateTrainer:
                 }
                 for key, value in test_results['aggregate_metrics'].items():
                     tm[key] = value
-                # Calculate final step for test logging
-                final_step = self.epochs * len(train_dataloader)
+                # Calculate final step for test logging;
+                # just log to 0 for now
+                # final_step = self.epochs * len(train_dataloader)
+                final_step = 0
                 log_metrics('test', tm, step=final_step)
                 # Per-dataset
                 if 'per_dataset_metrics' in test_results['evaluation_results']:
