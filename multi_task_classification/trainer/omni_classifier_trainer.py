@@ -385,7 +385,9 @@ class OmniClassifierAccelerateTrainer:
 
         unwrapped = self.accelerator.unwrap_model(self.model)
         model_sd = self.accelerator.get_state_dict(self.model)  # safe across wrappers
-
+        
+        raise Exception(f"Stop here, {model_sd}")
+        
         classifier_sd = None
         lora_sd = None
         adapter_path = None
@@ -458,8 +460,8 @@ class OmniClassifierAccelerateTrainer:
         os.makedirs(self.checkpoint_dir, exist_ok=True)
 
         ckpt = self._create_checkpoint_data(optimizer, epoch, scheduler, scaler)
-        print("checkpoint information is: ", ckpt)
-        raise Exception("Stop here")
+        # print("checkpoint information is: ", ckpt)
+        # raise Exception("Stop here")
         ckpt_path = os.path.join(self.checkpoint_dir, f"checkpoint_epoch_{epoch+1}.pt")
         self.accelerator.save(ckpt, ckpt_path)
 
