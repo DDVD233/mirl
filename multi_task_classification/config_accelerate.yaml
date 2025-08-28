@@ -21,7 +21,7 @@ model:
 
 train:
   train_batch_size: 2 # Very small batch size for full training of large model
-  val_batch_size: 1
+  val_batch_size: 2
   lr: 1e-3  # depending on the different model components, this should be adjusted
   epochs: 3
   save_checkpoint_dir: "/scratch/keane/human_behaviour/head_only_finetune_meld_accelerate"
@@ -29,7 +29,7 @@ train:
   save_every_n_epochs: 1
   debug_dry_run: false
   validate_every_n_epochs: null
-  validate_every_n_steps: 1  # New: validate every N steps (null = use epoch-based validation)
+  validate_every_n_steps: 5  # New: validate every N steps (null = use epoch-based validation)
   early_stopping_patience: 3
   gradient_accumulation_steps: 8  # Higher gradient accumulation for full training
   num_workers: 0  # WARNING: SET THIS TO 0 AS IT SHOULD BE AUTOMATICALLY HANDLED BY ACCELERATE

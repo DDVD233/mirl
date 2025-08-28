@@ -77,9 +77,10 @@ def log_validation_results(val_results, current_step, split_name, accelerator, u
     for key, value in val_results['aggregate_metrics'].items():
         vm[key] = value
     
+    # logging of aggregate metrics
     log_metrics('val', vm, step=current_step)
     
-    # Log per-dataset metrics if available
+    # logging of per-dataset metrics
     if 'per_dataset_metrics' in val_results['evaluation_results']:
             per_dataset_metrics = val_results['evaluation_results']['per_dataset_metrics']
             
