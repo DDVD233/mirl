@@ -337,7 +337,7 @@ class OmniClassifierAccelerateTrainer:
 
         print(f"[load] Reading checkpoint: {target_path}")
         try:
-            checkpoint = torch.load(target_path, map_location="cpu")
+            checkpoint = torch.load(target_path, map_location="cpu", weights_only=False)
 
             # 1) Model weights - load before prepare() to avoid accelerate wrapper issues
             self._load_model_state_from_checkpoint(checkpoint, context=os.path.basename(target_path))
