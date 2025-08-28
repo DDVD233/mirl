@@ -243,60 +243,29 @@ class OmniClassifierAccelerateTrainer:
                 preds = self.accelerator.pad_across_processes(preds, dim=0)
                 labels = self.accelerator.pad_across_processes(labels, dim=0)
 
-                with open('/home/keaneong/human-behavior/verl/multi_task_classification/debug_batch.txt', 'a') as f:
-                    f.write(f"gathered preds: {preds}\n")
-
-                gathered_preds  = self.accelerator.gather_for_metrics(preds)
+                # Gather predictions and labels from all processes
+                gathered_preds = self.accelerator.gather_for_metrics(preds)
                 gathered_labels = self.accelerator.gather_for_metrics(labels)
 
-                with open('/home/keaneong/human-behavior/verl/multi_task_classification/debug_batch.txt', 'a') as f:
-                    f.write(f"gathered_preds: {gathered_preds}\n")
-                
-                raise Exception(f"Stop here, gathered_preds: {gathered_preds}")
-                # Gather predictions and labels from all processes
-                # gathered_preds = self.accelerator.gather(preds)
-                # gathered_labels = self.accelerator.gather(labels)
-
-                # with open('/home/keaneong/human-behavior/verl/multi_task_classification/debug_batch.txt', 'a') as f:
-                #     f.write(f"gathered_preds: {gathered_preds}\n")
-            
-                # # Save batch to file for debugging
-                # with open('/home/keaneong/human-behavior/verl/multi_task_classification/debug_batch.txt', 'w') as f:
-                #     f.write(f"Batch keys: {list(batch.keys())}\n")
-                #     for k, v in batch.items():
-                #         try:
-                #             if hasattr(v, 'shape'):
-                #                 f.write(f"{k}: shape {tuple(v.shape)} dtype {getattr(v, 'dtype', None)} device {getattr(v, 'device', None)}\n")
-                #             elif isinstance(v, (list, tuple)):
-                #                 f.write(f"{k}: list(len={len(v)}) sample_type={type(v[0]) if len(v) else None}\n")
-                #             else:
-                #                 f.write(f"{k}: type {type(v)}\n")
-                #         except Exception as e:
-                #             f.write(f"{k}: <print error: {e}>\n")
-                
-                # Gather datasets from all processes
-
-                with open('/home/keaneong/human-behavior/verl/multi_task_classification/debug_batch.txt', 'a') as f:
-                    f.write(f"validate within loop before gather\n")
-
+                # Gather datasets from all processes (if available)
+                gathered_datasets = None
                 if 'dataset' in batch:
                     gathered_datasets = self.accelerator.gather_object(batch['dataset'])
-                    # with open('/home/keaneong/human-behavior/verl/multi_task_classification/debug_gathered_datasets.txt', 'w') as f:
-                    #     f.write(f"gathered_datasets: {gathered_datasets}\n")
-                with open('/home/keaneong/human-behavior/verl/multi_task_classification/debug_batch.txt', 'a') as f:
-                    f.write(f"validate within loop after gather\n")
-                    f.write(f"gathered_datasets: {gathered_datasets}\n")
+                else:
+                    # All processes must participate in gather_object, even if they don't have the data
+                    gathered_datasets = self.accelerator.gather_object(None)
 
-                # raise Exception(f"Stop here, gathered_preds: {gathered_preds}")
+                # Only process on main process
                 if self.accelerator.is_main_process:
                     all_predictions.extend(gathered_preds.cpu().numpy())
                     all_labels.extend(gathered_labels.cpu().numpy())
                     
-                    flattened_datasets = []
-                    for dataset_list in gathered_datasets:
-                        flattened_datasets.extend(dataset_list)
-
-                    all_datasets.extend(flattened_datasets)
+                    # Process datasets if available
+                    if gathered_datasets is not None:
+                        flattened_datasets = []
+                        for dataset_list in gathered_datasets:
+                            flattened_datasets.extend(dataset_list)
+                        all_datasets.extend(flattened_datasets)
 
         # Calculate average loss
         avg_loss = total_loss / max(1, len(all_labels)) if self.accelerator.is_main_process else 0.0
