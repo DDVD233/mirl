@@ -2,9 +2,9 @@ system:
   cuda_visible_devices: "2,3"  # Use all available GPUs
 
 data:
-  train_file: "/scratch/keane/human_behaviour/human_behaviour_data/0.01_audio_sigs_train_meld.jsonl"
-  val_file: "/scratch/keane/human_behaviour/human_behaviour_data/0.01_audio_sigs_train_meld.jsonl"
-  test_file: "/scratch/keane/human_behaviour/human_behaviour_data/0.01_audio_sigs_train_meld.jsonl"
+  train_file: "/scratch/keane/human_behaviour/human_behaviour_data/audio_sigs_fixed_full_train.jsonl"
+  val_file: "/scratch/keane/human_behaviour/human_behaviour_data/audio_sigs_fixed_full_val.jsonl"
+  test_file: "/scratch/keane/human_behaviour/human_behaviour_data/audio_sigs_fixed_full_test.jsonl"
   label_map_path: "/home/keaneong/human-behavior/verl/multi_task_classification/meld_label_map.json"
 
 model:

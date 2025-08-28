@@ -237,9 +237,9 @@ class OmniClassifierAccelerateTrainer:
         
         # ASSUME THAT THE MODEL IS ALREADY UNWRAPPED
         training_strategy = checkpoint.get("training_strategy", "head_only")
-        with open("/home/keaneong/human-behavior/verl/multi_task_classification/classifier_state_dict_KEY.txt", "a") as f:
-            f.write(f"Classifier state dict {checkpoint['classifier_state_dict']}")
-        raise Exception("Stop here")
+        # with open("/home/keaneong/human-behavior/verl/multi_task_classification/classifier_state_dict_KEY.txt", "a") as f:
+        #     f.write(f"Classifier state dict {checkpoint['classifier_state_dict']}")
+        # raise Exception("Stop here")
         
         def _report_load(res):
             if isinstance(res, tuple):
@@ -386,13 +386,13 @@ class OmniClassifierAccelerateTrainer:
         full_model_sd = None
 
         if training_strategy == "head_only":
-            # if hasattr(unwrapped, "classifier"):
-            classifier_sd = unwrapped.classifier.state_dict()
-            # elif hasattr(unwrapped, "head"):
-            #     classifier_sd = unwrapped.head.state_dict()
-            # else:
-            #     classifier_sd = {k: v for k, v in model_sd.items()
-            #                     if k.startswith("classifier.") or k.startswith("head.")}
+            if hasattr(unwrapped, "classifier"):
+                classifier_sd = unwrapped.classifier.state_dict()
+            elif hasattr(unwrapped, "head"):
+                classifier_sd = unwrapped.head.state_dict()
+            else:
+                classifier_sd = {k: v for k, v in model_sd.items()
+                                if k.startswith("classifier.") or k.startswith("head.")}
 
         elif training_strategy == "lora":
             if hasattr(unwrapped, "save_pretrained"):
