@@ -381,10 +381,8 @@ class OmniClassifierAccelerateTrainer:
 
     def _create_checkpoint_data(self, optimizer, epoch, scheduler=None, scaler=None):
         
-   
         training_strategy = self.global_config.get('TRAINING_STRATEGY', 'head_only')
         
-
         unwrapped = self.accelerator.unwrap_model(self.model)
 
         classifier_sd = None
@@ -418,6 +416,7 @@ class OmniClassifierAccelerateTrainer:
                 classifier_sd = unwrapped.head.state_dict()
 
         elif training_strategy == "full":
+            model_sd = self.accelerator.get_state_dict(self.model)  # safe across wrappers
             full_model_sd = model_sd  # capture entire model
 
         state = {
@@ -459,16 +458,16 @@ class OmniClassifierAccelerateTrainer:
 
         os.makedirs(self.checkpoint_dir, exist_ok=True)
 
-        self.accelerator.save_state(self.checkpoint_dir)
+        # self.accelerator.save_state(self.checkpoint_dir)
 
-
-        with open("/home/keaneong/human-behavior/verl/multi_task_classification/debug_save.txt", "a") as f:
-                        f.write(f"\nSaved state")
-        model_sd = self.accelerator.get_state_dict(self.model)  # safe across wrappers
-        
 
         ckpt = self._create_checkpoint_data(optimizer, epoch, scheduler, scaler)
         
+        with open("/home/keaneong/human-behavior/verl/multi_task_classification/debug_save.txt", "a") as f:
+                        f.write(f"\nSaved state: {ckpt}")
+                        raise Exception("Stop here")
+
+
         ckpt_path = os.path.join(self.checkpoint_dir, f"checkpoint_epoch_{epoch+1}.pt")
         self.accelerator.save(ckpt, ckpt_path)
 
