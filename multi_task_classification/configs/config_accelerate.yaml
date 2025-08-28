@@ -5,7 +5,7 @@ data:
   train_file: "/scratch/keane/human_behaviour/human_behaviour_data/audio_sigs_fixed_full_train.jsonl"
   val_file: "/scratch/keane/human_behaviour/human_behaviour_data/audio_sigs_fixed_full_val.jsonl"
   test_file: "/scratch/keane/human_behaviour/human_behaviour_data/audio_sigs_fixed_full_test.jsonl"
-  label_map_path: "/home/keaneong/human-behavior/verl/multi_task_classification/meld_label_map.json"
+  label_map_path: "/home/keaneong/human-behavior/verl/multi_task_classification/full_label_map.json"
 
 model:
   tokenizer_name: "Qwen/Qwen2.5-Omni-7B"
@@ -24,7 +24,7 @@ train:
   val_batch_size: 2
   lr: 1e-3  # depending on the different model components, this should be adjusted
   epochs: 2
-  save_checkpoint_dir: "/scratch/keane/human_behaviour/1_head_only_finetune_meld_accelerate"
+  save_checkpoint_dir: "/scratch/keane/human_behaviour/full_head_only_finetune_accelerate"
   load_checkpoint_path: null
   save_every_n_epochs: 1
   debug_dry_run: false
