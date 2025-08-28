@@ -239,12 +239,23 @@ class OmniClassifierAccelerateTrainer:
                 total_loss += loss.item() * input_ids.size(0)
                 preds = logits.argmax(dim=1)
 
+                # --- make shapes uniform across ranks (pad then gather)
+                preds = self.accelerator.pad_across_processes(preds, dim=0)
+                labels = self.accelerator.pad_across_processes(labels, dim=0)
+
                 with open('/home/keaneong/human-behavior/verl/multi_task_classification/debug_batch.txt', 'a') as f:
                     f.write(f"preds: {preds}\n")
+
+                gathered_preds  = self.accelerator.gather_for_metrics(preds)
+                gathered_labels = self.accelerator.gather_for_metrics(labels)
+
+                with open('/home/keaneong/human-behavior/verl/multi_task_classification/debug_batch.txt', 'a') as f:
+                    f.write(f"gathered_preds: {gathered_preds}\n")
                 
+                raise Exception(f"Stop here, gathered_preds: {gathered_preds}")
                 # Gather predictions and labels from all processes
-                gathered_preds = self.accelerator.gather(preds)
-                gathered_labels = self.accelerator.gather(labels)
+                # gathered_preds = self.accelerator.gather(preds)
+                # gathered_labels = self.accelerator.gather(labels)
 
                 # with open('/home/keaneong/human-behavior/verl/multi_task_classification/debug_batch.txt', 'a') as f:
                 #     f.write(f"gathered_preds: {gathered_preds}\n")
