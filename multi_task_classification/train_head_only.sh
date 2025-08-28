@@ -20,7 +20,7 @@ accelerate launch --config_file accelerate_config_qwen.yaml train_omni_classifie
     --train_batch_size 2 \
     --val_batch_size 2 \
     --lr 1e-3 \
-    --epochs 5 \
+    --epochs 2 \
     --save_checkpoint_dir "/scratch/keane/human_behaviour/head_only_training" \
     --validate_every_n_epochs 1 \
     --validate_every_n_steps None \
