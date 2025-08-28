@@ -234,7 +234,8 @@ class OmniClassifierAccelerateTrainer:
         - full:        loads full model state dict
         Fallbacks handle missing artifacts gracefully.
         """
-        unwrapped = self.accelerator.unwrap_model(self.model)
+        
+        # ASSUME THAT THE MODEL IS ALREADY UNWRAPPED
         training_strategy = checkpoint.get("training_strategy", "head_only")
 
         def _report_load(res):
@@ -249,16 +250,8 @@ class OmniClassifierAccelerateTrainer:
 
         if training_strategy == "head_only" and "classifier_state_dict" in checkpoint:
             print(f"Loading head-only {context} (classifier/head only)...")
-            # Try common names first
-            # if hasattr(unwrapped, "classifier"):
-            #     res = unwrapped.classifier.load_state_dict(checkpoint["classifier_state_dict"], strict=False)
-            #     _report_load(res)
-            # elif hasattr(unwrapped, "head"):
-            #     res = unwrapped.head.load_state_dict(checkpoint["classifier_state_dict"], strict=False)
-            #     _report_load(res)
-            # else:
-                # Fallback: partial load into the whole model with strict=False
-            res = unwrapped.load_state_dict(checkpoint["classifier_state_dict"], strict=False)
+
+            res = self.model.classifier.load_state_dict(checkpoint["classifier_state_dict"], strict=False)
             _report_load(res)
 
         elif training_strategy == "lora":
@@ -267,12 +260,12 @@ class OmniClassifierAccelerateTrainer:
             # 1) Load classifier/head if present
             cls_sd = checkpoint.get("classifier_state_dict")
             if cls_sd is not None:
-                if hasattr(unwrapped, "classifier"):
-                    _report_load(unwrapped.classifier.load_state_dict(cls_sd, strict=False))
-                elif hasattr(unwrapped, "head"):
-                    _report_load(unwrapped.head.load_state_dict(cls_sd, strict=False))
+                if hasattr(self.model, "classifier"):
+                    _report_load(self.model.classifier.load_state_dict(cls_sd, strict=False))
+                elif hasattr(self.model, "head"):
+                    _report_load(self.model.head.load_state_dict(cls_sd, strict=False))
                 else:
-                    _report_load(unwrapped.load_state_dict(cls_sd, strict=False))
+                    _report_load(self.model.load_state_dict(cls_sd, strict=False))
 
             # 2) Prefer loading adapters from a saved PEFT directory
             adapter_path = checkpoint.get("adapter_path")
@@ -292,9 +285,9 @@ class OmniClassifierAccelerateTrainer:
             loaded_adapter = False
             try:
                 # If the model exposes PEFT's load_adapter, use it.
-                if adapter_path and os.path.isdir(adapter_path) and hasattr(unwrapped, "load_adapter"):
+                if adapter_path and os.path.isdir(adapter_path) and hasattr(self.model, "load_adapter"):
                     print(f"Loading LoRA adapter directory: {adapter_path}")
-                    unwrapped.load_adapter(adapter_path)
+                    self.model.load_adapter(adapter_path)
                     loaded_adapter = True
             except Exception as e:
                 print(f"[WARN] PEFT adapter load failed from dir: {e}")
@@ -304,18 +297,18 @@ class OmniClassifierAccelerateTrainer:
                 lora_sd = checkpoint.get("lora_state_dict")
                 if lora_sd:
                     print("No adapter directory found; loading LoRA parameters directly...")
-                    _report_load(unwrapped.load_state_dict(lora_sd, strict=False))
+                    _report_load(self.model.load_state_dict(lora_sd, strict=False))
                 else:
                     print("[WARN] No LoRA adapter dir or lora_state_dict found—skipping adapter load.")
 
         elif training_strategy == "full" and "model_state_dict" in checkpoint:
             print(f"Loading full {context} (entire model state)...")
-            _report_load(unwrapped.load_state_dict(checkpoint["model_state_dict"], strict=False))
+            _report_load(self.model.load_state_dict(checkpoint["model_state_dict"], strict=False))
 
         else:
             # Last-resort compatibility path
             print(f"Loading {context} as a raw/partial state dict (strict=False)...")
-            _report_load(unwrapped.load_state_dict(checkpoint, strict=False))
+            _report_load(self.model.load_state_dict(checkpoint, strict=False))
 
     def load_checkpoint(self, optimizer=None, scheduler=None, scaler=None):
         """
