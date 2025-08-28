@@ -242,6 +242,8 @@ class OmniClassifierAccelerateTrainer:
                 # Gather predictions and labels from all processes
                 gathered_preds = self.accelerator.gather(preds)
                 gathered_labels = self.accelerator.gather(labels)
+
+                raise Exception(f"Stop here, batch: {batch}")
                 
                 # Gather datasets from all processes
                 if 'dataset' in batch:
@@ -256,6 +258,7 @@ class OmniClassifierAccelerateTrainer:
                     flattened_datasets = []
                     for dataset_list in gathered_datasets:
                         flattened_datasets.extend(dataset_list)
+
                     all_datasets.extend(flattened_datasets)
 
         # Calculate average loss
