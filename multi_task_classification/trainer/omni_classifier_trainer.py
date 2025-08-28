@@ -390,7 +390,8 @@ class OmniClassifierAccelerateTrainer:
             # else:
             #     classifier_sd = {k: v for k, v in model_sd.items()
             #                     if k.startswith("classifier.") or k.startswith("head.")}
-
+        raise Exception(f"Stop here, classifier_sd: {classifier_sd}")
+        
         elif training_strategy == "lora":
             if hasattr(unwrapped, "save_pretrained"):
                 adapter_path = os.path.join(self.checkpoint_dir, f"lora_adapter_epoch_{epoch+1}")
