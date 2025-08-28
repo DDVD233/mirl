@@ -384,12 +384,16 @@ class OmniClassifierAccelerateTrainer:
    
         training_strategy = self.global_config.get('TRAINING_STRATEGY', 'head_only')
 
-        with open("/home/keaneong/human-behavior/verl/multi_task_classification/debug_save.txt", "w") as f:
-                        f.write(f"Stop here, checkpoint_data")
-                        
+        
+
         unwrapped = self.accelerator.unwrap_model(self.model)
+
+        with open("/home/keaneong/human-behavior/verl/multi_task_classification/debug_save.txt", "a") as f:
+                        f.write(f"Stop here, unwrap model")
         model_sd = self.accelerator.get_state_dict(self.model)  # safe across wrappers
         
+        with open("/home/keaneong/human-behavior/verl/multi_task_classification/debug_save.txt", "a") as f:
+                        f.write(f"Stop here, model_sd")
 
         classifier_sd = None
         lora_sd = None
