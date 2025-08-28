@@ -237,7 +237,10 @@ class OmniClassifierAccelerateTrainer:
         
         # ASSUME THAT THE MODEL IS ALREADY UNWRAPPED
         training_strategy = checkpoint.get("training_strategy", "head_only")
-
+        with open("/home/keaneong/human-behavior/verl/multi_task_classification/classifier_state_dict_KEY.txt", "a") as f:
+            f.write(f"Classifier state dict {checkpoint['classifier_state_dict']}")
+        raise Exception("Stop here")
+        
         def _report_load(res):
             if isinstance(res, tuple):
                 missing, unexpected = res
