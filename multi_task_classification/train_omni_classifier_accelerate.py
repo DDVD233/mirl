@@ -3,6 +3,7 @@ import sys
 import json
 import torch
 import time
+import argparse
 from torch.utils.data import DataLoader
 from torch.optim import Adam
 from torch.nn import CrossEntropyLoss
@@ -26,97 +27,204 @@ from accelerate.logging import get_logger
 
 logger = get_logger(__name__)
 
-# ---------------------------
-# CONFIG (loaded from YAML)
-# ---------------------------
-CFG_PATH = os.path.join(os.path.dirname(__file__), "config_accelerate.yaml")
-
-# Set CUDA_VISIBLE_DEVICES before any CUDA operations
-if os.path.exists(CFG_PATH):
-    import yaml
-    with open(CFG_PATH, 'r') as f:
-        config_data = yaml.safe_load(f)
+def parse_parameters():
+    """
+    Parse parameters from YAML config file with command-line argument overrides.
     
-    # if 'system' in config_data and 'cuda_visible_devices' in config_data['system']:
-    #     os.environ['CUDA_VISIBLE_DEVICES'] = config_data['system']['cuda_visible_devices']
-    #     print(f"[INFO] Set CUDA_VISIBLE_DEVICES to: {config_data['system']['cuda_visible_devices']}")
+    Returns:
+        dict: Dictionary containing all parsed parameters
+    """
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(description='Train OmniClassifier with Accelerate')
+    
+    # Most important parameters that can be overridden
+    parser.add_argument('--training_strategy', type=str, 
+                       choices=['head_only', 'lora', 'full'],
+                       help='Training strategy: head_only, lora, or full')
+    parser.add_argument('--train_batch_size', type=int, 
+                       help='Training batch size')
+    parser.add_argument('--val_batch_size', type=int, 
+                       help='Validation batch size')
+    parser.add_argument('--lr', type=float, 
+                       help='Learning rate')
+    parser.add_argument('--save_checkpoint_dir', type=str, 
+                       help='Directory to save checkpoints')
+    parser.add_argument('--load_checkpoint_path', type=str, 
+                       help='Path to load checkpoint from')
+    parser.add_argument('--validate_every_n_epochs', type=int, 
+                       help='Validate every N epochs')
+    parser.add_argument('--validate_every_n_steps', type=int, 
+                       help='Validate every N steps')
+    parser.add_argument('--early_stopping_patience', type=int, 
+                       help='Early stopping patience')
+    parser.add_argument('--project', type=str, 
+                       help='Wandb project name')
+    parser.add_argument('--epochs', type=int, 
+                       help='Number of training epochs')
+    parser.add_argument('--gradient_accumulation_steps', type=int, 
+                       help='Gradient accumulation steps')
+    parser.add_argument('--config_file', type=str, 
+                       default='config_accelerate.yaml',
+                       help='Path to config YAML file')
+    
+    args = parser.parse_args()
+    
+    # Load YAML config
+    config_path = os.path.join(os.path.dirname(__file__), args.config_file)
+    cfg = OmegaConf.load(config_path)
+    
+    # Override config with command line arguments
+    if args.training_strategy is not None:
+        cfg.model.training_strategy = args.training_strategy
+    if args.train_batch_size is not None:
+        cfg.train.train_batch_size = args.train_batch_size
+    if args.val_batch_size is not None:
+        cfg.train.val_batch_size = args.val_batch_size
+    if args.lr is not None:
+        cfg.train.lr = args.lr
+    if args.save_checkpoint_dir is not None:
+        cfg.train.save_checkpoint_dir = args.save_checkpoint_dir
+    if args.load_checkpoint_path is not None:
+        cfg.train.load_checkpoint_path = args.load_checkpoint_path
+    if args.validate_every_n_epochs is not None:
+        cfg.train.validate_every_n_epochs = args.validate_every_n_epochs
+    if args.validate_every_n_steps is not None:
+        cfg.train.validate_every_n_steps = args.validate_every_n_steps
+    if args.early_stopping_patience is not None:
+        cfg.train.early_stopping_patience = args.early_stopping_patience
+    if args.project is not None:
+        cfg.wandb.project = args.project
+    if args.epochs is not None:
+        cfg.train.epochs = args.epochs
+    if args.gradient_accumulation_steps is not None:
+        cfg.train.gradient_accumulation_steps = args.gradient_accumulation_steps
+    
+    # Parse all parameters
+    params = {}
+    
+    # Data parameters
+    params['train_data_file'] = cfg.data.train_file
+    params['val_data_file'] = cfg.data.val_file
+    params['test_data_file'] = cfg.data.test_file
+    params['label_map_path'] = cfg.data.label_map_path
+    
+    # Model parameters
+    params['tokenizer_name'] = cfg.model.tokenizer_name
+    params['processor_name'] = cfg.model.processor_name
+    params['training_strategy'] = cfg.model.training_strategy
+    params['device_map'] = cfg.model.device_map
+    params['torch_dtype_str'] = cfg.model.torch_dtype
+    
+    # Convert torch_dtype string to actual torch dtype
+    if params['torch_dtype_str'] == "float16":
+        params['torch_dtype'] = torch.float16
+    elif params['torch_dtype_str'] == "float32":
+        params['torch_dtype'] = torch.float32
+    elif params['torch_dtype_str'] == "bfloat16":
+        params['torch_dtype'] = torch.bfloat16
+    else:
+        params['torch_dtype'] = torch.float16  # default
+    
+    # Training parameters
+    params['train_batch_size'] = cfg.train.train_batch_size
+    params['val_batch_size'] = cfg.train.val_batch_size
+    params['lr'] = float(cfg.train.lr)
+    params['epochs'] = int(cfg.train.epochs)
+    params['save_checkpoint_dir'] = cfg.train.save_checkpoint_dir
+    params['load_checkpoint_path'] = cfg.train.load_checkpoint_path
+    params['save_every_n_epochs'] = int(cfg.train.save_every_n_epochs)
+    params['debug_dry_run'] = bool(cfg.train.debug_dry_run)
+    params['gradient_accumulation_steps'] = int(cfg.train.gradient_accumulation_steps)
+    params['num_workers'] = int(cfg.train.num_workers)
+    
+    # Validation configuration
+    params['validate_every_n_epochs'] = cfg.train.validate_every_n_epochs
+    params['validate_every_n_steps'] = cfg.train.validate_every_n_steps
+    if params['validate_every_n_steps'] is not None:
+        params['validate_every_n_steps'] = int(params['validate_every_n_steps'])
+    if params['validate_every_n_epochs'] is not None:
+        params['validate_every_n_epochs'] = int(params['validate_every_n_epochs'])
+    params['save_best_model'] = True
+    params['early_stopping_patience'] = int(cfg.train.early_stopping_patience)
+    
+    # Wandb configuration
+    params['use_wandb'] = bool(cfg.wandb.use)
+    params['wandb_project'] = cfg.wandb.project
+    params['wandb_entity'] = cfg.wandb.entity
+    
+    # Load label mapping from JSON file
+    with open(params['label_map_path'], 'r') as f:
+        label_config = json.load(f)
+    
+    params['label_map'] = label_config["label_mapping"]
+    params['num_classes'] = label_config["num_classes"]
+    
+    # LoRA Configuration (only used when training_strategy = "lora")
+    params['lora_config'] = {
+        'r': int(cfg.model.lora_config.r),
+        'alpha': int(cfg.model.lora_config.alpha),
+        'dropout': float(cfg.model.lora_config.dropout),
+        'target_modules': list(cfg.model.lora_config.target_modules),
+    }
+    
+    # Dataset config
+    params['dataset_config'] = OmegaConf.create(dict(cfg.dataset_config))
+    
+    # Print configuration summary
+    print(f"[INFO] Training strategy: {params['training_strategy']}")
+    print(f"[INFO] Loaded label mapping with {params['num_classes']} classes from {params['label_map_path']}")
+    print(f"[INFO] Available datasets: {', '.join(label_config['datasets'])}")
+    print(f"[INFO] Gradient accumulation: {params['gradient_accumulation_steps']} steps (effective batch size: {params['train_batch_size'] * params['gradient_accumulation_steps']})")
+    print(f"[INFO] Data loading: {params['num_workers']} worker processes (0 = single-threaded, {params['num_workers']}+ = multi-threaded)")
+    print(f"[INFO] Learning rate: {params['lr']}")
+    print(f"[INFO] Epochs: {params['epochs']}")
+    print(f"[INFO] Save checkpoint dir: {params['save_checkpoint_dir']}")
+    if params['load_checkpoint_path']:
+        print(f"[INFO] Load checkpoint path: {params['load_checkpoint_path']}")
+    print(f"[INFO] Validate every N epochs: {params['validate_every_n_epochs']}")
+    print(f"[INFO] Validate every N steps: {params['validate_every_n_steps']}")
+    print(f"[INFO] Early stopping patience: {params['early_stopping_patience']}")
+    print(f"[INFO] Wandb project: {params['wandb_project']}")
+    
+    return params, label_config
 
-cfg = OmegaConf.load(CFG_PATH)
+# Parse parameters
+params, label_config = parse_parameters()
 
-TRAIN_DATA_FILE =  cfg.data.train_file
-VAL_DATA_FILE = cfg.data.val_file
-TEST_DATA_FILE = cfg.data.test_file
+# Extract parameters to global variables for backward compatibility
+TRAIN_DATA_FILE = params['train_data_file']
+VAL_DATA_FILE = params['val_data_file']
+TEST_DATA_FILE = params['test_data_file']
+TOKENIZER_NAME = params['tokenizer_name']
+PROCESSOR_NAME = params['processor_name']
+TRAINING_STRATEGY = params['training_strategy']
+DEVICE_MAP = params['device_map']
+TORCH_DTYPE = params['torch_dtype']
+TRAIN_BATCH_SIZE = params['train_batch_size']
+VAL_BATCH_SIZE = params['val_batch_size']
+LR = params['lr']
+EPOCHS = params['epochs']
+SAVE_CHECKPOINT_DIR = params['save_checkpoint_dir']
+LOAD_CHECKPOINT_PATH = params['load_checkpoint_path']
+SAVE_EVERY_N_EPOCHS = params['save_every_n_epochs']
+DEBUG_DRY_RUN = params['debug_dry_run']
+GRADIENT_ACCUMULATION_STEPS = params['gradient_accumulation_steps']
+NUM_WORKERS = params['num_workers']
+VALIDATE_EVERY_N_EPOCHS = params['validate_every_n_epochs']
+VALIDATE_EVERY_N_STEPS = params['validate_every_n_steps']
+SAVE_BEST_MODEL = params['save_best_model']
+EARLY_STOPPING_PATIENCE = params['early_stopping_patience']
+USE_WANDB = params['use_wandb']
+WANDB_PROJECT = params['wandb_project']
+WANDB_ENTITY = params['wandb_entity']
+LABEL_MAP = params['label_map']
+NUM_CLASSES = params['num_classes']
+LORA_CONFIG = params['lora_config']
+config = params['dataset_config']
 
-TOKENIZER_NAME = cfg.model.tokenizer_name
-PROCESSOR_NAME = cfg.model.processor_name
-TRAINING_STRATEGY = cfg.model.training_strategy
-DEVICE_MAP = cfg.model.device_map
-TORCH_DTYPE = cfg.model.torch_dtype
-
-# Convert torch_dtype string to actual torch dtype
-if TORCH_DTYPE == "float16":
-    TORCH_DTYPE = torch.float16
-elif TORCH_DTYPE == "float32":
-    TORCH_DTYPE = torch.float32
-elif TORCH_DTYPE == "bfloat16":
-    TORCH_DTYPE = torch.bfloat16
-else:
-    TORCH_DTYPE = torch.float16  # default
-
-TRAIN_BATCH_SIZE = cfg.train.train_batch_size
-VAL_BATCH_SIZE = cfg.train.val_batch_size
-LR = float(cfg.train.lr)
-EPOCHS = int(cfg.train.epochs)
-SAVE_CHECKPOINT_DIR = cfg.train.save_checkpoint_dir
-LOAD_CHECKPOINT_PATH = cfg.train.load_checkpoint_path
-SAVE_EVERY_N_EPOCHS = int(cfg.train.save_every_n_epochs)
-DEBUG_DRY_RUN = bool(cfg.train.debug_dry_run)
-GRADIENT_ACCUMULATION_STEPS = int(cfg.train.gradient_accumulation_steps)
-NUM_WORKERS = int(cfg.train.num_workers)
-
-# Validation configuration
-VALIDATE_EVERY_N_EPOCHS = cfg.train.validate_every_n_epochs
-VALIDATE_EVERY_N_STEPS = cfg.train.validate_every_n_steps
-if VALIDATE_EVERY_N_STEPS is not None:
-    VALIDATE_EVERY_N_STEPS = int(VALIDATE_EVERY_N_STEPS)
-if VALIDATE_EVERY_N_EPOCHS is not None:
-    VALIDATE_EVERY_N_EPOCHS = int(VALIDATE_EVERY_N_EPOCHS)
-SAVE_BEST_MODEL = True
-EARLY_STOPPING_PATIENCE = int(cfg.train.early_stopping_patience)
-
-# Wandb configuration
-USE_WANDB = bool(cfg.wandb.use)
-WANDB_PROJECT = cfg.wandb.project
-WANDB_ENTITY = cfg.wandb.entity
-
-# Load label mapping from JSON file
-LABEL_MAP_PATH = cfg.data.label_map_path
-with open(LABEL_MAP_PATH, 'r') as f:
-    label_config = json.load(f)
-
-LABEL_MAP = label_config["label_mapping"]
-NUM_CLASSES = label_config["num_classes"]
-
-print(f"[INFO] Loaded label mapping with {NUM_CLASSES} classes from {LABEL_MAP_PATH}")
-print(f"[INFO] Available datasets: {', '.join(label_config['datasets'])}")
-print(f"[INFO] Gradient accumulation: {GRADIENT_ACCUMULATION_STEPS} steps (effective batch size: {TRAIN_BATCH_SIZE * GRADIENT_ACCUMULATION_STEPS})")
-print(f"[INFO] Data loading: {NUM_WORKERS} worker processes (0 = single-threaded, {NUM_WORKERS}+ = multi-threaded)")
-
-# LoRA Configuration (only used when TRAINING_STRATEGY = "lora")
-LORA_CONFIG = {
-    'r': int(cfg.model.lora_config.r),
-    'alpha': int(cfg.model.lora_config.alpha),
-    'dropout': float(cfg.model.lora_config.dropout),
-    'target_modules': list(cfg.model.lora_config.target_modules),
-}
-
-# TODO: this should wrap around the huggingface loading stuff
+# Load tokenizer and processor
 tokenizer = AutoTokenizer.from_pretrained(TOKENIZER_NAME)
 processor = AutoProcessor.from_pretrained(PROCESSOR_NAME)
-
-config = OmegaConf.create(dict(cfg.dataset_config))
-
-
 
 # ---------------------------
 # ACCELERATE TRAINER
