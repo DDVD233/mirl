@@ -263,6 +263,7 @@ class OmniClassifierAccelerateTrainer:
                     with open('/home/keaneong/human-behavior/verl/multi_task_classification/debug_gathered_datasets.txt', 'w') as f:
                         f.write(f"gathered_datasets: {gathered_datasets}\n")
 
+                raise Exception(f"Stop here, gathered_preds: {gathered_preds}")
                 if self.accelerator.is_main_process:
                     all_predictions.extend(gathered_preds.cpu().numpy())
                     all_labels.extend(gathered_labels.cpu().numpy())
