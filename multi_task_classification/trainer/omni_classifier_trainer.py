@@ -317,20 +317,19 @@ class OmniClassifierAccelerateTrainer:
             print(f"Loading {context} as a raw/partial state dict (strict=False)...")
             _report_load(unwrapped.load_state_dict(checkpoint, strict=False))
 
-    def load_checkpoint(self, optimizer=None, scheduler=None, scaler=None, prefer_best=False):
+    def load_checkpoint(self, optimizer=None, scheduler=None, scaler=None):
         """
         Load the latest (or best) checkpoint for *training resume*.
         Restores model weights, optimizer, scheduler, scaler, and RNG states.
-        - prefer_best=True will try 'best_model.pt' first (if present), else latest.
         Returns: start_epoch (int)
         """
         # Decide which .pt to read
+        # only if you specify .pt for the load_checkpoint_path
         if self.load_checkpoint_path and os.path.isfile(self.load_checkpoint_path):
             target_path = self.load_checkpoint_path
         else:
             # prefer best first if asked
-            best_pt = os.path.join(self.checkpoint_dir, "best_model.pt")
-            target_path = best_pt if prefer_best and os.path.isfile(best_pt) else self._find_latest_checkpoint()
+            target_path = self._find_latest_checkpoint()
 
         if not target_path:
             print("[load] No checkpoint file found; starting fresh.")
@@ -466,35 +465,33 @@ class OmniClassifierAccelerateTrainer:
         ckpt_path = os.path.join(self.checkpoint_dir, f"checkpoint_epoch_{epoch+1}.pt")
         self.accelerator.save(ckpt, ckpt_path)
 
-        with open("/home/keaneong/human-behavior/verl/multi_task_classification/debug_save.txt", "a") as f:
-                f.write(f"\nSAVED THE CHECKPOINT")
-                raise Exception("Stop here")
+        # with open("/home/keaneong/human-behavior/verl/multi_task_classification/debug_save.txt", "a") as f:
+        #         f.write(f"\nSAVED THE CHECKPOINT")
+        #         raise Exception("Stop here")
 
        
-        if is_best:
-            best_path = os.path.join(self.checkpoint_dir, "best_model.pt")
-            self.accelerator.save(ckpt, best_path)
+        # if is_best: # NOTE: Forget about this for now as it will be time consuming
+        #     best_path = os.path.join(self.checkpoint_dir, "best_model.pt")
+        #     self.accelerator.save(ckpt, best_path)
 
-            strategy = self.global_config.get("TRAINING_STRATEGY")
-            if strategy == "lora":
-                try:
-                    unwrapped = self.accelerator.unwrap_model(self.model)
-                    best_adapter = os.path.join(self.checkpoint_dir, "best_lora_adapter")
-                    unwrapped.save_pretrained(best_adapter)
-                except Exception as e:
-                    print(f"Warning: Could not save best LoRA adapter: {e}")
+        #     strategy = self.global_config.get("TRAINING_STRATEGY")
+        #     if strategy == "lora":
+        #         try:
+        #             unwrapped = self.accelerator.unwrap_model(self.model)
+        #             best_adapter = os.path.join(self.checkpoint_dir, "best_lora_adapter")
+        #             unwrapped.save_pretrained(best_adapter)
+        #         except Exception as e:
+        #             print(f"Warning: Could not save best LoRA adapter: {e}")
 
-            elif strategy == "full":
-                try:
-                    unwrapped = self.accelerator.unwrap_model(self.model)
-                    best_full = os.path.join(self.checkpoint_dir, "best_full_model")
-                    self.accelerator.save_model(unwrapped, best_full)
-                except Exception as e:
-                    print(f"Warning: Could not save best full-model dir: {e}")
+        #     elif strategy == "full":
+        #         try:
+        #             unwrapped = self.accelerator.unwrap_model(self.model)
+        #             best_full = os.path.join(self.checkpoint_dir, "best_full_model")
+        #             self.accelerator.save_model(unwrapped, best_full)
+        #         except Exception as e:
+        #             print(f"Warning: Could not save best full-model dir: {e}")
 
         print(f"Checkpoint saved: {ckpt_path}")
-
-
 
     def train(self):
         train_dataloader = self.get_dataloader(self.data_files, self.batch_size, num_workers=self.num_workers, shuffle=True)
