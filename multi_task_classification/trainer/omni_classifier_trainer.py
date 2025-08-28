@@ -386,8 +386,10 @@ class OmniClassifierAccelerateTrainer:
         unwrapped = self.accelerator.unwrap_model(self.model)
         model_sd = self.accelerator.get_state_dict(self.model)  # safe across wrappers
         
-        raise Exception(f"Stop here, {model_sd}")
-        
+        with open("/home/keaneong/human-behavior/verl/multi_task_classification/debug_save.txt", "w") as f:
+            f.write(f"Stop here, {model_sd}")
+
+            
         classifier_sd = None
         lora_sd = None
         adapter_path = None
