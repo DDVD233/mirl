@@ -243,19 +243,22 @@ class OmniClassifierAccelerateTrainer:
                 gathered_preds = self.accelerator.gather(preds)
                 gathered_labels = self.accelerator.gather(labels)
 
-                # Save batch to file for debugging
                 with open('/home/keaneong/human-behavior/verl/multi_task_classification/debug_batch.txt', 'w') as f:
-                    f.write(f"Batch keys: {list(batch.keys())}\n")
-                    for k, v in batch.items():
-                        try:
-                            if hasattr(v, 'shape'):
-                                f.write(f"{k}: shape {tuple(v.shape)} dtype {getattr(v, 'dtype', None)} device {getattr(v, 'device', None)}\n")
-                            elif isinstance(v, (list, tuple)):
-                                f.write(f"{k}: list(len={len(v)}) sample_type={type(v[0]) if len(v) else None}\n")
-                            else:
-                                f.write(f"{k}: type {type(v)}\n")
-                        except Exception as e:
-                            f.write(f"{k}: <print error: {e}>\n")
+                    f.write(f"gathered_preds: {gathered_preds}\n")
+            
+                # # Save batch to file for debugging
+                # with open('/home/keaneong/human-behavior/verl/multi_task_classification/debug_batch.txt', 'w') as f:
+                #     f.write(f"Batch keys: {list(batch.keys())}\n")
+                #     for k, v in batch.items():
+                #         try:
+                #             if hasattr(v, 'shape'):
+                #                 f.write(f"{k}: shape {tuple(v.shape)} dtype {getattr(v, 'dtype', None)} device {getattr(v, 'device', None)}\n")
+                #             elif isinstance(v, (list, tuple)):
+                #                 f.write(f"{k}: list(len={len(v)}) sample_type={type(v[0]) if len(v) else None}\n")
+                #             else:
+                #                 f.write(f"{k}: type {type(v)}\n")
+                #         except Exception as e:
+                #             f.write(f"{k}: <print error: {e}>\n")
                 
                 # Gather datasets from all processes
                 if 'dataset' in batch:
@@ -263,7 +266,7 @@ class OmniClassifierAccelerateTrainer:
                     with open('/home/keaneong/human-behavior/verl/multi_task_classification/debug_gathered_datasets.txt', 'w') as f:
                         f.write(f"gathered_datasets: {gathered_datasets}\n")
 
-                raise Exception(f"Stop here, gathered_preds: {gathered_preds}")
+                # raise Exception(f"Stop here, gathered_preds: {gathered_preds}")
                 if self.accelerator.is_main_process:
                     all_predictions.extend(gathered_preds.cpu().numpy())
                     all_labels.extend(gathered_labels.cpu().numpy())
