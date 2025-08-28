@@ -156,7 +156,7 @@ class OmniClassifier(nn.Module):
             if param.requires_grad:
                 trainable_params += param.numel()
         
-        print(f"trainable params: {trainable_params:,} || all params: {all_param:,} || trainable%: {100 * trainable_params / all_param:.2f}%")
+        print(f"Backbonetrainable params: {trainable_params:,} || all params: {all_param:,} || trainable%: {100 * trainable_params / all_param:.2f}%")
         return trainable_params, all_param
 
     def _ensure_classifier_alignment(self):

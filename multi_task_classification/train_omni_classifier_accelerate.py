@@ -252,13 +252,6 @@ class OmniClassifierAccelerateTrainer:
                     # All processes must participate in gather_object, even if they don't have the data
                     gathered_datasets = self.accelerator.gather_for_metrics(None)
                 
-
-                with open('/home/keaneong/human-behavior/verl/multi_task_classification/debug_batch.txt', 'a') as f: 
-                    f.write(f"stop here after gather, gathered_preds: {gathered_preds}\n")
-                    f.write(f"stop here after gather, gathered_labels: {gathered_labels}\n")
-                    f.write(f"stop here after gather, gathered_datasets: {gathered_datasets}\n")
-                    raise Exception(f"Stop here, gathered labels: {gathered_labels}, gathered_preds: {gathered_preds}, gathered_datasets: {gathered_datasets}")
-
                 # Only process on main process
                 if self.accelerator.is_main_process:
                     all_predictions.extend(gathered_preds.cpu().numpy())
@@ -270,6 +263,12 @@ class OmniClassifierAccelerateTrainer:
                         for dataset_list in gathered_datasets:
                             flattened_datasets.extend(dataset_list)
                         all_datasets.extend(flattened_datasets)
+
+                with open('/home/keaneong/human-behavior/verl/multi_task_classification/debug_batch.txt', 'a') as f: 
+                    f.write(f"stop here after gather, all_predictions: {all_predictions}\n")
+                    f.write(f"stop here after gather, all_labels: {all_labels}\n")
+                    f.write(f"stop here after gather, all_datasets: {all_datasets}\n")
+                    raise Exception(f"Stop here, all_predictions: {all_predictions}, all_labels: {all_labels}, all_datasets: {all_datasets}")
 
         # Calculate average loss
         avg_loss = total_loss / max(1, len(all_labels)) if self.accelerator.is_main_process else 0.0
