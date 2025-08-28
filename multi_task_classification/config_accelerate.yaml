@@ -2,8 +2,8 @@ system:
   cuda_visible_devices: "2,3"  # Use all available GPUs
 
 data:
-  train_file: "/scratch/keane/human_behaviour/human_behaviour_data/audio_sigs_train_meld.jsonl"
-  val_file: "/scratch/keane/human_behaviour/human_behaviour_data/audio_sigs_val_meld.jsonl"
+  train_file: "/scratch/keane/human_behaviour/human_behaviour_data/0.1_audio_sigs_train_meld.jsonl"
+  val_file: "/scratch/keane/human_behaviour/human_behaviour_data/0.1_audio_sigs_train_meld.jsonl"
   test_file: "/scratch/keane/human_behaviour/human_behaviour_data/audio_sigs_test_meld.jsonl"
   label_map_path: "/home/keaneong/human-behavior/verl/multi_task_classification/meld_label_map.json"
 
@@ -22,14 +22,14 @@ model:
 train:
   train_batch_size: 4  # Very small batch size for full training of large model
   val_batch_size: 4
-  lr: 1e-3  # Much lower learning rate for full training
+  lr: 1e-3  # depending on the different model components, this should be adjusted
   epochs: 3
   save_checkpoint_dir: "/scratch/keane/human_behaviour/head_only_finetune_meld_accelerate"
   load_checkpoint_path: null
   save_every_n_epochs: 1
   debug_dry_run: false
   validate_every_n_epochs: null
-  validate_every_n_steps: 50  # New: validate every N steps (null = use epoch-based validation)
+  validate_every_n_steps: 1  # New: validate every N steps (null = use epoch-based validation)
   early_stopping_patience: 3
   gradient_accumulation_steps: 8  # Higher gradient accumulation for full training
   num_workers: 8  # Reduced for memory constraints
