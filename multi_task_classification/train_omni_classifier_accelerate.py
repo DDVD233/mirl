@@ -264,11 +264,14 @@ class OmniClassifierAccelerateTrainer:
 
                 with open('/home/keaneong/human-behavior/verl/multi_task_classification/debug_batch.txt', 'a') as f:
                     f.write(f"validate within loop before gather\n")
-                    
+
                 if 'dataset' in batch:
                     gathered_datasets = self.accelerator.gather_object(batch['dataset'])
                     # with open('/home/keaneong/human-behavior/verl/multi_task_classification/debug_gathered_datasets.txt', 'w') as f:
                     #     f.write(f"gathered_datasets: {gathered_datasets}\n")
+                with open('/home/keaneong/human-behavior/verl/multi_task_classification/debug_batch.txt', 'a') as f:
+                    f.write(f"validate within loop after gather\n")
+                    f.write(f"gathered_datasets: {gathered_datasets}\n")
 
                 # raise Exception(f"Stop here, gathered_preds: {gathered_preds}")
                 if self.accelerator.is_main_process:
