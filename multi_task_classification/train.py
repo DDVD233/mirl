@@ -249,7 +249,7 @@ def parse_parameters():
             params['validate_every_n_epochs'] = None
         else:
             params['validate_every_n_epochs'] = int(params['validate_every_n_epochs'])
-            
+
     params['save_best_model'] = True
     params['early_stopping_patience'] = int(cfg.train.early_stopping_patience)
     
@@ -409,7 +409,7 @@ def main():
     trainer.train()
     
     # Testing
-    test_results = trainer.test()
+    # test_results = trainer.test()
 
 if __name__ == "__main__":
     main()
