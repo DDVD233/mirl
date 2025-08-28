@@ -21,7 +21,7 @@ model:
 
 train:
   train_batch_size: 2 # Very small batch size for full training of large model
-  val_batch_size: 2
+  val_batch_size: 1
   lr: 1e-3  # depending on the different model components, this should be adjusted
   epochs: 3
   save_checkpoint_dir: "/scratch/keane/human_behaviour/head_only_finetune_meld_accelerate"
