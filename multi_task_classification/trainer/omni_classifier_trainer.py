@@ -250,16 +250,16 @@ class OmniClassifierAccelerateTrainer:
         if training_strategy == "head_only" and "classifier_state_dict" in checkpoint:
             print(f"Loading head-only {context} (classifier/head only)...")
             # Try common names first
-            if hasattr(unwrapped, "classifier"):
-                res = unwrapped.classifier.load_state_dict(checkpoint["classifier_state_dict"], strict=False)
-                _report_load(res)
-            elif hasattr(unwrapped, "head"):
-                res = unwrapped.head.load_state_dict(checkpoint["classifier_state_dict"], strict=False)
-                _report_load(res)
-            else:
+            # if hasattr(unwrapped, "classifier"):
+            #     res = unwrapped.classifier.load_state_dict(checkpoint["classifier_state_dict"], strict=False)
+            #     _report_load(res)
+            # elif hasattr(unwrapped, "head"):
+            #     res = unwrapped.head.load_state_dict(checkpoint["classifier_state_dict"], strict=False)
+            #     _report_load(res)
+            # else:
                 # Fallback: partial load into the whole model with strict=False
-                res = unwrapped.load_state_dict(checkpoint["classifier_state_dict"], strict=False)
-                _report_load(res)
+            res = unwrapped.load_state_dict(checkpoint["classifier_state_dict"], strict=False)
+            _report_load(res)
 
         elif training_strategy == "lora":
             print(f"Loading LoRA {context} (adapters + optional classifier/head)...")
@@ -390,13 +390,13 @@ class OmniClassifierAccelerateTrainer:
         full_model_sd = None
 
         if training_strategy == "head_only":
-            if hasattr(unwrapped, "classifier"):
-                classifier_sd = unwrapped.classifier.state_dict()
-            elif hasattr(unwrapped, "head"):
-                classifier_sd = unwrapped.head.state_dict()
-            else:
-                classifier_sd = {k: v for k, v in model_sd.items()
-                                if k.startswith("classifier.") or k.startswith("head.")}
+            # if hasattr(unwrapped, "classifier"):
+            classifier_sd = unwrapped.classifier.state_dict()
+            # elif hasattr(unwrapped, "head"):
+            #     classifier_sd = unwrapped.head.state_dict()
+            # else:
+            #     classifier_sd = {k: v for k, v in model_sd.items()
+            #                     if k.startswith("classifier.") or k.startswith("head.")}
 
         elif training_strategy == "lora":
             if hasattr(unwrapped, "save_pretrained"):
