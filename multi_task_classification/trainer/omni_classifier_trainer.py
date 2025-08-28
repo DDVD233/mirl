@@ -383,14 +383,13 @@ class OmniClassifierAccelerateTrainer:
         full_model_sd = None
 
         if training_strategy == "head_only":
-            # if hasattr(unwrapped, "classifier"):
-            classifier_sd = unwrapped.classifier.state_dict()
-            # elif hasattr(unwrapped, "head"):
-            #     classifier_sd = unwrapped.head.state_dict()
-            # else:
-            #     classifier_sd = {k: v for k, v in model_sd.items()
-            #                     if k.startswith("classifier.") or k.startswith("head.")}
-            raise Exception(f"Stop here, classifier_sd: {classifier_sd}")
+            if hasattr(unwrapped, "classifier"):
+                classifier_sd = unwrapped.classifier.state_dict()
+            elif hasattr(unwrapped, "head"):
+                classifier_sd = unwrapped.head.state_dict()
+            else:
+                classifier_sd = {k: v for k, v in model_sd.items()
+                                if k.startswith("classifier.") or k.startswith("head.")}
 
         elif training_strategy == "lora":
             if hasattr(unwrapped, "save_pretrained"):
