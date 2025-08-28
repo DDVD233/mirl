@@ -238,9 +238,6 @@ class OmniClassifierAccelerateTrainer:
                 
                 total_loss += loss.item() * input_ids.size(0)
                 preds = logits.argmax(dim=1)
-
-                with open('/home/keaneong/human-behavior/verl/multi_task_classification/debug_batch.txt', 'a') as f:
-                    f.write(f"validate within loop\n")
                 
                 # Gather predictions and labels from all processes
                 gathered_preds = self.accelerator.gather(preds)
@@ -264,6 +261,10 @@ class OmniClassifierAccelerateTrainer:
                 #             f.write(f"{k}: <print error: {e}>\n")
                 
                 # Gather datasets from all processes
+
+                with open('/home/keaneong/human-behavior/verl/multi_task_classification/debug_batch.txt', 'a') as f:
+                    f.write(f"validate within loop before gather\n")
+                    
                 if 'dataset' in batch:
                     gathered_datasets = self.accelerator.gather_object(batch['dataset'])
                     # with open('/home/keaneong/human-behavior/verl/multi_task_classification/debug_gathered_datasets.txt', 'w') as f:
