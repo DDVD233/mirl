@@ -386,10 +386,7 @@ class OmniClassifierAccelerateTrainer:
         unwrapped = self.accelerator.unwrap_model(self.model)
         model_sd = self.accelerator.get_state_dict(self.model)  # safe across wrappers
         
-        with open("/home/keaneong/human-behavior/verl/multi_task_classification/debug_save.txt", "w") as f:
-            f.write(f"Stop here, {model_sd}")
 
-            
         classifier_sd = None
         lora_sd = None
         adapter_path = None
@@ -661,6 +658,7 @@ class OmniClassifierAccelerateTrainer:
                     val_results['epochs_without_improvement'] = self.epochs_without_improvement
                     
                     # Log epoch training metrics
+
                     log_epoch_training_metrics(
                         epoch=epoch,
                         avg_train_loss=avg_train_loss,
@@ -669,7 +667,9 @@ class OmniClassifierAccelerateTrainer:
                         accelerator=self.accelerator,
                         use_wandb=use_wandb
                     )
-                    
+                    with open("/home/keaneong/human-behavior/verl/multi_task_classification/debug_save.txt", "w") as f:
+                        f.write(f"Stop here, {val_results}")
+ 
                     # Log validation results
                     current_step = (epoch + 1) * len(train_dataloader)
                     log_validation_results(
