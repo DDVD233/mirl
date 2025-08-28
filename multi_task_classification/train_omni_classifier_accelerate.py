@@ -247,7 +247,8 @@ class OmniClassifierAccelerateTrainer:
                 if 'dataset' in batch:
                     gathered_datasets = self.accelerator.gather_object(batch['dataset'])
                     print("gathered_datasets", gathered_datasets)
-                    
+                    raise Exception(f"Stop here, gathered_datasets: {gathered_datasets}")
+
                 if self.accelerator.is_main_process:
                     all_predictions.extend(gathered_preds.cpu().numpy())
                     all_labels.extend(gathered_labels.cpu().numpy())
