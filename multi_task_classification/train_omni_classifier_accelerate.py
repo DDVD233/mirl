@@ -244,7 +244,7 @@ class OmniClassifierAccelerateTrainer:
                 labels = self.accelerator.pad_across_processes(labels, dim=0)
 
                 with open('/home/keaneong/human-behavior/verl/multi_task_classification/debug_batch.txt', 'a') as f:
-                    f.write(f"preds: {preds}\n")
+                    f.write(f"gathered preds: {preds}\n")
 
                 gathered_preds  = self.accelerator.gather_for_metrics(preds)
                 gathered_labels = self.accelerator.gather_for_metrics(labels)
