@@ -247,10 +247,10 @@ class OmniClassifierAccelerateTrainer:
                 gathered_datasets = None
 
                 if 'dataset' in batch:
-                    gathered_datasets = self.accelerator.gather_object(batch['dataset'])
+                    gathered_datasets = self.accelerator.gather_for_metrics(batch['dataset'])
                 else:
                     # All processes must participate in gather_object, even if they don't have the data
-                    gathered_datasets = self.accelerator.gather_object(None)
+                    gathered_datasets = self.accelerator.gather_for_metrics(None)
                 
 
                 with open('/home/keaneong/human-behavior/verl/multi_task_classification/debug_batch.txt', 'a') as f: 
