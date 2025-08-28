@@ -216,7 +216,10 @@ class OmniClassifierAccelerateTrainer:
         all_labels = []
         all_datasets = []
         criterion = CrossEntropyLoss()
-        
+
+        with open('/home/keaneong/human-behavior/verl/multi_task_classification/debug_batch.txt', 'a') as f:
+            f.write(f"validate\n")
+
         with torch.no_grad():
             for batch in tqdm(val_dataloader, desc="Validating", total=len(val_dataloader)):
                 if 'input_ids' not in batch or 'labels' not in batch:
@@ -243,8 +246,8 @@ class OmniClassifierAccelerateTrainer:
                 gathered_preds = self.accelerator.gather(preds)
                 gathered_labels = self.accelerator.gather(labels)
 
-                with open('/home/keaneong/human-behavior/verl/multi_task_classification/debug_batch.txt', 'w') as f:
-                    f.write(f"gathered_preds: {gathered_preds}\n")
+                # with open('/home/keaneong/human-behavior/verl/multi_task_classification/debug_batch.txt', 'a') as f:
+                #     f.write(f"gathered_preds: {gathered_preds}\n")
             
                 # # Save batch to file for debugging
                 # with open('/home/keaneong/human-behavior/verl/multi_task_classification/debug_batch.txt', 'w') as f:
@@ -263,8 +266,8 @@ class OmniClassifierAccelerateTrainer:
                 # Gather datasets from all processes
                 if 'dataset' in batch:
                     gathered_datasets = self.accelerator.gather_object(batch['dataset'])
-                    with open('/home/keaneong/human-behavior/verl/multi_task_classification/debug_gathered_datasets.txt', 'w') as f:
-                        f.write(f"gathered_datasets: {gathered_datasets}\n")
+                    # with open('/home/keaneong/human-behavior/verl/multi_task_classification/debug_gathered_datasets.txt', 'w') as f:
+                    #     f.write(f"gathered_datasets: {gathered_datasets}\n")
 
                 # raise Exception(f"Stop here, gathered_preds: {gathered_preds}")
                 if self.accelerator.is_main_process:
