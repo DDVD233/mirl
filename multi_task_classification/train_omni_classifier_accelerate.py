@@ -243,12 +243,14 @@ class OmniClassifierAccelerateTrainer:
                 # preds = self.accelerator.pad_across_processes(preds, dim=0)
                 # labels = self.accelerator.pad_across_processes(labels, dim=0)
 
+                with open('/home/keaneong/human-behavior/verl/multi_task_classification/debug_batch.txt', 'a') as f: 
+                    f.write(f"stop here before gather, preds: {preds}\n")
+                    raise Exception(f"Stop here, preds: {preds}")
+
                 # Gather predictions and labels from all processes
                 gathered_preds = self.accelerator.gather_for_metrics(preds)
 
-                with open('/home/keaneong/human-behavior/verl/multi_task_classification/debug_batch.txt', 'a') as f: 
-                    f.write(f"stop here after gather, gathered_preds: {gathered_preds}\n")
-                    raise Exception(f"Stop here, gathered_preds: {gathered_preds}")
+                
 
                 gathered_labels = self.accelerator.gather_for_metrics(labels)
 
