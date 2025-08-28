@@ -206,7 +206,7 @@ class OmniClassifierAccelerateTrainer:
             label_map=self.label_map
         )
         return DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, collate_fn=collate_fn,
-                          num_workers=num_workers, pin_memory=True, persistent_workers=self.num_workers > 0)
+                          num_workers=num_workers, pin_memory=True, persistent_workers=num_workers > 0)
 
     def validate(self, val_dataloader, split_name="validation"):
         """Validate the model on the given dataloader."""
@@ -248,7 +248,7 @@ class OmniClassifierAccelerateTrainer:
                     raise Exception(f"Stop here, preds: {gathered_preds}")
 
                 # Gather predictions and labels from all processes
-                gathered_preds = self.accelerator.gather_for_metrics(preds)
+                # gathered_preds = self.accelerator.gather_for_metrics(preds)
 
                 
 
@@ -566,34 +566,33 @@ class OmniClassifierAccelerateTrainer:
 
                 # Step-based validation (if configured)
                 if VALIDATE_EVERY_N_STEPS is not None and current_step % VALIDATE_EVERY_N_STEPS == 0:
-                    if self.accelerator.is_main_process:
-                        print(f"\n[STEP {current_step}] Running step-based validation...")
-                        val_results = self.validate(val_dataloader, "validation")
+                    print(f"\n[STEP {current_step}] Running step-based validation...")
+                    val_results = self.validate(val_dataloader, "validation")
+                    
+                    if self.accelerator.is_main_process and val_results is not None:
+                        # Check if this is the best model (using micro F1 as primary metric)
+                        val_f1 = val_results['f1']
+                        if val_f1 > self.best_val_acc:
+                            self.best_val_acc = val_f1
+                            self.steps_without_improvement = 0
+                            print(f"[STEP {current_step}] New best model! F1: {val_f1:.4f}")
+                        else:
+                            self.steps_without_improvement += 1
                         
-                        if self.accelerator.is_main_process and val_results is not None:
-                            # Check if this is the best model (using micro F1 as primary metric)
-                            val_f1 = val_results['f1']
-                            if val_f1 > self.best_val_acc:
-                                self.best_val_acc = val_f1
-                                self.steps_without_improvement = 0
-                                print(f"[STEP {current_step}] New best model! F1: {val_f1:.4f}")
-                            else:
-                                self.steps_without_improvement += 1
-                            
-                            print(f"[STEP {current_step}] Validation - Loss: {val_results['loss']:.4f} - Acc: {val_results['accuracy']:.4f} - F1: {val_f1:.4f}")
-                            print(f"[STEP {current_step}] Best validation F1 so far: {self.best_val_acc:.4f}")
-                            print(f"[STEP {current_step}] Steps without improvement: {self.steps_without_improvement}")
-                            
-                            # Log to wandb
-                            if USE_WANDB:
-                                # Log validation metrics at current step
-                                vm = {'loss': val_results['loss'], 'best_val_f1': self.best_val_acc, 'steps_without_improvement': self.steps_without_improvement}
-                                for key, value in val_results['aggregate_metrics'].items():
-                                    vm[key] = value
-                                log_metrics('val', vm, step=current_step)
-                                # Log per-dataset metrics if available
-                                if 'per_dataset_metrics' in val_results['evaluation_results']:
-                                    log_metrics('val', val_results['evaluation_results']['per_dataset_metrics'], step=current_step)
+                        print(f"[STEP {current_step}] Validation - Loss: {val_results['loss']:.4f} - Acc: {val_results['accuracy']:.4f} - F1: {val_f1:.4f}")
+                        print(f"[STEP {current_step}] Best validation F1 so far: {self.best_val_acc:.4f}")
+                        print(f"[STEP {current_step}] Steps without improvement: {self.steps_without_improvement}")
+                        
+                        # Log to wandb
+                        if USE_WANDB:
+                            # Log validation metrics at current step
+                            vm = {'loss': val_results['loss'], 'best_val_f1': self.best_val_acc, 'steps_without_improvement': self.steps_without_improvement}
+                            for key, value in val_results['aggregate_metrics'].items():
+                                vm[key] = value
+                            log_metrics('val', vm, step=current_step)
+                            # Log per-dataset metrics if available
+                            if 'per_dataset_metrics' in val_results['evaluation_results']:
+                                log_metrics('val', val_results['evaluation_results']['per_dataset_metrics'], step=current_step)
 
             # Calculate training metrics
             avg_train_loss = total_loss / max(1, total)
