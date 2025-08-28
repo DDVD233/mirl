@@ -217,9 +217,6 @@ class OmniClassifierAccelerateTrainer:
         all_datasets = []
         criterion = CrossEntropyLoss()
 
-        with open('/home/keaneong/human-behavior/verl/multi_task_classification/debug_batch.txt', 'a') as f:
-            f.write(f"validate\n")
-
         with torch.no_grad():
             for batch in tqdm(val_dataloader, desc="Validating", total=len(val_dataloader), disable=not self.accelerator.is_main_process):
                 if 'input_ids' not in batch or 'labels' not in batch:
@@ -241,6 +238,9 @@ class OmniClassifierAccelerateTrainer:
                 
                 total_loss += loss.item() * input_ids.size(0)
                 preds = logits.argmax(dim=1)
+
+                with open('/home/keaneong/human-behavior/verl/multi_task_classification/debug_batch.txt', 'a') as f:
+                    f.write(f"validate within loop\n")
                 
                 # Gather predictions and labels from all processes
                 gathered_preds = self.accelerator.gather(preds)
