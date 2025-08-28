@@ -458,6 +458,8 @@ class OmniClassifierAccelerateTrainer:
         os.makedirs(self.checkpoint_dir, exist_ok=True)
 
         ckpt = self._create_checkpoint_data(optimizer, epoch, scheduler, scaler)
+        print("checkpoint information is: ", ckpt)
+        raise Exception("Stop here")
         ckpt_path = os.path.join(self.checkpoint_dir, f"checkpoint_epoch_{epoch+1}.pt")
         self.accelerator.save(ckpt, ckpt_path)
 
