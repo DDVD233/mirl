@@ -15,6 +15,6 @@ export TORCH_USE_CUDA_DSA=1
 
 # Launch training with accelerate
 echo "Launching training with Accelerate..."
-accelerate launch --config_file accelerate_config_qwen.yaml train_omni_classifier_accelerate.py
+accelerate launch --config_file configs/accelerate_config_qwen.yaml train.py
 
 echo "Training completed!"

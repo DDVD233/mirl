@@ -3,22 +3,21 @@ import sys
 import json
 import torch
 import time
-import argparse
 from torch.utils.data import DataLoader
 from torch.optim import Adam
 from torch.nn import CrossEntropyLoss
-from others.dummy_classifier import DummyClassifier
-from omni_classifier import OmniClassifier
-from omni_classifier_dataset import OmniClassifierDataset
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-from verl.utils.dataset.rl_dataset import collate_fn
-from transformers import AutoTokenizer, AutoProcessor
-from omegaconf import OmegaConf
 from tqdm import tqdm
 from datetime import datetime
-from multi_task_evaluation import evaluate_predictions, compute_dataset_metrics
-from wandb_utils import init_wandb, log_metrics, finish
-from logger import log_training_metrics, log_validation_results, log_epoch_training_metrics
+
+# Add parent directory to path for imports
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
+
+# Local imports
+from datasets.omni_classifier_dataset import OmniClassifierDataset
+from verl.utils.dataset.rl_dataset import collate_fn
+from utils.wandb_utils import init_wandb, log_metrics, finish
+from utils.logger import log_training_metrics, log_validation_results, log_epoch_training_metrics
+from evaluate.multi_task_evaluation import evaluate_predictions
 
 # Accelerate imports
 from accelerate import Accelerator
@@ -27,331 +26,10 @@ from accelerate.logging import get_logger
 
 logger = get_logger(__name__)
 
-def parse_parameters():
-    """
-    Parse parameters from YAML config file with command-line argument overrides.
-    
-    Returns:
-        dict: Dictionary containing all parsed parameters
-    """
-    # Parse command line arguments
-    parser = argparse.ArgumentParser(description='Train OmniClassifier with Accelerate')
-    
-    # Data parameters
-    parser.add_argument('--train_file', type=str, help='Training data file path')
-    parser.add_argument('--val_file', type=str, help='Validation data file path')
-    parser.add_argument('--test_file', type=str, help='Test data file path')
-    parser.add_argument('--label_map_path', type=str, help='Path to label mapping JSON file')
-    
-    # Model parameters
-    parser.add_argument('--tokenizer_name', type=str, help='Tokenizer model name')
-    parser.add_argument('--processor_name', type=str, help='Processor model name')
-    parser.add_argument('--training_strategy', type=str, 
-                       choices=['head_only', 'lora', 'full'],
-                       help='Training strategy: head_only, lora, or full')
-    parser.add_argument('--device_map', type=str, help='Device mapping (auto, cpu, or specific devices)')
-    parser.add_argument('--torch_dtype', type=str, 
-                       choices=['float16', 'float32', 'bfloat16'],
-                       help='PyTorch data type')
-    
-    # LoRA parameters
-    parser.add_argument('--lora_r', type=int, help='LoRA rank')
-    parser.add_argument('--lora_alpha', type=int, help='LoRA alpha')
-    parser.add_argument('--lora_dropout', type=float, help='LoRA dropout')
-    parser.add_argument('--lora_target_modules', type=str, nargs='+', 
-                       help='LoRA target modules (space-separated list)')
-    
-    # Training parameters
-    parser.add_argument('--train_batch_size', type=int, help='Training batch size')
-    parser.add_argument('--val_batch_size', type=int, help='Validation batch size')
-    parser.add_argument('--lr', type=float, help='Learning rate')
-    parser.add_argument('--epochs', type=int, help='Number of training epochs')
-    parser.add_argument('--save_checkpoint_dir', type=str, help='Directory to save checkpoints')
-    parser.add_argument('--load_checkpoint_path', type=str, help='Path to load checkpoint from')
-    parser.add_argument('--save_every_n_epochs', type=int, help='Save checkpoint every N epochs')
-    parser.add_argument('--debug_dry_run', action='store_true', help='Enable debug dry run mode')
-    parser.add_argument('--gradient_accumulation_steps', type=int, help='Gradient accumulation steps')
-    parser.add_argument('--num_workers', type=int, help='Number of data loader workers')
-    
-    # Validation parameters
-    parser.add_argument('--validate_every_n_epochs', type=str, 
-                       help='Validate every N epochs (use "None" to disable)')
-    parser.add_argument('--validate_every_n_steps', type=str, 
-                       help='Validate every N steps (use "None" to disable)')
-    parser.add_argument('--early_stopping_patience', type=int, help='Early stopping patience')
-    
-    # Dataset parameters
-    parser.add_argument('--max_prompt_length', type=int, help='Maximum prompt length')
-    parser.add_argument('--modalities', type=str, help='Comma-separated list of modalities')
-    parser.add_argument('--prompt_key', type=str, help='Prompt key in dataset')
-    parser.add_argument('--image_key', type=str, help='Image key in dataset')
-    parser.add_argument('--video_key', type=str, help='Video key in dataset')
-    parser.add_argument('--audio_key', type=str, help='Audio key in dataset')
-    parser.add_argument('--label_key', type=str, help='Label key in dataset')
-    parser.add_argument('--return_multi_modal_inputs', action='store_true', help='Return multi-modal inputs')
-    parser.add_argument('--filter_overlong_prompts', action='store_true', help='Filter overlong prompts')
-    parser.add_argument('--truncation', type=str, choices=['left', 'right'], help='Truncation direction')
-    parser.add_argument('--format_prompt', type=str, help='Path to format prompt template')
-    
-    # Wandb parameters
-    parser.add_argument('--use_wandb', action='store_true', help='Enable wandb logging')
-    parser.add_argument('--project', type=str, help='Wandb project name')
-    parser.add_argument('--entity', type=str, help='Wandb entity name')
-    
-    # System parameters
-    parser.add_argument('--cuda_visible_devices', type=str, help='CUDA visible devices')
-    parser.add_argument('--config_file', type=str, 
-                       default='config_accelerate.yaml',
-                       help='Path to config YAML file')
-    
-    args = parser.parse_args()
-    
-    # Load YAML config
-    config_path = os.path.join(os.path.dirname(__file__), args.config_file)
-    cfg = OmegaConf.load(config_path)
-    
-    # Override config with command line arguments
-    
-    # Data parameters
-    if args.train_file is not None:
-        cfg.data.train_file = args.train_file
-    if args.val_file is not None:
-        cfg.data.val_file = args.val_file
-    if args.test_file is not None:
-        cfg.data.test_file = args.test_file
-    if args.label_map_path is not None:
-        cfg.data.label_map_path = args.label_map_path
-    
-    # Model parameters
-    if args.tokenizer_name is not None:
-        cfg.model.tokenizer_name = args.tokenizer_name
-    if args.processor_name is not None:
-        cfg.model.processor_name = args.processor_name
-    if args.training_strategy is not None:
-        cfg.model.training_strategy = args.training_strategy
-    if args.device_map is not None:
-        cfg.model.device_map = args.device_map
-    if args.torch_dtype is not None:
-        cfg.model.torch_dtype = args.torch_dtype
-    
-    # LoRA parameters
-    if args.lora_r is not None:
-        cfg.model.lora_config.r = args.lora_r
-    if args.lora_alpha is not None:
-        cfg.model.lora_config.alpha = args.lora_alpha
-    if args.lora_dropout is not None:
-        cfg.model.lora_config.dropout = args.lora_dropout
-    if args.lora_target_modules is not None:
-        cfg.model.lora_config.target_modules = args.lora_target_modules
-    
-    # Training parameters
-    if args.train_batch_size is not None:
-        cfg.train.train_batch_size = args.train_batch_size
-    if args.val_batch_size is not None:
-        cfg.train.val_batch_size = args.val_batch_size
-    if args.lr is not None:
-        cfg.train.lr = args.lr
-    if args.epochs is not None:
-        cfg.train.epochs = args.epochs
-    if args.save_checkpoint_dir is not None:
-        cfg.train.save_checkpoint_dir = args.save_checkpoint_dir
-    if args.load_checkpoint_path is not None:
-        cfg.train.load_checkpoint_path = args.load_checkpoint_path
-    if args.save_every_n_epochs is not None:
-        cfg.train.save_every_n_epochs = args.save_every_n_epochs
-    if args.debug_dry_run:
-        cfg.train.debug_dry_run = True
-    if args.gradient_accumulation_steps is not None:
-        cfg.train.gradient_accumulation_steps = args.gradient_accumulation_steps
-    if args.num_workers is not None:
-        cfg.train.num_workers = args.num_workers
-    
-    # Validation parameters
-    if args.validate_every_n_epochs is not None:
-        if args.validate_every_n_epochs == "None":
-            cfg.train.validate_every_n_epochs = None
-        else:
-            cfg.train.validate_every_n_epochs = int(args.validate_every_n_epochs)
-    if args.validate_every_n_steps is not None:
-        if args.validate_every_n_steps == "None":
-            cfg.train.validate_every_n_steps = None
-        else:
-            cfg.train.validate_every_n_steps = int(args.validate_every_n_steps)
-    if args.early_stopping_patience is not None:
-        cfg.train.early_stopping_patience = args.early_stopping_patience
-    
-    # Dataset parameters
-    if args.max_prompt_length is not None:
-        cfg.dataset_config.max_prompt_length = args.max_prompt_length
-    if args.modalities is not None:
-        cfg.dataset_config.modalities = args.modalities
-    if args.prompt_key is not None:
-        cfg.dataset_config.prompt_key = args.prompt_key
-    if args.image_key is not None:
-        cfg.dataset_config.image_key = args.image_key
-    if args.video_key is not None:
-        cfg.dataset_config.video_key = args.video_key
-    if args.audio_key is not None:
-        cfg.dataset_config.audio_key = args.audio_key
-    if args.label_key is not None:
-        cfg.dataset_config.label_key = args.label_key
-    if args.return_multi_modal_inputs:
-        cfg.dataset_config.return_multi_modal_inputs = True
-    if args.filter_overlong_prompts:
-        cfg.dataset_config.filter_overlong_prompts = True
-    if args.truncation is not None:
-        cfg.dataset_config.truncation = args.truncation
-    if args.format_prompt is not None:
-        cfg.dataset_config.format_prompt = args.format_prompt
-    
-    # Wandb parameters
-    if args.use_wandb:
-        cfg.wandb.use = True
-    if args.project is not None:
-        cfg.wandb.project = args.project
-    if args.entity is not None:
-        cfg.wandb.entity = args.entity
-    
-    # System parameters
-    if args.cuda_visible_devices is not None:
-        if not hasattr(cfg, 'system'):
-            cfg.system = OmegaConf.create({})
-        cfg.system.cuda_visible_devices = args.cuda_visible_devices
-    
-    # Parse all parameters
-    params = {}
-    
-    # Data parameters
-    params['train_data_file'] = cfg.data.train_file
-    params['val_data_file'] = cfg.data.val_file
-    params['test_data_file'] = cfg.data.test_file
-    params['label_map_path'] = cfg.data.label_map_path
-    
-    # Model parameters
-    params['tokenizer_name'] = cfg.model.tokenizer_name
-    params['processor_name'] = cfg.model.processor_name
-    params['training_strategy'] = cfg.model.training_strategy
-    params['device_map'] = cfg.model.device_map
-    params['torch_dtype_str'] = cfg.model.torch_dtype
-    
-    # Convert torch_dtype string to actual torch dtype
-    if params['torch_dtype_str'] == "float16":
-        params['torch_dtype'] = torch.float16
-    elif params['torch_dtype_str'] == "float32":
-        params['torch_dtype'] = torch.float32
-    elif params['torch_dtype_str'] == "bfloat16":
-        params['torch_dtype'] = torch.bfloat16
-    else:
-        params['torch_dtype'] = torch.float16  # default
-    
-    # Training parameters
-    params['train_batch_size'] = cfg.train.train_batch_size
-    params['val_batch_size'] = cfg.train.val_batch_size
-    params['lr'] = float(cfg.train.lr)
-    params['epochs'] = int(cfg.train.epochs)
-    params['save_checkpoint_dir'] = cfg.train.save_checkpoint_dir
-    params['load_checkpoint_path'] = cfg.train.load_checkpoint_path
-    params['save_every_n_epochs'] = int(cfg.train.save_every_n_epochs)
-    params['debug_dry_run'] = bool(cfg.train.debug_dry_run)
-    params['gradient_accumulation_steps'] = int(cfg.train.gradient_accumulation_steps)
-    params['num_workers'] = int(cfg.train.num_workers)
-    
-    # Validation configuration
-    params['validate_every_n_epochs'] = cfg.train.validate_every_n_epochs
-    params['validate_every_n_steps'] = cfg.train.validate_every_n_steps
-    if params['validate_every_n_steps'] is not None:
-        params['validate_every_n_steps'] = int(params['validate_every_n_steps'])
-    if params['validate_every_n_epochs'] is not None:
-        params['validate_every_n_epochs'] = int(params['validate_every_n_epochs'])
-    params['save_best_model'] = True
-    params['early_stopping_patience'] = int(cfg.train.early_stopping_patience)
-    
-    # Wandb configuration
-    params['use_wandb'] = bool(cfg.wandb.use)
-    params['wandb_project'] = cfg.wandb.project
-    params['wandb_entity'] = cfg.wandb.entity
-    
-    # Load label mapping from JSON file
-    with open(params['label_map_path'], 'r') as f:
-        label_config = json.load(f)
-    
-    params['label_map'] = label_config["label_mapping"]
-    params['num_classes'] = label_config["num_classes"]
-    
-    # LoRA Configuration (only used when training_strategy = "lora")
-    params['lora_config'] = {
-        'r': int(cfg.model.lora_config.r),
-        'alpha': int(cfg.model.lora_config.alpha),
-        'dropout': float(cfg.model.lora_config.dropout),
-        'target_modules': list(cfg.model.lora_config.target_modules),
-    }
-    
-    # Dataset config
-    params['dataset_config'] = OmegaConf.create(dict(cfg.dataset_config))
-    
-    # Print configuration summary
-    print(f"[INFO] Training strategy: {params['training_strategy']}")
-    print(f"[INFO] Loaded label mapping with {params['num_classes']} classes from {params['label_map_path']}")
-    print(f"[INFO] Available datasets: {', '.join(label_config['datasets'])}")
-    print(f"[INFO] Gradient accumulation: {params['gradient_accumulation_steps']} steps (effective batch size: {params['train_batch_size'] * params['gradient_accumulation_steps']})")
-    print(f"[INFO] Data loading: {params['num_workers']} worker processes (0 = single-threaded, {params['num_workers']}+ = multi-threaded)")
-    print(f"[INFO] Learning rate: {params['lr']}")
-    print(f"[INFO] Epochs: {params['epochs']}")
-    print(f"[INFO] Save checkpoint dir: {params['save_checkpoint_dir']}")
-    if params['load_checkpoint_path']:
-        print(f"[INFO] Load checkpoint path: {params['load_checkpoint_path']}")
-    print(f"[INFO] Validate every N epochs: {params['validate_every_n_epochs']}")
-    print(f"[INFO] Validate every N steps: {params['validate_every_n_steps']}")
-    print(f"[INFO] Early stopping patience: {params['early_stopping_patience']}")
-    print(f"[INFO] Wandb project: {params['wandb_project']}")
-    
-    return params, label_config
-
-# Parse parameters
-params, label_config = parse_parameters()
-
-# Extract parameters to global variables for backward compatibility
-TRAIN_DATA_FILE = params['train_data_file']
-VAL_DATA_FILE = params['val_data_file']
-TEST_DATA_FILE = params['test_data_file']
-TOKENIZER_NAME = params['tokenizer_name']
-PROCESSOR_NAME = params['processor_name']
-TRAINING_STRATEGY = params['training_strategy']
-DEVICE_MAP = params['device_map']
-TORCH_DTYPE = params['torch_dtype']
-TRAIN_BATCH_SIZE = params['train_batch_size']
-VAL_BATCH_SIZE = params['val_batch_size']
-LR = params['lr']
-EPOCHS = params['epochs']
-SAVE_CHECKPOINT_DIR = params['save_checkpoint_dir']
-LOAD_CHECKPOINT_PATH = params['load_checkpoint_path']
-SAVE_EVERY_N_EPOCHS = params['save_every_n_epochs']
-DEBUG_DRY_RUN = params['debug_dry_run']
-GRADIENT_ACCUMULATION_STEPS = params['gradient_accumulation_steps']
-NUM_WORKERS = params['num_workers']
-VALIDATE_EVERY_N_EPOCHS = params['validate_every_n_epochs']
-VALIDATE_EVERY_N_STEPS = params['validate_every_n_steps']
-SAVE_BEST_MODEL = params['save_best_model']
-EARLY_STOPPING_PATIENCE = params['early_stopping_patience']
-USE_WANDB = params['use_wandb']
-WANDB_PROJECT = params['wandb_project']
-WANDB_ENTITY = params['wandb_entity']
-LABEL_MAP = params['label_map']
-LABEL_MAP_PATH = params['label_map_path']
-NUM_CLASSES = params['num_classes']
-LORA_CONFIG = params['lora_config']
-config = params['dataset_config']
-
-# Load tokenizer and processor
-tokenizer = AutoTokenizer.from_pretrained(TOKENIZER_NAME)
-processor = AutoProcessor.from_pretrained(PROCESSOR_NAME)
-
-# ---------------------------
-# ACCELERATE TRAINER
-# ---------------------------
 class OmniClassifierAccelerateTrainer:
     def __init__(self, data_files, val_data_files, test_data_files, tokenizer, processor, config, 
-                 batch_size, val_batch_size, lr, epochs, save_checkpoint_dir, load_checkpoint_path, model, gradient_accumulation_steps, num_workers=0, use_lora=False):
+                 batch_size, val_batch_size, lr, epochs, save_checkpoint_dir, load_checkpoint_path, model, 
+                 gradient_accumulation_steps, num_workers=0, use_lora=False, global_config=None):
         self.data_files = data_files
         self.val_data_files = val_data_files
         self.test_data_files = test_data_files
@@ -366,8 +44,12 @@ class OmniClassifierAccelerateTrainer:
         self.epochs = epochs
         self.model = model
         self.label_key = config.get("label_key", "answer")
-        # Use the label map loaded from JSON
-        self.label_map = LABEL_MAP
+        
+        # Store global configuration for access to constants
+        self.global_config = global_config or {}
+        
+        # Use the label map from global config
+        self.label_map = self.global_config.get('LABEL_MAP', {})
         
         # Checkpoint IO setup
         self.checkpoint_dir = save_checkpoint_dir
@@ -379,18 +61,19 @@ class OmniClassifierAccelerateTrainer:
         self.steps_without_improvement = 0  # For step-based early stopping
 
         # Initialize Accelerate
+        use_wandb = self.global_config.get('USE_WANDB', False)
         self.accelerator = Accelerator(
             gradient_accumulation_steps=gradient_accumulation_steps,
             mixed_precision='fp16',  # Use fp16 for better memory efficiency
-            log_with="wandb" if USE_WANDB else None,
-            project_dir=save_checkpoint_dir if USE_WANDB else None,
+            log_with="wandb" if use_wandb else None,
+            project_dir=save_checkpoint_dir if use_wandb else None,
         )
         
         # Set seed for reproducibility
         set_seed(42)
         
         # Initialize wandb
-        if USE_WANDB and self.accelerator.is_main_process:
+        if use_wandb and self.accelerator.is_main_process:
             self._init_wandb()
         
         # Initialize training start time
@@ -399,29 +82,29 @@ class OmniClassifierAccelerateTrainer:
     def _init_wandb(self):
         """Initialize wandb logging via wandb_utils."""
         wandb_config = {
-            "model_name": TOKENIZER_NAME,
-            "training_strategy": TRAINING_STRATEGY,
+            "model_name": self.global_config.get('TOKENIZER_NAME', ''),
+            "training_strategy": self.global_config.get('TRAINING_STRATEGY', ''),
             "batch_size": self.batch_size,
             "val_batch_size": self.val_batch_size,
             "gradient_accumulation_steps": self.gradient_accumulation_steps,
             "effective_batch_size": self.batch_size * self.gradient_accumulation_steps,
             "learning_rate": self.lr,
             "epochs": self.epochs,
-            "num_classes": NUM_CLASSES,
-            "validate_every_n_epochs": VALIDATE_EVERY_N_EPOCHS,
-            "validate_every_n_steps": VALIDATE_EVERY_N_STEPS,
-            "early_stopping_patience": EARLY_STOPPING_PATIENCE,
-            "save_best_model": SAVE_BEST_MODEL,
+            "num_classes": self.global_config.get('NUM_CLASSES', 0),
+            "validate_every_n_epochs": self.global_config.get('VALIDATE_EVERY_N_EPOCHS', None),
+            "validate_every_n_steps": self.global_config.get('VALIDATE_EVERY_N_STEPS', None),
+            "early_stopping_patience": self.global_config.get('EARLY_STOPPING_PATIENCE', 0),
+            "save_best_model": self.global_config.get('SAVE_BEST_MODEL', True),
             "num_workers": self.num_workers,
-            "lora_config": LORA_CONFIG if TRAINING_STRATEGY == "lora" else None,
-            "label_map_path": LABEL_MAP_PATH,
-            "datasets": label_config['datasets'],
+            "lora_config": self.global_config.get('LORA_CONFIG', None),
+            "label_map_path": self.global_config.get('LABEL_MAP_PATH', ''),
+            "datasets": self.global_config.get('label_config', {}).get('datasets', []),
             "accelerate": True,
             "mixed_precision": "fp16"
         }
         init_wandb(
-            project=WANDB_PROJECT,
-            entity=WANDB_ENTITY,
+            project=self.global_config.get('WANDB_PROJECT', ''),
+            entity=self.global_config.get('WANDB_ENTITY', ''),
             config=wandb_config,
             run_name=f"omni_classifier_accelerate_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
         )
@@ -446,6 +129,7 @@ class OmniClassifierAccelerateTrainer:
         all_labels = []
         all_datasets = []
         criterion = CrossEntropyLoss()
+        num_classes = self.global_config.get('NUM_CLASSES', 0)
 
         with torch.no_grad():
             for batch in tqdm(val_dataloader, desc="Validating", total=len(val_dataloader), disable=not self.accelerator.is_main_process):
@@ -458,7 +142,7 @@ class OmniClassifierAccelerateTrainer:
 
                 # Handle labels shape
                 if labels.dim() != 1:
-                    if labels.dim() == 2 and labels.size(1) == NUM_CLASSES:
+                    if labels.dim() == 2 and labels.size(1) == num_classes:
                         labels = labels.argmax(dim=1)
                     else:
                         raise ValueError(f"Unexpected labels shape {labels.shape}")
@@ -495,7 +179,7 @@ class OmniClassifierAccelerateTrainer:
                 predictions=all_predictions,
                 ground_truths=all_labels,
                 datasets=all_datasets if all_datasets else None,
-                num_classes=NUM_CLASSES,
+                num_classes=num_classes,
                 split_name=split_name,
             )
             
@@ -540,6 +224,28 @@ class OmniClassifierAccelerateTrainer:
         # Return the first .pt file found (or you could implement more sophisticated logic)
         return checkpoint_files[0]
 
+    def _load_model_state_from_checkpoint(self, checkpoint, context="checkpoint"):
+        """Helper method to load model state from checkpoint based on training strategy."""
+        training_strategy = checkpoint.get('training_strategy', 'head_only')
+        
+        if training_strategy == "head_only" and 'classifier_state_dict' in checkpoint:
+            print(f"Loading head-only {context} (classifier state only)...")
+            self.model.load_state_dict(checkpoint['classifier_state_dict'], strict=False)
+        elif training_strategy == "lora" and 'lora_state_dict' in checkpoint:
+            print(f"Loading LoRA {context} (adapters + classifier)...")
+            lora_state = checkpoint['lora_state_dict']
+            classifier_state = checkpoint.get('classifier_state_dict', {})
+            
+            # Combine LoRA and classifier state
+            combined_state = {**lora_state, **classifier_state}
+            self.model.load_state_dict(combined_state, strict=False)
+        elif 'model_state_dict' in checkpoint:
+            print(f"Loading full {context} (model state)...")
+            self.model.load_state_dict(checkpoint['model_state_dict'], strict=False)
+        else:
+            print(f"Loading {context} as full state dict...")
+            self.model.load_state_dict(checkpoint, strict=False)
+
     def load_checkpoint(self, optimizer):
         """Load the latest checkpoint if available."""
         # Prefer explicit load path if provided, else auto-find latest in save dir
@@ -549,11 +255,8 @@ class OmniClassifierAccelerateTrainer:
                 print(f"Loading checkpoint from {latest_checkpoint}")
                 checkpoint = torch.load(latest_checkpoint, map_location='cpu')
                 
-                # Standard checkpoint loading
-                if 'model_state_dict' in checkpoint:
-                    self.model.load_state_dict(checkpoint['model_state_dict'], strict=False)
-                else:
-                    self.model.load_state_dict(checkpoint, strict=False)
+                # Load model state using helper method
+                self._load_model_state_from_checkpoint(checkpoint, "checkpoint")
                 
                 # Load optimizer state if available
                 if 'optimizer_state_dict' in checkpoint:
@@ -565,7 +268,6 @@ class OmniClassifierAccelerateTrainer:
                 if 'epochs_without_improvement' in checkpoint:
                     self.epochs_without_improvement = checkpoint['epochs_without_improvement']
                 
-                
                 start_epoch = checkpoint.get('epoch', 0)
                 print(f"Successfully loaded checkpoint from epoch {start_epoch}")
                 return start_epoch
@@ -575,6 +277,60 @@ class OmniClassifierAccelerateTrainer:
         
         return 0
 
+    def _create_checkpoint_data(self, optimizer, epoch):
+        """Helper method to create checkpoint data based on training strategy."""
+        training_strategy = self.global_config.get('TRAINING_STRATEGY', 'head_only')
+        
+        # Common checkpoint data
+        common_data = {
+            'optimizer_state_dict': optimizer.state_dict(),
+            'epoch': epoch + 1,
+            'best_val_acc': self.best_val_acc,
+            'epochs_without_improvement': self.epochs_without_improvement,
+            'training_strategy': training_strategy,
+            'config': {
+                'lr': self.lr,
+                'batch_size': self.batch_size,
+                'num_classes': self.global_config.get('NUM_CLASSES', 0),
+                'freeze_backbone': training_strategy
+            }
+        }
+        
+        if training_strategy == "head_only":
+            print("Saving head-only checkpoint (classifier + optimizer state only)...")
+            
+            # Get only the classifier state dict
+            classifier_state = {}
+            for name, param in self.model.named_parameters():
+                if 'classifier' in name or 'head' in name:
+                    classifier_state[name] = param.data.cpu()
+            
+            return {**common_data, 'classifier_state_dict': classifier_state}
+            
+        elif training_strategy == "lora":
+            print("Saving LoRA checkpoint (adapters + classifier + optimizer state)...")
+            
+            # Get LoRA adapter and classifier state dicts
+            lora_state = {}
+            classifier_state = {}
+            
+            for name, param in self.model.named_parameters():
+                if 'lora' in name.lower():
+                    lora_state[name] = param.data.cpu()
+                elif 'classifier' in name or 'head' in name:
+                    classifier_state[name] = param.data.cpu()
+            
+            return {
+                **common_data,
+                'lora_state_dict': lora_state,
+                'classifier_state_dict': classifier_state,
+                'lora_config': self.global_config.get('LORA_CONFIG', {})
+            }
+            
+        else:  # full training
+            print("Saving full checkpoint (model + optimizer state)...")
+            return {**common_data, 'model_state_dict': self.model.state_dict()}
+
     def save_checkpoint(self, optimizer, epoch, is_best=False):
         """Save checkpoint with training state."""
         if not self.accelerator.is_main_process:
@@ -583,20 +339,8 @@ class OmniClassifierAccelerateTrainer:
         try:
             os.makedirs(self.checkpoint_dir, exist_ok=True)
             
-            checkpoint_data = {
-                'model_state_dict': self.model.state_dict(),
-                'optimizer_state_dict': optimizer.state_dict(),
-                'epoch': epoch + 1,
-                'best_val_acc': self.best_val_acc,
-                'epochs_without_improvement': self.epochs_without_improvement,
-    
-                'config': {
-                    'lr': self.lr,
-                    'batch_size': self.batch_size,
-                    'num_classes': NUM_CLASSES,
-                    'freeze_backbone': TRAINING_STRATEGY
-                }
-            }
+            # Create checkpoint data using helper method
+            checkpoint_data = self._create_checkpoint_data(optimizer, epoch)
             
             # Save regular checkpoint
             checkpoint_path = os.path.join(self.checkpoint_dir, f"checkpoint_epoch_{epoch + 1}.pt")
@@ -628,6 +372,14 @@ class OmniClassifierAccelerateTrainer:
         # Load checkpoint if available
         start_epoch = self.load_checkpoint(optimizer)
 
+        # Get configuration values
+        validate_every_n_epochs = self.global_config.get('VALIDATE_EVERY_N_EPOCHS', None)
+        validate_every_n_steps = self.global_config.get('VALIDATE_EVERY_N_STEPS', None)
+        save_every_n_epochs = self.global_config.get('SAVE_EVERY_N_EPOCHS', None)
+        early_stopping_patience = self.global_config.get('EARLY_STOPPING_PATIENCE', 0)
+        use_wandb = self.global_config.get('USE_WANDB', False)
+        num_classes = self.global_config.get('NUM_CLASSES', 0)
+
         for epoch in tqdm(range(start_epoch, self.epochs), desc="Epochs", position=0, disable=not self.accelerator.is_main_process):
             # Training phase
             self.model.train()
@@ -654,7 +406,7 @@ class OmniClassifierAccelerateTrainer:
                 # labels sanity
                 if labels.dim() != 1:
                     # If your dataset sometimes emits multi-task/one-hot, squeeze or argmax here
-                    if labels.dim() == 2 and labels.size(1) == NUM_CLASSES:
+                    if labels.dim() == 2 and labels.size(1) == num_classes:
                         labels = labels.argmax(dim=1)
                     else:
                         raise ValueError(f"Unexpected labels shape {labels.shape} (expected [B] or [B, C])")
@@ -700,11 +452,11 @@ class OmniClassifierAccelerateTrainer:
                         batch_size=self.batch_size,
                         epochs=self.epochs,
                         accelerator=self.accelerator,
-                        use_wandb=USE_WANDB
+                        use_wandb=use_wandb
                     )
 
                     # Step-based validation (if configured)
-                    if VALIDATE_EVERY_N_STEPS is not None and current_step % VALIDATE_EVERY_N_STEPS == 0:
+                    if validate_every_n_steps is not None and current_step % validate_every_n_steps == 0:
                         print(f"\n[STEP {current_step}] Running step-based validation...")
                         val_results = self.validate(val_dataloader, "validation")
                         
@@ -732,7 +484,7 @@ class OmniClassifierAccelerateTrainer:
                                 current_step=current_step,
                                 split_name="validation",
                                 accelerator=self.accelerator,
-                                use_wandb=USE_WANDB
+                                use_wandb=use_wandb
                             )
 
             # Calculate training metrics
@@ -744,7 +496,7 @@ class OmniClassifierAccelerateTrainer:
 
             # Epoch-based validation phase (only if step-based validation is not configured)
             is_best = False
-            if VALIDATE_EVERY_N_EPOCHS is not None and (epoch + 1) % VALIDATE_EVERY_N_EPOCHS == 0:
+            if validate_every_n_epochs is not None and (epoch + 1) % validate_every_n_epochs == 0:
                 val_results = self.validate(val_dataloader, "validation")
                 
                 if self.accelerator.is_main_process and val_results is not None:
@@ -773,7 +525,7 @@ class OmniClassifierAccelerateTrainer:
                         train_acc=train_acc,
                         total_batches=len(train_dataloader),
                         accelerator=self.accelerator,
-                        use_wandb=USE_WANDB
+                        use_wandb=use_wandb
                     )
                     
                     # Log validation results
@@ -783,7 +535,7 @@ class OmniClassifierAccelerateTrainer:
                         current_step=current_step,
                         split_name="validation",
                         accelerator=self.accelerator,
-                        use_wandb=USE_WANDB
+                        use_wandb=use_wandb
                     )
             else:
                 # Log only training metrics
@@ -793,29 +545,78 @@ class OmniClassifierAccelerateTrainer:
                     train_acc=train_acc,
                     total_batches=len(train_dataloader),
                     accelerator=self.accelerator,
-                    use_wandb=USE_WANDB
+                    use_wandb=use_wandb
                 )
 
             # Save checkpoint: every N epochs and also when best
-            if SAVE_EVERY_N_EPOCHS and ((epoch + 1) % SAVE_EVERY_N_EPOCHS == 0):
+            if save_every_n_epochs and ((epoch + 1) % save_every_n_epochs == 0):
                 self.save_checkpoint(optimizer, epoch, is_best)
             elif is_best:
                 # ensure best is saved even if not on save interval
                 self.save_checkpoint(optimizer, epoch, is_best)
             
             # Early stopping
-            if VALIDATE_EVERY_N_STEPS is not None:
+            if validate_every_n_steps is not None:
                 # Step-based early stopping
-                if self.steps_without_improvement >= EARLY_STOPPING_PATIENCE:
+                if self.steps_without_improvement >= early_stopping_patience:
                     if self.accelerator.is_main_process:
-                        print(f"Early stopping triggered after {EARLY_STOPPING_PATIENCE} steps without improvement")
+                        print(f"Early stopping triggered after {early_stopping_patience} steps without improvement")
                     break
             else:
                 # Epoch-based early stopping
-                if self.epochs_without_improvement >= EARLY_STOPPING_PATIENCE:
+                if self.epochs_without_improvement >= early_stopping_patience:
                     if self.accelerator.is_main_process:
-                        print(f"Early stopping triggered after {EARLY_STOPPING_PATIENCE} epochs without improvement")
+                        print(f"Early stopping triggered after {early_stopping_patience} epochs without improvement")
                     break
+
+    def merge_lora_adapters(self, save_path=None):
+        """
+        Merge LoRA adapters with the base model for inference.
+        This creates a standalone model that doesn't require the base model.
+        
+        Args:
+            save_path (str, optional): Path to save the merged model. If None, saves to checkpoint_dir.
+        """
+        if not self.accelerator.is_main_process:
+            return
+            
+        training_strategy = self.global_config.get('TRAINING_STRATEGY', 'head_only')
+        
+        if training_strategy != "lora":
+            print(f"Not a LoRA model (strategy: {training_strategy}). Skipping merge.")
+            return
+            
+        try:
+            print("Merging LoRA adapters with base model...")
+            
+            # Get the base model (without LoRA adapters)
+            base_model = self.model.get_base_model()
+            
+            # Merge LoRA adapters
+            merged_model = base_model.merge_and_unload()
+            
+            # Add the classifier back
+            if hasattr(self.model, 'classifier'):
+                merged_model.classifier = self.model.classifier
+            
+            # Save the merged model
+            if save_path is None:
+                save_path = os.path.join(self.checkpoint_dir, "merged_model")
+            
+            print(f"Saving merged model to {save_path}")
+            merged_model.save_pretrained(save_path)
+            
+            # Also save the tokenizer/processor if available
+            if hasattr(self, 'tokenizer'):
+                self.tokenizer.save_pretrained(save_path)
+            if hasattr(self, 'processor'):
+                self.processor.save_pretrained(save_path)
+                
+            print("LoRA adapters successfully merged and saved!")
+            
+        except Exception as e:
+            print(f"[WARN] Failed to merge LoRA adapters: {e}")
+            print("You may need to manually merge adapters or use the model with adapters loaded.")
 
     def test(self):
         """Test the model on the test set."""
@@ -831,7 +632,9 @@ class OmniClassifierAccelerateTrainer:
         if os.path.exists(best_model_path):
             print(f"Loading best model from {best_model_path}")
             checkpoint = torch.load(best_model_path, map_location='cpu')
-            self.model.load_state_dict(checkpoint['model_state_dict'], strict=False)
+            
+            # Load model state using helper method
+            self._load_model_state_from_checkpoint(checkpoint, "best model")
         else:
             print("No best model found, using current model state")
         
@@ -856,7 +659,8 @@ class OmniClassifierAccelerateTrainer:
             print(f"  Weighted F1: {aggregate_metrics.get('weighted_f1', 0.0):.4f}")
             
             # Log test results to wandb
-            if USE_WANDB:
+            use_wandb = self.global_config.get('USE_WANDB', False)
+            if use_wandb:
                 # Log scalar metrics
                 tm = {
                     'loss': test_results['loss'],
@@ -880,47 +684,3 @@ class OmniClassifierAccelerateTrainer:
             
             return test_results
         return None
-
-
-if __name__ == "__main__":
-    print(f"[INFO] Initializing model with {NUM_CLASSES} classes")
-    
-    if DEBUG_DRY_RUN:
-        print("[INFO] Using DummyClassifier for dry-run (no backbone loaded).")
-        model = DummyClassifier(num_classes=NUM_CLASSES)
-    else:
-        # Initialize model with training strategy
-        print(f"[INFO] Initializing OmniClassifier with training strategy: {TRAINING_STRATEGY}")
-        model = OmniClassifier(
-            num_classes=NUM_CLASSES, 
-            freeze_backbone=TRAINING_STRATEGY,
-            lora_config=LORA_CONFIG if TRAINING_STRATEGY == "lora" else None,
-            device_map=DEVICE_MAP,
-            torch_dtype=TORCH_DTYPE
-        )
-        # Print trainable parameters info
-        model.get_trainable_parameters()
-
-    trainer = OmniClassifierAccelerateTrainer(
-        data_files=TRAIN_DATA_FILE,
-        val_data_files=VAL_DATA_FILE,
-        test_data_files=TEST_DATA_FILE,
-        tokenizer=tokenizer,
-        processor=processor,
-        config=config,
-        batch_size=TRAIN_BATCH_SIZE,
-        val_batch_size=VAL_BATCH_SIZE,
-        lr=LR,
-        epochs=EPOCHS,
-        save_checkpoint_dir=SAVE_CHECKPOINT_DIR,
-        load_checkpoint_path=LOAD_CHECKPOINT_PATH,
-        model=model,
-        gradient_accumulation_steps=GRADIENT_ACCUMULATION_STEPS,
-        num_workers=NUM_WORKERS
-    )
-
-    # Training with validation
-    trainer.train()
-    
-    # Testing
-    test_results = trainer.test()

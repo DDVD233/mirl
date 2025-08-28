@@ -16,6 +16,6 @@ export TORCH_USE_CUDA_DSA=1
 # Build the command with all arguments passed to this script
 # This allows you to pass any parameter to the training script
 echo "Launching training with Accelerate..."
-accelerate launch --config_file accelerate_config_qwen.yaml train_omni_classifier_accelerate.py "$@"
+accelerate launch --config_file configs/accelerate_config_qwen.yaml train.py "$@"
 
 echo "Training completed!"

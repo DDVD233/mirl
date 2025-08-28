@@ -1,5 +1,5 @@
 import time
-from wandb_utils import log_metrics
+from .wandb_utils import log_metrics
 
 
 def log_training_metrics(epoch, batch_idx, total_batches, loss, preds, labels, 
