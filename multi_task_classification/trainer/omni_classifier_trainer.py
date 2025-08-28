@@ -13,7 +13,7 @@ from datetime import datetime
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
 # Local imports
-from datasets.omni_classifier_dataset import OmniClassifierDataset
+from mt_dataset.omni_classifier_dataset import OmniClassifierDataset
 from verl.utils.dataset.rl_dataset import collate_fn
 from utils.wandb_utils import init_wandb, log_metrics, finish
 from utils.logger import log_training_metrics, log_validation_results, log_epoch_training_metrics
