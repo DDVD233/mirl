@@ -245,19 +245,17 @@ class OmniClassifierAccelerateTrainer:
                 
                 # Gather datasets from all processes
                 if 'dataset' in batch:
-                    # Use accelerator.gather_object to gather the dataset strings directly
                     gathered_datasets = self.accelerator.gather_object(batch['dataset'])
+                    print("gathered_datasets", gathered_datasets)
                     
-                    if self.accelerator.is_main_process:
-                        # Flatten the gathered datasets (it comes as a list of lists)
-                        flattened_datasets = []
-                        for dataset_list in gathered_datasets:
-                            flattened_datasets.extend(dataset_list)
-                        all_datasets.extend(flattened_datasets)
-                
                 if self.accelerator.is_main_process:
                     all_predictions.extend(gathered_preds.cpu().numpy())
                     all_labels.extend(gathered_labels.cpu().numpy())
+                    
+                    flattened_datasets = []
+                    for dataset_list in gathered_datasets:
+                        flattened_datasets.extend(dataset_list)
+                    all_datasets.extend(flattened_datasets)
 
         # Calculate average loss
         avg_loss = total_loss / max(1, len(all_labels)) if self.accelerator.is_main_process else 0.0
