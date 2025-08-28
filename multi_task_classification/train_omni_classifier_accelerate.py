@@ -221,7 +221,7 @@ class OmniClassifierAccelerateTrainer:
             f.write(f"validate\n")
 
         with torch.no_grad():
-            for batch in tqdm(val_dataloader, desc="Validating", total=len(val_dataloader)):
+            for batch in tqdm(val_dataloader, desc="Validating", total=len(val_dataloader), disable=not self.accelerator.is_main_process):
                 if 'input_ids' not in batch or 'labels' not in batch:
                     raise KeyError(f"Batch missing required keys. Got: {list(batch.keys())}")
 
