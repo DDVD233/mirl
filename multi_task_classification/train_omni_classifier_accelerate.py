@@ -14,10 +14,10 @@ from verl.utils.dataset.rl_dataset import collate_fn
 from transformers import AutoTokenizer, AutoProcessor
 from omegaconf import OmegaConf
 from tqdm import tqdm
-from wandb_utils import log_metrics
 from datetime import datetime
 from multi_task_evaluation import evaluate_predictions, compute_dataset_metrics
 from wandb_utils import init_wandb, log_metrics, finish
+from logger import log_training_metrics, log_validation_results, log_epoch_training_metrics
 
 # Accelerate imports
 from accelerate import Accelerator
@@ -115,6 +115,8 @@ tokenizer = AutoTokenizer.from_pretrained(TOKENIZER_NAME)
 processor = AutoProcessor.from_pretrained(PROCESSOR_NAME)
 
 config = OmegaConf.create(dict(cfg.dataset_config))
+
+
 
 # ---------------------------
 # ACCELERATE TRAINER
@@ -240,12 +242,10 @@ class OmniClassifierAccelerateTrainer:
                 preds = logits.argmax(dim=1)
 
                 gathered_preds = self.accelerator.gather_for_metrics(preds)
-        
                 gathered_labels = self.accelerator.gather_for_metrics(labels)
 
                 # Gather datasets from all processes (if available)
                 gathered_datasets = None
-
                 if 'dataset' in batch:
                     gathered_datasets = self.accelerator.gather_for_metrics(batch['dataset'])
                 else:
@@ -257,12 +257,6 @@ class OmniClassifierAccelerateTrainer:
                     all_predictions.extend(gathered_preds.cpu().numpy())
                     all_labels.extend(gathered_labels.cpu().numpy())
                     all_datasets.extend(gathered_datasets)
-
-                # with open('/home/keaneong/human-behavior/verl/multi_task_classification/debug_batch.txt', 'a') as f: 
-                #     f.write(f"stop here after gather, all_predictions: {all_predictions}\n")
-                #     f.write(f"stop here after gather, all_labels: {all_labels}\n")
-                #     f.write(f"stop here after gather, all_datasets: {all_datasets}\n")
-                #     raise Exception(f"Stop here, all_predictions: {all_predictions}, all_labels: {all_labels}, all_datasets: {all_datasets}")
 
         # Calculate average loss
         avg_loss = total_loss / max(1, len(all_labels)) if self.accelerator.is_main_process else 0.0
@@ -287,8 +281,6 @@ class OmniClassifierAccelerateTrainer:
             print(f"{split_name.capitalize()} - Loss: {avg_loss:.4f} - Acc: {accuracy:.4f} - F1: {f1:.4f}")
             print(f"  Macro F1: {aggregate_metrics.get('macro_f1', 0.0):.4f} - Weighted F1: {aggregate_metrics.get('weighted_f1', 0.0):.4f}")
             
-            raise Exception(f"Stop here, all_predictions: {all_predictions}, all_labels: {all_labels}, all_datasets: {all_datasets}")
-
             return {
                 'loss': avg_loss,
                 'accuracy': accuracy,
@@ -300,31 +292,9 @@ class OmniClassifierAccelerateTrainer:
                 'evaluation_results': evaluation_results,
                 'aggregate_metrics': aggregate_metrics
             }
+            
         else:
             return None
-
-    def debug_batch_loader(self, n_batches: int = 1):
-        if not self.accelerator.is_main_process:
-            return
-            
-        print("[DEBUG] Running batch loader probe...")
-        dl = self.get_dataloader(self.data_files, self.batch_size)
-        for bi, batch in enumerate(dl):
-            print(f"Batch {bi} keys:", list(batch.keys()))
-            # Print shapes/types for all keys
-            for k, v in batch.items():
-                try:
-                    if hasattr(v, 'shape'):
-                        print(f"  - {k}: shape {tuple(v.shape)} dtype {getattr(v, 'dtype', None)} device {getattr(v, 'device', None)}")
-                    elif isinstance(v, (list, tuple)):
-                        print(f"  - {k}: list(len={len(v)}) sample_type={type(v[0]) if len(v) else None}")
-                    else:
-                        print(f"  - {k}: type {type(v)}")
-                except Exception as e:
-                    print(f"  - {k}: <print error: {e}>")
-            if bi + 1 >= n_batches:
-                break
-        print("[DEBUG] Batch loader probe complete.")
 
     def _find_latest_checkpoint(self):
         """Find any .pt file in the checkpoint directory."""
@@ -439,8 +409,12 @@ class OmniClassifierAccelerateTrainer:
             epoch_start_time = time.time()
 
             for batch_idx, batch in tqdm(enumerate(train_dataloader), desc="Training", total=len(train_dataloader), disable=not self.accelerator.is_main_process):
+                # Set model to training mode (needed because validation sets it to eval mode)
+                self.model.train()
+                
                 # Calculate current step for validation checking
                 current_step = (epoch * len(train_dataloader)) + batch_idx + 1
+                
                 # --- defensive checks
                 if 'input_ids' not in batch or 'labels' not in batch:
                     raise KeyError(f"Batch missing required keys. Got: {list(batch.keys())}")
@@ -481,110 +455,57 @@ class OmniClassifierAccelerateTrainer:
                     if self.accelerator.is_main_process:
                         correct += (gathered_preds == gathered_labels).sum().item()
                         total += gathered_labels.size(0)
-                        
-                        # Debug prints for predictions and labels
-                        if batch_idx < 3:  # Only print first 3 batches
-                            print(f"\n[DEBUG] Batch {batch_idx} - Sample {0}:")
-                            print(f"  Labels: {gathered_labels}")
-                            print(f"  Predictions: {gathered_preds}")
-                            print(f"  Correct: {(gathered_preds == gathered_labels).sum().item()}/{gathered_labels.size(0)}")
-                            print(f"  Accuracy so far: {correct}/{total} = {correct/max(1, total):.4f}")
-                        
-                        # Check for potential issues
-                        if torch.isnan(logits).any():
-                            print("  WARNING: NaN values in logits!")
-                        if torch.isinf(logits).any():
-                            print("  WARNING: Inf values in logits!")
-                        if len(torch.unique(preds)) == 1:
-                            print("  WARNING: All predictions are the same!")
-                        if logits.max() - logits.min() < 0.1:
-                            print("  WARNING: Logits are very close to each other!")
-                        
 
-                # Log batch information to wandb (only on main process)
-                if USE_WANDB and self.accelerator.is_main_process and (batch_idx + 1) % self.gradient_accumulation_steps == 0:
-                    batch_info = {
-                        'batch_loss': loss.item(),
-                        'batch_accuracy': (preds == labels).float().mean().item(),
-                        'batch_idx': batch_idx,
-                        'effective_batch_size': self.batch_size * self.gradient_accumulation_steps,
-                    }
-                    
-                    # Calculate current step for logging
-                    current_step = (epoch * len(train_dataloader)) + batch_idx + 1
-                    # Log batch metrics with step information
-                    log_metrics('batch_metrics_at_effective_batch_size_step', batch_info, step=current_step)
+                    # Log training metrics (inside torch.no_grad context)
+                    log_training_metrics(
+                        epoch=epoch,
+                        batch_idx=batch_idx,
+                        total_batches=len(train_dataloader),
+                        loss=loss,
+                        preds=preds,
+                        labels=labels,
+                        correct=correct,
+                        total=total,
+                        epoch_start_time=epoch_start_time,
+                        start_time=self.start_time,
+                        gradient_accumulation_steps=self.gradient_accumulation_steps,
+                        batch_size=self.batch_size,
+                        epochs=self.epochs,
+                        accelerator=self.accelerator,
+                        use_wandb=USE_WANDB
+                    )
 
-                # Log training progress statistics to wandb
-                if USE_WANDB and self.accelerator.is_main_process:
-                    # Calculate progress statistics
-                    batch_progress = (batch_idx + 1) / len(train_dataloader)
-                    epoch_progress = (epoch + 1) / self.epochs
-                    overall_progress = ((epoch * len(train_dataloader)) + batch_idx + 1) / (self.epochs * len(train_dataloader))
-                    
-                    # Calculate time statistics
-                    elapsed_time = time.time() - epoch_start_time
-                    total_elapsed = time.time() - self.start_time if hasattr(self, 'start_time') else elapsed_time
-                    
-                    # Calculate ETA
-                    if batch_progress > 0:
-                        epoch_eta = (elapsed_time / batch_progress) * (1 - batch_progress)
-                        overall_eta = (total_elapsed / overall_progress) * (1 - overall_progress) if overall_progress > 0 else 0
-                    else:
-                        epoch_eta = 0
-                        overall_eta = 0
-                    
-                    # Calculate training rate
-                    training_rate = (batch_idx + 1) / max(1, elapsed_time)
-                    
-                    # Log progress statistics (numeric values only to avoid wandb media warnings)
-                    progress_stats = {
-                        'batch_progress': batch_progress,  # 0.0 to 1.0 # progress of the current batches in the current epoch
-                        'epoch_progress': epoch_progress,  # 0.0 to 1.0
-                        'overall_progress': overall_progress,  # 0.0 to 1.0
-                        'epoch_elapsed_time_seconds': elapsed_time,  # raw seconds
-                        'epoch_eta_seconds': epoch_eta,  # raw seconds
-                        'overall_eta_seconds': overall_eta,  # raw seconds
-                        'training_rate': training_rate,  # batches per second
-                        'current_epoch': epoch + 1,
-                        'total_epochs': self.epochs,
-                        'current_batch': batch_idx + 1,
-                        'total_batches': len(train_dataloader)
-                    }
-                    
-             
-                    # Log progress with step information
-                    log_metrics('training_progress', progress_stats, step=current_step)
-
-                # Step-based validation (if configured)
-                if VALIDATE_EVERY_N_STEPS is not None and current_step % VALIDATE_EVERY_N_STEPS == 0:
-                    print(f"\n[STEP {current_step}] Running step-based validation...")
-                    val_results = self.validate(val_dataloader, "validation")
-                    
-                    if self.accelerator.is_main_process and val_results is not None:
-                        # Check if this is the best model (using micro F1 as primary metric)
-                        val_f1 = val_results['f1']
-                        if val_f1 > self.best_val_acc:
-                            self.best_val_acc = val_f1
-                            self.steps_without_improvement = 0
-                            print(f"[STEP {current_step}] New best model! F1: {val_f1:.4f}")
-                        else:
-                            self.steps_without_improvement += 1
+                    # Step-based validation (if configured)
+                    if VALIDATE_EVERY_N_STEPS is not None and current_step % VALIDATE_EVERY_N_STEPS == 0:
+                        print(f"\n[STEP {current_step}] Running step-based validation...")
+                        val_results = self.validate(val_dataloader, "validation")
                         
-                        print(f"[STEP {current_step}] Validation - Loss: {val_results['loss']:.4f} - Acc: {val_results['accuracy']:.4f} - F1: {val_f1:.4f}")
-                        print(f"[STEP {current_step}] Best validation F1 so far: {self.best_val_acc:.4f}")
-                        print(f"[STEP {current_step}] Steps without improvement: {self.steps_without_improvement}")
-                        
-                        # Log to wandb
-                        if USE_WANDB:
-                            # Log validation metrics at current step
-                            vm = {'loss': val_results['loss'], 'best_val_f1': self.best_val_acc, 'steps_without_improvement': self.steps_without_improvement}
-                            for key, value in val_results['aggregate_metrics'].items():
-                                vm[key] = value
-                            log_metrics('val', vm, step=current_step)
-                            # Log per-dataset metrics if available
-                            if 'per_dataset_metrics' in val_results['evaluation_results']:
-                                log_metrics('val', val_results['evaluation_results']['per_dataset_metrics'], step=current_step)
+                        if self.accelerator.is_main_process and val_results is not None:
+                            # Check if this is the best model (using micro F1 as primary metric)
+                            val_f1 = val_results['f1']
+                            if val_f1 > self.best_val_acc:
+                                self.best_val_acc = val_f1
+                                self.steps_without_improvement = 0
+                                print(f"[STEP {current_step}] New best model! F1: {val_f1:.4f}")
+                            else:
+                                self.steps_without_improvement += 1
+                            
+                            print(f"[STEP {current_step}] Validation - Loss: {val_results['loss']:.4f} - Acc: {val_results['accuracy']:.4f} - F1: {val_f1:.4f}")
+                            print(f"[STEP {current_step}] Best validation F1 so far: {self.best_val_acc:.4f}")
+                            print(f"[STEP {current_step}] Steps without improvement: {self.steps_without_improvement}")
+                            
+                            # Add best_val_f1 and steps_without_improvement to val_results for logging
+                            val_results['best_val_f1'] = self.best_val_acc
+                            val_results['steps_without_improvement'] = self.steps_without_improvement
+                            
+                            # Log validation results
+                            log_validation_results(
+                                val_results=val_results,
+                                current_step=current_step,
+                                split_name="validation",
+                                accelerator=self.accelerator,
+                                use_wandb=USE_WANDB
+                            )
 
             # Calculate training metrics
             avg_train_loss = total_loss / max(1, total)
@@ -613,29 +534,39 @@ class OmniClassifierAccelerateTrainer:
                     print(f"Best validation F1 so far: {self.best_val_acc:.4f}")
                     print(f"Epochs without improvement: {self.epochs_without_improvement}")
                     
-                    # Log to wandb
-                    if USE_WANDB:
-                        # Calculate current step for logging (end of epoch)
-                        current_step = (epoch + 1) * len(train_dataloader)
-                        # Log training metrics
-                        log_metrics('train', {
-                            'loss': avg_train_loss,
-                            'accuracy': train_acc
-                        }, step=current_step)
-                        # Log validation loss and aggregate metrics
-                        vm = {'loss': val_results['loss'], 'best_val_f1': self.best_val_acc, 'epochs_without_improvement': self.epochs_without_improvement}
-                        for key, value in val_results['aggregate_metrics'].items():
-                            vm[key] = value
-                        log_metrics('val', vm, step=current_step)
-                        # Log per-dataset metrics if available
-                        if 'per_dataset_metrics' in val_results['evaluation_results']:
-                            log_metrics('val', val_results['evaluation_results']['per_dataset_metrics'], step=current_step)
+                    # Add best_val_f1 and epochs_without_improvement to val_results for logging
+                    val_results['best_val_f1'] = self.best_val_acc
+                    val_results['epochs_without_improvement'] = self.epochs_without_improvement
+                    
+                    # Log epoch training metrics
+                    log_epoch_training_metrics(
+                        epoch=epoch,
+                        avg_train_loss=avg_train_loss,
+                        train_acc=train_acc,
+                        total_batches=len(train_dataloader),
+                        accelerator=self.accelerator,
+                        use_wandb=USE_WANDB
+                    )
+                    
+                    # Log validation results
+                    current_step = (epoch + 1) * len(train_dataloader)
+                    log_validation_results(
+                        val_results=val_results,
+                        current_step=current_step,
+                        split_name="validation",
+                        accelerator=self.accelerator,
+                        use_wandb=USE_WANDB
+                    )
             else:
                 # Log only training metrics
-                if USE_WANDB and self.accelerator.is_main_process:
-                    # Calculate current step for logging (end of epoch)
-                    current_step = (epoch + 1) * len(train_dataloader)
-                    log_metrics('train', {'loss': avg_train_loss, 'accuracy': train_acc}, step=current_step)
+                log_epoch_training_metrics(
+                    epoch=epoch,
+                    avg_train_loss=avg_train_loss,
+                    train_acc=train_acc,
+                    total_batches=len(train_dataloader),
+                    accelerator=self.accelerator,
+                    use_wandb=USE_WANDB
+                )
 
             # Save checkpoint: every N epochs and also when best
             if SAVE_EVERY_N_EPOCHS and ((epoch + 1) % SAVE_EVERY_N_EPOCHS == 0):
@@ -657,8 +588,6 @@ class OmniClassifierAccelerateTrainer:
                     if self.accelerator.is_main_process:
                         print(f"Early stopping triggered after {EARLY_STOPPING_PATIENCE} epochs without improvement")
                     break
-
-
 
     def test(self):
         """Test the model on the test set."""
@@ -762,11 +691,8 @@ if __name__ == "__main__":
         num_workers=NUM_WORKERS
     )
 
-    # 1) Dataloader probe (prints batch structure)
-    # trainer.debug_batch_loader()
-
-    # 2) Training with validation
+    # Training with validation
     trainer.train()
     
-    # 3) Testing
+    # Testing
     test_results = trainer.test()
