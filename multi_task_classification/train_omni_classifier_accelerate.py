@@ -256,13 +256,7 @@ class OmniClassifierAccelerateTrainer:
                 if self.accelerator.is_main_process:
                     all_predictions.extend(gathered_preds.cpu().numpy())
                     all_labels.extend(gathered_labels.cpu().numpy())
-                    
-                    # Process datasets if available
-                    if gathered_datasets is not None:
-                        flattened_datasets = []
-                        for dataset_list in gathered_datasets:
-                            flattened_datasets.extend(dataset_list)
-                        all_datasets.extend(flattened_datasets)
+                    all_datasets.extend(gathered_datasets)
 
                 with open('/home/keaneong/human-behavior/verl/multi_task_classification/debug_batch.txt', 'a') as f: 
                     f.write(f"stop here after gather, all_predictions: {all_predictions}\n")
@@ -476,17 +470,23 @@ class OmniClassifierAccelerateTrainer:
                 with torch.no_grad():
                     total_loss += loss.item() * input_ids.size(0)
                     preds = logits.argmax(dim=1)
-                    correct += (preds == labels).sum().item()
-                    total += labels.size(0)
                     
-                    # Debug prints for predictions and labels
-                    if self.accelerator.is_main_process and batch_idx < 3:  # Only print first 3 batches
-                        print(f"\n[DEBUG] Batch {batch_idx} - Sample {0}:")
-                        print(f"  Labels: {labels}")
-                        print(f"  Logits: {logits}")
-                        print(f"  Predictions: {preds}")
-                        print(f"  Correct: {(preds == labels).sum().item()}/{labels.size(0)}")
-                        print(f"  Accuracy so far: {correct}/{total} = {correct/max(1, total):.4f}")
+                    # Gather accuracy metrics from all processes
+                    gathered_preds = self.accelerator.gather_for_metrics(preds)
+                    gathered_labels = self.accelerator.gather_for_metrics(labels)
+                    
+                    # Only compute global accuracy on main process
+                    if self.accelerator.is_main_process:
+                        correct += (gathered_preds == gathered_labels).sum().item()
+                        total += gathered_labels.size(0)
+                        
+                        # Debug prints for predictions and labels
+                        if batch_idx < 3:  # Only print first 3 batches
+                            print(f"\n[DEBUG] Batch {batch_idx} - Sample {0}:")
+                            print(f"  Labels: {gathered_labels}")
+                            print(f"  Predictions: {gathered_preds}")
+                            print(f"  Correct: {(gathered_preds == gathered_labels).sum().item()}/{gathered_labels.size(0)}")
+                            print(f"  Accuracy so far: {correct}/{total} = {correct/max(1, total):.4f}")
                         
                         # Check for potential issues
                         if torch.isnan(logits).any():
