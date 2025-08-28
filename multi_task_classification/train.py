@@ -246,7 +246,10 @@ def parse_parameters():
             params['validate_every_n_steps'] = int(params['validate_every_n_steps'])
     if params['validate_every_n_epochs'] is not None:
         if params['validate_every_n_epochs'] == "None":
+            params['validate_every_n_epochs'] = None
+        else:
             params['validate_every_n_epochs'] = int(params['validate_every_n_epochs'])
+            
     params['save_best_model'] = True
     params['early_stopping_patience'] = int(cfg.train.early_stopping_patience)
     

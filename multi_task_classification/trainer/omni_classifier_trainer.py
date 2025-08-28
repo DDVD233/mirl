@@ -233,12 +233,57 @@ class OmniClassifierAccelerateTrainer:
             self.model.load_state_dict(checkpoint['classifier_state_dict'], strict=False)
         elif training_strategy == "lora" and 'lora_state_dict' in checkpoint:
             print(f"Loading LoRA {context} (adapters + classifier)...")
-            lora_state = checkpoint['lora_state_dict']
-            classifier_state = checkpoint.get('classifier_state_dict', {})
             
-            # Combine LoRA and classifier state
-            combined_state = {**lora_state, **classifier_state}
-            self.model.load_state_dict(combined_state, strict=False)
+            # Load LoRA adapters using proper PEFT method
+            try:
+                from peft import PeftModel
+                
+                # First, load the classifier state
+                classifier_state = checkpoint.get('classifier_state_dict', {})
+                if classifier_state:
+                    self.model.load_state_dict(classifier_state, strict=False)
+                
+                # Check if we have a saved adapter directory from the checkpoint
+                adapter_path = checkpoint.get('adapter_path')
+                
+                if not adapter_path:
+                    # Fallback: look for adapter directories in checkpoint directory
+                    checkpoint_dir = os.path.dirname(self.load_checkpoint_path) if self.load_checkpoint_path else self.checkpoint_dir
+                    
+                    # First check for best adapter
+                    best_adapter_path = os.path.join(checkpoint_dir, "best_lora_adapter")
+                    if os.path.exists(best_adapter_path):
+                        adapter_path = best_adapter_path
+                    else:
+                        # Look for epoch-specific adapter directories
+                        adapter_dirs = []
+                        if checkpoint_dir and os.path.exists(checkpoint_dir):
+                            for item in os.listdir(checkpoint_dir):
+                                item_path = os.path.join(checkpoint_dir, item)
+                                if os.path.isdir(item_path) and ('lora_adapter' in item or 'adapter' in item):
+                                    adapter_dirs.append(item_path)
+                        
+                        if adapter_dirs:
+                            # Use the most recent adapter directory
+                            adapter_path = sorted(adapter_dirs)[-1]
+                
+                # Try to load adapter using PEFT's load_adapter method
+                if adapter_path and os.path.exists(adapter_path) and hasattr(self.model, 'load_adapter'):
+                    print(f"Loading LoRA adapter from: {adapter_path}")
+                    self.model.load_adapter(adapter_path)
+                else:
+                    # Fallback: Load LoRA parameters directly
+                    print("No adapter directory found, loading LoRA parameters directly...")
+                    lora_state = checkpoint['lora_state_dict']
+                    self.model.load_state_dict(lora_state, strict=False)
+                
+            except ImportError:
+                print("PEFT not available, falling back to direct state dict loading")
+                # Fallback to the original method
+                lora_state = checkpoint['lora_state_dict']
+                classifier_state = checkpoint.get('classifier_state_dict', {})
+                combined_state = {**lora_state, **classifier_state}
+                self.model.load_state_dict(combined_state, strict=False)
         elif 'model_state_dict' in checkpoint:
             print(f"Loading full {context} (model state)...")
             self.model.load_state_dict(checkpoint['model_state_dict'], strict=False)
@@ -320,6 +365,19 @@ class OmniClassifierAccelerateTrainer:
                 elif 'classifier' in name or 'head' in name:
                     classifier_state[name] = param.data.cpu()
             
+            # Also save LoRA adapters in PEFT format for proper loading
+            try:
+                if hasattr(self.model, 'save_pretrained'):
+                    # Save the entire model (including LoRA adapters) in PEFT format
+                    adapter_save_path = os.path.join(self.checkpoint_dir, f"lora_adapter_epoch_{epoch + 1}")
+                    self.model.save_pretrained(adapter_save_path)
+                    print(f"LoRA adapters saved in PEFT format to: {adapter_save_path}")
+                    
+                    # Also save adapter path in checkpoint data for easier loading
+                    common_data['adapter_path'] = adapter_save_path
+            except Exception as e:
+                print(f"Warning: Could not save LoRA adapters in PEFT format: {e}")
+            
             return {
                 **common_data,
                 'lora_state_dict': lora_state,
@@ -351,6 +409,16 @@ class OmniClassifierAccelerateTrainer:
                 best_model_path = os.path.join(self.checkpoint_dir, "best_model.pt")
                 torch.save(checkpoint_data, best_model_path)
                 print(f"New best model saved with validation accuracy: {self.best_val_acc:.4f}")
+                
+                # Also save the best LoRA adapter if using LoRA
+                if self.global_config.get('TRAINING_STRATEGY') == "lora":
+                    try:
+                        if hasattr(self.model, 'save_pretrained'):
+                            best_adapter_path = os.path.join(self.checkpoint_dir, "best_lora_adapter")
+                            self.model.save_pretrained(best_adapter_path)
+                            print(f"Best LoRA adapter saved to: {best_adapter_path}")
+                    except Exception as e:
+                        print(f"Warning: Could not save best LoRA adapter: {e}")
             
             print(f"Checkpoint saved to {checkpoint_path}")
             
