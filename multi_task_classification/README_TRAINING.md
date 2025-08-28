@@ -48,31 +48,62 @@ Use the customizable script to override any parameter:
 
 The training script supports the following command-line arguments that override the YAML config:
 
-### Training Strategy
-- `--training_strategy`: Choose from `head_only`, `lora`, or `full`
+### Data Parameters
+- `--train_file`: Training data file path
+- `--val_file`: Validation data file path
+- `--test_file`: Test data file path
+- `--label_map_path`: Path to label mapping JSON file
 
-### Batch Sizes and Learning Rate
+### Model Parameters
+- `--tokenizer_name`: Tokenizer model name
+- `--processor_name`: Processor model name
+- `--training_strategy`: Choose from `head_only`, `lora`, or `full`
+- `--device_map`: Device mapping (auto, cpu, or specific devices)
+- `--torch_dtype`: PyTorch data type (float16, float32, bfloat16)
+
+### LoRA Parameters
+- `--lora_r`: LoRA rank
+- `--lora_alpha`: LoRA alpha
+- `--lora_dropout`: LoRA dropout
+- `--lora_target_modules`: LoRA target modules (space-separated list)
+
+### Training Parameters
 - `--train_batch_size`: Training batch size
 - `--val_batch_size`: Validation batch size
 - `--lr`: Learning rate
-- `--gradient_accumulation_steps`: Gradient accumulation steps
-
-### Checkpoint Management
+- `--epochs`: Number of training epochs
 - `--save_checkpoint_dir`: Directory to save checkpoints
 - `--load_checkpoint_path`: Path to load checkpoint from
+- `--save_every_n_epochs`: Save checkpoint every N epochs
+- `--debug_dry_run`: Enable debug dry run mode
+- `--gradient_accumulation_steps`: Gradient accumulation steps
+- `--num_workers`: Number of data loader workers
 
-### Training Duration
-- `--epochs`: Number of training epochs
-
-### Validation and Early Stopping
-- `--validate_every_n_epochs`: Validate every N epochs
-- `--validate_every_n_steps`: Validate every N steps
+### Validation Parameters
+- `--validate_every_n_epochs`: Validate every N epochs (use "None" to disable)
+- `--validate_every_n_steps`: Validate every N steps (use "None" to disable)
 - `--early_stopping_patience`: Early stopping patience
 
-### Logging
-- `--project`: Wandb project name
+### Dataset Parameters
+- `--max_prompt_length`: Maximum prompt length
+- `--modalities`: Comma-separated list of modalities
+- `--prompt_key`: Prompt key in dataset
+- `--image_key`: Image key in dataset
+- `--video_key`: Video key in dataset
+- `--audio_key`: Audio key in dataset
+- `--label_key`: Label key in dataset
+- `--return_multi_modal_inputs`: Return multi-modal inputs
+- `--filter_overlong_prompts`: Filter overlong prompts
+- `--truncation`: Truncation direction (left, right)
+- `--format_prompt`: Path to format prompt template
 
-### Other
+### Wandb Parameters
+- `--use_wandb`: Enable wandb logging
+- `--project`: Wandb project name
+- `--entity`: Wandb entity name
+
+### System Parameters
+- `--cuda_visible_devices`: CUDA visible devices
 - `--config_file`: Path to config YAML file (default: config_accelerate.yaml)
 
 ## Examples
@@ -108,6 +139,42 @@ The training script supports the following command-line arguments that override 
     --epochs 20 \
     --save_checkpoint_dir "/path/to/custom/checkpoints" \
     --project "full-custom-path"
+```
+
+### Advanced LoRA configuration:
+```bash
+./train_custom.sh \
+    --training_strategy lora \
+    --lora_r 32 \
+    --lora_alpha 64 \
+    --lora_dropout 0.2 \
+    --lora_target_modules q_proj k_proj v_proj o_proj \
+    --train_batch_size 4 \
+    --lr 1e-4 \
+    --project "custom-lora-config"
+```
+
+### Custom dataset configuration:
+```bash
+./train_custom.sh \
+    --max_prompt_length 8192 \
+    --modalities "images,videos,audio" \
+    --prompt_key "question" \
+    --label_key "ground_truth" \
+    --return_multi_modal_inputs \
+    --filter_overlong_prompts \
+    --truncation "right" \
+    --project "custom-dataset-config"
+```
+
+### System-level customization:
+```bash
+./train_custom.sh \
+    --cuda_visible_devices "0,1" \
+    --device_map "auto" \
+    --torch_dtype "bfloat16" \
+    --num_workers 4 \
+    --project "system-optimized"
 ```
 
 ## Configuration Files

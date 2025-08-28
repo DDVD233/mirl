@@ -37,32 +37,69 @@ def parse_parameters():
     # Parse command line arguments
     parser = argparse.ArgumentParser(description='Train OmniClassifier with Accelerate')
     
-    # Most important parameters that can be overridden
+    # Data parameters
+    parser.add_argument('--train_file', type=str, help='Training data file path')
+    parser.add_argument('--val_file', type=str, help='Validation data file path')
+    parser.add_argument('--test_file', type=str, help='Test data file path')
+    parser.add_argument('--label_map_path', type=str, help='Path to label mapping JSON file')
+    
+    # Model parameters
+    parser.add_argument('--tokenizer_name', type=str, help='Tokenizer model name')
+    parser.add_argument('--processor_name', type=str, help='Processor model name')
     parser.add_argument('--training_strategy', type=str, 
                        choices=['head_only', 'lora', 'full'],
                        help='Training strategy: head_only, lora, or full')
-    parser.add_argument('--train_batch_size', type=int, 
-                       help='Training batch size')
-    parser.add_argument('--val_batch_size', type=int, 
-                       help='Validation batch size')
-    parser.add_argument('--lr', type=float, 
-                       help='Learning rate')
-    parser.add_argument('--save_checkpoint_dir', type=str, 
-                       help='Directory to save checkpoints')
-    parser.add_argument('--load_checkpoint_path', type=str, 
-                       help='Path to load checkpoint from')
+    parser.add_argument('--device_map', type=str, help='Device mapping (auto, cpu, or specific devices)')
+    parser.add_argument('--torch_dtype', type=str, 
+                       choices=['float16', 'float32', 'bfloat16'],
+                       help='PyTorch data type')
+    
+    # LoRA parameters
+    parser.add_argument('--lora_r', type=int, help='LoRA rank')
+    parser.add_argument('--lora_alpha', type=int, help='LoRA alpha')
+    parser.add_argument('--lora_dropout', type=float, help='LoRA dropout')
+    parser.add_argument('--lora_target_modules', type=str, nargs='+', 
+                       help='LoRA target modules (space-separated list)')
+    
+    # Training parameters
+    parser.add_argument('--train_batch_size', type=int, help='Training batch size')
+    parser.add_argument('--val_batch_size', type=int, help='Validation batch size')
+    parser.add_argument('--lr', type=float, help='Learning rate')
+    parser.add_argument('--epochs', type=int, help='Number of training epochs')
+    parser.add_argument('--save_checkpoint_dir', type=str, help='Directory to save checkpoints')
+    parser.add_argument('--load_checkpoint_path', type=str, help='Path to load checkpoint from')
+    parser.add_argument('--save_every_n_epochs', type=int, help='Save checkpoint every N epochs')
+    parser.add_argument('--debug_dry_run', action='store_true', help='Enable debug dry run mode')
+    parser.add_argument('--gradient_accumulation_steps', type=int, help='Gradient accumulation steps')
+    parser.add_argument('--num_workers', type=int, help='Number of data loader workers')
+    
+    # Validation parameters
     parser.add_argument('--validate_every_n_epochs', type=str, 
-                       help='Validate every N epochs (use "null" to disable)')
+                       help='Validate every N epochs (use "None" to disable)')
     parser.add_argument('--validate_every_n_steps', type=str, 
-                       help='Validate every N steps (use "null" to disable)')
-    parser.add_argument('--early_stopping_patience', type=int, 
-                       help='Early stopping patience')
-    parser.add_argument('--project', type=str, 
-                       help='Wandb project name')
-    parser.add_argument('--epochs', type=int, 
-                       help='Number of training epochs')
-    parser.add_argument('--gradient_accumulation_steps', type=int, 
-                       help='Gradient accumulation steps')
+                       help='Validate every N steps (use "None" to disable)')
+    parser.add_argument('--early_stopping_patience', type=int, help='Early stopping patience')
+    
+    # Dataset parameters
+    parser.add_argument('--max_prompt_length', type=int, help='Maximum prompt length')
+    parser.add_argument('--modalities', type=str, help='Comma-separated list of modalities')
+    parser.add_argument('--prompt_key', type=str, help='Prompt key in dataset')
+    parser.add_argument('--image_key', type=str, help='Image key in dataset')
+    parser.add_argument('--video_key', type=str, help='Video key in dataset')
+    parser.add_argument('--audio_key', type=str, help='Audio key in dataset')
+    parser.add_argument('--label_key', type=str, help='Label key in dataset')
+    parser.add_argument('--return_multi_modal_inputs', action='store_true', help='Return multi-modal inputs')
+    parser.add_argument('--filter_overlong_prompts', action='store_true', help='Filter overlong prompts')
+    parser.add_argument('--truncation', type=str, choices=['left', 'right'], help='Truncation direction')
+    parser.add_argument('--format_prompt', type=str, help='Path to format prompt template')
+    
+    # Wandb parameters
+    parser.add_argument('--use_wandb', action='store_true', help='Enable wandb logging')
+    parser.add_argument('--project', type=str, help='Wandb project name')
+    parser.add_argument('--entity', type=str, help='Wandb entity name')
+    
+    # System parameters
+    parser.add_argument('--cuda_visible_devices', type=str, help='CUDA visible devices')
     parser.add_argument('--config_file', type=str, 
                        default='config_accelerate.yaml',
                        help='Path to config YAML file')
@@ -74,18 +111,62 @@ def parse_parameters():
     cfg = OmegaConf.load(config_path)
     
     # Override config with command line arguments
+    
+    # Data parameters
+    if args.train_file is not None:
+        cfg.data.train_file = args.train_file
+    if args.val_file is not None:
+        cfg.data.val_file = args.val_file
+    if args.test_file is not None:
+        cfg.data.test_file = args.test_file
+    if args.label_map_path is not None:
+        cfg.data.label_map_path = args.label_map_path
+    
+    # Model parameters
+    if args.tokenizer_name is not None:
+        cfg.model.tokenizer_name = args.tokenizer_name
+    if args.processor_name is not None:
+        cfg.model.processor_name = args.processor_name
     if args.training_strategy is not None:
         cfg.model.training_strategy = args.training_strategy
+    if args.device_map is not None:
+        cfg.model.device_map = args.device_map
+    if args.torch_dtype is not None:
+        cfg.model.torch_dtype = args.torch_dtype
+    
+    # LoRA parameters
+    if args.lora_r is not None:
+        cfg.model.lora_config.r = args.lora_r
+    if args.lora_alpha is not None:
+        cfg.model.lora_config.alpha = args.lora_alpha
+    if args.lora_dropout is not None:
+        cfg.model.lora_config.dropout = args.lora_dropout
+    if args.lora_target_modules is not None:
+        cfg.model.lora_config.target_modules = args.lora_target_modules
+    
+    # Training parameters
     if args.train_batch_size is not None:
         cfg.train.train_batch_size = args.train_batch_size
     if args.val_batch_size is not None:
         cfg.train.val_batch_size = args.val_batch_size
     if args.lr is not None:
         cfg.train.lr = args.lr
+    if args.epochs is not None:
+        cfg.train.epochs = args.epochs
     if args.save_checkpoint_dir is not None:
         cfg.train.save_checkpoint_dir = args.save_checkpoint_dir
     if args.load_checkpoint_path is not None:
         cfg.train.load_checkpoint_path = args.load_checkpoint_path
+    if args.save_every_n_epochs is not None:
+        cfg.train.save_every_n_epochs = args.save_every_n_epochs
+    if args.debug_dry_run:
+        cfg.train.debug_dry_run = True
+    if args.gradient_accumulation_steps is not None:
+        cfg.train.gradient_accumulation_steps = args.gradient_accumulation_steps
+    if args.num_workers is not None:
+        cfg.train.num_workers = args.num_workers
+    
+    # Validation parameters
     if args.validate_every_n_epochs is not None:
         if args.validate_every_n_epochs == "None":
             cfg.train.validate_every_n_epochs = None
@@ -98,12 +179,44 @@ def parse_parameters():
             cfg.train.validate_every_n_steps = int(args.validate_every_n_steps)
     if args.early_stopping_patience is not None:
         cfg.train.early_stopping_patience = args.early_stopping_patience
+    
+    # Dataset parameters
+    if args.max_prompt_length is not None:
+        cfg.dataset_config.max_prompt_length = args.max_prompt_length
+    if args.modalities is not None:
+        cfg.dataset_config.modalities = args.modalities
+    if args.prompt_key is not None:
+        cfg.dataset_config.prompt_key = args.prompt_key
+    if args.image_key is not None:
+        cfg.dataset_config.image_key = args.image_key
+    if args.video_key is not None:
+        cfg.dataset_config.video_key = args.video_key
+    if args.audio_key is not None:
+        cfg.dataset_config.audio_key = args.audio_key
+    if args.label_key is not None:
+        cfg.dataset_config.label_key = args.label_key
+    if args.return_multi_modal_inputs:
+        cfg.dataset_config.return_multi_modal_inputs = True
+    if args.filter_overlong_prompts:
+        cfg.dataset_config.filter_overlong_prompts = True
+    if args.truncation is not None:
+        cfg.dataset_config.truncation = args.truncation
+    if args.format_prompt is not None:
+        cfg.dataset_config.format_prompt = args.format_prompt
+    
+    # Wandb parameters
+    if args.use_wandb:
+        cfg.wandb.use = True
     if args.project is not None:
         cfg.wandb.project = args.project
-    if args.epochs is not None:
-        cfg.train.epochs = args.epochs
-    if args.gradient_accumulation_steps is not None:
-        cfg.train.gradient_accumulation_steps = args.gradient_accumulation_steps
+    if args.entity is not None:
+        cfg.wandb.entity = args.entity
+    
+    # System parameters
+    if args.cuda_visible_devices is not None:
+        if not hasattr(cfg, 'system'):
+            cfg.system = OmegaConf.create({})
+        cfg.system.cuda_visible_devices = args.cuda_visible_devices
     
     # Parse all parameters
     params = {}
@@ -224,6 +337,7 @@ USE_WANDB = params['use_wandb']
 WANDB_PROJECT = params['wandb_project']
 WANDB_ENTITY = params['wandb_entity']
 LABEL_MAP = params['label_map']
+LABEL_MAP_PATH = params['label_map_path']
 NUM_CLASSES = params['num_classes']
 LORA_CONFIG = params['lora_config']
 config = params['dataset_config']
