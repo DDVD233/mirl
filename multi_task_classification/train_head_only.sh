@@ -17,14 +17,15 @@ export TORCH_USE_CUDA_DSA=1
 echo "Launching head_only training with Accelerate..."
 accelerate launch --config_file accelerate_config_qwen.yaml train_omni_classifier_accelerate.py \
     --training_strategy head_only \
-    --train_batch_size 8 \
-    --val_batch_size 8 \
+    --train_batch_size 2 \
+    --val_batch_size 2 \
     --lr 1e-3 \
     --epochs 5 \
     --save_checkpoint_dir "/scratch/keane/human_behaviour/head_only_training" \
     --validate_every_n_epochs 1 \
+    --validate_every_n_steps None \
     --early_stopping_patience 3 \
     --project "omni-classifier-head-only" \
-    --gradient_accumulation_steps 2
+    --gradient_accumulation_steps 16
 
 echo "Head-only training completed!"

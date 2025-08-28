@@ -51,10 +51,10 @@ def parse_parameters():
                        help='Directory to save checkpoints')
     parser.add_argument('--load_checkpoint_path', type=str, 
                        help='Path to load checkpoint from')
-    parser.add_argument('--validate_every_n_epochs', type=int, 
-                       help='Validate every N epochs')
-    parser.add_argument('--validate_every_n_steps', type=int, 
-                       help='Validate every N steps')
+    parser.add_argument('--validate_every_n_epochs', type=str, 
+                       help='Validate every N epochs (use "null" to disable)')
+    parser.add_argument('--validate_every_n_steps', type=str, 
+                       help='Validate every N steps (use "null" to disable)')
     parser.add_argument('--early_stopping_patience', type=int, 
                        help='Early stopping patience')
     parser.add_argument('--project', type=str, 
@@ -87,9 +87,15 @@ def parse_parameters():
     if args.load_checkpoint_path is not None:
         cfg.train.load_checkpoint_path = args.load_checkpoint_path
     if args.validate_every_n_epochs is not None:
-        cfg.train.validate_every_n_epochs = args.validate_every_n_epochs
+        if args.validate_every_n_epochs == "None":
+            cfg.train.validate_every_n_epochs = None
+        else:
+            cfg.train.validate_every_n_epochs = int(args.validate_every_n_epochs)
     if args.validate_every_n_steps is not None:
-        cfg.train.validate_every_n_steps = args.validate_every_n_steps
+        if args.validate_every_n_steps == "None":
+            cfg.train.validate_every_n_steps = None
+        else:
+            cfg.train.validate_every_n_steps = int(args.validate_every_n_steps)
     if args.early_stopping_patience is not None:
         cfg.train.early_stopping_patience = args.early_stopping_patience
     if args.project is not None:
