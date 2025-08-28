@@ -238,6 +238,9 @@ class OmniClassifierAccelerateTrainer:
                 
                 total_loss += loss.item() * input_ids.size(0)
                 preds = logits.argmax(dim=1)
+
+                with open('/home/keaneong/human-behavior/verl/multi_task_classification/debug_batch.txt', 'a') as f:
+                    f.write(f"preds: {preds}\n")
                 
                 # Gather predictions and labels from all processes
                 gathered_preds = self.accelerator.gather(preds)
