@@ -196,7 +196,7 @@ class OmniClassifierAccelerateTrainer:
             run_name=f"omni_classifier_accelerate_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
         )
 
-    def get_dataloader(self, data_files, batch_size, shuffle=True):
+    def get_dataloader(self, data_files, batch_size, num_workers=0, shuffle=True):
         dataset = OmniClassifierDataset(
             data_files=data_files,
             tokenizer=self.tokenizer,
@@ -206,7 +206,7 @@ class OmniClassifierAccelerateTrainer:
             label_map=self.label_map
         )
         return DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, collate_fn=collate_fn,
-                          num_workers=self.num_workers, pin_memory=True, persistent_workers=self.num_workers > 0)
+                          num_workers=num_workers, pin_memory=True, persistent_workers=self.num_workers > 0)
 
     def validate(self, val_dataloader, split_name="validation"):
         """Validate the model on the given dataloader."""
@@ -424,8 +424,8 @@ class OmniClassifierAccelerateTrainer:
             print(f"[WARN] Failed to save checkpoint: {e}")
 
     def train(self):
-        train_dataloader = self.get_dataloader(self.data_files, self.batch_size, shuffle=True)
-        val_dataloader = self.get_dataloader(self.val_data_files, self.val_batch_size, shuffle=False)
+        train_dataloader = self.get_dataloader(self.data_files, self.batch_size, num_workers=self.num_workers, shuffle=True)
+        val_dataloader = self.get_dataloader(self.val_data_files, self.val_batch_size, num_workers=0, shuffle=False)
         
         optimizer = Adam(self.model.parameters(), lr=self.lr)
         criterion = CrossEntropyLoss()
