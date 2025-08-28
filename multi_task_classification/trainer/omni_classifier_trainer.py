@@ -381,8 +381,12 @@ class OmniClassifierAccelerateTrainer:
 
     def _create_checkpoint_data(self, optimizer, epoch, scheduler=None, scaler=None):
         
+   
         training_strategy = self.global_config.get('TRAINING_STRATEGY', 'head_only')
 
+        with open("/home/keaneong/human-behavior/verl/multi_task_classification/debug_save.txt", "w") as f:
+                        f.write(f"Stop here, checkpoint_data")
+                        
         unwrapped = self.accelerator.unwrap_model(self.model)
         model_sd = self.accelerator.get_state_dict(self.model)  # safe across wrappers
         
@@ -456,12 +460,12 @@ class OmniClassifierAccelerateTrainer:
     def save_checkpoint(self, optimizer, epoch, is_best=False, scheduler=None, scaler=None):
         if not self.accelerator.is_main_process:
             return
+
         os.makedirs(self.checkpoint_dir, exist_ok=True)
-        with open("/home/keaneong/human-behavior/verl/multi_task_classification/debug_save.txt", "w") as f:
-                        f.write(f"Stop here, classifier")
+     
+
         ckpt = self._create_checkpoint_data(optimizer, epoch, scheduler, scaler)
-        # print("checkpoint information is: ", ckpt)
-        # raise Exception("Stop here")
+        
         ckpt_path = os.path.join(self.checkpoint_dir, f"checkpoint_epoch_{epoch+1}.pt")
         self.accelerator.save(ckpt, ckpt_path)
 
