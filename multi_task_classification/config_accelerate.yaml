@@ -32,7 +32,7 @@ train:
   validate_every_n_steps: 1  # New: validate every N steps (null = use epoch-based validation)
   early_stopping_patience: 3
   gradient_accumulation_steps: 8  # Higher gradient accumulation for full training
-  num_workers: 2  # Reduced for memory constraints
+  num_workers: 0  # Reduced for memory constraints
 
 dataset_config:
   max_prompt_length: 4096
