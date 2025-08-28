@@ -2,9 +2,9 @@ system:
   cuda_visible_devices: "2,3"  # Use all available GPUs
 
 data:
-  train_file: "/scratch/keane/human_behaviour/human_behaviour_data/0.1_audio_sigs_train_meld.jsonl"
-  val_file: "/scratch/keane/human_behaviour/human_behaviour_data/0.1_audio_sigs_train_meld.jsonl"
-  test_file: "/scratch/keane/human_behaviour/human_behaviour_data/0.1_audio_sigs_train_meld.jsonl"
+  train_file: "/scratch/keane/human_behaviour/human_behaviour_data/0.01_audio_sigs_train_meld.jsonl"
+  val_file: "/scratch/keane/human_behaviour/human_behaviour_data/0.01_audio_sigs_train_meld.jsonl"
+  test_file: "/scratch/keane/human_behaviour/human_behaviour_data/0.01_audio_sigs_train_meld.jsonl"
   label_map_path: "/home/keaneong/human-behavior/verl/multi_task_classification/meld_label_map.json"
 
 model:
@@ -24,7 +24,7 @@ train:
   val_batch_size: 2
   lr: 1e-3  # depending on the different model components, this should be adjusted
   epochs: 2
-  save_checkpoint_dir: "/scratch/keane/human_behaviour/head_only_finetune_meld_accelerate"
+  save_checkpoint_dir: "/scratch/keane/human_behaviour/1_head_only_finetune_meld_accelerate"
   load_checkpoint_path: null
   save_every_n_epochs: 1
   debug_dry_run: false

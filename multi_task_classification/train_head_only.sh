@@ -20,12 +20,12 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml train.py \
     --train_batch_size 2 \
     --val_batch_size 2 \
     --lr 1e-4 \
-    --epochs 2 \
+    --epochs 3 \
     --save_checkpoint_dir "/scratch/keane/human_behaviour/2_head_only_training" \
     --validate_every_n_epochs 1 \
     --validate_every_n_steps None \
-    --early_stopping_patience 3 \
+    --early_stopping_patience 99999 \
     --project "omni-classifier-head-only" \
-    --gradient_accumulation_steps 16
+    --gradient_accumulation_steps 1
 
 echo "Head-only training completed!"
