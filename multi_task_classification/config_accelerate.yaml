@@ -29,9 +29,9 @@ train:
   save_every_n_epochs: 1
   debug_dry_run: false
   validate_every_n_epochs: null
-  validate_every_n_steps: 5  # New: validate every N steps (null = use epoch-based validation)
+  validate_every_n_steps: 5  # New: validate every N steps (null = use epoch-based validation) One step is 1 batch
   early_stopping_patience: 3
-  gradient_accumulation_steps: 8  # Higher gradient accumulation for full training
+  gradient_accumulation_steps: 1  # Number of batches to accumulate gradients before updating parameters
   num_workers: 0  # WARNING: SET THIS TO 0 AS IT SHOULD BE AUTOMATICALLY HANDLED BY ACCELERATE
 
 dataset_config:
