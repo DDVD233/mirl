@@ -457,7 +457,8 @@ class OmniClassifierAccelerateTrainer:
         if not self.accelerator.is_main_process:
             return
         os.makedirs(self.checkpoint_dir, exist_ok=True)
-
+        with open("/home/keaneong/human-behavior/verl/multi_task_classification/debug_save.txt", "w") as f:
+                        f.write(f"Stop here, classifier")
         ckpt = self._create_checkpoint_data(optimizer, epoch, scheduler, scaler)
         # print("checkpoint information is: ", ckpt)
         # raise Exception("Stop here")
@@ -667,9 +668,7 @@ class OmniClassifierAccelerateTrainer:
                         accelerator=self.accelerator,
                         use_wandb=use_wandb
                     )
-                    with open("/home/keaneong/human-behavior/verl/multi_task_classification/debug_save.txt", "w") as f:
-                        f.write(f"Stop here, {val_results}")
- 
+
                     # Log validation results
                     current_step = (epoch + 1) * len(train_dataloader)
                     log_validation_results(
