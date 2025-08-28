@@ -238,7 +238,7 @@ class OmniClassifierAccelerateTrainer:
                 
                 total_loss += loss.item() * input_ids.size(0)
                 preds = logits.argmax(dim=1)
-
+                preds = self.accelerator.gather_for_metrics(preds)
                 with open('/home/keaneong/human-behavior/verl/multi_task_classification/debug_batch.txt', 'a') as f: 
                     f.write(f"stop here, preds: {preds}\n")
                 raise Exception(f"Stop here, preds: {preds}")
