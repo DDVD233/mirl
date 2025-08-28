@@ -463,21 +463,14 @@ class OmniClassifierAccelerateTrainer:
 
         ckpt = self._create_checkpoint_data(optimizer, epoch, scheduler, scaler)
         
-        with open("/home/keaneong/human-behavior/verl/multi_task_classification/debug_save.txt", "a") as f:
-                        f.write(f"\nSaved state: {ckpt}")
-                        raise Exception("Stop here")
-
-
         ckpt_path = os.path.join(self.checkpoint_dir, f"checkpoint_epoch_{epoch+1}.pt")
         self.accelerator.save(ckpt, ckpt_path)
 
-        try:
-            unwrapped = self.accelerator.unwrap_model(self.model)
-            hf_dir = os.path.join(self.checkpoint_dir, f"hf_model_epoch_{epoch+1}")
-            self.accelerator.save_model(unwrapped, hf_dir)
-        except Exception as e:
-            print(f"[WARN] Skipped HF model save: {e}")
+        with open("/home/keaneong/human-behavior/verl/multi_task_classification/debug_save.txt", "a") as f:
+                f.write(f"\nSAVED THE CHECKPOINT")
+                raise Exception("Stop here")
 
+       
         if is_best:
             best_path = os.path.join(self.checkpoint_dir, "best_model.pt")
             self.accelerator.save(ckpt, best_path)
