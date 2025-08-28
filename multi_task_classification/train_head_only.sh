@@ -19,7 +19,7 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml train.py \
     --training_strategy head_only \
     --train_batch_size 2 \
     --val_batch_size 2 \
-    --lr 1e-3 \
+    --lr 1e-4 \
     --epochs 2 \
     --save_checkpoint_dir "/scratch/keane/human_behaviour/2_head_only_training" \
     --validate_every_n_epochs 1 \
