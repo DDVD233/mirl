@@ -3,6 +3,8 @@ import sys
 import json
 import torch
 import time
+import random
+import numpy as np
 from torch.utils.data import DataLoader
 from torch.optim import Adam
 from torch.nn import CrossEntropyLoss
@@ -225,205 +227,271 @@ class OmniClassifierAccelerateTrainer:
         return checkpoint_files[0]
 
     def _load_model_state_from_checkpoint(self, checkpoint, context="checkpoint"):
-        """Helper method to load model state from checkpoint based on training strategy."""
-        training_strategy = checkpoint.get('training_strategy', 'head_only')
-        
-        if training_strategy == "head_only" and 'classifier_state_dict' in checkpoint:
-            print(f"Loading head-only {context} (classifier state only)...")
-            self.model.load_state_dict(checkpoint['classifier_state_dict'], strict=False)
-        elif training_strategy == "lora" and 'lora_state_dict' in checkpoint:
-            print(f"Loading LoRA {context} (adapters + classifier)...")
-            
-            # Load LoRA adapters using proper PEFT method
-            try:
-                from peft import PeftModel
-                
-                # First, load the classifier state
-                classifier_state = checkpoint.get('classifier_state_dict', {})
-                if classifier_state:
-                    self.model.load_state_dict(classifier_state, strict=False)
-                
-                # Check if we have a saved adapter directory from the checkpoint
-                adapter_path = checkpoint.get('adapter_path')
-                
-                if not adapter_path:
-                    # Fallback: look for adapter directories in checkpoint directory
-                    checkpoint_dir = os.path.dirname(self.load_checkpoint_path) if self.load_checkpoint_path else self.checkpoint_dir
-                    
-                    # First check for best adapter
-                    best_adapter_path = os.path.join(checkpoint_dir, "best_lora_adapter")
-                    if os.path.exists(best_adapter_path):
-                        adapter_path = best_adapter_path
-                    else:
-                        # Look for epoch-specific adapter directories
-                        adapter_dirs = []
-                        if checkpoint_dir and os.path.exists(checkpoint_dir):
-                            for item in os.listdir(checkpoint_dir):
-                                item_path = os.path.join(checkpoint_dir, item)
-                                if os.path.isdir(item_path) and ('lora_adapter' in item or 'adapter' in item):
-                                    adapter_dirs.append(item_path)
-                        
-                        if adapter_dirs:
-                            # Use the most recent adapter directory
-                            adapter_path = sorted(adapter_dirs)[-1]
-                
-                # Try to load adapter using PEFT's load_adapter method
-                if adapter_path and os.path.exists(adapter_path) and hasattr(self.model, 'load_adapter'):
-                    print(f"Loading LoRA adapter from: {adapter_path}")
-                    self.model.load_adapter(adapter_path)
-                else:
-                    # Fallback: Load LoRA parameters directly
-                    print("No adapter directory found, loading LoRA parameters directly...")
-                    lora_state = checkpoint['lora_state_dict']
-                    self.model.load_state_dict(lora_state, strict=False)
-                
-            except ImportError:
-                print("PEFT not available, falling back to direct state dict loading")
-                # Fallback to the original method
-                lora_state = checkpoint['lora_state_dict']
-                classifier_state = checkpoint.get('classifier_state_dict', {})
-                combined_state = {**lora_state, **classifier_state}
-                self.model.load_state_dict(combined_state, strict=False)
-        elif 'model_state_dict' in checkpoint:
-            print(f"Loading full {context} (model state)...")
-            self.model.load_state_dict(checkpoint['model_state_dict'], strict=False)
-        else:
-            print(f"Loading {context} as full state dict...")
-            self.model.load_state_dict(checkpoint, strict=False)
+        """
+        Load model weights according to the training strategy saved in `checkpoint`.
+        - head_only:   loads only classifier/head module params
+        - lora:        loads PEFT adapters (preferred) + classifier/head params
+        - full:        loads full model state dict
+        Fallbacks handle missing artifacts gracefully.
+        """
+        unwrapped = self.accelerator.unwrap_model(self.model)
+        training_strategy = checkpoint.get("training_strategy", "head_only")
 
-    def load_checkpoint(self, optimizer):
-        """Load the latest checkpoint if available."""
-        # Prefer explicit load path if provided, else auto-find latest in save dir
-        latest_checkpoint = self.load_checkpoint_path if self.load_checkpoint_path else self._find_latest_checkpoint()
-        if latest_checkpoint:
-            try:
-                print(f"Loading checkpoint from {latest_checkpoint}")
-                checkpoint = torch.load(latest_checkpoint, map_location='cpu')
-                
-                # Load model state using helper method
-                self._load_model_state_from_checkpoint(checkpoint, "checkpoint")
-                
-                # Load optimizer state if available
-                if 'optimizer_state_dict' in checkpoint:
-                    optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-                
-                # Load training state
-                if 'best_val_acc' in checkpoint:
-                    self.best_val_acc = checkpoint['best_val_acc']
-                if 'epochs_without_improvement' in checkpoint:
-                    self.epochs_without_improvement = checkpoint['epochs_without_improvement']
-                
-                start_epoch = checkpoint.get('epoch', 0)
-                print(f"Successfully loaded checkpoint from epoch {start_epoch}")
-                return start_epoch
-                
-            except Exception as e:
-                print(f"[WARN] Could not load checkpoint due to: {e}. Continuing fresh.")
-        
-        return 0
+        def _report_load(res):
+            if isinstance(res, tuple):
+                missing, unexpected = res
+            else:
+                missing, unexpected = res.missing_keys, res.unexpected_keys
+            if missing:
+                print(f"[load:{context}] missing keys: {missing[:8]}{' ...' if len(missing) > 8 else ''}")
+            if unexpected:
+                print(f"[load:{context}] unexpected keys: {unexpected[:8]}{' ...' if len(unexpected) > 8 else ''}")
 
-    def _create_checkpoint_data(self, optimizer, epoch):
-        """Helper method to create checkpoint data based on training strategy."""
-        training_strategy = self.global_config.get('TRAINING_STRATEGY', 'head_only')
-        
-        # Common checkpoint data
-        common_data = {
-            'optimizer_state_dict': optimizer.state_dict(),
-            'epoch': epoch + 1,
-            'best_val_acc': self.best_val_acc,
-            'epochs_without_improvement': self.epochs_without_improvement,
-            'training_strategy': training_strategy,
-            'config': {
-                'lr': self.lr,
-                'batch_size': self.batch_size,
-                'num_classes': self.global_config.get('NUM_CLASSES', 0),
-                'freeze_backbone': training_strategy
-            }
-        }
-        
-        if training_strategy == "head_only":
-            print("Saving head-only checkpoint (classifier + optimizer state only)...")
-            
-            # Get only the classifier state dict
-            classifier_state = {}
-            for name, param in self.model.named_parameters():
-                if 'classifier' in name or 'head' in name:
-                    classifier_state[name] = param.data.cpu()
-            
-            return {**common_data, 'classifier_state_dict': classifier_state}
-            
+        if training_strategy == "head_only" and "classifier_state_dict" in checkpoint:
+            print(f"Loading head-only {context} (classifier/head only)...")
+            # Try common names first
+            if hasattr(unwrapped, "classifier"):
+                res = unwrapped.classifier.load_state_dict(checkpoint["classifier_state_dict"], strict=False)
+                _report_load(res)
+            elif hasattr(unwrapped, "head"):
+                res = unwrapped.head.load_state_dict(checkpoint["classifier_state_dict"], strict=False)
+                _report_load(res)
+            else:
+                # Fallback: partial load into the whole model with strict=False
+                res = unwrapped.load_state_dict(checkpoint["classifier_state_dict"], strict=False)
+                _report_load(res)
+
         elif training_strategy == "lora":
-            print("Saving LoRA checkpoint (adapters + classifier + optimizer state)...")
-            
-            # Get LoRA adapter and classifier state dicts
-            lora_state = {}
-            classifier_state = {}
-            
-            for name, param in self.model.named_parameters():
-                if 'lora' in name.lower():
-                    lora_state[name] = param.data.cpu()
-                elif 'classifier' in name or 'head' in name:
-                    classifier_state[name] = param.data.cpu()
-            
-            # Also save LoRA adapters in PEFT format for proper loading
-            try:
-                if hasattr(self.model, 'save_pretrained'):
-                    # Save the entire model (including LoRA adapters) in PEFT format
-                    adapter_save_path = os.path.join(self.checkpoint_dir, f"lora_adapter_epoch_{epoch + 1}")
-                    self.model.save_pretrained(adapter_save_path)
-                    print(f"LoRA adapters saved in PEFT format to: {adapter_save_path}")
-                    
-                    # Also save adapter path in checkpoint data for easier loading
-                    common_data['adapter_path'] = adapter_save_path
-            except Exception as e:
-                print(f"Warning: Could not save LoRA adapters in PEFT format: {e}")
-            
-            return {
-                **common_data,
-                'lora_state_dict': lora_state,
-                'classifier_state_dict': classifier_state,
-                'lora_config': self.global_config.get('LORA_CONFIG', {})
-            }
-            
-        else:  # full training
-            print("Saving full checkpoint (model + optimizer state)...")
-            return {**common_data, 'model_state_dict': self.model.state_dict()}
+            print(f"Loading LoRA {context} (adapters + optional classifier/head)...")
 
-    def save_checkpoint(self, optimizer, epoch, is_best=False):
-        """Save checkpoint with training state."""
+            # 1) Load classifier/head if present
+            cls_sd = checkpoint.get("classifier_state_dict")
+            if cls_sd is not None:
+                if hasattr(unwrapped, "classifier"):
+                    _report_load(unwrapped.classifier.load_state_dict(cls_sd, strict=False))
+                elif hasattr(unwrapped, "head"):
+                    _report_load(unwrapped.head.load_state_dict(cls_sd, strict=False))
+                else:
+                    _report_load(unwrapped.load_state_dict(cls_sd, strict=False))
+
+            # 2) Prefer loading adapters from a saved PEFT directory
+            adapter_path = checkpoint.get("adapter_path")
+            if not adapter_path:
+                # Try to find one in the checkpoint dir: best first, then epoch dirs
+                ckpt_dir = os.path.dirname(getattr(self, "load_checkpoint_path", "") or self.checkpoint_dir)
+                best_dir = os.path.join(ckpt_dir, "best_lora_adapter")
+                if os.path.isdir(best_dir):
+                    adapter_path = best_dir
+                else:
+                    # find most recent 'lora_adapter_epoch_*'
+                    candidates = [os.path.join(ckpt_dir, d)
+                                for d in os.listdir(ckpt_dir) if "lora_adapter" in d]
+                    if candidates:
+                        adapter_path = sorted(candidates)[-1]
+
+            loaded_adapter = False
+            try:
+                # If the model exposes PEFT's load_adapter, use it.
+                if adapter_path and os.path.isdir(adapter_path) and hasattr(unwrapped, "load_adapter"):
+                    print(f"Loading LoRA adapter directory: {adapter_path}")
+                    unwrapped.load_adapter(adapter_path)
+                    loaded_adapter = True
+            except Exception as e:
+                print(f"[WARN] PEFT adapter load failed from dir: {e}")
+
+            # 3) Fallback: direct param load (when no adapter directory is available)
+            if not loaded_adapter:
+                lora_sd = checkpoint.get("lora_state_dict")
+                if lora_sd:
+                    print("No adapter directory found; loading LoRA parameters directly...")
+                    _report_load(unwrapped.load_state_dict(lora_sd, strict=False))
+                else:
+                    print("[WARN] No LoRA adapter dir or lora_state_dict found—skipping adapter load.")
+
+        elif training_strategy == "full" and "model_state_dict" in checkpoint:
+            print(f"Loading full {context} (entire model state)...")
+            _report_load(unwrapped.load_state_dict(checkpoint["model_state_dict"], strict=False))
+
+        else:
+            # Last-resort compatibility path
+            print(f"Loading {context} as a raw/partial state dict (strict=False)...")
+            _report_load(unwrapped.load_state_dict(checkpoint, strict=False))
+
+    def load_checkpoint(self, optimizer=None, scheduler=None, scaler=None, prefer_best=False):
+        """
+        Load the latest (or best) checkpoint for *training resume*.
+        Restores model weights, optimizer, scheduler, scaler, and RNG states.
+        - prefer_best=True will try 'best_model.pt' first (if present), else latest.
+        Returns: start_epoch (int)
+        """
+        # Decide which .pt to read
+        if self.load_checkpoint_path and os.path.isfile(self.load_checkpoint_path):
+            target_path = self.load_checkpoint_path
+        else:
+            # prefer best first if asked
+            best_pt = os.path.join(self.checkpoint_dir, "best_model.pt")
+            target_path = best_pt if prefer_best and os.path.isfile(best_pt) else self._find_latest_checkpoint()
+
+        if not target_path:
+            print("[load] No checkpoint file found; starting fresh.")
+            return 0
+
+        print(f"[load] Reading checkpoint: {target_path}")
+        try:
+            checkpoint = torch.load(target_path, map_location="cpu")
+
+            # 1) Model weights - load before prepare() to avoid accelerate wrapper issues
+            self._load_model_state_from_checkpoint(checkpoint, context=os.path.basename(target_path))
+
+            # 2) Optimizer/Scheduler/Scaler (if provided)
+            if optimizer is not None and "optimizer" in checkpoint:
+                optimizer.load_state_dict(checkpoint["optimizer"])
+            if scheduler is not None and checkpoint.get("scheduler") is not None:
+                scheduler.load_state_dict(checkpoint["scheduler"])
+            if scaler is not None and checkpoint.get("scaler") is not None:
+                scaler.load_state_dict(checkpoint["scaler"])
+
+            # 3) Restore trainer metadata
+            self.best_val_acc = checkpoint.get("best_val_acc", getattr(self, "best_val_acc", None))
+            self.epochs_without_improvement = checkpoint.get(
+                "epochs_without_improvement",
+                getattr(self, "epochs_without_improvement", None)
+            )
+
+            # 4) RNG states (optional but good for determinism)
+            rng = checkpoint.get("rng_state", None)
+            if rng:
+                try:
+                    random.setstate(rng["python"])
+                    np.random.set_state(rng["numpy"])
+                    torch.set_rng_state(rng["torch"])
+                    if torch.cuda.is_available() and rng["cuda"] is not None:
+                        torch.cuda.set_rng_state_all(rng["cuda"])
+                except Exception as e:
+                    print(f"[WARN] Could not fully restore RNG state: {e}")
+
+            start_epoch = int(checkpoint.get("epoch", 0))
+            print(f"[load] Resume from epoch={start_epoch}, best_val_acc={self.best_val_acc}")
+            return start_epoch
+
+        except Exception as e:
+            print(f"[WARN] Failed to load checkpoint ({target_path}): {e}. Starting fresh.")
+            return 0
+
+
+    def _create_checkpoint_data(self, optimizer, epoch, scheduler=None, scaler=None):
+        
+        training_strategy = self.global_config.get('TRAINING_STRATEGY', 'head_only')
+
+        unwrapped = self.accelerator.unwrap_model(self.model)
+        model_sd = self.accelerator.get_state_dict(self.model)  # safe across wrappers
+
+        classifier_sd = None
+        lora_sd = None
+        adapter_path = None
+        full_model_sd = None
+
+        if training_strategy == "head_only":
+            if hasattr(unwrapped, "classifier"):
+                classifier_sd = unwrapped.classifier.state_dict()
+            elif hasattr(unwrapped, "head"):
+                classifier_sd = unwrapped.head.state_dict()
+            else:
+                classifier_sd = {k: v for k, v in model_sd.items()
+                                if k.startswith("classifier.") or k.startswith("head.")}
+
+        elif training_strategy == "lora":
+            if hasattr(unwrapped, "save_pretrained"):
+                adapter_path = os.path.join(self.checkpoint_dir, f"lora_adapter_epoch_{epoch+1}")
+                unwrapped.save_pretrained(adapter_path)
+
+            try:
+                from peft import get_peft_model_state_dict
+                lora_sd = get_peft_model_state_dict(unwrapped)
+            except Exception:
+                lora_sd = {k: v for k, v in model_sd.items() if "lora" in k.lower()}
+
+            if hasattr(unwrapped, "classifier"):
+                classifier_sd = unwrapped.classifier.state_dict()
+            elif hasattr(unwrapped, "head"):
+                classifier_sd = unwrapped.head.state_dict()
+
+        elif training_strategy == "full":
+            full_model_sd = model_sd  # capture entire model
+
+        state = {
+            "epoch": epoch + 1,
+            "best_val_acc": getattr(self, "best_val_acc", None),
+            "epochs_without_improvement": getattr(self, "epochs_without_improvement", None),
+            "training_strategy": training_strategy,
+            "config": {
+                "lr": self.lr,
+                "batch_size": self.batch_size,
+                "num_classes": self.global_config.get("NUM_CLASSES", 0),
+                "freeze_backbone": training_strategy,
+            },
+            "optimizer": optimizer.state_dict(),
+            "scheduler": scheduler.state_dict() if scheduler else None,
+            "scaler": scaler.state_dict() if scaler else None,
+            "rng_state": {
+                "python": random.getstate(),
+                "numpy": np.random.get_state(),
+                "torch": torch.get_rng_state().cpu(),
+                "cuda": torch.cuda.get_rng_state_all() if torch.cuda.is_available() else None,
+            },
+        }
+
+        if training_strategy == "head_only":
+            state["classifier_state_dict"] = classifier_sd
+        elif training_strategy == "lora":
+            state["lora_state_dict"] = lora_sd
+            state["classifier_state_dict"] = classifier_sd
+            state["adapter_path"] = adapter_path
+        elif training_strategy == "full":
+            state["model_state_dict"] = full_model_sd
+
+        return state
+
+    def save_checkpoint(self, optimizer, epoch, is_best=False, scheduler=None, scaler=None):
         if not self.accelerator.is_main_process:
             return
-            
+        os.makedirs(self.checkpoint_dir, exist_ok=True)
+
+        ckpt = self._create_checkpoint_data(optimizer, epoch, scheduler, scaler)
+        ckpt_path = os.path.join(self.checkpoint_dir, f"checkpoint_epoch_{epoch+1}.pt")
+        self.accelerator.save(ckpt, ckpt_path)
+
         try:
-            os.makedirs(self.checkpoint_dir, exist_ok=True)
-            
-            # Create checkpoint data using helper method
-            checkpoint_data = self._create_checkpoint_data(optimizer, epoch)
-            
-            # Save regular checkpoint
-            checkpoint_path = os.path.join(self.checkpoint_dir, f"checkpoint_epoch_{epoch + 1}.pt")
-            torch.save(checkpoint_data, checkpoint_path)
-            
-            # Save best model if this is the best so far
-            if is_best:
-                best_model_path = os.path.join(self.checkpoint_dir, "best_model.pt")
-                torch.save(checkpoint_data, best_model_path)
-                print(f"New best model saved with validation accuracy: {self.best_val_acc:.4f}")
-                
-                # Also save the best LoRA adapter if using LoRA
-                if self.global_config.get('TRAINING_STRATEGY') == "lora":
-                    try:
-                        if hasattr(self.model, 'save_pretrained'):
-                            best_adapter_path = os.path.join(self.checkpoint_dir, "best_lora_adapter")
-                            self.model.save_pretrained(best_adapter_path)
-                            print(f"Best LoRA adapter saved to: {best_adapter_path}")
-                    except Exception as e:
-                        print(f"Warning: Could not save best LoRA adapter: {e}")
-            
-            print(f"Checkpoint saved to {checkpoint_path}")
-            
+            unwrapped = self.accelerator.unwrap_model(self.model)
+            hf_dir = os.path.join(self.checkpoint_dir, f"hf_model_epoch_{epoch+1}")
+            self.accelerator.save_model(unwrapped, hf_dir)
         except Exception as e:
-            print(f"[WARN] Failed to save checkpoint: {e}")
+            print(f"[WARN] Skipped HF model save: {e}")
+
+        if is_best:
+            best_path = os.path.join(self.checkpoint_dir, "best_model.pt")
+            self.accelerator.save(ckpt, best_path)
+
+            strategy = self.global_config.get("TRAINING_STRATEGY")
+            if strategy == "lora":
+                try:
+                    unwrapped = self.accelerator.unwrap_model(self.model)
+                    best_adapter = os.path.join(self.checkpoint_dir, "best_lora_adapter")
+                    unwrapped.save_pretrained(best_adapter)
+                except Exception as e:
+                    print(f"Warning: Could not save best LoRA adapter: {e}")
+
+            elif strategy == "full":
+                try:
+                    unwrapped = self.accelerator.unwrap_model(self.model)
+                    best_full = os.path.join(self.checkpoint_dir, "best_full_model")
+                    self.accelerator.save_model(unwrapped, best_full)
+                except Exception as e:
+                    print(f"Warning: Could not save best full-model dir: {e}")
+
+        print(f"Checkpoint saved: {ckpt_path}")
+
+
 
     def train(self):
         train_dataloader = self.get_dataloader(self.data_files, self.batch_size, num_workers=self.num_workers, shuffle=True)
@@ -432,13 +500,13 @@ class OmniClassifierAccelerateTrainer:
         optimizer = Adam(self.model.parameters(), lr=self.lr)
         criterion = CrossEntropyLoss()
 
+        # Load checkpoint if available (before prepare to avoid accelerate wrapper issues)
+        start_epoch = self.load_checkpoint(optimizer)
+
         # Prepare everything with Accelerate
         self.model, optimizer, train_dataloader, val_dataloader = self.accelerator.prepare(
             self.model, optimizer, train_dataloader, val_dataloader
         )
-
-        # Load checkpoint if available
-        start_epoch = self.load_checkpoint(optimizer)
 
         # Get configuration values
         validate_every_n_epochs = self.global_config.get('VALIDATE_EVERY_N_EPOCHS', None)
@@ -637,55 +705,6 @@ class OmniClassifierAccelerateTrainer:
                         print(f"Early stopping triggered after {early_stopping_patience} epochs without improvement")
                     break
 
-    def merge_lora_adapters(self, save_path=None):
-        """
-        Merge LoRA adapters with the base model for inference.
-        This creates a standalone model that doesn't require the base model.
-        
-        Args:
-            save_path (str, optional): Path to save the merged model. If None, saves to checkpoint_dir.
-        """
-        if not self.accelerator.is_main_process:
-            return
-            
-        training_strategy = self.global_config.get('TRAINING_STRATEGY', 'head_only')
-        
-        if training_strategy != "lora":
-            print(f"Not a LoRA model (strategy: {training_strategy}). Skipping merge.")
-            return
-            
-        try:
-            print("Merging LoRA adapters with base model...")
-            
-            # Get the base model (without LoRA adapters)
-            base_model = self.model.get_base_model()
-            
-            # Merge LoRA adapters
-            merged_model = base_model.merge_and_unload()
-            
-            # Add the classifier back
-            if hasattr(self.model, 'classifier'):
-                merged_model.classifier = self.model.classifier
-            
-            # Save the merged model
-            if save_path is None:
-                save_path = os.path.join(self.checkpoint_dir, "merged_model")
-            
-            print(f"Saving merged model to {save_path}")
-            merged_model.save_pretrained(save_path)
-            
-            # Also save the tokenizer/processor if available
-            if hasattr(self, 'tokenizer'):
-                self.tokenizer.save_pretrained(save_path)
-            if hasattr(self, 'processor'):
-                self.processor.save_pretrained(save_path)
-                
-            print("LoRA adapters successfully merged and saved!")
-            
-        except Exception as e:
-            print(f"[WARN] Failed to merge LoRA adapters: {e}")
-            print("You may need to manually merge adapters or use the model with adapters loaded.")
-
     def test(self):
         """Test the model on the test set."""
         if not self.accelerator.is_main_process:
@@ -703,6 +722,12 @@ class OmniClassifierAccelerateTrainer:
             
             # Load model state using helper method
             self._load_model_state_from_checkpoint(checkpoint, "best model")
+            
+            # Ensure the model is properly prepared with accelerate after loading
+            # This is important because the model might have been unwrapped during loading
+            
+            self.model = self.accelerator.prepare(self.model)
+   
         else:
             print("No best model found, using current model state")
         
