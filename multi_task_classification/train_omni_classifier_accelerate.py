@@ -243,11 +243,6 @@ class OmniClassifierAccelerateTrainer:
         
                 gathered_labels = self.accelerator.gather_for_metrics(labels)
 
-                with open('/home/keaneong/human-behavior/verl/multi_task_classification/debug_batch.txt', 'a') as f: 
-                    f.write(f"stop here after gather, gathered_preds: {gathered_preds}\n")
-                    raise Exception(f"Stop here, gathered_preds: {gathered_preds}")
-
-
                 # Gather datasets from all processes (if available)
                 gathered_datasets = None
 
@@ -256,6 +251,13 @@ class OmniClassifierAccelerateTrainer:
                 else:
                     # All processes must participate in gather_object, even if they don't have the data
                     gathered_datasets = self.accelerator.gather_object(None)
+                
+
+                with open('/home/keaneong/human-behavior/verl/multi_task_classification/debug_batch.txt', 'a') as f: 
+                    f.write(f"stop here after gather, gathered_preds: {gathered_preds}\n")
+                    f.write(f"stop here after gather, gathered_labels: {gathered_labels}\n")
+                    f.write(f"stop here after gather, gathered_datasets: {gathered_datasets}\n")
+                    raise Exception(f"Stop here, gathered labels: {gathered_labels}, gathered_preds: {gathered_preds}, gathered_datasets: {gathered_datasets}")
 
                 # Only process on main process
                 if self.accelerator.is_main_process:
