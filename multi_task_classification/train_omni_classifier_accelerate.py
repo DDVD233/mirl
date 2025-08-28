@@ -6,7 +6,7 @@ import time
 from torch.utils.data import DataLoader
 from torch.optim import Adam
 from torch.nn import CrossEntropyLoss
-from dummy_classifier import DummyClassifier
+from others.dummy_classifier import DummyClassifier
 from omni_classifier import OmniClassifier
 from omni_classifier_dataset import OmniClassifierDataset
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
