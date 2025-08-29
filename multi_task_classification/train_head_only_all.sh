@@ -38,7 +38,6 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml train.py \
     --gradient_accumulation_steps 64 \
     --use_scheduler \
     --scheduler_type cosine \
-    --warmup_steps 10
-
+    --warmup_steps 1
 
 echo "Head-only training completed!"
