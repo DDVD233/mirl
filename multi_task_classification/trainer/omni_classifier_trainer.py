@@ -397,7 +397,6 @@ class OmniClassifierAccelerateTrainer:
 
                     # step/zero at the end of the accumulation window
                     if self.accelerator.sync_gradients:
-                        raise Exception("Stop here")
                         optimizer.step()
                         optimizer.zero_grad()
 
