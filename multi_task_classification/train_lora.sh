@@ -23,10 +23,10 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml train.py \
     --val_file "/scratch/keane/human_behaviour/human_behaviour_data/audio_sigs_val_meld.jsonl" \
     --test_file "/scratch/keane/human_behaviour/human_behaviour_data/audio_sigs_test_meld.jsonl" \
     --label_map_path "/home/keaneong/human-behavior/verl/multi_task_classification/meld_label_map.json" \
-    --lr 3e-5 \
+    --lr 1e-4 \
     --epochs 3 \
     --save_checkpoint_dir "/scratch/keane/human_behaviour/lora_training" \
-    --validate_every_n_steps 1000 \
+    --validate_every_n_steps 500 \
     --validate_every_n_epochs 1 \
     --early_stopping_patience 99999999 \
     --project "omni-classifier-lora" \
