@@ -15,7 +15,7 @@ export TORCH_USE_CUDA_DSA=1
 
 #  --load_checkpoint_path "/scratch/keane/human_behaviour/2_head_only_training/checkpoint_epoch_1.pt" \
 #     --load_checkpoint_path /scratch/keane/human_behaviour/2_debug_head_only_training/step_00000003/" \   
-#  --load_checkpoint_path "/scratch/keane/human_behaviour/2_debug_head_only_training/step_00000003" \
+#  --load_checkpoint_path "/scratch/keane/human_behaviour/3_debug_head_only_training/step_6" \
 
 # Launch training with accelerate for head_only strategy
 echo "Launching head_only training with Accelerate..."
@@ -24,13 +24,14 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml train.py \
     --train_batch_size 2 \
     --val_batch_size 2 \
     --lr 1e-2 \
-    --epochs 2 \
+    --epochs 3 \
     --train_file "/scratch/keane/human_behaviour/human_behaviour_data/0.01_audio_sigs_train_meld.jsonl" \
     --val_file "/scratch/keane/human_behaviour/human_behaviour_data/0.01_audio_sigs_train_meld.jsonl" \
     --test_file "/scratch/keane/human_behaviour/human_behaviour_data/0.01_audio_sigs_train_meld.jsonl" \
     --label_map_path "/home/keaneong/human-behavior/verl/multi_task_classification/meld_label_map.json" \
     --save_every_n_epochs 1 \
     --save_checkpoint_dir "/scratch/keane/human_behaviour/3_debug_head_only_training" \
+    --load_checkpoint_path "/scratch/keane/human_behaviour/3_debug_head_only_training/step_3" \
     --validate_every_n_epochs None \
     --validate_every_n_steps 100 \
     --early_stopping_patience 99999 \

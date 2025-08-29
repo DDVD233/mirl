@@ -217,16 +217,7 @@ class OmniClassifierAccelerateTrainer:
         start_batch_offset = (global_step - 1) % len_dl
 
         accelerator.print(f"[load] resumed {ckpt_dir} → epoch={start_epoch}, step={global_step}, offset={start_batch_offset}")
-        
-        # with open("/home/keaneong/human-behavior/verl/multi_task_classification/classifier_states.txt", "a") as f:
-        #         f.write(f"\nNEW Accelerator saved state")
-        #         f.write(f"\n{ckpt_dir}")
-        #         f.write(f"\n{global_step}")
-        #         f.write(f"\n{len_dl}")
-        #         f.write(f"\n{start_epoch}")
-        #         f.write(f"\n{start_batch_offset}")
-        #         raise Exception("Stop here")
-        
+    
         return start_epoch, start_batch_offset, global_step, meta, ckpt_dir
 
 
