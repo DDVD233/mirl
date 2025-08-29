@@ -378,6 +378,8 @@ class OmniClassifierAccelerateTrainer:
         
         training_strategy = self.global_config.get('TRAINING_STRATEGY', 'head_only')
         
+        # NOTE: This only works because we have waited for everyone to finish training
+        # And we have also gotten off the main process
         unwrapped = self.accelerator.unwrap_model(self.model)
 
         classifier_sd = None
@@ -393,9 +395,9 @@ class OmniClassifierAccelerateTrainer:
             # else:
             #     classifier_sd = {k: v for k, v in model_sd.items()
             #                     if k.startswith("classifier.") or k.startswith("head.")}
-            with open("/home/keaneong/human-behavior/verl/multi_task_classification/classifier_states.txt", "a") as f:
-                f.write(f"\nNew Latest Classifier state dict {classifier_sd}")
-            raise Exception("Stop here")
+            # with open("/home/keaneong/human-behavior/verl/multi_task_classification/classifier_states.txt", "a") as f:
+            #     f.write(f"\nNew Latest Classifier state dict {classifier_sd}")
+            # raise Exception("Stop here")
 
         elif training_strategy == "lora":
             if hasattr(unwrapped, "save_pretrained"):
@@ -414,6 +416,7 @@ class OmniClassifierAccelerateTrainer:
                 classifier_sd = unwrapped.head.state_dict()
 
         elif training_strategy == "full":
+            # NOTE: PLEASE MAKE SURE THAT THIS IS A PROPERLY PRINTED STATE DICT
             model_sd = self.accelerator.get_state_dict(self.model)  # safe across wrappers
             full_model_sd = model_sd  # capture entire model
 

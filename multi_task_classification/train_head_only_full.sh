@@ -6,7 +6,7 @@
 echo "Starting head_only training..."
 
 # Set CUDA_VISIBLE_DEVICES to use GPUs 2 and 3
-export CUDA_VISIBLE_DEVICES="0,1"
+export CUDA_VISIBLE_DEVICES="2,3"
 echo "Using GPUs: $CUDA_VISIBLE_DEVICES"
 
 # Set environment variables for better performance
@@ -26,14 +26,14 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml train.py \
     --label_map_path "/home/keaneong/human-behavior/verl/multi_task_classification/full_label_map.json" \
     --train_batch_size 2 \
     --val_batch_size 2 \
-    --lr 1e-2 \
+    --lr 5e-3 \
     --epochs 4 \
     --save_every_n_epochs 1000 \
     --save_checkpoint_dir "/scratch/keane/human_behaviour/full_head_only_training" \
     --validate_every_n_epochs None \
-    --validate_every_n_steps 100 \
+    --validate_every_n_steps 500 \
     --early_stopping_patience 99999 \
     --project "full-omni-classifier-head-only" \
-    --gradient_accumulation_steps 32
+    --gradient_accumulation_steps 64
 
 echo "Head-only training completed!"
