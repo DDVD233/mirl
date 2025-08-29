@@ -461,7 +461,7 @@ class OmniClassifierAccelerateTrainer:
                     # Get current learning rate for logging
                     current_lr = None
                     if scheduler is not None:
-                        current_lr = scheduler.get_last_lr()[0]
+                        current_lr = optimizer.param_groups[0]['lr'] 
                     else:
                         current_lr = self.lr
                     
