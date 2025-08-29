@@ -26,14 +26,14 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml train.py \
     --label_map_path "/home/keaneong/human-behavior/verl/multi_task_classification/full_label_map.json" \
     --train_batch_size 2 \
     --val_batch_size 2 \
-    --lr 1e-3 \
-    --epochs 2 \
+    --lr 1e-2 \
+    --epochs 4 \
     --save_every_n_epochs 1000 \
-    --save_checkpoint_dir "/scratch/keane/human_behaviour/2_head_only_training" \
+    --save_checkpoint_dir "/scratch/keane/human_behaviour/full_head_only_training" \
     --validate_every_n_epochs None \
     --validate_every_n_steps 100 \
     --early_stopping_patience 99999 \
-    --project "omni-classifier-head-only" \
+    --project "full-omni-classifier-head-only" \
     --gradient_accumulation_steps 32
 
 echo "Head-only training completed!"
