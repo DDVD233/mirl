@@ -359,6 +359,7 @@ class OmniClassifierAccelerateTrainer:
             for batch_idx, batch in tqdm(enumerate(train_dataloader), desc="Training", total=len(train_dataloader), disable=not self.accelerator.is_main_process):
                 # Set model to training mode (needed because validation sets it to eval mode)
                 self.model.train()
+                optimizer.zero_grad()
 
                 if epoch == start_epoch and batch_idx < start_batch_offset:
                     continue
@@ -381,18 +382,28 @@ class OmniClassifierAccelerateTrainer:
                         labels = labels.argmax(dim=1)
                     else:
                         raise ValueError(f"Unexpected labels shape {labels.shape} (expected [B] or [B, C])")
-            
-                logits = self.model(input_ids, attention_mask=attention_mask)
+                with self.accelerator.accumulate(self.model):
+                    logits = self.model(input_ids, attention_mask=attention_mask)
 
-                if not torch.isfinite(logits).all():
-                    raise FloatingPointError("Non-finite logits encountered")
+                    if not torch.isfinite(logits).all():
+                        raise FloatingPointError("Non-finite logits encountered")
 
-                loss = criterion(logits, labels)
-                if not torch.isfinite(loss):
-                    raise FloatingPointError("Non-finite loss encountered")
+                    loss = criterion(logits, labels)
 
-                # Accelerate handles gradient accumulation automatically
-                self.accelerator.backward(loss)
+                    if not torch.isfinite(loss):
+                        raise FloatingPointError("Non-finite loss encountered")
+
+                    # Accelerate handles gradient accumulation automatically
+                    self.accelerator.backward(loss)
+
+                    # step/zero at the end of the accumulation window
+                    if self.accelerator.sync_gradients:
+                        raise Exception("Stop here")
+                        optimizer.step()
+                        optimizer.zero_grad()
+
+                        # if you use a scheduler, step it here as well
+                        # scheduler.step()
 
                 with torch.no_grad():
                     # Accumulate metrics for effective batch
