@@ -77,6 +77,7 @@ class OmniClassifierAccelerateTrainer:
             log_with="wandb" if use_wandb else None,
             project_dir=save_checkpoint_dir if use_wandb else None,
         )
+        raise Exception(f"LEARNING RATE IS {self.lr}")
         
         # Set seed for reproducibility
         set_seed(42)

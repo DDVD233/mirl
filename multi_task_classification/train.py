@@ -360,8 +360,7 @@ def main():
     LORA_CONFIG = params['lora_config']
     config = params['dataset_config']
 
-    raise Exception(f"LEARNING RATE IS {LR}")
-    
+
     # Load tokenizer and processor
     tokenizer = AutoTokenizer.from_pretrained(TOKENIZER_NAME)
     processor = AutoProcessor.from_pretrained(PROCESSOR_NAME)
