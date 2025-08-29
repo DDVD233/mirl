@@ -489,7 +489,11 @@ class OmniClassifierAccelerateTrainer:
 
         os.makedirs(self.checkpoint_dir, exist_ok=True)
 
-        # self.accelerator.save_state(self.checkpoint_dir)
+        self.accelerator.save_state(self.checkpoint_dir)
+
+        with open("/home/keaneong/human-behavior/verl/multi_task_classification/classifier_states.txt", "a") as f:
+                f.write(f"\nAccelerator saved state")
+                raise Exception("Stop here")
 
 
         ckpt = self._create_checkpoint_data(optimizer, epoch, scheduler, scaler)
