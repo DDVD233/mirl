@@ -383,7 +383,7 @@ class OmniClassifierAccelerateTrainer:
         classifier_sd = None
         lora_sd = None
         adapter_path = None
-        model_sd = self.accelerator.get_state_dict(self.model)   # wrapper/sharding-safe
+        # model_sd = self.accelerator.get_state_dict(self.model)   # wrapper/sharding-safe
 
         if training_strategy == "head_only":
             if hasattr(unwrapped, "classifier"):
