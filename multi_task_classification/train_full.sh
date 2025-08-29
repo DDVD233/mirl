@@ -17,9 +17,9 @@ export TORCH_USE_CUDA_DSA=1
 echo "Launching full model training with Accelerate..."
 accelerate launch --config_file configs/accelerate_config_qwen.yaml train.py \
     --training_strategy full \
-    --train_file: "/scratch/keane/human_behaviour/human_behaviour_data/audio_sigs_train_meld.jsonl" \
-    --val_file: "/scratch/keane/human_behaviour/human_behaviour_data/audio_sigs_val_meld.jsonl" \
-    --test_file: "/scratch/keane/human_behaviour/human_behaviour_data/audio_sigs_test_meld.jsonl" \
+    --train_file "/scratch/keane/human_behaviour/human_behaviour_data/audio_sigs_train_meld.jsonl" \
+    --val_file "/scratch/keane/human_behaviour/human_behaviour_data/audio_sigs_val_meld.jsonl" \
+    --test_file "/scratch/keane/human_behaviour/human_behaviour_data/audio_sigs_test_meld.jsonl" \
     --train_batch_size 2 \
     --val_batch_size 2 \
     --lr 1e-5 \
