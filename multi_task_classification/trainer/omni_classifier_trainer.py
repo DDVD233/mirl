@@ -435,7 +435,18 @@ class OmniClassifierAccelerateTrainer:
                     if scheduler is not None:
                         scheduler.step()
                     optimizer.zero_grad()
-
+                    
+                    if scheduler is not None:
+                        did_update = False
+                        if self.accelerator.sync_gradients:
+                            did_update = True
+                        if did_update:
+                            current_lr = optimizer.param_groups[0]['lr'] 
+                        else:
+                            current_lr = None
+                    else:
+                        current_lr = self.lr
+                        
                 with torch.no_grad():
                     # Accumulate metrics for effective batch
                     effective_batch_loss += loss.item() * input_ids.size(0)
@@ -458,13 +469,7 @@ class OmniClassifierAccelerateTrainer:
                     # Check if this completes an effective batch (gradient update)
                     # An effective batch consists of gradient_accumulation_steps individual batches
        
-                    # Get current learning rate for logging
-                    current_lr = None
-                    if scheduler is not None:
-                        current_lr = optimizer.param_groups[0]['lr'] 
-                    else:
-                        current_lr = self.lr
-                    
+                   
                     # Log training metrics for the effective batch
                     log_batch_training_metrics(
                         epoch=epoch,
