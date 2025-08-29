@@ -387,7 +387,6 @@ class OmniClassifierAccelerateTrainer:
             effective_batch_correct = 0
             effective_batch_total = 0
 
-            raise Exception(f"LEARNING RATE IS {self.lr}")
 
             for batch_idx, batch in tqdm(enumerate(train_dataloader), desc="Training", total=len(train_dataloader), disable=not self.accelerator.is_main_process):
                 # Set model to training mode (needed because validation sets it to eval mode)
@@ -458,7 +457,7 @@ class OmniClassifierAccelerateTrainer:
 
                     # Check if this completes an effective batch (gradient update)
                     # An effective batch consists of gradient_accumulation_steps individual batches
-            
+                    raise Exception(f"LEARNING RATE IS {self.lr}")
                     # Get current learning rate for logging
                     current_lr = None
                     if scheduler is not None:
