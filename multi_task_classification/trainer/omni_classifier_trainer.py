@@ -153,7 +153,7 @@ class OmniClassifierAccelerateTrainer:
         accelerator.wait_for_everyone()
         global_step = epoch * len_train_dataloader + (batch_idx + 1)
 
-        ckpt_dir = os.path.join(base_ckpt_dir, f"step_{global_step:08d}")
+        ckpt_dir = os.path.join(base_ckpt_dir, f"step_{global_step}")
         os.makedirs(ckpt_dir, exist_ok=True)
 
         # 1) Save Accelerate state: model, optimizer, scaler, RNG, registered objs
@@ -172,9 +172,6 @@ class OmniClassifierAccelerateTrainer:
 
         accelerator.print(f"[save] checkpoint @ step {global_step} → {ckpt_dir}")
 
-        with open("/home/keaneong/human-behavior/verl/multi_task_classification/classifier_states.txt", "a") as f:
-                f.write(f"\nNEW Accelerator saved state")
-                raise Exception("Stop here")
         return ckpt_dir
 
     def load_checkpoint_unified(
@@ -220,6 +217,11 @@ class OmniClassifierAccelerateTrainer:
         start_batch_offset = (global_step - 1) % len_dl
 
         accelerator.print(f"[load] resumed {ckpt_dir} → epoch={start_epoch}, step={global_step}, offset={start_batch_offset}")
+        
+        with open("/home/keaneong/human-behavior/verl/multi_task_classification/classifier_states.txt", "a") as f:
+                f.write(f"\nNEW Accelerator saved state")
+                raise Exception("Stop here")
+        
         return start_epoch, start_batch_offset, global_step, meta, ckpt_dir
 
 
@@ -319,7 +321,6 @@ class OmniClassifierAccelerateTrainer:
         criterion = CrossEntropyLoss()
 
 
-
         # Prepare everything with Accelerate
         self.model, optimizer, train_dataloader, val_dataloader = self.accelerator.prepare(
             self.model, optimizer, train_dataloader, val_dataloader
@@ -345,10 +346,10 @@ class OmniClassifierAccelerateTrainer:
             # Training phase
             self.model.train()
 
+            # Handling the SAMPLER SHUFFLING
             if hasattr(train_dataloader, "sampler") and hasattr(train_dataloader.sampler, "set_epoch"):
                 train_dataloader.sampler.set_epoch(epoch)  # required for proper per-epoch shuffling in DDP. :contentReference[oaicite:4]{index=4}
 
-            
             total_loss = 0.0
             correct = 0
             total = 0
