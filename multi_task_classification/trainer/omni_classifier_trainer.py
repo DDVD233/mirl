@@ -486,10 +486,10 @@ class OmniClassifierAccelerateTrainer:
         
         # if not self.accelerator.is_main_process:
         #     return
-
+    
         os.makedirs(self.checkpoint_dir, exist_ok=True)
-
-        self.accelerator.save_state(self.checkpoint_dir)
+        if self.accelerator.is_main_process:
+            self.accelerator.save_state(self.checkpoint_dir)
 
         with open("/home/keaneong/human-behavior/verl/multi_task_classification/classifier_states.txt", "a") as f:
                 f.write(f"\nAccelerator saved state")
@@ -640,7 +640,7 @@ class OmniClassifierAccelerateTrainer:
                     )
 
                     if (batch_idx + 1) % self.gradient_accumulation_steps == 0:  
-                        # Reset the metrics at each step
+                        # Reset the metrics at each gradient accumulation step
                         # After they are logged internally at every step
                         effective_batch_loss = 0.0
                         effective_batch_correct = 0
