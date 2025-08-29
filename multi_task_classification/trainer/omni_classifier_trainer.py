@@ -456,7 +456,29 @@ class OmniClassifierAccelerateTrainer:
 
         full_sd = self.accelerator.get_state_dict(self.model)   # wrapper/sharding-safe
         with open("/home/keaneong/human-behavior/verl/multi_task_classification/debug_save_2.txt", "a") as f:
-            f.write(f"\nLatest Full model state dict {full_sd}")
+            f.write(f"\n=== MODEL STATE DICT DEBUG ===\n")
+            f.write(f"Total number of parameters: {len(full_sd)}\n")
+            f.write(f"Keys in state dict:\n")
+            
+            # Save all keys
+            for i, key in enumerate(full_sd.keys()):
+                f.write(f"  {i}: {key}\n")
+            
+            f.write(f"\nParameter details:\n")
+            # Save key-value pairs with tensor info
+            for key, value in full_sd.items():
+                if hasattr(value, 'shape'):
+                    f.write(f"  {key}: shape={value.shape}, dtype={value.dtype}, requires_grad={value.requires_grad}\n")
+                    # Save first few values for debugging
+                    if value.numel() > 0:
+                        flat_values = value.flatten()
+                        f.write(f"    First 5 values: {flat_values[:5].tolist()}\n")
+                        f.write(f"    Mean: {value.mean().item():.6f}, Std: {value.std().item():.6f}\n")
+                else:
+                    f.write(f"  {key}: {type(value)} = {value}\n")
+            
+            f.write(f"\n=== END DEBUG ===\n")
+            
         raise Exception("Stop here")
         
         # if not self.accelerator.is_main_process:
