@@ -432,10 +432,13 @@ class OmniClassifierAccelerateTrainer:
                     # already syncs before stepping
                     # if self.accelerator.sync_gradients:
                     optimizer.step()
+
                     if scheduler is not None:
                         scheduler.step()
+
                     optimizer.zero_grad()
                     
+                    # PURELY FOR LOGGING PURPOSES
                     if scheduler is not None:
                         did_update = False
                         if self.accelerator.sync_gradients:

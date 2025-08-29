@@ -19,6 +19,14 @@ export TORCH_USE_CUDA_DSA=1
 
 # DO NOT PUT --use_scheduler IF YOU ARE NOT USING THE SCHEDULER
 
+# the warmup steps is the number of steps to warm up the learning rate
+# in this case, 1 step is not 1 batch, but rather it is 1 gradient accumulation step
+# which is essentially 4*2*2*2 = 32 batches
+
+    # --use_scheduler \
+    # --scheduler_type cosine \
+    # --warmup_steps 1
+
 # Launch training with accelerate for head_only strategy
 echo "Launching head_only training with Accelerate..."
 accelerate launch --config_file configs/accelerate_config_qwen.yaml train.py \
@@ -37,9 +45,6 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml train.py \
     --validate_every_n_steps 500 \
     --early_stopping_patience 99999 \
     --project "all-omni-classifier-head-only" \
-    --gradient_accumulation_steps 4 \
-    --use_scheduler \
-    --scheduler_type cosine \
-    --warmup_steps 1
+    --gradient_accumulation_steps 64 \
 
 echo "Head-only training completed!"
