@@ -325,8 +325,8 @@ class OmniClassifierAccelerateTrainer:
         criterion = CrossEntropyLoss()
 
         # ---- Compute update-steps-aware schedule sizes ----
-        updates_per_epoch = ceil(len(train_dataloader) / max(1, self.gradient_accumulation_steps))
-        total_updates = self.epochs * updates_per_epoch
+        # updates_per_epoch = ceil(len(train_dataloader) / max(1, self.gradient_accumulation_steps))
+        total_updates = self.epochs * len(train_dataloader)
         
         # Get the scheduler
         if self.use_scheduler:
