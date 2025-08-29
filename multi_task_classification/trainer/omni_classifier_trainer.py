@@ -386,15 +386,15 @@ class OmniClassifierAccelerateTrainer:
         model_sd = self.accelerator.get_state_dict(self.model)   # wrapper/sharding-safe
 
         if training_strategy == "head_only":
-            # if hasattr(unwrapped, "classifier"):
-            #     classifier_sd = unwrapped.classifier.state_dict()
-            # elif hasattr(unwrapped, "head"):
-            #     classifier_sd = unwrapped.head.state_dict()
+            if hasattr(unwrapped, "classifier"):
+                classifier_sd = unwrapped.classifier.state_dict()
+            elif hasattr(unwrapped, "head"):
+                classifier_sd = unwrapped.head.state_dict()
             # else:
-            classifier_sd = {k: v for k, v in model_sd.items()
-                            if k.startswith("classifier.") or k.startswith("head.")}
+            #     classifier_sd = {k: v for k, v in model_sd.items()
+            #                     if k.startswith("classifier.") or k.startswith("head.")}
             with open("/home/keaneong/human-behavior/verl/multi_task_classification/classifier_states.txt", "a") as f:
-                f.write(f"\nLatest Classifier state dict {classifier_sd}")
+                f.write(f"\New Latest Classifier state dict {classifier_sd}")
             raise Exception("Stop here")
 
         elif training_strategy == "lora":
