@@ -77,7 +77,6 @@ class OmniClassifierAccelerateTrainer:
             log_with="wandb" if use_wandb else None,
             project_dir=save_checkpoint_dir if use_wandb else None,
         )
-        raise Exception(f"LEARNING RATE IS {self.lr}")
         
         # Set seed for reproducibility
         set_seed(42)
@@ -328,7 +327,8 @@ class OmniClassifierAccelerateTrainer:
         # ---- Compute update-steps-aware schedule sizes ----
         updates_per_epoch = ceil(len(train_dataloader) / max(1, self.gradient_accumulation_steps))
         total_updates = self.epochs * updates_per_epoch
-
+        raise Exception(f"LEARNING RATE IS {self.lr}")
+        
         # Get the scheduler
         if self.use_scheduler:
             scheduler = get_scheduler(
