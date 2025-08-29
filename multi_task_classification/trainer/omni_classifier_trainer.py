@@ -3,8 +3,6 @@ import sys
 import json
 import torch
 import time
-import random
-import numpy as np
 from torch.utils.data import DataLoader
 from torch.optim import Adam
 from torch.nn import CrossEntropyLoss
@@ -12,6 +10,7 @@ from tqdm import tqdm
 from datetime import datetime
 from math import floor
 from pathlib import Path
+from transformers import get_scheduler
 
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
@@ -54,6 +53,11 @@ class OmniClassifierAccelerateTrainer:
         
         # Use the label map from global config
         self.label_map = self.global_config.get('LABEL_MAP', {})
+
+        # NOTE: To get the scheduler
+        # self.scheduler_type = self.global_config.get("SCHEDULER_TYPE", "cosine")
+        # self.warmup_steps = self.global_config.get("WARMUP_STEPS", None)
+        # self.warmup_ratio = self.global_config.get("WARMUP_RATIO", None)
         
         # Checkpoint IO setup
         self.checkpoint_dir = save_checkpoint_dir
