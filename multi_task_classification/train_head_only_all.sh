@@ -19,7 +19,8 @@ export TORCH_USE_CUDA_DSA=1
     # --use_scheduler \
     # --scheduler_type cosine \
     # --warmup_steps 1
-
+        # --scheduler_type cosine \
+        # --warmup_steps 1
 
 # Launch training with accelerate for head_only strategy
 echo "Launching head_only training with Accelerate..."
@@ -40,5 +41,6 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml train.py \
     --early_stopping_patience 99999 \
     --project "all-omni-classifier-head-only" \
     --gradient_accumulation_steps 1 \
+    --use_scheduler \
 
 echo "Head-only training completed!"
