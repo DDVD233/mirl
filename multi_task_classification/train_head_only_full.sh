@@ -29,7 +29,7 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml train.py \
     --lr 5e-3 \
     --epochs 4 \
     --save_every_n_epochs 1000 \
-    --save_checkpoint_dir "/scratch/keane/human_behaviour/full_head_only_training" \
+    --save_checkpoint_dir "/scratch/keane/human_behaviour/2_full_head_only_training" \
     --validate_every_n_epochs None \
     --validate_every_n_steps 500 \
     --early_stopping_patience 99999 \
