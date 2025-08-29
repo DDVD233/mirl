@@ -381,6 +381,7 @@ class OmniClassifierAccelerateTrainer:
                         labels = labels.argmax(dim=1)
                     else:
                         raise ValueError(f"Unexpected labels shape {labels.shape} (expected [B] or [B, C])")
+                
                 with self.accelerator.accumulate(self.model):
                     logits = self.model(input_ids, attention_mask=attention_mask)
 
@@ -395,13 +396,12 @@ class OmniClassifierAccelerateTrainer:
                     # Accelerate handles gradient accumulation automatically
                     self.accelerator.backward(loss)
 
-                    # step/zero at the end of the accumulation window
-                    if self.accelerator.sync_gradients:
-                        optimizer.step()
-                        optimizer.zero_grad()
-
-                        # if you use a scheduler, step it here as well
-                        # scheduler.step()
+                    # NOTE: This if condition is not necessary as the accelerator 
+                    # already syncs before stepping
+                    # if self.accelerator.sync_gradients:
+                    optimizer.step()
+                    # scheduler.step()
+                    optimizer.zero_grad()
 
                 with torch.no_grad():
                     # Accumulate metrics for effective batch
