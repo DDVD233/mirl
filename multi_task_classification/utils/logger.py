@@ -25,7 +25,8 @@ def log_batch_training_metrics(epoch, batch_idx, total_batches, loss,
         
         # Add learning rate if provided
         if current_lr is not None:
-            batch_info['learning_rate'] = current_lr
+            batch_info['learning_rate'] = 0.0001
+            # batch_info['learning_rate'] = current_lr
         
         current_step = (epoch * total_batches) + batch_idx + 1
         log_metrics('effective_batch_metrics', batch_info, step=current_step)

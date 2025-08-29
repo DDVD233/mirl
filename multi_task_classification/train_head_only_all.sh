@@ -39,6 +39,6 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml train.py \
     --validate_every_n_steps 500 \
     --early_stopping_patience 99999 \
     --project "all-omni-classifier-head-only" \
-    --gradient_accumulation_steps 64 \
+    --gradient_accumulation_steps 1 \
 
 echo "Head-only training completed!"
