@@ -10,6 +10,8 @@ from torch.optim import Adam
 from torch.nn import CrossEntropyLoss
 from tqdm import tqdm
 from datetime import datetime
+from math import floor
+from pathlib import Path
 
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
@@ -123,6 +125,104 @@ class OmniClassifierAccelerateTrainer:
         return DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, collate_fn=collate_fn,
                           num_workers=num_workers, pin_memory=True, persistent_workers=num_workers > 0)
 
+
+    def _latest_checkpoint_dir(self,base_dir: str):
+        if not os.path.isdir(base_dir):
+            return None
+        # expect subdirs like step_00001234
+        subs = [p for p in Path(base_dir).glob("step_*") if p.is_dir()]
+        if not subs:
+            return None
+        subs.sort(key=lambda p: int(p.name.split("_")[-1]))
+        return str(subs[-1])
+
+    def save_checkpoint_unified(
+        self,
+        accelerator,
+        model,
+        epoch: int,
+        batch_idx: int,
+        len_train_dataloader: int,
+        training_strategy: str,
+        base_ckpt_dir: str,
+    ):
+        """
+        Saves a resume-ready checkpoint+meta. Uses your definition:
+        current_step = epoch * len_dl + (batch_idx + 1)
+        """
+        accelerator.wait_for_everyone()
+        global_step = epoch * len_train_dataloader + (batch_idx + 1)
+
+        ckpt_dir = os.path.join(base_ckpt_dir, f"step_{global_step:08d}")
+        os.makedirs(ckpt_dir, exist_ok=True)
+
+        # 1) Save Accelerate state: model, optimizer, scaler, RNG, registered objs
+        accelerator.save_state(ckpt_dir)
+
+        # 2) Minimal meta sidecar
+        meta = {
+            "epoch": int(epoch),
+            "global_step": int(global_step),
+            "len_train_dataloader": int(len_train_dataloader),
+            "training_strategy": str(training_strategy),
+            "saved_at_unix": time.time(),
+        }
+        with open(os.path.join(ckpt_dir, "meta.json"), "w") as f:
+            json.dump(meta, f, indent=2)
+
+        accelerator.print(f"[save] checkpoint @ step {global_step} → {ckpt_dir}")
+
+        with open("/home/keaneong/human-behavior/verl/multi_task_classification/classifier_states.txt", "a") as f:
+                f.write(f"\nNEW Accelerator saved state")
+                raise Exception("Stop here")
+        return ckpt_dir
+
+    def load_checkpoint_unified(
+        self,
+        accelerator,
+        model,                 # already built for the chosen strategy and wrapped by prepare()
+        base_ckpt_dir: str,
+        explicit_dir: str|None = None,
+        expect_training_strategy: str|None = None,
+    ):
+        """
+        Rebuild & accelerator.prepare() your model/optimizer/dataloaders first.
+        Then call this loader to restore state and compute (start_epoch, start_batch_offset).
+        Returns: (start_epoch, start_batch_offset, global_step, meta, ckpt_dir)
+        """
+        ckpt_dir = explicit_dir or self._latest_checkpoint_dir(base_ckpt_dir)
+        if ckpt_dir is None:
+            accelerator.print("[load] no checkpoint found; starting fresh.")
+            return 0, 0, 0, None, None
+
+        meta_path = os.path.join(ckpt_dir, "meta.json")
+        if not os.path.isfile(meta_path):
+            accelerator.print(f"[load] missing meta.json in {ckpt_dir}; starting fresh.")
+            return 0, 0, 0, None, None
+
+        with open(meta_path, "r") as f:
+            meta = json.load(f)
+
+        if expect_training_strategy and meta.get("training_strategy") != expect_training_strategy:
+            accelerator.print(f"[warn] strategy mismatch: expected {expect_training_strategy}, got {meta.get('training_strategy')}")
+
+        # 1) Restore everything the accelerator saved (model/opt/scaler/RNG/registered)
+        accelerator.load_state(ckpt_dir)
+
+        # 2) Compute resume positions using your step definition
+        global_step = int(meta["global_step"])
+        len_dl = int(meta["len_train_dataloader"])
+        if len_dl <= 0:
+            accelerator.print("[load] invalid len_train_dataloader; starting at epoch 0.")
+            return 0, 0, 0, meta, ckpt_dir
+
+        start_epoch = floor((global_step - 1) / len_dl)
+        start_batch_offset = (global_step - 1) % len_dl
+
+        accelerator.print(f"[load] resumed {ckpt_dir} → epoch={start_epoch}, step={global_step}, offset={start_batch_offset}")
+        return start_epoch, start_batch_offset, global_step, meta, ckpt_dir
+
+
     def validate(self, val_dataloader, split_name="validation"):
         """Validate the model on the given dataloader."""
         self.model.eval()
@@ -210,324 +310,6 @@ class OmniClassifierAccelerateTrainer:
         else:
             return None
 
-    def _find_latest_checkpoint(self):
-        """Find any .pt file in the checkpoint directory."""
-        if not os.path.exists(self.checkpoint_dir):
-            return None
-        
-        checkpoint_files = []
-        for file in os.listdir(self.checkpoint_dir):
-            if file.endswith(".pt"):
-                checkpoint_files.append(os.path.join(self.checkpoint_dir, file))
-        
-        if not checkpoint_files:
-            return None
-        
-        # Return the first .pt file found (or you could implement more sophisticated logic)
-        return checkpoint_files[0]
-
-    def _load_model_state_from_checkpoint(self, checkpoint, context="checkpoint"):
-        """
-        Load model weights according to the training strategy saved in `checkpoint`.
-        - head_only:   loads only classifier/head module params
-        - lora:        loads PEFT adapters (preferred) + classifier/head params
-        - full:        loads full model state dict
-        Fallbacks handle missing artifacts gracefully.
-        """
-        
-        # ASSUME THAT THE MODEL IS ALREADY UNWRAPPED
-        training_strategy = checkpoint.get("training_strategy", "head_only")
-        # with open("/home/keaneong/human-behavior/verl/multi_task_classification/classifier_state_dict_KEY.txt", "a") as f:
-        #     f.write(f"Classifier state dict {checkpoint['classifier_state_dict']}")
-        # raise Exception("Stop here")
-        
-        def _report_load(res):
-            if isinstance(res, tuple):
-                missing, unexpected = res
-            else:
-                missing, unexpected = res.missing_keys, res.unexpected_keys
-            if missing:
-                print(f"[load:{context}] missing keys: {missing[:8]}{' ...' if len(missing) > 8 else ''}")
-            if unexpected:
-                print(f"[load:{context}] unexpected keys: {unexpected[:8]}{' ...' if len(unexpected) > 8 else ''}")
-
-        if training_strategy == "head_only" and "classifier_state_dict" in checkpoint:
-            print(f"Loading head-only {context} (classifier/head only)...")
-
-            res = self.model.classifier.load_state_dict(checkpoint["classifier_state_dict"], strict=False)
-            _report_load(res)
-
-        elif training_strategy == "lora":
-            print(f"Loading LoRA {context} (adapters + optional classifier/head)...")
-
-            # 1) Load classifier/head if present
-            cls_sd = checkpoint.get("classifier_state_dict")
-            if cls_sd is not None:
-                if hasattr(self.model, "classifier"):
-                    _report_load(self.model.classifier.load_state_dict(cls_sd, strict=False))
-                elif hasattr(self.model, "head"):
-                    _report_load(self.model.head.load_state_dict(cls_sd, strict=False))
-                else:
-                    _report_load(self.model.load_state_dict(cls_sd, strict=False))
-
-            # 2) Prefer loading adapters from a saved PEFT directory
-            adapter_path = checkpoint.get("adapter_path")
-            if not adapter_path:
-                # Try to find one in the checkpoint dir: best first, then epoch dirs
-                ckpt_dir = os.path.dirname(getattr(self, "load_checkpoint_path", "") or self.checkpoint_dir)
-                best_dir = os.path.join(ckpt_dir, "best_lora_adapter")
-                if os.path.isdir(best_dir):
-                    adapter_path = best_dir
-                else:
-                    # find most recent 'lora_adapter_epoch_*'
-                    candidates = [os.path.join(ckpt_dir, d)
-                                for d in os.listdir(ckpt_dir) if "lora_adapter" in d]
-                    if candidates:
-                        adapter_path = sorted(candidates)[-1]
-
-            loaded_adapter = False
-            try:
-                # If the model exposes PEFT's load_adapter, use it.
-                if adapter_path and os.path.isdir(adapter_path) and hasattr(self.model, "load_adapter"):
-                    print(f"Loading LoRA adapter directory: {adapter_path}")
-                    self.model.load_adapter(adapter_path)
-                    loaded_adapter = True
-            except Exception as e:
-                print(f"[WARN] PEFT adapter load failed from dir: {e}")
-
-            # 3) Fallback: direct param load (when no adapter directory is available)
-            if not loaded_adapter:
-                lora_sd = checkpoint.get("lora_state_dict")
-                if lora_sd:
-                    print("No adapter directory found; loading LoRA parameters directly...")
-                    _report_load(self.model.load_state_dict(lora_sd, strict=False))
-                else:
-                    print("[WARN] No LoRA adapter dir or lora_state_dict found—skipping adapter load.")
-
-        elif training_strategy == "full" and "model_state_dict" in checkpoint:
-            print(f"Loading full {context} (entire model state)...")
-            _report_load(self.model.load_state_dict(checkpoint["model_state_dict"], strict=False))
-
-        else:
-            # Last-resort compatibility path
-            print(f"Loading {context} as a raw/partial state dict (strict=False)...")
-            _report_load(self.model.load_state_dict(checkpoint, strict=False))
-
-    def load_checkpoint(self, optimizer=None, scheduler=None, scaler=None):
-        """
-        Load the latest (or best) checkpoint for *training resume*.
-        Restores model weights, optimizer, scheduler, scaler, and RNG states.
-        Returns: start_epoch (int)
-        """
-        # Decide which .pt to read
-        # only if you specify .pt for the load_checkpoint_path
-        if self.load_checkpoint_path and os.path.isfile(self.load_checkpoint_path):
-            target_path = self.load_checkpoint_path
-        else:
-            # prefer best first if asked
-            target_path = self._find_latest_checkpoint()
-
-        if not target_path:
-            print("[load] No checkpoint file found; starting fresh.")
-            return 0
-
-        print(f"[load] Reading checkpoint: {target_path}")
-        try:
-            checkpoint = torch.load(target_path, map_location="cpu", weights_only=False)
-
-            # 1) Model weights - load before prepare() to avoid accelerate wrapper issues
-            self._load_model_state_from_checkpoint(checkpoint, context=os.path.basename(target_path))
-
-            # 2) Optimizer/Scheduler/Scaler (if provided)
-            if optimizer is not None and "optimizer" in checkpoint:
-                optimizer.load_state_dict(checkpoint["optimizer"])
-            if scheduler is not None and checkpoint.get("scheduler") is not None:
-                scheduler.load_state_dict(checkpoint["scheduler"])
-            if scaler is not None and checkpoint.get("scaler") is not None:
-                scaler.load_state_dict(checkpoint["scaler"])
-
-            # 3) Restore trainer metadata
-            self.best_val_acc = checkpoint.get("best_val_acc", getattr(self, "best_val_acc", None))
-            self.epochs_without_improvement = checkpoint.get(
-                "epochs_without_improvement",
-                getattr(self, "epochs_without_improvement", None)
-            )
-
-            # 4) RNG states (optional but good for determinism)
-            rng = checkpoint.get("rng_state", None)
-            if rng:
-                try:
-                    random.setstate(rng["python"])
-                    np.random.set_state(rng["numpy"])
-                    torch.set_rng_state(rng["torch"])
-                    if torch.cuda.is_available() and rng["cuda"] is not None:
-                        torch.cuda.set_rng_state_all(rng["cuda"])
-                except Exception as e:
-                    print(f"[WARN] Could not fully restore RNG state: {e}")
-
-            start_epoch = int(checkpoint.get("epoch", 0))
-            print(f"[load] Resume from epoch={start_epoch}, best_val_acc={self.best_val_acc}")
-            return start_epoch
-
-        except Exception as e:
-            print(f"[WARN] Failed to load checkpoint ({target_path}): {e}. Starting fresh.")
-            return 0
-
-
-    def _create_checkpoint_data(self, optimizer, epoch, scheduler=None, scaler=None):
-        
-        training_strategy = self.global_config.get('TRAINING_STRATEGY', 'head_only')
-        
-        # NOTE: This only works because we have waited for everyone to finish training
-        # And we have also gotten off the main process
-        unwrapped = self.accelerator.unwrap_model(self.model)
-
-        classifier_sd = None
-        lora_sd = None
-        adapter_path = None
-        # model_sd = self.accelerator.get_state_dict(self.model)   # wrapper/sharding-safe
-
-        if training_strategy == "head_only":
-            if hasattr(unwrapped, "classifier"):
-                classifier_sd = unwrapped.classifier.state_dict()
-            elif hasattr(unwrapped, "head"):
-                classifier_sd = unwrapped.head.state_dict()
-            # else:
-            #     classifier_sd = {k: v for k, v in model_sd.items()
-            #                     if k.startswith("classifier.") or k.startswith("head.")}
-            # with open("/home/keaneong/human-behavior/verl/multi_task_classification/classifier_states.txt", "a") as f:
-            #     f.write(f"\nNew Latest Classifier state dict {classifier_sd}")
-            # raise Exception("Stop here")
-
-        elif training_strategy == "lora":
-            if hasattr(unwrapped, "save_pretrained"):
-                adapter_path = os.path.join(self.checkpoint_dir, f"lora_adapter_epoch_{epoch+1}")
-                unwrapped.save_pretrained(adapter_path)
-
-            try:
-                from peft import get_peft_model_state_dict
-                lora_sd = get_peft_model_state_dict(unwrapped)
-            except Exception:
-                lora_sd = {k: v for k, v in model_sd.items() if "lora" in k.lower()}
-
-            if hasattr(unwrapped, "classifier"):
-                classifier_sd = unwrapped.classifier.state_dict()
-            elif hasattr(unwrapped, "head"):
-                classifier_sd = unwrapped.head.state_dict()
-
-        elif training_strategy == "full":
-            # NOTE: PLEASE MAKE SURE THAT THIS IS A PROPERLY PRINTED STATE DICT
-            model_sd = self.accelerator.get_state_dict(self.model)  # safe across wrappers
-            full_model_sd = model_sd  # capture entire model
-
-        state = {
-            "epoch": epoch + 1,
-            "best_val_acc": getattr(self, "best_val_acc", None),
-            "epochs_without_improvement": getattr(self, "epochs_without_improvement", None),
-            "training_strategy": training_strategy,
-            "config": {
-                "lr": self.lr,
-                "batch_size": self.batch_size,
-                "num_classes": self.global_config.get("NUM_CLASSES", 0),
-                "freeze_backbone": training_strategy,
-            },
-            "optimizer": optimizer.state_dict(),
-            "scheduler": scheduler.state_dict() if scheduler else None,
-            "scaler": scaler.state_dict() if scaler else None,
-            "rng_state": {
-                "python": random.getstate(),
-                "numpy": np.random.get_state(),
-                "torch": torch.get_rng_state().cpu(),
-                "cuda": torch.cuda.get_rng_state_all() if torch.cuda.is_available() else None,
-            },
-        }
-
-        if training_strategy == "head_only":
-            state["classifier_state_dict"] = classifier_sd
-        elif training_strategy == "lora":
-            state["lora_state_dict"] = lora_sd
-            state["classifier_state_dict"] = classifier_sd
-            state["adapter_path"] = adapter_path
-        elif training_strategy == "full":
-            state["model_state_dict"] = full_model_sd
-
-        return state
-
-    def save_checkpoint(self, optimizer, epoch, is_best=False, scheduler=None, scaler=None):
-        # make sure the accelerator waits first
-        self.accelerator.wait_for_everyone()
-
-        # full_sd = self.accelerator.get_state_dict(self.model)   # wrapper/sharding-safe
-        # with open("/home/keaneong/human-behavior/verl/multi_task_classification/debug_save_2.txt", "a") as f:
-        #     f.write(f"\n=== MODEL STATE DICT DEBUG ===\n")
-        #     f.write(f"Total number of parameters: {len(full_sd)}\n")
-        #     f.write(f"Keys in state dict:\n")
-            
-        #     # Save all keys
-        #     for i, key in enumerate(full_sd.keys()):
-        #         f.write(f"  {i}: {key}\n")
-            
-        #     f.write(f"\nParameter details:\n")
-        #     # Save key-value pairs with tensor info
-        #     for key, value in full_sd.items():
-        #         if hasattr(value, 'shape'):
-        #             f.write(f"  {key}: shape={value.shape}, dtype={value.dtype}, requires_grad={value.requires_grad}\n")
-        #             # Save first few values for debugging
-        #             if value.numel() > 0:
-        #                 flat_values = value.flatten()
-        #                 f.write(f"    First 5 values: {flat_values[:5].tolist()}\n")
-        #                 f.write(f"    Mean: {value.mean().item():.6f}, Std: {value.std().item():.6f}\n")
-        #         else:
-        #             f.write(f"  {key}: {type(value)} = {value}\n")
-            
-        #     f.write(f"\n=== END DEBUG ===\n")
-
-        # raise Exception("Stop here")
-        
-        # if not self.accelerator.is_main_process:
-        #     return
-    
-        os.makedirs(self.checkpoint_dir, exist_ok=True)
-        if self.accelerator.is_main_process:
-            self.accelerator.save_state(self.checkpoint_dir)
-
-        with open("/home/keaneong/human-behavior/verl/multi_task_classification/classifier_states.txt", "a") as f:
-                f.write(f"\nAccelerator saved state")
-                raise Exception("Stop here")
-
-
-        ckpt = self._create_checkpoint_data(optimizer, epoch, scheduler, scaler)
-        
-        ckpt_path = os.path.join(self.checkpoint_dir, f"checkpoint_epoch_{epoch+1}.pt")
-        self.accelerator.save(ckpt, ckpt_path)
-
-        # with open("/home/keaneong/human-behavior/verl/multi_task_classification/debug_save.txt", "a") as f:
-        #         f.write(f"\nSAVED THE CHECKPOINT")
-        #         raise Exception("Stop here")
-
-       
-        # if is_best: # NOTE: Forget about this for now as it will be time consuming
-        #     best_path = os.path.join(self.checkpoint_dir, "best_model.pt")
-        #     self.accelerator.save(ckpt, best_path)
-
-        #     strategy = self.global_config.get("TRAINING_STRATEGY")
-        #     if strategy == "lora":
-        #         try:
-        #             unwrapped = self.accelerator.unwrap_model(self.model)
-        #             best_adapter = os.path.join(self.checkpoint_dir, "best_lora_adapter")
-        #             unwrapped.save_pretrained(best_adapter)
-        #         except Exception as e:
-        #             print(f"Warning: Could not save best LoRA adapter: {e}")
-
-        #     elif strategy == "full":
-        #         try:
-        #             unwrapped = self.accelerator.unwrap_model(self.model)
-        #             best_full = os.path.join(self.checkpoint_dir, "best_full_model")
-        #             self.accelerator.save_model(unwrapped, best_full)
-        #         except Exception as e:
-        #             print(f"Warning: Could not save best full-model dir: {e}")
-
-        print(f"Checkpoint saved: {ckpt_path}")
 
     def train(self):
         train_dataloader = self.get_dataloader(self.data_files, self.batch_size, num_workers=self.num_workers, shuffle=True)
@@ -536,12 +318,19 @@ class OmniClassifierAccelerateTrainer:
         optimizer = Adam(self.model.parameters(), lr=self.lr)
         criterion = CrossEntropyLoss()
 
-        # Load checkpoint if available (before prepare to avoid accelerate wrapper issues)
-        start_epoch = self.load_checkpoint(optimizer)
+
 
         # Prepare everything with Accelerate
         self.model, optimizer, train_dataloader, val_dataloader = self.accelerator.prepare(
             self.model, optimizer, train_dataloader, val_dataloader
+        )
+
+        start_epoch, start_batch_offset, start_global_step, meta, ckpt_dir = self.load_checkpoint_unified(
+            accelerator=self.accelerator,
+            model=self.model,
+            base_ckpt_dir=self.checkpoint_dir,
+            explicit_dir=self.load_checkpoint_path or None,
+            expect_training_strategy=self.global_config.get("TRAINING_STRATEGY"),
         )
 
         # Get configuration values
@@ -555,6 +344,11 @@ class OmniClassifierAccelerateTrainer:
         for epoch in tqdm(range(start_epoch, self.epochs), desc="Epochs", position=0, disable=not self.accelerator.is_main_process):
             # Training phase
             self.model.train()
+
+            if hasattr(train_dataloader, "sampler") and hasattr(train_dataloader.sampler, "set_epoch"):
+                train_dataloader.sampler.set_epoch(epoch)  # required for proper per-epoch shuffling in DDP. :contentReference[oaicite:4]{index=4}
+
+            
             total_loss = 0.0
             correct = 0
             total = 0
@@ -568,6 +362,9 @@ class OmniClassifierAccelerateTrainer:
             for batch_idx, batch in tqdm(enumerate(train_dataloader), desc="Training", total=len(train_dataloader), disable=not self.accelerator.is_main_process):
                 # Set model to training mode (needed because validation sets it to eval mode)
                 self.model.train()
+
+                if epoch == start_epoch and batch_idx < start_batch_offset:
+                    continue
                 
                 # Calculate current step for validation checking
                 current_step = (epoch * len(train_dataloader)) + batch_idx + 1
@@ -742,10 +539,27 @@ class OmniClassifierAccelerateTrainer:
 
             # Save checkpoint: every N epochs and also when best
             if save_every_n_epochs and ((epoch + 1) % save_every_n_epochs == 0):
-                self.save_checkpoint(optimizer, epoch, is_best)
+                self.save_checkpoint_unified(
+                accelerator=self.accelerator,
+                model=self.model,
+                epoch=epoch,
+                batch_idx=batch_idx,
+                len_train_dataloader=len(train_dataloader),
+                training_strategy=self.global_config.get("TRAINING_STRATEGY"),
+                base_ckpt_dir=self.checkpoint_dir,
+            )
+                
             elif is_best:
                 # ensure best is saved even if not on save interval
-                self.save_checkpoint(optimizer, epoch, is_best)
+                self.save_checkpoint_unified(
+                accelerator=self.accelerator,
+                model=self.model,
+                epoch=epoch,
+                batch_idx=batch_idx,
+                len_train_dataloader=len(train_dataloader),
+                training_strategy=self.global_config.get("TRAINING_STRATEGY"),
+                base_ckpt_dir=self.checkpoint_dir,
+            )
             
             # Early stopping
             if validate_every_n_steps is not None:
