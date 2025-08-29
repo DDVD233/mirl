@@ -23,7 +23,7 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml train.py \
     --label_map_path "/home/keaneong/human-behavior/verl/multi_task_classification/meld_label_map.json" \
     --train_batch_size 2 \
     --val_batch_size 2 \
-    --lr 1e-5 \
+    --lr 1e-6 \
     --epochs 2 \
     --save_checkpoint_dir "/scratch/keane/human_behaviour/omni_full_training" \
     --validate_every_n_epochs None \

@@ -2,7 +2,7 @@ import time
 from .wandb_utils import log_metrics
 
 
-def log_training_metrics(epoch, batch_idx, total_batches, loss, preds, labels, 
+def log_batch_training_metrics(epoch, batch_idx, total_batches, loss,
                         correct, total, epoch_start_time, start_time, 
                         gradient_accumulation_steps, batch_size, epochs, 
                         accelerator, use_wandb):
@@ -12,15 +12,19 @@ def log_training_metrics(epoch, batch_idx, total_batches, loss, preds, labels,
     
     # Log batch metrics at effective batch size steps
     if (batch_idx + 1) % gradient_accumulation_steps == 0:
+        avg_effective_loss = loss / max(1, total)
         batch_info = {
-            'batch_loss': loss.item(),
-            'batch_accuracy': (preds == labels).float().mean().item(),
+            'effective_batch_loss': loss,
+            'avg_effective_batch_loss': avg_effective_loss,
+            'effective_batch_correct': correct,
+            'effective_batch_total': total,
+            'effective_batch_accuracy': correct / total,
             'batch_idx': batch_idx,
             'effective_batch_size': batch_size * gradient_accumulation_steps,
         }
         
         current_step = (epoch * total_batches) + batch_idx + 1
-        log_metrics('batch_metrics_at_effective_batch_size_step', batch_info, step=current_step)
+        log_metrics('effective_batch_metrics', batch_info, step=current_step)
 
     # Log training progress statistics
     batch_progress = (batch_idx + 1) / total_batches

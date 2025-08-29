@@ -18,7 +18,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../.
 from mt_dataset.omni_classifier_dataset import OmniClassifierDataset
 from verl.utils.dataset.rl_dataset import collate_fn
 from utils.wandb_utils import init_wandb, log_metrics, finish
-from utils.logger import log_training_metrics, log_validation_results, log_epoch_training_metrics
+from utils.logger import log_batch_training_metrics, log_validation_results, log_epoch_training_metrics
 from evaluate.multi_task_evaluation import evaluate_predictions
 
 # Accelerate imports
@@ -556,6 +556,12 @@ class OmniClassifierAccelerateTrainer:
             total = 0
             epoch_start_time = time.time()
 
+            # Variables for effective batch tracking (gradient updates)
+            effective_batch_loss = 0.0
+            effective_batch_correct = 0
+            effective_batch_total = 0
+
+
             for batch_idx, batch in tqdm(enumerate(train_dataloader), desc="Training", total=len(train_dataloader), disable=not self.accelerator.is_main_process):
                 # Set model to training mode (needed because validation sets it to eval mode)
                 self.model.train()
@@ -592,7 +598,8 @@ class OmniClassifierAccelerateTrainer:
                 self.accelerator.backward(loss)
 
                 with torch.no_grad():
-                    total_loss += loss.item() * input_ids.size(0)
+                    # Accumulate metrics for effective batch
+                    effective_batch_loss += loss.item() * input_ids.size(0)
                     preds = logits.argmax(dim=1)
                     
                     # Gather accuracy metrics from all processes
@@ -601,19 +608,26 @@ class OmniClassifierAccelerateTrainer:
                     
                     # Only compute global accuracy on main process
                     if self.accelerator.is_main_process:
+                        effective_batch_correct += (gathered_preds == gathered_labels).sum().item()
+                        effective_batch_total += gathered_labels.size(0)
+                    
+                    # Also accumulate epoch-level metrics
+                    total_loss += loss.item() * input_ids.size(0)
+                    if self.accelerator.is_main_process:
                         correct += (gathered_preds == gathered_labels).sum().item()
                         total += gathered_labels.size(0)
 
-                    # Log training metrics (inside torch.no_grad context)
-                    log_training_metrics(
+                    # Check if this completes an effective batch (gradient update)
+                    # An effective batch consists of gradient_accumulation_steps individual batches
+            
+                    # Log training metrics for the effective batch
+                    log_batch_training_metrics(
                         epoch=epoch,
                         batch_idx=batch_idx,
                         total_batches=len(train_dataloader),
-                        loss=loss,
-                        preds=preds,
-                        labels=labels,
-                        correct=correct,
-                        total=total,
+                        loss=effective_batch_loss,  # Scalar value
+                        correct=effective_batch_correct,
+                        total=effective_batch_total,
                         epoch_start_time=epoch_start_time,
                         start_time=self.start_time,
                         gradient_accumulation_steps=self.gradient_accumulation_steps,
@@ -622,6 +636,13 @@ class OmniClassifierAccelerateTrainer:
                         accelerator=self.accelerator,
                         use_wandb=use_wandb
                     )
+
+                    if batch_idx % self.gradient_accumulation_steps == 0:              
+                        # Reset effective batch counters
+                        # After they are logged internally at every step
+                        effective_batch_loss = 0.0
+                        effective_batch_correct = 0
+                        effective_batch_total = 0
 
                     # Step-based validation (if configured)
                     if validate_every_n_steps is not None and current_step % validate_every_n_steps == 0:
