@@ -359,7 +359,6 @@ class OmniClassifierAccelerateTrainer:
             for batch_idx, batch in tqdm(enumerate(train_dataloader), desc="Training", total=len(train_dataloader), disable=not self.accelerator.is_main_process):
                 # Set model to training mode (needed because validation sets it to eval mode)
                 self.model.train()
-                optimizer.zero_grad()
 
                 if epoch == start_epoch and batch_idx < start_batch_offset:
                     continue
