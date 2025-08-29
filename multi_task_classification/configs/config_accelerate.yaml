@@ -12,7 +12,7 @@ model:
   processor_name: "Qwen/Qwen2.5-Omni-7B"
   training_strategy: "head_only"  # options: head_only, lora, full
   device_map: null  # Changed from "auto" to "cpu" for Accelerate compatibility
-  torch_dtype: "float16"
+  torch_dtype: "float32"
   lora_config:
     r: 16
     alpha: 32
