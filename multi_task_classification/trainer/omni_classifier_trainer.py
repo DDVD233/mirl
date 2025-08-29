@@ -327,7 +327,6 @@ class OmniClassifierAccelerateTrainer:
         # ---- Compute update-steps-aware schedule sizes ----
         updates_per_epoch = ceil(len(train_dataloader) / max(1, self.gradient_accumulation_steps))
         total_updates = self.epochs * updates_per_epoch
-        raise Exception(f"LEARNING RATE IS {self.lr}")
         
         # Get the scheduler
         if self.use_scheduler:
@@ -387,6 +386,8 @@ class OmniClassifierAccelerateTrainer:
             effective_batch_loss = 0.0
             effective_batch_correct = 0
             effective_batch_total = 0
+
+            raise Exception(f"LEARNING RATE IS {self.lr}")
 
             for batch_idx, batch in tqdm(enumerate(train_dataloader), desc="Training", total=len(train_dataloader), disable=not self.accelerator.is_main_process):
                 # Set model to training mode (needed because validation sets it to eval mode)
