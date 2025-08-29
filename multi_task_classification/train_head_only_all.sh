@@ -16,7 +16,7 @@ export TORCH_USE_CUDA_DSA=1
 #  --load_checkpoint_path "/scratch/keane/human_behaviour/2_head_only_training/checkpoint_epoch_1.pt" \
 #     --load_checkpoint_path "/scratch/keane/human_behaviour/2_head_only_training/checkpoint_epoch_1.pt" \   
 
-    # --use_scheduler \
+    # --use_scheduler \ # DO NOT PUT IF YOU ARE NOT USING THE SCHEDULER
     # --scheduler_type cosine \
     # --warmup_steps 1
         # --scheduler_type cosine \
@@ -41,6 +41,5 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml train.py \
     --early_stopping_patience 99999 \
     --project "all-omni-classifier-head-only" \
     --gradient_accumulation_steps 1 \
-    --use_scheduler \
 
 echo "Head-only training completed!"
