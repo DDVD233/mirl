@@ -393,6 +393,9 @@ class OmniClassifierAccelerateTrainer:
             else:
                 classifier_sd = {k: v for k, v in model_sd.items()
                                 if k.startswith("classifier.") or k.startswith("head.")}
+            with open("/home/keaneong/human-behavior/verl/multi_task_classification/classifier_state_dict_KEY.txt", "a") as f:
+                f.write(f"Latest Classifier state dict {classifier_sd}")
+            raise Exception("Stop here")
 
         elif training_strategy == "lora":
             if hasattr(unwrapped, "save_pretrained"):
