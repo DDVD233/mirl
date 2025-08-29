@@ -17,14 +17,19 @@ export TORCH_USE_CUDA_DSA=1
 echo "Launching LoRA training with Accelerate..."
 accelerate launch --config_file configs/accelerate_config_qwen.yaml train.py \
     --training_strategy lora \
-    --train_batch_size 4 \
-    --val_batch_size 4 \
-    --lr 5e-5 \
-    --epochs 10 \
+    --train_batch_size 2 \
+    --val_batch_size 2 \
+    --train_file "/scratch/keane/human_behaviour/human_behaviour_data/audio_sigs_train_meld.jsonl" \
+    --val_file "/scratch/keane/human_behaviour/human_behaviour_data/audio_sigs_val_meld.jsonl" \
+    --test_file "/scratch/keane/human_behaviour/human_behaviour_data/audio_sigs_test_meld.jsonl" \
+    --label_map_path: "/home/keaneong/human-behavior/verl/multi_task_classification/meld_label_map.json" \
+    --lr 2e-4 \
+    --epochs 3 \
     --save_checkpoint_dir "/scratch/keane/human_behaviour/lora_training" \
+    --validate_every_n_steps 1000 \
     --validate_every_n_epochs 1 \
-    --early_stopping_patience 5 \
+    --early_stopping_patience 99999999 \
     --project "omni-classifier-lora" \
-    --gradient_accumulation_steps 4
+    --gradient_accumulation_steps 16
 
 echo "LoRA training completed!"

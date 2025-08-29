@@ -20,6 +20,7 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml train.py \
     --train_file "/scratch/keane/human_behaviour/human_behaviour_data/audio_sigs_train_meld.jsonl" \
     --val_file "/scratch/keane/human_behaviour/human_behaviour_data/audio_sigs_val_meld.jsonl" \
     --test_file "/scratch/keane/human_behaviour/human_behaviour_data/audio_sigs_test_meld.jsonl" \
+    --label_map_path: "/home/keaneong/human-behavior/verl/multi_task_classification/meld_label_map.json" \
     --train_batch_size 2 \
     --val_batch_size 2 \
     --lr 1e-5 \
