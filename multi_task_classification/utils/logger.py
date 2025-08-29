@@ -20,7 +20,7 @@ def log_batch_training_metrics(epoch, batch_idx, total_batches, loss,
             'effective_batch_total': total,
             'effective_batch_accuracy': correct / total,
             'batch_idx': batch_idx,
-            'effective_batch_size': batch_size * gradient_accumulation_steps,
+            'effective_batch_size': batch_size * gradient_accumulation_steps * accelerator.num_processes,
         }
         
         current_step = (epoch * total_batches) + batch_idx + 1

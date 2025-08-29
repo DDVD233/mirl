@@ -89,7 +89,7 @@ class OmniClassifierAccelerateTrainer:
             "batch_size": self.batch_size,
             "val_batch_size": self.val_batch_size,
             "gradient_accumulation_steps": self.gradient_accumulation_steps,
-            "effective_batch_size": self.batch_size * self.gradient_accumulation_steps,
+            "effective_batch_size": self.batch_size * self.gradient_accumulation_steps * self.accelerator.num_processes,
             "learning_rate": self.lr,
             "epochs": self.epochs,
             "num_classes": self.global_config.get('NUM_CLASSES', 0),
@@ -561,7 +561,6 @@ class OmniClassifierAccelerateTrainer:
             effective_batch_correct = 0
             effective_batch_total = 0
 
-
             for batch_idx, batch in tqdm(enumerate(train_dataloader), desc="Training", total=len(train_dataloader), disable=not self.accelerator.is_main_process):
                 # Set model to training mode (needed because validation sets it to eval mode)
                 self.model.train()
@@ -610,7 +609,6 @@ class OmniClassifierAccelerateTrainer:
                     if self.accelerator.is_main_process:
                         effective_batch_correct += (gathered_preds == gathered_labels).sum().item()
                         effective_batch_total += gathered_labels.size(0)
-                    
                     # Also accumulate epoch-level metrics
                     total_loss += loss.item() * input_ids.size(0)
                     if self.accelerator.is_main_process:
@@ -637,8 +635,8 @@ class OmniClassifierAccelerateTrainer:
                         use_wandb=use_wandb
                     )
 
-                    if batch_idx % self.gradient_accumulation_steps == 0:              
-                        # Reset effective batch counters
+                    if (batch_idx + 1) % self.gradient_accumulation_steps == 0:  
+                        # Reset the metrics at each step
                         # After they are logged internally at every step
                         effective_batch_loss = 0.0
                         effective_batch_correct = 0
