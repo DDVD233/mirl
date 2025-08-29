@@ -11,6 +11,7 @@ from datetime import datetime
 from math import floor
 from pathlib import Path
 from transformers import get_scheduler
+from math import ceil
 
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
@@ -54,10 +55,10 @@ class OmniClassifierAccelerateTrainer:
         # Use the label map from global config
         self.label_map = self.global_config.get('LABEL_MAP', {})
 
-        # NOTE: To get the scheduler
-        # self.scheduler_type = self.global_config.get("SCHEDULER_TYPE", "cosine")
-        # self.warmup_steps = self.global_config.get("WARMUP_STEPS", None)
-        # self.warmup_ratio = self.global_config.get("WARMUP_RATIO", None)
+        # Scheduler configuration
+        self.use_scheduler = self.global_config.get("USE_SCHEDULER", True)
+        self.scheduler_type = self.global_config.get("SCHEDULER_TYPE", "cosine")
+        self.warmup_steps = self.global_config.get("WARMUP_STEPS", None)
         
         # Checkpoint IO setup
         self.checkpoint_dir = save_checkpoint_dir
@@ -108,7 +109,10 @@ class OmniClassifierAccelerateTrainer:
             "label_map_path": self.global_config.get('LABEL_MAP_PATH', ''),
             "datasets": self.global_config.get('label_config', {}).get('datasets', []),
             "accelerate": True,
-            "mixed_precision": "fp16"
+            "mixed_precision": "fp16",
+            "use_scheduler": self.use_scheduler,
+            "scheduler_type": self.scheduler_type if self.use_scheduler else None,
+            "warmup_steps": self.warmup_steps if self.use_scheduler else None
         }
         init_wandb(
             project=self.global_config.get('WANDB_PROJECT', ''),
@@ -320,11 +324,34 @@ class OmniClassifierAccelerateTrainer:
         optimizer = Adam(self.model.parameters(), lr=self.lr)
         criterion = CrossEntropyLoss()
 
+        # ---- Compute update-steps-aware schedule sizes ----
+        updates_per_epoch = ceil(len(train_dataloader) / max(1, self.gradient_accumulation_steps))
+        total_updates = self.epochs * updates_per_epoch
+
+        # Get the scheduler
+        if self.use_scheduler:
+            scheduler = get_scheduler(
+                self.scheduler_type,
+                optimizer,
+                num_warmup_steps=self.warmup_steps,
+                num_training_steps=total_updates
+            )
+            print(f"[INFO] Using {self.scheduler_type} scheduler with {self.warmup_steps} warmup steps")
+        else:
+            scheduler = None
+            print("[INFO] Scheduler disabled - using constant learning rate")
 
         # Prepare everything with Accelerate
-        self.model, optimizer, train_dataloader, val_dataloader = self.accelerator.prepare(
-            self.model, optimizer, train_dataloader, val_dataloader
-        )
+        if scheduler is not None:
+            self.model, optimizer, train_dataloader, val_dataloader, scheduler = self.accelerator.prepare(
+                self.model, optimizer, train_dataloader, val_dataloader, scheduler
+            )
+            # Register the scheduler for checkpointing
+            self.accelerator.register_for_checkpointing(scheduler)
+        else:
+            self.model, optimizer, train_dataloader, val_dataloader = self.accelerator.prepare(
+                self.model, optimizer, train_dataloader, val_dataloader
+            )
 
         start_epoch, start_batch_offset, start_global_step, meta, ckpt_dir = self.load_checkpoint_unified(
             accelerator=self.accelerator,
@@ -404,7 +431,8 @@ class OmniClassifierAccelerateTrainer:
                     # already syncs before stepping
                     # if self.accelerator.sync_gradients:
                     optimizer.step()
-                    # scheduler.step()
+                    if scheduler is not None:
+                        scheduler.step()
                     optimizer.zero_grad()
 
                 with torch.no_grad():
@@ -429,6 +457,13 @@ class OmniClassifierAccelerateTrainer:
                     # Check if this completes an effective batch (gradient update)
                     # An effective batch consists of gradient_accumulation_steps individual batches
             
+                    # Get current learning rate for logging
+                    current_lr = None
+                    if scheduler is not None:
+                        current_lr = scheduler.get_last_lr()[0]
+                    else:
+                        current_lr = self.lr
+                    
                     # Log training metrics for the effective batch
                     log_batch_training_metrics(
                         epoch=epoch,
@@ -443,7 +478,8 @@ class OmniClassifierAccelerateTrainer:
                         batch_size=self.batch_size,
                         epochs=self.epochs,
                         accelerator=self.accelerator,
-                        use_wandb=use_wandb
+                        use_wandb=use_wandb,
+                        current_lr=current_lr
                     )
 
                     if (batch_idx + 1) % self.gradient_accumulation_steps == 0:  

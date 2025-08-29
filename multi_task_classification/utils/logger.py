@@ -5,7 +5,7 @@ from .wandb_utils import log_metrics
 def log_batch_training_metrics(epoch, batch_idx, total_batches, loss,
                         correct, total, epoch_start_time, start_time, 
                         gradient_accumulation_steps, batch_size, epochs, 
-                        accelerator, use_wandb):
+                        accelerator, use_wandb, current_lr=None):
     """Log training metrics to wandb."""
     if not use_wandb or not accelerator.is_main_process:
         return
@@ -22,6 +22,10 @@ def log_batch_training_metrics(epoch, batch_idx, total_batches, loss,
             'batch_idx': batch_idx,
             'effective_batch_size': batch_size * gradient_accumulation_steps * accelerator.num_processes,
         }
+        
+        # Add learning rate if provided
+        if current_lr is not None:
+            batch_info['learning_rate'] = current_lr
         
         current_step = (epoch * total_batches) + batch_idx + 1
         log_metrics('effective_batch_metrics', batch_info, step=current_step)

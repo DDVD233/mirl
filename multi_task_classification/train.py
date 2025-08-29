@@ -60,6 +60,14 @@ def parse_parameters():
     parser.add_argument('--gradient_accumulation_steps', type=int, help='Gradient accumulation steps')
     parser.add_argument('--num_workers', type=int, help='Number of data loader workers')
     
+    # Scheduler parameters
+    parser.add_argument('--use_scheduler', action='store_true', help='Enable learning rate scheduler')
+    parser.add_argument('--no_scheduler', action='store_true', help='Disable learning rate scheduler')
+    parser.add_argument('--scheduler_type', type=str, 
+                       choices=['linear', 'cosine', 'cosine_with_restarts', 'polynomial', 'constant', 'constant_with_warmup'],
+                       help='Type of learning rate scheduler')
+    parser.add_argument('--warmup_steps', type=int, help='Number of warmup steps (set to -1 to disable)')
+    
     # Validation parameters
     parser.add_argument('--validate_every_n_epochs', type=str, 
                        help='Validate every N epochs (use "None" to disable)')
@@ -152,6 +160,19 @@ def parse_parameters():
     if args.num_workers is not None:
         cfg.train.num_workers = args.num_workers
     
+    # Scheduler parameters
+    if args.use_scheduler:
+        cfg.train.use_scheduler = True
+    if args.no_scheduler:
+        cfg.train.use_scheduler = False
+    if args.scheduler_type is not None:
+        cfg.train.scheduler_type = args.scheduler_type
+    if args.warmup_steps is not None:
+        if args.warmup_steps == -1:
+            cfg.train.warmup_steps = None
+        else:
+            cfg.train.warmup_steps = args.warmup_steps
+    
     # Validation parameters
     if args.validate_every_n_epochs is not None:
         cfg.train.validate_every_n_epochs = args.validate_every_n_epochs
@@ -236,6 +257,11 @@ def parse_parameters():
     params['gradient_accumulation_steps'] = int(cfg.train.gradient_accumulation_steps)
     params['num_workers'] = int(cfg.train.num_workers)
     
+    # Scheduler configuration
+    params['use_scheduler'] = bool(cfg.train.use_scheduler)
+    params['scheduler_type'] = cfg.train.scheduler_type
+    params['warmup_steps'] = cfg.train.warmup_steps
+    
     # Validation configuration
     params['validate_every_n_epochs'] = cfg.train.validate_every_n_epochs
     params['validate_every_n_steps'] = cfg.train.validate_every_n_steps
@@ -285,6 +311,10 @@ def parse_parameters():
     print(f"[INFO] Learning rate: {params['lr']}")
     print(f"[INFO] Epochs: {params['epochs']}")
     print(f"[INFO] Save checkpoint dir: {params['save_checkpoint_dir']}")
+    print(f"[INFO] Scheduler: {'Enabled' if params['use_scheduler'] else 'Disabled'}")
+    if params['use_scheduler']:
+        print(f"[INFO] Scheduler type: {params['scheduler_type']}")
+        print(f"[INFO] Warmup steps: {params['warmup_steps']}")
     if params['load_checkpoint_path']:
         print(f"[INFO] Load checkpoint path: {params['load_checkpoint_path']}")
     print(f"[INFO] Validate every N epochs: {params['validate_every_n_epochs']}")
@@ -383,7 +413,10 @@ def main():
         'LABEL_MAP_PATH': LABEL_MAP_PATH,
         'NUM_CLASSES': NUM_CLASSES,
         'LORA_CONFIG': LORA_CONFIG,
-        'label_config': label_config
+        'label_config': label_config,
+        'USE_SCHEDULER': params['use_scheduler'],
+        'SCHEDULER_TYPE': params['scheduler_type'],
+        'WARMUP_STEPS': params['warmup_steps']
     }
     
     trainer = OmniClassifierAccelerateTrainer(
