@@ -459,11 +459,11 @@ class OmniClassifierAccelerateTrainer:
                     # An effective batch consists of gradient_accumulation_steps individual batches
        
                     # Get current learning rate for logging
-                        current_lr = None
-                        if scheduler is not None:
-                            current_lr = scheduler.get_last_lr()[0]
-                        else:
-                            current_lr = self.lr
+                    current_lr = None
+                    if scheduler is not None:
+                        current_lr = scheduler.get_last_lr()[0]
+                    else:
+                        current_lr = self.lr
                     
                     # Log training metrics for the effective batch
                     log_batch_training_metrics(
