@@ -393,9 +393,9 @@ class OmniClassifierAccelerateTrainer:
             else:
                 classifier_sd = {k: v for k, v in model_sd.items()
                                 if k.startswith("classifier.") or k.startswith("head.")}
-            with open("/home/keaneong/human-behavior/verl/multi_task_classification/classifier_state_dict_KEY.txt", "a") as f:
-                f.write(f"\nLatest Classifier state dict {classifier_sd}")
-            raise Exception("Stop here")
+            # with open("/home/keaneong/human-behavior/verl/multi_task_classification/classifier_state_dict_KEY.txt", "a") as f:
+            #     f.write(f"\nLatest Classifier state dict {classifier_sd}")
+            # raise Exception("Stop here")
 
         elif training_strategy == "lora":
             if hasattr(unwrapped, "save_pretrained"):
@@ -453,9 +453,14 @@ class OmniClassifierAccelerateTrainer:
     def save_checkpoint(self, optimizer, epoch, is_best=False, scheduler=None, scaler=None):
         # make sure the accelerator waits first
         self.accelerator.wait_for_everyone()
+
+        full_sd = self.accelerator.get_state_dict(self.model)   # wrapper/sharding-safe
+        with open("/home/keaneong/human-behavior/verl/multi_task_classification/debug_save_2.txt", "a") as f:
+            f.write(f"\nLatest Full model state dict {full_sd}")
+        raise Exception("Stop here")
         
-        if not self.accelerator.is_main_process:
-            return
+        # if not self.accelerator.is_main_process:
+        #     return
 
         os.makedirs(self.checkpoint_dir, exist_ok=True)
 
