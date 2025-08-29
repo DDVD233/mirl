@@ -13,6 +13,10 @@ echo "Using GPUs: $CUDA_VISIBLE_DEVICES"
 export CUDA_LAUNCH_BLOCKING=1
 export TORCH_USE_CUDA_DSA=1
 
+
+#    --use_scheduler \
+#     --scheduler_type cosine \
+#     --warmup_steps 100
 # try lr 1e-4, maybe it will be better
 # Launch training with accelerate for LoRA strategy
 echo "Launching LoRA training with Accelerate..."
@@ -24,16 +28,13 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml train.py \
     --val_file "/scratch/keane/human_behaviour/human_behaviour_data/audio_sigs_val_meld.jsonl" \
     --test_file "/scratch/keane/human_behaviour/human_behaviour_data/audio_sigs_test_meld.jsonl" \
     --label_map_path "/home/keaneong/human-behavior/verl/multi_task_classification/meld_label_map.json" \
-    --lr 1e-4 \
+    --lr 4e-4 \
     --epochs 3 \
     --save_checkpoint_dir "/scratch/keane/human_behaviour/lora_training" \
     --validate_every_n_steps 500 \
     --validate_every_n_epochs 1 \
     --early_stopping_patience 99999999 \
     --project "omni-classifier-lora" \
-    --gradient_accumulation_steps 4 \
-    --use_scheduler \
-    --scheduler_type cosine \
-    --warmup_steps 100
-
+    --gradient_accumulation_steps 16 \
+ 
 echo "LoRA training completed!"
