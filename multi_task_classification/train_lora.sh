@@ -30,7 +30,7 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml train.py \
     --label_map_path "/home/keaneong/human-behavior/verl/multi_task_classification/chsimsv2_label_map.json" \
     --lr 7e-5 \
     --epochs 20 \
-    --save_checkpoint_dir "/scratch/keane/human_behaviour/5_chsimsv2_lora_training" \
+    --save_checkpoint_dir "/scratch/keane/human_behaviour/debug_chsimsv2_lora_training" \
     --save_every_n_epochs None \
     --save_every_n_steps 2 \
     --validate_every_n_steps 99999 \
