@@ -241,6 +241,11 @@ def load_and_inspect_features(pt_file_path: Path):
     features = torch.load(pt_file_path)
 
     print(f"\nInspecting features from: {pt_file_path}")
+    # print features keys and variable types
+    print(f"Keys: {list(features.keys())}")
+    for key, value in features.items():
+        print(f"  {key}: type={type(value)}, shape={value.shape if isinstance(value, torch.Tensor) else 'N/A'}")
+
     print(f"Original video: {features['video_path']}")
     print(f"Total frames in video: {features['total_frames']}")
     print(f"Processed frames: {len(features['frame_indices'])}")
