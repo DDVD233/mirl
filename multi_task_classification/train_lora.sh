@@ -13,12 +13,12 @@ echo "Using GPUs: $CUDA_VISIBLE_DEVICES"
 export CUDA_LAUNCH_BLOCKING=1
 export TORCH_USE_CUDA_DSA=1
 
-
 #    --use_scheduler \
 #     --scheduler_type cosine \
 #     --warmup_steps 100
 # try lr 1e-4, maybe it will be better
 # Launch training with accelerate for LoRA strategy
+
 echo "Launching LoRA training with Accelerate..."
 accelerate launch --config_file configs/accelerate_config_qwen.yaml train.py \
     --training_strategy lora \
@@ -28,7 +28,7 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml train.py \
     --val_file "/scratch/keane/human_behaviour/human_behaviour_data/audio_sigs_val_chsimsv2_only.jsonl" \
     --test_file "/scratch/keane/human_behaviour/human_behaviour_data/audio_sigs_test_chsimsv2_only.jsonl" \
     --label_map_path "/home/keaneong/human-behavior/verl/multi_task_classification/chsimsv2_label_map.json" \
-    --lr 1e-4 \
+    --lr 1e-5 \
     --epochs 3 \
     --save_checkpoint_dir "/scratch/keane/human_behaviour/chsimsv2_lora_training" \
     --save_every_n_epochs 1 \
