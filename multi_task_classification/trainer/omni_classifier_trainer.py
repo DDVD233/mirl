@@ -607,17 +607,17 @@ class OmniClassifierAccelerateTrainer:
                 base_ckpt_dir=self.checkpoint_dir,
             )
                 
-            elif is_best:
-                # ensure best is saved even if not on save interval
-                self.save_checkpoint_unified(
-                accelerator=self.accelerator,
-                model=self.model,
-                epoch=epoch,
-                batch_idx=batch_idx,
-                len_train_dataloader=len(train_dataloader),
-                training_strategy=self.global_config.get("TRAINING_STRATEGY"),
-                base_ckpt_dir=self.checkpoint_dir,
-            )
+            # elif is_best:
+            #     # ensure best is saved even if not on save interval
+            #     self.save_checkpoint_unified(
+            #     accelerator=self.accelerator,
+            #     model=self.model,
+            #     epoch=epoch,
+            #     batch_idx=batch_idx,
+            #     len_train_dataloader=len(train_dataloader),
+            #     training_strategy=self.global_config.get("TRAINING_STRATEGY"),
+            #     base_ckpt_dir=self.checkpoint_dir,
+            # )
             
             # Early stopping
             if validate_every_n_steps is not None:
