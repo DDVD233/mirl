@@ -28,7 +28,7 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml train.py \
     --test_file "/scratch/keane/human_behaviour/human_behaviour_data/cleaned_full_test.jsonl" \
     --label_map_path "/home/keaneong/human-behavior/verl/multi_task_classification/cleaned_full_label_map.json" \
     --lr 1e-4 \
-    --epochs 5 \
+    --epochs 10 \
     --save_checkpoint_dir "/scratch/keane/human_behaviour/cleaned_full_lora_training" \
     --validate_every_n_steps 1000 \
     --validate_every_n_epochs 1 \
