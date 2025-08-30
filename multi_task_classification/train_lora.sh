@@ -33,7 +33,7 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml train.py \
     --save_checkpoint_dir "/scratch/keane/human_behaviour/3_chsimsv2_lora_training" \
     --save_every_n_epochs 9999 \
     --validate_every_n_steps 99999 \
-    --validate_every_n_epochs 1 \
+    --validate_every_n_epochs 10 \
     --early_stopping_patience 99999999 \
     --project "omni-classifier-lora" \
     --gradient_accumulation_steps 8 \
