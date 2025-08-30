@@ -159,6 +159,7 @@ class OmniClassifierAccelerateTrainer:
         current_step = epoch * len_dl + (batch_idx + 1)
         """
         # accelerator.wait_for_everyone()
+        
         global_step = epoch * len_train_dataloader + (batch_idx + 1)
 
         ckpt_dir = os.path.join(base_ckpt_dir, f"step_{global_step}")
