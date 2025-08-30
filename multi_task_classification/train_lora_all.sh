@@ -23,12 +23,12 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml train.py \
     --training_strategy lora \
     --train_batch_size 2 \
     --val_batch_size 2 \
-    --train_file "/scratch/keane/human_behaviour/human_behaviour_data/audio_sigs_no_chalearn_no_expw_no_mosei_fixed_0.1_train.jsonl" \
-    --val_file "/scratch/keane/human_behaviour/human_behaviour_data/audio_sigs_no_chalearn_no_expw_no_mosei_fixed_0.1_val.jsonl" \
-    --test_file "/scratch/keane/human_behaviour/human_behaviour_data/audio_sigs_no_chalearn_no_expw_no_mosei_fixed_0.1_test.jsonl" \
-    --label_map_path "/home/keaneong/human-behavior/verl/multi_task_classification/0.1_no_chalearn_no_expw_no_mosei_label_map.json" \
+    --train_file "/scratch/keane/human_behaviour/human_behaviour_data/cleaned_full_train.jsonl" \
+    --val_file "/scratch/keane/human_behaviour/human_behaviour_data/cleaned_full_val.jsonl" \
+    --test_file "/scratch/keane/human_behaviour/human_behaviour_data/cleaned_full_test.jsonl" \
+    --label_map_path "/home/keaneong/human-behavior/verl/multi_task_classification/cleaned_full_label_map.json" \
     --lr 1e-4 \
-    --epochs 3 \
+    --epochs 5 \
     --save_checkpoint_dir "/scratch/keane/human_behaviour/full_lora_training" \
     --validate_every_n_steps 1000 \
     --validate_every_n_epochs 1 \
