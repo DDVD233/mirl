@@ -13,9 +13,9 @@ from collections import defaultdict
 # Hardcoded paths
 # ------------------
 INPUT_JSONLS = [
-    "/scratch/keane/human_behaviour/human_behaviour_data/audio_sigs_no_chalearn_no_expw_no_mosei_fixed_0.1_train.jsonl"
+    "/scratch/keane/human_behaviour/human_behaviour_data/audio_sigs_train_chsimsv2_only.jsonl"
 ]
-OUTPUT_JSON = "/home/keaneong/human-behavior/verl/multi_task_classification/0.1_no_chalearn_no_expw_no_mosei_label_map.json"
+OUTPUT_JSON = "/home/keaneong/human-behavior/verl/multi_task_classification/chsimsv2_label_map.json"
 
 # ------------------
 # Helpers
