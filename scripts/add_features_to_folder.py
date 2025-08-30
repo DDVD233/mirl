@@ -255,15 +255,43 @@ def load_and_inspect_features(pt_file_path: Path):
 def main():
     parser = argparse.ArgumentParser(description="Extract MediaPipe features from videos and save as PyTorch tensors")
     parser.add_argument("directory", help="Base directory to search for .mp4 files")
-    parser.add_argument("--inspect", help="Path to .pt file to inspect after processing", default=None)
+    parser.add_argument("--inspect", action="store_true", help="Inspect existing .pt files instead of processing")
     args = parser.parse_args()
 
     base_dir = Path(args.directory)
-    process_videos_in_directory(base_dir)
-
-    # Optional: inspect a saved file
+    
     if args.inspect:
-        load_and_inspect_features(Path(args.inspect))
+        # Inspect mode: look for .pt files in base directory and optionally in pose subdirectory
+        search_dirs = [base_dir]
+        pose_dir = base_dir / "pose"
+        if pose_dir.exists():
+            search_dirs.append(pose_dir)
+        
+        pt_files = []
+        for search_dir in search_dirs:
+            pt_files.extend(list(search_dir.rglob("*.pt")))
+        
+        # Remove duplicates if any
+        pt_files = list(set(pt_files))
+        
+        if not pt_files:
+            print(f"No .pt files found in {base_dir}")
+            return
+        
+        print(f"Found {len(pt_files)} .pt file(s)")
+        print("=" * 50)
+        
+        # Inspect first few files as examples
+        for i, pt_file in enumerate(pt_files[:3]):  # Show first 3 files
+            print(f"\nFile {i+1}/{min(3, len(pt_files))}:")
+            load_and_inspect_features(pt_file)
+            print("-" * 30)
+        
+        if len(pt_files) > 3:
+            print(f"\n... and {len(pt_files) - 3} more files")
+    else:
+        # Process mode: extract features from videos
+        process_videos_in_directory(base_dir)
 
 
 if __name__ == "__main__":
