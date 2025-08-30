@@ -55,7 +55,7 @@ def parse_parameters():
     parser.add_argument('--epochs', type=int, help='Number of training epochs')
     parser.add_argument('--save_checkpoint_dir', type=str, help='Directory to save checkpoints')
     parser.add_argument('--load_checkpoint_path', type=str, help='Path to load checkpoint from')
-    parser.add_argument('--save_every_n_epochs', type=int, help='Save checkpoint every N epochs')
+    parser.add_argument('--save_every_n_epochs', type=str, help='Save checkpoint every N epochs')
     parser.add_argument('--save_every_n_steps', type=str, help='Save checkpoint every N steps (use "None" to disable)')
     parser.add_argument('--debug_dry_run', action='store_true', help='Enable debug dry run mode')
     parser.add_argument('--gradient_accumulation_steps', type=int, help='Gradient accumulation steps')
