@@ -255,7 +255,7 @@ def parse_parameters():
     params['epochs'] = int(cfg.train.epochs)
     params['save_checkpoint_dir'] = cfg.train.save_checkpoint_dir
     params['load_checkpoint_path'] = cfg.train.load_checkpoint_path
-    params['save_every_n_epochs'] = int(cfg.train.save_every_n_epochs)
+    params['save_every_n_epochs'] = cfg.train.save_every_n_epochs
     params['save_every_n_steps'] = cfg.train.save_every_n_steps
 
     if params['save_every_n_steps'] is not None:
