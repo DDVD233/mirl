@@ -28,7 +28,7 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml train.py \
     --val_file "/scratch/keane/human_behaviour/human_behaviour_data/audio_sigs_val_chsimsv2_only.jsonl" \
     --test_file "/scratch/keane/human_behaviour/human_behaviour_data/audio_sigs_test_chsimsv2_only.jsonl" \
     --label_map_path "/home/keaneong/human-behavior/verl/multi_task_classification/chsimsv2_label_map.json" \
-    --lr 1e-5 \
+    --lr 4e-5 \
     --epochs 3 \
     --save_checkpoint_dir "/scratch/keane/human_behaviour/2_chsimsv2_lora_training" \
     --save_every_n_epochs 1 \
