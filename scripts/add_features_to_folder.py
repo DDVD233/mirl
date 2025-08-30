@@ -112,12 +112,42 @@ def extract_features_from_video(video_path: Path) -> Dict[str, torch.Tensor]:
     cap.release()
     cv2.destroyAllWindows()
 
-    # Convert to PyTorch tensors
+    # Convert to PyTorch tensors with proper handling for variable sizes
+    # Stack arrays safely, handling potential shape mismatches
+    def safe_stack(feature_list, expected_shape):
+        """Safely stack feature arrays, padding if necessary."""
+        if not feature_list:
+            return torch.zeros((0, *expected_shape), dtype=torch.float32)
+        
+        # Check if all arrays have the same shape
+        shapes = [arr.shape for arr in feature_list]
+        if len(set(shapes)) == 1:
+            # All shapes are the same, can stack normally
+            return torch.tensor(np.array(feature_list), dtype=torch.float32)
+        else:
+            # Shapes differ, need to pad
+            max_shape = [len(feature_list)]
+            for dim in range(len(expected_shape)):
+                max_shape.append(max(arr.shape[dim] if dim < len(arr.shape) else expected_shape[dim] 
+                                   for arr in feature_list))
+            
+            # Create padded array
+            padded = np.zeros(max_shape, dtype=np.float32)
+            for i, arr in enumerate(feature_list):
+                if arr.ndim == len(expected_shape):
+                    slices = tuple(slice(None, s) for s in arr.shape)
+                    padded[i][slices] = arr
+                else:
+                    # Handle case where dimensions don't match expected
+                    padded[i][:arr.shape[0] if arr.ndim > 0 else 0] = arr.flatten()[:padded.shape[1]]
+            
+            return torch.tensor(padded, dtype=torch.float32)
+    
     features = {
-        'pose': torch.tensor(np.array(pose_features), dtype=torch.float32),
-        'face': torch.tensor(np.array(face_features), dtype=torch.float32),
-        'left_hand': torch.tensor(np.array(left_hand_features), dtype=torch.float32),
-        'right_hand': torch.tensor(np.array(right_hand_features), dtype=torch.float32),
+        'pose': safe_stack(pose_features, (33, 3)),
+        'face': safe_stack(face_features, (468, 3)),
+        'left_hand': safe_stack(left_hand_features, (21, 3)),
+        'right_hand': safe_stack(right_hand_features, (21, 3)),
         'frame_indices': torch.tensor(valid_frames, dtype=torch.long),
         'total_frames': total_frames,
         'video_path': str(video_path)
