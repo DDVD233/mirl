@@ -25,6 +25,7 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml train.py \
     --lr 1e-3 \
     --epochs 2 \
     --save_every_n_epochs 1000 \
+    --save_every_n_steps None \
     --save_checkpoint_dir "/scratch/keane/human_behaviour/2_head_only_training" \
     --validate_every_n_epochs None \
     --validate_every_n_steps 100 \

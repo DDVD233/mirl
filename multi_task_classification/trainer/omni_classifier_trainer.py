@@ -102,6 +102,8 @@ class OmniClassifierAccelerateTrainer:
             "num_classes": self.global_config.get('NUM_CLASSES', 0),
             "validate_every_n_epochs": self.global_config.get('VALIDATE_EVERY_N_EPOCHS', None),
             "validate_every_n_steps": self.global_config.get('VALIDATE_EVERY_N_STEPS', None),
+            "save_every_n_epochs": self.global_config.get('SAVE_EVERY_N_EPOCHS', None),
+            "save_every_n_steps": self.global_config.get('SAVE_EVERY_N_STEPS', None),
             "early_stopping_patience": self.global_config.get('EARLY_STOPPING_PATIENCE', 0),
             "save_best_model": self.global_config.get('SAVE_BEST_MODEL', True),
             "num_workers": self.num_workers,
@@ -368,6 +370,7 @@ class OmniClassifierAccelerateTrainer:
         validate_every_n_epochs = self.global_config.get('VALIDATE_EVERY_N_EPOCHS', None)
         validate_every_n_steps = self.global_config.get('VALIDATE_EVERY_N_STEPS', None)
         save_every_n_epochs = self.global_config.get('SAVE_EVERY_N_EPOCHS', None)
+        save_every_n_steps = self.global_config.get('SAVE_EVERY_N_STEPS', None)
         early_stopping_patience = self.global_config.get('EARLY_STOPPING_PATIENCE', 0)
         use_wandb = self.global_config.get('USE_WANDB', False)
         num_classes = self.global_config.get('NUM_CLASSES', 0)
@@ -533,6 +536,19 @@ class OmniClassifierAccelerateTrainer:
                                 use_wandb=use_wandb
                             )
 
+                    # Step-based saving (if configured)
+                    if save_every_n_steps is not None and current_step % save_every_n_steps == 0:
+                        print(f"\n[STEP {current_step}] Saving checkpoint...")
+                        self.save_checkpoint_unified(
+                            accelerator=self.accelerator,
+                            model=self.model,
+                            epoch=epoch,
+                            batch_idx=batch_idx,
+                            len_train_dataloader=len(train_dataloader),
+                            training_strategy=self.global_config.get("TRAINING_STRATEGY"),
+                            base_ckpt_dir=self.checkpoint_dir,
+                        )
+
             # Calculate training metrics
             avg_train_loss = total_loss / max(1, total)
             train_acc = correct / max(1, total)
@@ -541,7 +557,6 @@ class OmniClassifierAccelerateTrainer:
                 print(f"Epoch {epoch+1}/{self.epochs} - Train Loss: {avg_train_loss:.4f} - Train Acc: {train_acc:.4f}")
 
             # Epoch-based validation phase (only if step-based validation is not configured)
-            is_best = False
             if validate_every_n_epochs is not None and (epoch + 1) % validate_every_n_epochs == 0:
                 val_results = self.validate(val_dataloader, "validation")
                 
@@ -552,7 +567,6 @@ class OmniClassifierAccelerateTrainer:
                     if val_f1 > self.best_val_acc:
                         self.best_val_acc = val_f1
                         self.epochs_without_improvement = 0
-                        is_best = True
                     else:
                         self.epochs_without_improvement += 1
                     
@@ -606,18 +620,6 @@ class OmniClassifierAccelerateTrainer:
                 training_strategy=self.global_config.get("TRAINING_STRATEGY"),
                 base_ckpt_dir=self.checkpoint_dir,
             )
-                
-            # elif is_best:
-            #     # ensure best is saved even if not on save interval
-            #     self.save_checkpoint_unified(
-            #     accelerator=self.accelerator,
-            #     model=self.model,
-            #     epoch=epoch,
-            #     batch_idx=batch_idx,
-            #     len_train_dataloader=len(train_dataloader),
-            #     training_strategy=self.global_config.get("TRAINING_STRATEGY"),
-            #     base_ckpt_dir=self.checkpoint_dir,
-            # )
             
             # Early stopping
             if validate_every_n_steps is not None:

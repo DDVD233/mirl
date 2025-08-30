@@ -56,6 +56,7 @@ def parse_parameters():
     parser.add_argument('--save_checkpoint_dir', type=str, help='Directory to save checkpoints')
     parser.add_argument('--load_checkpoint_path', type=str, help='Path to load checkpoint from')
     parser.add_argument('--save_every_n_epochs', type=int, help='Save checkpoint every N epochs')
+    parser.add_argument('--save_every_n_steps', type=str, help='Save checkpoint every N steps (use "None" to disable)')
     parser.add_argument('--debug_dry_run', action='store_true', help='Enable debug dry run mode')
     parser.add_argument('--gradient_accumulation_steps', type=int, help='Gradient accumulation steps')
     parser.add_argument('--num_workers', type=int, help='Number of data loader workers')
@@ -153,6 +154,8 @@ def parse_parameters():
         cfg.train.load_checkpoint_path = args.load_checkpoint_path
     if args.save_every_n_epochs is not None:
         cfg.train.save_every_n_epochs = args.save_every_n_epochs
+    if args.save_every_n_steps is not None:
+        cfg.train.save_every_n_steps = args.save_every_n_steps
     if args.debug_dry_run:
         cfg.train.debug_dry_run = True
     if args.gradient_accumulation_steps is not None:
@@ -253,6 +256,20 @@ def parse_parameters():
     params['save_checkpoint_dir'] = cfg.train.save_checkpoint_dir
     params['load_checkpoint_path'] = cfg.train.load_checkpoint_path
     params['save_every_n_epochs'] = int(cfg.train.save_every_n_epochs)
+    params['save_every_n_steps'] = cfg.train.save_every_n_steps
+
+    if params['save_every_n_steps'] is not None:
+        if params['save_every_n_steps'] == "None":
+            params['save_every_n_steps'] = None
+        else:
+            params['save_every_n_steps'] = int(params['save_every_n_steps'])
+
+    if params['save_every_n_epochs'] is not None:
+        if params['save_every_n_epochs'] == "None":
+            params['save_every_n_epochs'] = None
+        else:
+            params['save_every_n_epochs'] = int(params['save_every_n_epochs'])
+
     params['debug_dry_run'] = bool(cfg.train.debug_dry_run)
     params['gradient_accumulation_steps'] = int(cfg.train.gradient_accumulation_steps)
     params['num_workers'] = int(cfg.train.num_workers)
@@ -311,6 +328,8 @@ def parse_parameters():
     print(f"[INFO] Learning rate: {params['lr']}")
     print(f"[INFO] Epochs: {params['epochs']}")
     print(f"[INFO] Save checkpoint dir: {params['save_checkpoint_dir']}")
+    print(f"[INFO] Save every N epochs: {params['save_every_n_epochs']}")
+    print(f"[INFO] Save every N steps: {params['save_every_n_steps']}")
     print(f"[INFO] Scheduler: {'Enabled' if params['use_scheduler'] else 'Disabled'}")
     if params['use_scheduler']:
         print(f"[INFO] Scheduler type: {params['scheduler_type']}")
@@ -344,6 +363,7 @@ def main():
     SAVE_CHECKPOINT_DIR = params['save_checkpoint_dir']
     LOAD_CHECKPOINT_PATH = params['load_checkpoint_path']
     SAVE_EVERY_N_EPOCHS = params['save_every_n_epochs']
+    SAVE_EVERY_N_STEPS = params['save_every_n_steps']
     DEBUG_DRY_RUN = params['debug_dry_run']
     GRADIENT_ACCUMULATION_STEPS = params['gradient_accumulation_steps']
     NUM_WORKERS = params['num_workers']
@@ -400,6 +420,7 @@ def main():
         'SAVE_CHECKPOINT_DIR': SAVE_CHECKPOINT_DIR,
         'LOAD_CHECKPOINT_PATH': LOAD_CHECKPOINT_PATH,
         'SAVE_EVERY_N_EPOCHS': SAVE_EVERY_N_EPOCHS,
+        'SAVE_EVERY_N_STEPS': SAVE_EVERY_N_STEPS,
         'DEBUG_DRY_RUN': DEBUG_DRY_RUN,
         'GRADIENT_ACCUMULATION_STEPS': GRADIENT_ACCUMULATION_STEPS,
         'NUM_WORKERS': NUM_WORKERS,

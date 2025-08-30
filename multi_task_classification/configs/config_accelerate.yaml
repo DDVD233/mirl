@@ -27,6 +27,7 @@ train:
   save_checkpoint_dir: "/scratch/keane/human_behaviour/full_head_only_finetune_accelerate"
   load_checkpoint_path: null
   save_every_n_epochs: 1
+  save_every_n_steps: null  # New: save every N steps (null = use epoch-based saving) One step is 1 batch
   debug_dry_run: false
   validate_every_n_epochs: 1
   validate_every_n_steps: 50  # New: validate every N steps (null = use epoch-based validation) One step is 1 batch
