@@ -247,13 +247,13 @@ def evaluate_predictions(
     Returns:
         Dictionary containing all evaluation results
     """
-    if global_num_classes is None:
-        # Assuming that the class start from 0, this is the maximum number of classes involved
-        global_num_classes = max(max(predictions), max(ground_truths)) + 1
+    # if global_num_classes is None:
+    #     # Assuming that the class start from 0, this is the maximum number of classes involved
+    #     global_num_classes = max(max(predictions), max(ground_truths)) + 1
     
     # Compute basic dataset metrics
     # This is basically the overall metrics for the entire validation set
-    dataset_results = compute_dataset_metrics(predictions, ground_truths, global_num_classes)
+    dataset_results = compute_dataset_metrics(predictions, ground_truths)
     
 
     # Prepare results
@@ -294,7 +294,6 @@ if __name__ == "__main__":
         predictions=predictions,
         ground_truths=ground_truths,
         datasets=datasets,
-        global_num_classes=3,
         split_name="test",
     )
     
