@@ -37,8 +37,8 @@ def compute_class_counts_and_metrics(
     y_pred = np.array(predictions)
     y_true = np.array(ground_truths)
     
-    # Get all unique labels (should be 0 to num_classes-1)
-    labels = list(range(num_classes))
+    # Get all unique labels (which is the set of all ground truth labels)
+    labels = set(y_true)
     
     N = len(y_true)
     # Per-class counts
@@ -96,8 +96,7 @@ def compute_class_counts_and_metrics(
 
 def compute_dataset_metrics(
     predictions: List[int], 
-    ground_truths: List[int],
-    num_classes: int
+    ground_truths: List[int]
 ) -> Dict[str, Dict]:
     """
     Compute per-class metrics and dataset-level macro/micro/weighted metrics.
@@ -105,7 +104,7 @@ def compute_dataset_metrics(
       - micro_accuracy = #correct / N
       - per-class 'accuracy' = TP/support (== recall)
     """
-    summary = compute_class_counts_and_metrics(predictions, ground_truths, num_classes)
+    summary = compute_class_counts_and_metrics(predictions, ground_truths)
     class_metrics = summary["class_metrics"]
     pooled = summary["pooled_counts"]
     active_classes = summary["active_classes"]
@@ -206,10 +205,9 @@ def compute_metrics_by_dataset(
         if not active_labels:
             # nothing to evaluate for this dataset
             continue
-        local_num_classes = len(active_labels)
 
         # Your compute_dataset_metrics already handles any OOS preds—no special handling here
-        ds_res = compute_dataset_metrics(preds, gts, local_num_classes)
+        ds_res = compute_dataset_metrics(preds, gts)
         ds_metrics = ds_res["dataset_metrics"]
 
         if not discovered_metric_keys:
