@@ -292,7 +292,7 @@ class OmniClassifierAccelerateTrainer:
                 predictions=all_predictions,
                 ground_truths=all_labels,
                 datasets=all_datasets if all_datasets else None,
-                num_classes=num_classes,
+                global_num_classes=num_classes,
                 split_name=split_name,
             )
             

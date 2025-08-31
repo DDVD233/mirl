@@ -166,7 +166,6 @@ def compute_metrics_by_dataset(
     predictions: List[int],
     ground_truths: List[int],
     datasets: List[str],
-    num_classes: int,
     save_path: Optional[str] = None,
     global_steps: Optional[int] = None,
 ) -> Dict[str, float]:
@@ -198,11 +197,19 @@ def compute_metrics_by_dataset(
     result: Dict[str, float] = {}
     discovered_metric_keys: List[str] = []
 
-    # global_accum = None
-    n_datasets = 0
-
     for dataset_name, data in grouped.items():
-        ds_res = compute_dataset_metrics(data["preds"], data["gts"], num_classes)
+        gts = data["gts"]
+        preds = data["preds"]
+
+        # Infer local num_classes from unique ground truths for this dataset
+        active_labels = set(gts)
+        if not active_labels:
+            # nothing to evaluate for this dataset
+            continue
+        local_num_classes = len(active_labels)
+
+        # Your compute_dataset_metrics already handles any OOS preds—no special handling here
+        ds_res = compute_dataset_metrics(preds, gts, local_num_classes)
         ds_metrics = ds_res["dataset_metrics"]
 
         if not discovered_metric_keys:
@@ -210,19 +217,6 @@ def compute_metrics_by_dataset(
 
         for k in discovered_metric_keys:
             result[f"{dataset_name}/{k}"] = ds_metrics.get(k, 0.0)
-
-        if ds_res["active_classes"] == 0:
-            continue
-
-        # if global_accum is None:
-        #     global_accum = {k: 0.0 for k in discovered_metric_keys}
-        # for k in discovered_metric_keys:
-        #     global_accum[k] += ds_metrics.get(k, 0.0)
-        # n_datasets += 1
-
-    # if n_datasets > 0:
-    #     for k in discovered_metric_keys:
-    #         result[f"val/averaged_{k}"] = global_accum[k] / n_datasets
 
     return result
 
@@ -233,11 +227,10 @@ def evaluate_predictions(
     predictions: List[int],
     ground_truths: List[int],
     datasets: Optional[List[str]] = None,
-    num_classes: int = None,
+    global_num_classes: int = None,
     split_name: str = "validation",
     save_path: Optional[str] = None,
     global_steps: Optional[int] = None,
-    class_names: Optional[List[str]] = None,
 ) -> Dict[str, object]:
     """
     Comprehensive evaluation function that computes all metrics.
@@ -256,20 +249,20 @@ def evaluate_predictions(
     Returns:
         Dictionary containing all evaluation results
     """
-    if num_classes is None:
+    if global_num_classes is None:
         # Assuming that the class start from 0, this is the maximum number of classes involved
-        num_classes = max(max(predictions), max(ground_truths)) + 1
+        global_num_classes = max(max(predictions), max(ground_truths)) + 1
     
     # Compute basic dataset metrics
     # This is basically the overall metrics for the entire validation set
-    dataset_results = compute_dataset_metrics(predictions, ground_truths, num_classes)
+    dataset_results = compute_dataset_metrics(predictions, ground_truths, global_num_classes)
     
 
     # Prepare results
     results = {
         "aggregate_predictions": predictions,
         "aggregate_ground_truths": ground_truths,
-        "aggregate_num_classes": num_classes,
+        "aggregate_num_classes": global_num_classes,
         "split_name": split_name,
         "aggregate_metrics": dataset_results["dataset_metrics"],
         "aggregate_class_metrics": dataset_results["class_metrics"],
@@ -277,9 +270,14 @@ def evaluate_predictions(
     }
     
     # Add per-dataset metrics if datasets are provided
- 
+    
+    # TODO: Double check
     per_dataset_metrics = compute_metrics_by_dataset(
-        predictions, ground_truths, datasets, num_classes, save_path, global_steps
+        predictions=predictions, 
+        ground_truths=ground_truths, 
+        datasets=datasets, 
+        save_path=save_path, 
+        global_steps=global_steps
     )
     results["per_dataset_metrics"] = per_dataset_metrics
     
@@ -298,7 +296,7 @@ if __name__ == "__main__":
         predictions=predictions,
         ground_truths=ground_truths,
         datasets=datasets,
-        num_classes=3,
+        global_num_classes=3,
         split_name="test",
     )
     
