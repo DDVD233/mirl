@@ -6,7 +6,7 @@
 echo "Starting LoRA training..."
 
 # Set CUDA_VISIBLE_DEVICES to use GPUs 2 and 3
-export CUDA_VISIBLE_DEVICES="0,1"
+export CUDA_VISIBLE_DEVICES="2,3"
 echo "Using GPUs: $CUDA_VISIBLE_DEVICES"
 
 # Set environment variables for better performance
@@ -32,10 +32,10 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml train.py \
     --label_map_path "/home/keaneong/human-behavior/verl/multi_task_classification/final_unified_scheme_binarymmpsy_no_vptd_chalearn_lmvd_esconv_full_label_map.json" \
     --lr 1e-4 \
     --epochs 10 \
-    --save_checkpoint_dir "/scratch/keane/human_behaviour/unified_scheme_full_lora_training" \
-    --validate_every_n_steps 4000 \
+    --save_checkpoint_dir "/scratch/keane/human_behaviour/2_unified_scheme_full_lora_training" \
+    --validate_every_n_steps None \
     --validate_every_n_epochs 1 \
-    --save_every_n_steps 4000 \
+    --save_every_n_steps 10000 \
     --early_stopping_patience 99999999 \
     --project "omni-classifier-lora-full-unified" \
     --gradient_accumulation_steps 128 \
