@@ -10,12 +10,23 @@ import gzip
 from collections import defaultdict
 
 # ------------------
-# Hardcoded paths
+# Hardcoded paths SCRATCH
 # ------------------
+# INPUT_JSONLS = [
+#     "/scratch/keane/human_behaviour/human_behaviour_data/cleaned_full_train.jsonl"
+# ]
+# OUTPUT_JSON = "/home/keaneong/human-behavior/verl/multi_task_classification/cleaned_full_label_map.json"
+
+
+# Hardcoded paths LOCAL
 INPUT_JSONLS = [
-    "/scratch/keane/human_behaviour/human_behaviour_data/cleaned_full_train.jsonl"
+    "/Users/keane/Desktop/research/human-behavior/data/unified_scheme/unified_scheme_binarymmpsy_no_vptd_chalearn_lmvd_esconv.jsonl"
 ]
-OUTPUT_JSON = "/home/keaneong/human-behavior/verl/multi_task_classification/cleaned_full_label_map.json"
+OUTPUT_JSON = "/Users/keane/Desktop/research/human-behavior/data/unified_scheme/label_maps/unified_scheme_binarymmpsy_no_vptd_chalearn_lmvd_esconv_full_label_map.json"
+
+
+# ------------------------------------
+
 
 # ------------------
 # Helpers
