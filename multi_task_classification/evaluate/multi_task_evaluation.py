@@ -12,7 +12,7 @@ def _safe_div(num: float, den: float) -> float:
 def compute_class_counts_and_metrics(
     predictions: List[int],
     ground_truths: List[int],
-    num_classes: int,
+    # num_classes: int,
 ) -> Dict[str, object]:
     """
     Single-label multiclass evaluation:
