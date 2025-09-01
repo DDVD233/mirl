@@ -57,6 +57,7 @@ class OmniClassifierAccelerateTrainer:
         
         # Use the label map from global config
         self.label_map = self.global_config.get('LABEL_MAP', {})
+        self.label_map_path = self.global_config.get('LABEL_MAP_PATH', None)
 
         # Scheduler configuration
         self.use_scheduler = self.global_config.get("USE_SCHEDULER", True)
@@ -314,6 +315,7 @@ class OmniClassifierAccelerateTrainer:
                 split_name=split_name,
                 save_path=self.validation_result_dir,
                 global_steps=current_step,
+                label_map_path=self.label_map_path
             )
             
             # Extract aggregate metrics (aligned with multi_task_evaluation)
