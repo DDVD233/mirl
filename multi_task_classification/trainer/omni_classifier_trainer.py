@@ -65,8 +65,10 @@ class OmniClassifierAccelerateTrainer:
         # Checkpoint IO setup
         self.checkpoint_dir = save_checkpoint_dir
         self.load_checkpoint_path = load_checkpoint_path
+
+        raise Exception(print(self.global_config))
         self.validation_result_dir = self.global_config.get('VALIDATION_RESULT_DIR', None)
-        raise Exception(print(self.validation_result_dir))
+      
 
         # Training state
         self.best_val_acc = 0.0
