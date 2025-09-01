@@ -67,7 +67,7 @@ class OmniClassifierAccelerateTrainer:
         self.load_checkpoint_path = load_checkpoint_path
 
         self.validation_result_dir = self.global_config.get('VALIDATION_RESULT_DIR', None)
-      
+        raise Exception(print(self.validation_result_dir))
         # Training state
         self.best_val_acc = 0.0
         self.epochs_without_improvement = 0

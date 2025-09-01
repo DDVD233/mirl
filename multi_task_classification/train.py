@@ -471,8 +471,7 @@ def main():
         'WARMUP_STEPS': params['warmup_steps'],
         'MODE': MODE
     }
-    raise Exception(print(global_config['VALIDATION_RESULT_DIR']))
-    
+
     trainer = OmniClassifierAccelerateTrainer(
         data_files=TRAIN_DATA_FILE,
         val_data_files=VAL_DATA_FILE,
