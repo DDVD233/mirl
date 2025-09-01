@@ -202,7 +202,15 @@ class OmniClassifierAccelerateTrainer:
         Then call this loader to restore state and compute (start_epoch, start_batch_offset).
         Returns: (start_epoch, start_batch_offset, global_step, meta, ckpt_dir)
         """
-        ckpt_dir = explicit_dir or self._latest_checkpoint_dir(base_ckpt_dir)
+        if explicit_dir:
+            ckpt_dir = explicit_dir
+        else:
+            print(f"[load] finding latest checkpoint from {base_ckpt_dir}")
+            ckpt_dir = self._latest_checkpoint_dir(base_ckpt_dir)
+            print(f"[load] latest checkpoint found: {ckpt_dir}")
+        
+        print(f"[load] loading checkpoint from {ckpt_dir}")
+
         if ckpt_dir is None:
             accelerator.print("[load] no checkpoint found; starting fresh.")
             return 0, 0, 0, None, None
@@ -648,23 +656,7 @@ class OmniClassifierAccelerateTrainer:
         print("STARTING TESTING PHASE   ")
         print("="*50)
         
-        # Load best model if available
-        best_model_path = os.path.join(self.checkpoint_dir, "best_model.pt")
-        if os.path.exists(best_model_path):
-            print(f"Loading best model from {best_model_path}")
-            checkpoint = torch.load(best_model_path, map_location='cpu')
-            
-            # Load model state using helper method
-            self._load_model_state_from_checkpoint(checkpoint, "best model")
-            
-            # Ensure the model is properly prepared with accelerate after loading
-            # This is important because the model might have been unwrapped during loading
-            
-            self.model = self.accelerator.prepare(self.model)
    
-        else:
-            print("No best model found, using current model state")
-        
         test_dataloader = self.get_dataloader(self.test_data_files, self.test_batch_size, num_workers=self.num_workers, shuffle=False)
 
         # everything should be prepared again by accelerator, including the model
