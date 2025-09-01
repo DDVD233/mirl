@@ -38,6 +38,7 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml train.py \
     --label_map_path "/home/keaneong/human-behavior/verl/multi_task_classification/meld_label_map.json" \
     --save_every_n_epochs 1 \
     --save_checkpoint_dir "/scratch/keane/human_behaviour/2_test_debug_head_only_training" \
+    --validation_result_dir "/scratch/keane/human_behaviour/2_test_debug_head_only_training/validation_results" \
     --validate_every_n_epochs 1 \
     --validate_every_n_steps 2 \
     --early_stopping_patience 99999 \
