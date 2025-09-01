@@ -29,7 +29,7 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml train.py \
     --test_file "/scratch/keane/human_behaviour/human_behaviour_data/0.01_audio_sigs_train_meld.jsonl" \
     --label_map_path "/home/keaneong/human-behavior/verl/multi_task_classification/final_unified_scheme_binarymmpsy_no_vptd_chalearn_lmvd_esconv_full_label_map.json" \
     --validation_result_dir "/scratch/keane/human_behaviour/test_debug_head_only_training/validation_results" \
-    --load_checkpoint_path "/scratch/keane/human_behaviour/test_debug_head_only_training/step_3" \
+    --load_checkpoint_path "/scratch/keane/human_behaviour/2_lr_unified_scheme_full_lora_training/step_20000" \
     --epochs 1 \
     --project "omni-classifier-lora-test" \
     --gradient_accumulation_steps 8 \
