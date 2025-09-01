@@ -703,7 +703,7 @@ class OmniClassifierAccelerateTrainer:
             expect_training_strategy=self.global_config.get("TRAINING_STRATEGY"),
         )
 
-        test_results = self.validate(test_dataloader, "test", current_step=0)
+        test_results = self.validate(test_dataloader, "test", current_step=1)
         
         if self.accelerator.is_main_process and test_results is not None:
             print(f"\nOverall TEST RESULTS:")
@@ -726,7 +726,7 @@ class OmniClassifierAccelerateTrainer:
     
             log_validation_results(
                     val_results=test_results,
-                    current_step=0,
+                    current_step=1,
                     split_name="test",
                     accelerator=self.accelerator,
                     use_wandb=use_wandb
