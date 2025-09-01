@@ -648,14 +648,10 @@ class OmniClassifierAccelerateTrainer:
                     break
 
     def test(self):
-        """Test the model on the test set."""
-        if not self.accelerator.is_main_process:
-            return None
             
         print("\n" + "="*50)
         print("STARTING TESTING PHASE   ")
         print("="*50)
-        
    
         test_dataloader = self.get_dataloader(self.test_data_files, self.test_batch_size, num_workers=self.num_workers, shuffle=False)
 
@@ -674,7 +670,7 @@ class OmniClassifierAccelerateTrainer:
 
         test_results = self.validate(test_dataloader, "test")
         
-        if test_results is not None:
+        if self.accelerator.is_main_process and test_results is not None:
             print(f"\nOverall TEST RESULTS:")
             print(f"Test Loss: {test_results['loss']:.4f}")
             print(f"Test Micro Accuracy: {test_results['accuracy']:.4f}")
@@ -702,4 +698,5 @@ class OmniClassifierAccelerateTrainer:
                 )
         
             return test_results
+            
         return None
