@@ -13,7 +13,7 @@ echo "Using GPUs: $CUDA_VISIBLE_DEVICES"
 export CUDA_LAUNCH_BLOCKING=1
 export TORCH_USE_CUDA_DSA=1
 
-# NOTE ALL THE SCHEDULER PARAMETERS MUST BE THE SAME AS THE PARAMETERS USED FOR TRAINING
+# NOTE IF A SCHEDULER IS USED FOR TRAINING, IT MUST ALSO BE PUT AS A PARAMETER FOR TESTING
 # OTHERWISE THE ACCELERATOR WON'T LOAD PROPERLY
 
 # Launch testing with accelerate for LoRA strategy
@@ -33,5 +33,5 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml train.py \
     --project "omni-classifier-lora-test" \
     --gradient_accumulation_steps 8 \
     --use_scheduler \
-    
+
 echo "LoRA testing completed!"

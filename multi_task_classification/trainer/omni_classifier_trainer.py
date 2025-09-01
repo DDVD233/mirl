@@ -49,6 +49,7 @@ class OmniClassifierAccelerateTrainer:
         self.epochs = epochs
         self.model = model
         self.label_key = config.get("label_key", "answer")
+
         
         # Store global configuration for access to constants
         self.global_config = global_config or {}
@@ -64,6 +65,7 @@ class OmniClassifierAccelerateTrainer:
         # Checkpoint IO setup
         self.checkpoint_dir = save_checkpoint_dir
         self.load_checkpoint_path = load_checkpoint_path
+        self.validation_result_dir = self.global_config.get('VALIDATION_RESULT_DIR', None)
 
         # Training state
         self.best_val_acc = 0.0
@@ -106,6 +108,9 @@ class OmniClassifierAccelerateTrainer:
             "validate_every_n_steps": self.global_config.get('VALIDATE_EVERY_N_STEPS', None),
             "save_every_n_epochs": self.global_config.get('SAVE_EVERY_N_EPOCHS', None),
             "save_every_n_steps": self.global_config.get('SAVE_EVERY_N_STEPS', None),
+            "validation_result_dir": self.validation_result_dir,
+            "save_checkpoint_dir": self.checkpoint_dir,
+            "load_checkpoint_path": self.load_checkpoint_path,
             "early_stopping_patience": self.global_config.get('EARLY_STOPPING_PATIENCE', 0),
             "save_best_model": self.global_config.get('SAVE_BEST_MODEL', True),
             "num_workers": self.num_workers,
@@ -300,13 +305,12 @@ class OmniClassifierAccelerateTrainer:
         
         # Use the new evaluation module (only on main process)
         if self.accelerator.is_main_process:
-            validation_result_dir = self.global_config.get('VALIDATION_RESULT_DIR', None)
             evaluation_results = evaluate_predictions(
                 predictions=all_predictions,
                 ground_truths=all_labels,
                 datasets=all_datasets if all_datasets else None,
                 split_name=split_name,
-                save_path=validation_result_dir,
+                save_path=self.validation_result_dir,
             )
             
             # Extract aggregate metrics (aligned with multi_task_evaluation)
