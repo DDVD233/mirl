@@ -683,7 +683,7 @@ class OmniClassifierAccelerateTrainer:
         test_results = self.validate(test_dataloader, "test")
         
         if test_results is not None:
-            print(f"\Overall TEST RESULTS:")
+            print(f"\nOverall TEST RESULTS:")
             print(f"Test Loss: {test_results['loss']:.4f}")
             print(f"Test Micro Accuracy: {test_results['accuracy']:.4f}")
             print(f"Test Micro Precision: {test_results['precision']:.4f}")
