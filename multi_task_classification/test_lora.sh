@@ -13,6 +13,9 @@ echo "Using GPUs: $CUDA_VISIBLE_DEVICES"
 export CUDA_LAUNCH_BLOCKING=1
 export TORCH_USE_CUDA_DSA=1
 
+# NOTE ALL THE SCHEDULER PARAMETERS MUST BE THE SAME AS THE PARAMETERS USED FOR TRAINING
+# OTHERWISE THE ACCELERATOR WON'T LOAD PROPERLY
+
 # Launch testing with accelerate for LoRA strategy
 echo "Launching LoRA testing with Accelerate..."
 accelerate launch --config_file configs/accelerate_config_qwen.yaml train.py \
@@ -28,6 +31,9 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml train.py \
     --label_map_path "/home/keaneong/human-behavior/verl/multi_task_classification/final_unified_scheme_binarymmpsy_no_vptd_chalearn_lmvd_esconv_full_label_map.json" \
     --load_checkpoint_path "/scratch/keane/human_behaviour/2_lr_unified_scheme_full_lora_training/step_26094" \
     --project "omni-classifier-lora-test" \
-    --gradient_accumulation_steps 8
+    --gradient_accumulation_steps 8 \
+    --use_scheduler \
+    --scheduler_type cosine \
+    --warmup_steps 50
 
 echo "LoRA testing completed!"
