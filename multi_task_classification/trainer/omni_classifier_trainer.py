@@ -21,7 +21,8 @@ from mt_dataset.omni_classifier_dataset import OmniClassifierDataset
 from verl.utils.dataset.rl_dataset import collate_fn
 from utils.wandb_utils import init_wandb, log_metrics, finish
 from utils.logger import log_batch_training_metrics, log_validation_results, log_epoch_training_metrics
-from evaluate.multi_task_evaluation import evaluate_predictions
+# from evaluate.multi_task_evaluation import evaluate_predictions
+from evaluate.detailed_multi_task_evaluation import evaluate_predictions
 
 # Accelerate imports
 from accelerate import Accelerator
