@@ -28,7 +28,7 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml train.py \
     --val_file "/scratch/keane/human_behaviour/human_behaviour_data/0.01_audio_sigs_train_meld.jsonl" \
     --test_file "/scratch/keane/human_behaviour/human_behaviour_data/0.01_audio_sigs_train_meld.jsonl" \
     --label_map_path "/home/keaneong/human-behavior/verl/multi_task_classification/meld_label_map.json" \
-    --validation_result_dir "/scratch/keane/human_behaviour/2_lr_unified_scheme_full_lora_training/validation_results" \
+    --validation_result_dir "/scratch/keane/human_behaviour/test_debug_head_only_training/validation_results" \
     --load_checkpoint_path "/scratch/keane/human_behaviour/test_debug_head_only_training/step_3" \
     --epochs 1 \
     --project "omni-classifier-lora-test" \

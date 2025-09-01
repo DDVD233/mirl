@@ -4,7 +4,7 @@ import os
 from collections import defaultdict
 from typing import Dict, List, Optional
 import numpy as np
-
+import torch
 from helper_emo import compute_emotion_weighted_accuracies
 from helper_senti import compute_sentiment_collapsed_metrics
 
@@ -16,6 +16,25 @@ def _safe_div(num: float, den: float) -> float:
 def _accuracy(y_pred: List[int], y_true: List[int]) -> float:
     y_pred = np.asarray(y_pred); y_true = np.asarray(y_true)
     return float((y_pred == y_true).sum()) / float(max(1, y_true.size))
+
+
+def to_jsonable(o):
+    # tensors
+    if isinstance(o, torch.Tensor):
+        return o.detach().cpu().tolist() if o.dim() or o.numel() > 1 else o.detach().cpu().item()
+    # numpy scalars/arrays
+    if isinstance(o, np.generic):
+        return o.item()
+    if isinstance(o, np.ndarray):
+        return o.tolist()
+    # containers
+    if isinstance(o, (list, tuple, set)):
+        return [to_jsonable(x) for x in o]
+    if isinstance(o, dict):
+        return {str(k): to_jsonable(v) for k, v in o.items()}
+    # fallback: leave Python-native types as-is
+    return o
+
 
 def _build_index_to_label(meta: Optional[Dict]) -> Dict[int, str]:
     """
@@ -156,11 +175,19 @@ def compute_metrics_by_dataset(
     global_steps: Optional[int] = None,
     meta_config: Optional[Dict] = None,   # pass your JSON["meta"]
 ) -> Dict[str, float]:
+
+   # Save predictions and ground truths if save_path is provided
     if save_path and global_steps is not None:
-        global_steps = str(global_steps)
         os.makedirs(save_path, exist_ok=True)
+        payload = {
+                    "predictions": predictions,
+                    "ground_truths": ground_truths,
+                    "datasets": datasets,
+                }
+        payload = to_jsonable(payload)
         with open(os.path.join(save_path, f"val_generations_{global_steps}.json"), "w") as f:
-            json.dump({"predictions": predictions, "ground_truths": ground_truths, "datasets": datasets}, f, indent=4)
+            json.dump(payload, f, indent=2, ensure_ascii=False)
+
     # DOMAIN SHOULD ALREADY BE DEFINED IN THE META DATA; we need to be careful about the meta file though; as it has strict format
     dataset_to_domain = meta_config.get("dataset_domain", {}) if meta_config else {}
     index_to_label = _build_index_to_label(meta_config) if meta_config else {}
