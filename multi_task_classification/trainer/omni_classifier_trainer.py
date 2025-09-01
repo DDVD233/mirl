@@ -174,16 +174,18 @@ class OmniClassifierAccelerateTrainer:
 
         accelerator.wait_for_everyone()
 
-        # 2) Minimal meta sidecar
-        meta = {
-            "epoch": int(epoch),
-            "global_step": int(global_step),
-            "len_train_dataloader": int(len_train_dataloader),
-            "training_strategy": str(training_strategy),
-            "saved_at_unix": time.time(),
-        }
-        with open(os.path.join(ckpt_dir, "meta.json"), "w") as f:
-            json.dump(meta, f, indent=2)
+        # only save this in the main process
+        if accelerator.is_main_process:
+            # 2) Minimal meta sidecar
+            meta = {
+                "epoch": int(epoch),
+                "global_step": int(global_step),
+                "len_train_dataloader": int(len_train_dataloader),
+                "training_strategy": str(training_strategy),
+                "saved_at_unix": time.time(),
+            }
+            with open(os.path.join(ckpt_dir, "meta.json"), "w") as f:
+                json.dump(meta, f, indent=2)
 
         accelerator.print(f"[save] checkpoint @ step {global_step} → {ckpt_dir}")
 
@@ -698,5 +700,5 @@ class OmniClassifierAccelerateTrainer:
                 )
         
             return test_results
-            
+
         return None
