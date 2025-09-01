@@ -175,6 +175,7 @@ def compute_metrics_by_dataset(
     
     # Save predictions and ground truths if save_path is provided
     if save_path and global_steps is not None:
+        global_steps = str(global_steps)
         os.makedirs(save_path, exist_ok=True)
         with open(os.path.join(save_path, f"val_generations_{global_steps}.json"), "w") as f:
             json.dump(

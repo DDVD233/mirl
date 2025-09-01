@@ -31,15 +31,15 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml train.py \
     --val_batch_size 2 \
     --test_batch_size 2 \
     --lr 1e-2 \
-    --epochs 3 \
+    --epochs 4 \
     --train_file "/scratch/keane/human_behaviour/human_behaviour_data/0.01_audio_sigs_train_meld.jsonl" \
     --val_file "/scratch/keane/human_behaviour/human_behaviour_data/0.01_audio_sigs_train_meld.jsonl" \
     --test_file "/scratch/keane/human_behaviour/human_behaviour_data/0.01_audio_sigs_train_meld.jsonl" \
     --label_map_path "/home/keaneong/human-behavior/verl/multi_task_classification/meld_label_map.json" \
     --save_every_n_epochs 1 \
-    --save_checkpoint_dir "/scratch/keane/human_behaviour/test_debug_head_only_training" \
-    --validate_every_n_epochs None \
-    --validate_every_n_steps None \
+    --save_checkpoint_dir "/scratch/keane/human_behaviour/2_test_debug_head_only_training" \
+    --validate_every_n_epochs 1 \
+    --validate_every_n_steps 2 \
     --early_stopping_patience 99999 \
     --project "omni-classifier-head-only" \
     --gradient_accumulation_steps 1 \

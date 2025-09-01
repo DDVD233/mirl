@@ -157,6 +157,7 @@ def compute_metrics_by_dataset(
     meta_config: Optional[Dict] = None,   # pass your JSON["meta"]
 ) -> Dict[str, float]:
     if save_path and global_steps is not None:
+        global_steps = str(global_steps)
         os.makedirs(save_path, exist_ok=True)
         with open(os.path.join(save_path, f"val_generations_{global_steps}.json"), "w") as f:
             json.dump({"predictions": predictions, "ground_truths": ground_truths, "datasets": datasets}, f, indent=4)
