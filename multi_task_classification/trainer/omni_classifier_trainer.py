@@ -701,7 +701,7 @@ class OmniClassifierAccelerateTrainer:
             expect_training_strategy=self.global_config.get("TRAINING_STRATEGY"),
         )
 
-        raise(self.validation_result_dir)
+        raise Exception(print(self.validation_result_dir))
 
         test_results = self.validate(test_dataloader, "test")
         
