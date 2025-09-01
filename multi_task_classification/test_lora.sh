@@ -33,7 +33,5 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml train.py \
     --project "omni-classifier-lora-test" \
     --gradient_accumulation_steps 8 \
     --use_scheduler \
-    --scheduler_type cosine \
-    --warmup_steps 50
-
+    
 echo "LoRA testing completed!"
