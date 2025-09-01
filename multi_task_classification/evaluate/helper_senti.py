@@ -57,10 +57,11 @@ def _translate_global_to_pos(seq: List[int], meta: Dict) -> List[int]:
     _, _, g2p = _order_sentiment_labels(meta)
     out = []
     for v in seq:
-        if v not in g2p:
-            # ignore non-sentiment labels here; caller should filter prior
-            raise ValueError(f"Non-sentiment global index {v} passed into sentiment collapse.")
-        out.append(g2p[v])
+        if v in g2p:
+            out.append(g2p[v])
+        else:
+            out.append(-1)
+        
     return out
 
 def _collapse_positions(seq_pos: List[int], mode: int, meta: Dict) -> List[int]:
@@ -90,15 +91,18 @@ def _collapse_positions(seq_pos: List[int], mode: int, meta: Dict) -> List[int]:
             elif v == max(POS):      # HPOS at canonical position 6
                 out.append(4)
             else:
-                # Shouldn't happen
-                out.append(1 if v in NEG else 3)
+                # if its not inside then it should be wrong; i.e. append -1
+                out.append(-1)
         elif mode == 3:
             if v in NEG:
                 out.append(0)
             elif v in NEU:
                 out.append(1)
-            else:
+            elif v in POS:
                 out.append(2)
+            else:
+                out.append(-1)
+                
         elif mode == 2:
             # Binary collapse: POS → 1, NEG → 0
             # NOTE: Neutral is *excluded* here. Handle separately if needed.
@@ -108,7 +112,8 @@ def _collapse_positions(seq_pos: List[int], mode: int, meta: Dict) -> List[int]:
                 out.append(0)
             else:
                 # Neutral (or anything unexpected)
-                out.append(None)
+                # Append the wrong position index
+                out.append(-1)
         else:
             raise ValueError(f"Unsupported sentiment collapse mode: {mode}")
     return out

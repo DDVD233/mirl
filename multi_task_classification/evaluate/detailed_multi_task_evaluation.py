@@ -7,6 +7,8 @@ import numpy as np
 import torch
 from .helper_emo import compute_emotion_weighted_accuracies
 from .helper_senti import compute_sentiment_collapsed_metrics
+# from helper_emo import compute_emotion_weighted_accuracies
+# from helper_senti import compute_sentiment_collapsed_metrics
 
 # =============== utilities ===============
 
@@ -297,7 +299,7 @@ if __name__ == "__main__":
     NO_PTSD, PTSD, NO_DEP, DEP, NO_ANX, ANX = 15, 16, 17, 18, 19, 20
 
     predictions = [
-        NEG, NEU, POS, WNEG, HPOS,  # chsimsv2
+        NEG, FEAR, POS, WNEG, HPOS,  # chsimsv2
         NEG, NEG, HPOS, NEU, WPOS,  # mosei_senti
         ANGER, ENEUT, ENEUT, SAD, HAPPY,  # meld
         CALM, SURPRISE, HAPPY, FEAR,      # ravdess
