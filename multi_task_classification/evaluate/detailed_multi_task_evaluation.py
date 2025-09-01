@@ -5,8 +5,8 @@ from collections import defaultdict
 from typing import Dict, List, Optional
 import numpy as np
 import torch
-from helper_emo import compute_emotion_weighted_accuracies
-from helper_senti import compute_sentiment_collapsed_metrics
+from .helper_emo import compute_emotion_weighted_accuracies
+from .helper_senti import compute_sentiment_collapsed_metrics
 
 # =============== utilities ===============
 
@@ -237,8 +237,7 @@ def compute_metrics_by_dataset(
                 class_name = wa_cm["class_name"]  # e.g., "anger", "pleasant_surprise"
                 result[f"{dataset_name}/{class_name}/emotion_weighted_accuracy"] = wa_cm["weighted_accuracy"]
 
-        # mental_health -> defaults should be already adequate
-    # NOTE: When you have appended these new metrics, you need to examine how to log them.
+
     return result
 
 # =============== public entry point ===============
