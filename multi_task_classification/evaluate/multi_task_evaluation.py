@@ -4,10 +4,30 @@ from collections import defaultdict
 from typing import Dict, List, Optional, Tuple
 import numpy as np
 from sklearn.metrics import confusion_matrix
+import torch
+
 
 def _safe_div(num: float, den: float) -> float:
     """Safe division that returns 0.0 if denominator is 0."""
     return num / den if den > 0 else 0.0
+
+def to_jsonable(o):
+    # tensors
+    if isinstance(o, torch.Tensor):
+        return o.detach().cpu().tolist() if o.dim() or o.numel() > 1 else o.detach().cpu().item()
+    # numpy scalars/arrays
+    if isinstance(o, np.generic):
+        return o.item()
+    if isinstance(o, np.ndarray):
+        return o.tolist()
+    # containers
+    if isinstance(o, (list, tuple, set)):
+        return [to_jsonable(x) for x in o]
+    if isinstance(o, dict):
+        return {str(k): to_jsonable(v) for k, v in o.items()}
+    # fallback: leave Python-native types as-is
+    return o
+
 
 def compute_class_counts_and_metrics(
     predictions: List[int],
@@ -175,18 +195,15 @@ def compute_metrics_by_dataset(
     
     # Save predictions and ground truths if save_path is provided
     if save_path and global_steps is not None:
-        global_steps = str(global_steps)
         os.makedirs(save_path, exist_ok=True)
-        with open(os.path.join(save_path, f"val_generations_{global_steps}.json"), "w") as f:
-            json.dump(
-                {
+        payload = {
                     "predictions": predictions,
                     "ground_truths": ground_truths,
                     "datasets": datasets,
-                },
-                f,
-                indent=4,
-            )
+                }
+        payload = to_jsonable(payload)
+        with open(os.path.join(save_path, f"val_generations_{global_steps}.json"), "w") as f:
+            json.dump(payload, f, indent=2, ensure_ascii=False)
 
     # Group by dataset
     grouped = defaultdict(lambda: {"preds": [], "gts": []})
