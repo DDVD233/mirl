@@ -21,9 +21,11 @@ export TORCH_USE_CUDA_DSA=1
 
 echo "Launching LoRA training with Accelerate..."
 accelerate launch --config_file configs/accelerate_config_qwen.yaml train.py \
+    --mode train \
     --training_strategy lora \
     --train_batch_size 2 \
     --val_batch_size 2 \
+    --test_batch_size 2 \
     --train_file "/scratch/keane/human_behaviour/human_behaviour_data/audio_sigs_train_chsimsv2_only.jsonl" \
     --val_file "/scratch/keane/human_behaviour/human_behaviour_data/audio_sigs_val_chsimsv2_only.jsonl" \
     --test_file "/scratch/keane/human_behaviour/human_behaviour_data/audio_sigs_test_chsimsv2_only.jsonl" \
@@ -31,6 +33,7 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml train.py \
     --lr 7e-5 \
     --epochs 20 \
     --save_checkpoint_dir "/scratch/keane/human_behaviour/debug_chsimsv2_lora_training" \
+    --validation_result_dir "/scratch/keane/human_behaviour/debug_chsimsv2_lora_validation_results" \
     --save_every_n_epochs None \
     --save_every_n_steps 2 \
     --validate_every_n_steps 99999 \

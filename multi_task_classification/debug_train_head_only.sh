@@ -21,9 +21,11 @@ export TORCH_USE_CUDA_DSA=1
 # Launch training with accelerate for head_only strategy
 echo "Launching head_only training with Accelerate..."
 accelerate launch --config_file configs/accelerate_config_qwen.yaml train.py \
+    --mode train \
     --training_strategy lora \
     --train_batch_size 2 \
     --val_batch_size 2 \
+    --test_batch_size 2 \
     --lr 1e-2 \
     --epochs 3 \
     --train_file "/scratch/keane/human_behaviour/human_behaviour_data/0.01_audio_sigs_train_meld.jsonl" \

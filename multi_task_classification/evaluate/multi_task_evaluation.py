@@ -269,7 +269,7 @@ def evaluate_predictions(
     
     # Add per-dataset metrics if datasets are provided
     
-    # TODO: Double check
+
     per_dataset_metrics = compute_metrics_by_dataset(
         predictions=predictions, 
         ground_truths=ground_truths, 

@@ -32,16 +32,17 @@ logger = get_logger(__name__)
 
 class OmniClassifierAccelerateTrainer:
     def __init__(self, data_files, val_data_files, test_data_files, tokenizer, processor, config, 
-                 batch_size, val_batch_size, lr, epochs, save_checkpoint_dir, load_checkpoint_path, model, 
+                 batch_size, val_batch_size, test_batch_size, lr, epochs, save_checkpoint_dir, load_checkpoint_path, model, 
                  gradient_accumulation_steps, num_workers=0, use_lora=False, global_config=None):
         self.data_files = data_files
         self.val_data_files = val_data_files
         self.test_data_files = test_data_files
         self.tokenizer = tokenizer
         self.processor = processor
-        self.config = config
+        self.config = config # basically the config for the dataset
         self.batch_size = batch_size
         self.val_batch_size = val_batch_size
+        self.test_batch_size = test_batch_size
         self.gradient_accumulation_steps = gradient_accumulation_steps
         self.num_workers = num_workers
         self.lr = lr
@@ -95,6 +96,7 @@ class OmniClassifierAccelerateTrainer:
             "training_strategy": self.global_config.get('TRAINING_STRATEGY', ''),
             "batch_size": self.batch_size,
             "val_batch_size": self.val_batch_size,
+            "test_batch_size": self.test_batch_size,
             "gradient_accumulation_steps": self.gradient_accumulation_steps,
             "effective_batch_size": self.batch_size * self.gradient_accumulation_steps * self.accelerator.num_processes,
             "learning_rate": self.lr,
@@ -288,12 +290,13 @@ class OmniClassifierAccelerateTrainer:
         
         # Use the new evaluation module (only on main process)
         if self.accelerator.is_main_process:
+            validation_result_dir = self.global_config.get('VALIDATION_RESULT_DIR', None)
             evaluation_results = evaluate_predictions(
                 predictions=all_predictions,
                 ground_truths=all_labels,
                 datasets=all_datasets if all_datasets else None,
-                # global_num_classes=num_classes,
                 split_name=split_name,
+                save_path=validation_result_dir,
             )
             
             # Extract aggregate metrics (aligned with multi_task_evaluation)
@@ -358,7 +361,7 @@ class OmniClassifierAccelerateTrainer:
                 self.model, optimizer, train_dataloader, val_dataloader
             )
 
-        start_epoch, start_batch_offset, start_global_step, meta, ckpt_dir = self.load_checkpoint_unified(
+        start_epoch, start_batch_offset, _, _, _ = self.load_checkpoint_unified(
             accelerator=self.accelerator,
             model=self.model,
             base_ckpt_dir=self.checkpoint_dir,
@@ -478,7 +481,6 @@ class OmniClassifierAccelerateTrainer:
                     # Check if this completes an effective batch (gradient update)
                     # An effective batch consists of gradient_accumulation_steps individual batches
        
-                   
                     # Log training metrics for the effective batch
                     log_batch_training_metrics(
                         epoch=epoch,
@@ -599,7 +601,9 @@ class OmniClassifierAccelerateTrainer:
                         use_wandb=use_wandb
                     )
             else:
+
                 # Log only training metrics
+                # NOTE: it should already have the main process check inside.
                 log_epoch_training_metrics(
                     epoch=epoch,
                     avg_train_loss=avg_train_loss,
@@ -641,7 +645,7 @@ class OmniClassifierAccelerateTrainer:
             return None
             
         print("\n" + "="*50)
-        print("STARTING TESTING PHASE")
+        print("STARTING TESTING PHASE   ")
         print("="*50)
         
         # Load best model if available
@@ -661,17 +665,30 @@ class OmniClassifierAccelerateTrainer:
         else:
             print("No best model found, using current model state")
         
-        test_dataloader = self.get_dataloader(self.test_data_files, self.val_batch_size, shuffle=False)
-        test_dataloader = self.accelerator.prepare(test_dataloader)
+        test_dataloader = self.get_dataloader(self.test_data_files, self.test_batch_size, num_workers=self.num_workers, shuffle=False)
+
+        # everything should be prepared again by accelerator, including the model
+        self.model, test_dataloader = self.accelerator.prepare(self.model, test_dataloader)
+        
+        # loading of the model etc. 
+
+        _, _, _, _, _ = self.load_checkpoint_unified(
+            accelerator=self.accelerator,
+            model=self.model,
+            base_ckpt_dir=self.checkpoint_dir, # essentially the save path; ignored if we specified load_checkpoint_path
+            explicit_dir=self.load_checkpoint_path or None,
+            expect_training_strategy=self.global_config.get("TRAINING_STRATEGY"),
+        )
+
         test_results = self.validate(test_dataloader, "test")
         
         if test_results is not None:
-            print(f"\nFINAL TEST RESULTS:")
+            print(f"\Overall TEST RESULTS:")
             print(f"Test Loss: {test_results['loss']:.4f}")
-            print(f"Test Accuracy: {test_results['accuracy']:.4f}")
-            print(f"Test Precision: {test_results['precision']:.4f}")
-            print(f"Test Recall: {test_results['recall']:.4f}")
-            print(f"Test F1: {test_results['f1']:.4f}")
+            print(f"Test Micro Accuracy: {test_results['accuracy']:.4f}")
+            print(f"Test Micro Precision: {test_results['precision']:.4f}")
+            print(f"Test Micro Recall: {test_results['recall']:.4f}")
+            print(f"Test Micro F1: {test_results['f1']:.4f}")
             
             # Print detailed aggregate metrics
             aggregate_metrics = test_results['aggregate_metrics']
@@ -683,27 +700,14 @@ class OmniClassifierAccelerateTrainer:
             
             # Log test results to wandb
             use_wandb = self.global_config.get('USE_WANDB', False)
-            if use_wandb:
-                # Log scalar metrics
-                tm = {
-                    'loss': test_results['loss'],
-                    'accuracy': test_results['accuracy'],
-                    'precision': test_results['precision'],
-                    'recall': test_results['recall'],
-                    'f1': test_results['f1'],
-                }
-                for key, value in test_results['aggregate_metrics'].items():
-                    tm[key] = value
-                # Calculate final step for test logging;
-                # just log to 0 for now
-                # final_step = self.epochs * len(train_dataloader)
-                final_step = 0
-                log_metrics('test', tm, step=final_step)
-                # Per-dataset
-                if 'per_dataset_metrics' in test_results['evaluation_results']:
-                    log_metrics('test', test_results['evaluation_results']['per_dataset_metrics'], step=final_step)
-                # Finish wandb run
-                finish()
-            
+    
+            log_validation_results(
+                    val_results=test_results,
+                    current_step=0,
+                    split_name="test",
+                    accelerator=self.accelerator,
+                    use_wandb=use_wandb
+                )
+        
             return test_results
         return None

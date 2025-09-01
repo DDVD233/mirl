@@ -1,11 +1,11 @@
 #!/bin/bash
 
-# Shell script for full training strategy
-# This script launches training with all model parameters being updated
+# Shell script for full model testing strategy
+# This script launches testing with all model parameters
 
-echo "Starting full model training..."
+echo "Starting full model testing..."
 
-# Set CUDA_VISIBLE_DEVICES to use GPUs 2 and 3
+# Set CUDA_VISIBLE_DEVICES to use GPUs 0 and 1
 export CUDA_VISIBLE_DEVICES="0,1"
 echo "Using GPUs: $CUDA_VISIBLE_DEVICES"
 
@@ -13,10 +13,10 @@ echo "Using GPUs: $CUDA_VISIBLE_DEVICES"
 export CUDA_LAUNCH_BLOCKING=1
 export TORCH_USE_CUDA_DSA=1
 
-# Launch training with accelerate for full strategy
-echo "Launching full model training with Accelerate..."
+# Launch testing with accelerate for full strategy
+echo "Launching full model testing with Accelerate..."
 accelerate launch --config_file configs/accelerate_config_qwen.yaml train.py \
-    --mode train \
+    --mode test \
     --training_strategy full \
     --train_file "/scratch/keane/human_behaviour/human_behaviour_data/audio_sigs_train_meld.jsonl" \
     --val_file "/scratch/keane/human_behaviour/human_behaviour_data/audio_sigs_val_meld.jsonl" \
@@ -25,16 +25,8 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml train.py \
     --train_batch_size 2 \
     --val_batch_size 2 \
     --test_batch_size 2 \
-    --lr 1e-6 \
-    --epochs 2 \
-    --save_checkpoint_dir "/scratch/keane/human_behaviour/omni_full_training" \
-    --validate_every_n_epochs None \
-    --validate_every_n_steps 100 \
-    --early_stopping_patience 99999999 \
-    --project "omni-classifier-full" \
-    --gradient_accumulation_steps 64 \
-    --use_scheduler \
-    --scheduler_type cosine \
-    --warmup_steps 200
+    --load_checkpoint_path "/scratch/keane/human_behaviour/omni_full_training/checkpoint_epoch_1.pt" \
+    --project "omni-classifier-full-test" \
+    --gradient_accumulation_steps 64
 
-echo "Full model training completed!"
+echo "Full model testing completed!"

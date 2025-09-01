@@ -19,9 +19,11 @@ export TORCH_USE_CUDA_DSA=1
 # Launch training with accelerate for LoRA strategy
 echo "Launching LoRA training with Accelerate..."
 accelerate launch --config_file configs/accelerate_config_qwen.yaml train.py \
+    --mode train \
     --training_strategy lora \
     --train_batch_size 2 \
     --val_batch_size 2 \
+    --test_batch_size 2 \
     --train_file "/scratch/keane/human_behaviour/human_behaviour_data/unified_scheme_train.jsonl" \
     --val_file "/scratch/keane/human_behaviour/human_behaviour_data/unified_scheme_val.jsonl" \
     --test_file "/scratch/keane/human_behaviour/human_behaviour_data/unified_scheme_test.jsonl" \

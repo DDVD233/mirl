@@ -51,10 +51,12 @@ def parse_parameters():
     # Training parameters
     parser.add_argument('--train_batch_size', type=int, help='Training batch size')
     parser.add_argument('--val_batch_size', type=int, help='Validation batch size')
+    parser.add_argument('--test_batch_size', type=int, help='Test batch size')
     parser.add_argument('--lr', type=float, help='Learning rate')
     parser.add_argument('--epochs', type=int, help='Number of training epochs')
     parser.add_argument('--save_checkpoint_dir', type=str, help='Directory to save checkpoints')
     parser.add_argument('--load_checkpoint_path', type=str, help='Path to load checkpoint from')
+    parser.add_argument('--validation_result_dir', type=str, help='Directory to save validation results')
     parser.add_argument('--save_every_n_epochs', type=str, help='Save checkpoint every N epochs')
     parser.add_argument('--save_every_n_steps', type=str, help='Save checkpoint every N steps (use "None" to disable)')
     parser.add_argument('--debug_dry_run', action='store_true', help='Enable debug dry run mode')
@@ -96,6 +98,10 @@ def parse_parameters():
     
     # System parameters
     parser.add_argument('--cuda_visible_devices', type=str, help='CUDA visible devices')
+    
+    # Mode parameter
+    parser.add_argument('--mode', type=str, choices=['train', 'test'], default='train',
+                       help='Mode: train or test')
     
     # Config file
     parser.add_argument('--config', type=str, default='configs/config_accelerate.yaml', 
@@ -144,6 +150,8 @@ def parse_parameters():
         cfg.train.train_batch_size = args.train_batch_size
     if args.val_batch_size is not None:
         cfg.train.val_batch_size = args.val_batch_size
+    if args.test_batch_size is not None:
+        cfg.train.test_batch_size = args.test_batch_size
     if args.lr is not None:
         cfg.train.lr = args.lr
     if args.epochs is not None:
@@ -152,6 +160,8 @@ def parse_parameters():
         cfg.train.save_checkpoint_dir = args.save_checkpoint_dir
     if args.load_checkpoint_path is not None:
         cfg.train.load_checkpoint_path = args.load_checkpoint_path
+    if args.validation_result_dir is not None:
+        cfg.train.validation_result_dir = args.validation_result_dir
     if args.save_every_n_epochs is not None:
         cfg.train.save_every_n_epochs = args.save_every_n_epochs
     if args.save_every_n_steps is not None:
@@ -222,6 +232,13 @@ def parse_parameters():
             cfg.system = OmegaConf.create({})
         cfg.system.cuda_visible_devices = args.cuda_visible_devices
     
+    # Mode parameter
+    if args.mode is not None:
+        if not hasattr(cfg, 'mode'):
+            cfg.mode = args.mode
+        else:
+            cfg.mode = args.mode
+    
     # Parse all parameters
     params = {}
     
@@ -251,10 +268,12 @@ def parse_parameters():
     # Training parameters
     params['train_batch_size'] = cfg.train.train_batch_size
     params['val_batch_size'] = cfg.train.val_batch_size
+    params['test_batch_size'] = cfg.train.test_batch_size
     params['lr'] = float(cfg.train.lr)
     params['epochs'] = int(cfg.train.epochs)
     params['save_checkpoint_dir'] = cfg.train.save_checkpoint_dir
     params['load_checkpoint_path'] = cfg.train.load_checkpoint_path
+    params['validation_result_dir'] = cfg.train.validation_result_dir
     params['save_every_n_epochs'] = cfg.train.save_every_n_epochs
     params['save_every_n_steps'] = cfg.train.save_every_n_steps
 
@@ -319,7 +338,11 @@ def parse_parameters():
     # Dataset config
     params['dataset_config'] = OmegaConf.create(dict(cfg.dataset_config))
     
+    # Mode parameter
+    params['mode'] = getattr(cfg, 'mode', 'train')
+    
     # Print configuration summary
+    print(f"[INFO] Mode: {params['mode']}")
     print(f"[INFO] Training strategy: {params['training_strategy']}")
     print(f"[INFO] Loaded label mapping with {params['num_classes']} classes from {params['label_map_path']}")
     print(f"[INFO] Available datasets: {', '.join(label_config['datasets'])}")
@@ -327,18 +350,19 @@ def parse_parameters():
     print(f"[INFO] Data loading: {params['num_workers']} worker processes (0 = single-threaded, {params['num_workers']}+ = multi-threaded)")
     print(f"[INFO] Learning rate: {params['lr']}")
     print(f"[INFO] Epochs: {params['epochs']}")
-    print(f"[INFO] Save checkpoint dir: {params['save_checkpoint_dir']}")
-    print(f"[INFO] Save every N epochs: {params['save_every_n_epochs']}")
-    print(f"[INFO] Save every N steps: {params['save_every_n_steps']}")
-    print(f"[INFO] Scheduler: {'Enabled' if params['use_scheduler'] else 'Disabled'}")
-    if params['use_scheduler']:
-        print(f"[INFO] Scheduler type: {params['scheduler_type']}")
-        print(f"[INFO] Warmup steps: {params['warmup_steps']}")
+    if params['mode'] == 'train':
+        print(f"[INFO] Save checkpoint dir: {params['save_checkpoint_dir']}")
+        print(f"[INFO] Save every N epochs: {params['save_every_n_epochs']}")
+        print(f"[INFO] Save every N steps: {params['save_every_n_steps']}")
+        print(f"[INFO] Scheduler: {'Enabled' if params['use_scheduler'] else 'Disabled'}")
+        if params['use_scheduler']:
+            print(f"[INFO] Scheduler type: {params['scheduler_type']}")
+            print(f"[INFO] Warmup steps: {params['warmup_steps']}")
+        print(f"[INFO] Validate every N epochs: {params['validate_every_n_epochs']}")
+        print(f"[INFO] Validate every N steps: {params['validate_every_n_steps']}")
+        print(f"[INFO] Early stopping patience: {params['early_stopping_patience']}")
     if params['load_checkpoint_path']:
         print(f"[INFO] Load checkpoint path: {params['load_checkpoint_path']}")
-    print(f"[INFO] Validate every N epochs: {params['validate_every_n_epochs']}")
-    print(f"[INFO] Validate every N steps: {params['validate_every_n_steps']}")
-    print(f"[INFO] Early stopping patience: {params['early_stopping_patience']}")
     print(f"[INFO] Wandb project: {params['wandb_project']}")
     
     return params, label_config
@@ -358,10 +382,12 @@ def main():
     TORCH_DTYPE = params['torch_dtype']
     TRAIN_BATCH_SIZE = params['train_batch_size']
     VAL_BATCH_SIZE = params['val_batch_size']
+    TEST_BATCH_SIZE = params['test_batch_size']
     LR = params['lr']
     EPOCHS = params['epochs']
     SAVE_CHECKPOINT_DIR = params['save_checkpoint_dir']
     LOAD_CHECKPOINT_PATH = params['load_checkpoint_path']
+    VALIDATION_RESULT_DIR = params['validation_result_dir']
     SAVE_EVERY_N_EPOCHS = params['save_every_n_epochs']
     SAVE_EVERY_N_STEPS = params['save_every_n_steps']
     DEBUG_DRY_RUN = params['debug_dry_run']
@@ -379,6 +405,7 @@ def main():
     NUM_CLASSES = params['num_classes']
     LORA_CONFIG = params['lora_config']
     config = params['dataset_config']
+    MODE = params['mode']
 
 
     # Load tokenizer and processor
@@ -415,10 +442,12 @@ def main():
         'TORCH_DTYPE': TORCH_DTYPE,
         'TRAIN_BATCH_SIZE': TRAIN_BATCH_SIZE,
         'VAL_BATCH_SIZE': VAL_BATCH_SIZE,
+        'TEST_BATCH_SIZE': TEST_BATCH_SIZE,
         'LR': LR,
         'EPOCHS': EPOCHS,
         'SAVE_CHECKPOINT_DIR': SAVE_CHECKPOINT_DIR,
         'LOAD_CHECKPOINT_PATH': LOAD_CHECKPOINT_PATH,
+        'VALIDATION_RESULT_DIR': VALIDATION_RESULT_DIR,
         'SAVE_EVERY_N_EPOCHS': SAVE_EVERY_N_EPOCHS,
         'SAVE_EVERY_N_STEPS': SAVE_EVERY_N_STEPS,
         'DEBUG_DRY_RUN': DEBUG_DRY_RUN,
@@ -438,7 +467,8 @@ def main():
         'label_config': label_config,
         'USE_SCHEDULER': params['use_scheduler'],
         'SCHEDULER_TYPE': params['scheduler_type'],
-        'WARMUP_STEPS': params['warmup_steps']
+        'WARMUP_STEPS': params['warmup_steps'],
+        'MODE': MODE
     }
     
     trainer = OmniClassifierAccelerateTrainer(
@@ -450,6 +480,7 @@ def main():
         config=config,
         batch_size=TRAIN_BATCH_SIZE,
         val_batch_size=VAL_BATCH_SIZE,
+        test_batch_size=TEST_BATCH_SIZE,
         lr=LR,
         epochs=EPOCHS,
         save_checkpoint_dir=SAVE_CHECKPOINT_DIR,
@@ -460,11 +491,16 @@ def main():
         global_config=global_config
     )
     
-    # Training with validation
-    trainer.train()
-    
-    # Testing
-    # test_results = trainer.test()
+    # Execute based on mode
+    if MODE == 'train':
+        print(f"[INFO] Starting training mode...")
+        trainer.train()
+    elif MODE == 'test':
+        print(f"[INFO] Starting testing mode...")
+        test_results = trainer.test()
+        print(f"[INFO] Test results: {test_results}")
+    else:
+        raise ValueError(f"Invalid mode: {MODE}. Must be 'train' or 'test'.")
 
 if __name__ == "__main__":
     main()

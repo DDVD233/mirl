@@ -271,13 +271,15 @@ class OmniClassifierTrainer:
         # Use the new evaluation module
         # All predictions are included in the list
         # All labels are included in the list
+        # Get validation result directory from config (you'll need to add this to your config)
+        validation_result_dir = None  # Set this from your config if needed
         evaluation_results = evaluate_predictions(
             predictions=all_predictions,
             ground_truths=all_labels,
             datasets=all_datasets if all_datasets else None,
-            num_classes=NUM_CLASSES,
+            global_num_classes=NUM_CLASSES,
             split_name=split_name,
-            
+            save_path=validation_result_dir,
         )
         
         # Extract aggregate metrics (aligned with multi_task_evaluation)

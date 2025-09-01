@@ -30,6 +30,7 @@ export TORCH_USE_CUDA_DSA=1
 # Launch training with accelerate for head_only strategy
 echo "Launching head_only training with Accelerate..."
 accelerate launch --config_file configs/accelerate_config_qwen.yaml train.py \
+    --mode train \
     --training_strategy head_only \
     --train_file "/scratch/keane/human_behaviour/human_behaviour_data/audio_sigs_no_chalearn_no_expw_no_mosei_fixed_0.1_train.jsonl" \
     --val_file "/scratch/keane/human_behaviour/human_behaviour_data/audio_sigs_no_chalearn_no_expw_no_mosei_fixed_0.1_val.jsonl" \
@@ -37,6 +38,7 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml train.py \
     --label_map_path "/home/keaneong/human-behavior/verl/multi_task_classification/0.1_no_chalearn_no_expw_no_mosei_label_map.json" \
     --train_batch_size 2 \
     --val_batch_size 2 \
+    --test_batch_size 2 \
     --lr 5e-3 \
     --epochs 1 \
     --save_every_n_epochs 1000 \
