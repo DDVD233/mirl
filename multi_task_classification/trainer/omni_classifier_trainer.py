@@ -67,7 +67,7 @@ class OmniClassifierAccelerateTrainer:
         self.load_checkpoint_path = load_checkpoint_path
 
         self.validation_result_dir = self.global_config.get('VALIDATION_RESULT_DIR', None)
-        raise Exception(print(self.validation_result_dir))
+
         # Training state
         self.best_val_acc = 0.0
         self.epochs_without_improvement = 0
@@ -252,7 +252,7 @@ class OmniClassifierAccelerateTrainer:
         return start_epoch, start_batch_offset, global_step, meta, ckpt_dir
 
 
-    def validate(self, val_dataloader, split_name="validation"):
+    def validate(self, val_dataloader, split_name="validation", current_step=None):
         """Validate the model on the given dataloader."""
         self.model.eval()
         total_loss = 0.0
@@ -312,6 +312,7 @@ class OmniClassifierAccelerateTrainer:
                 datasets=all_datasets if all_datasets else None,
                 split_name=split_name,
                 save_path=self.validation_result_dir,
+                global_steps=current_step,
             )
             
             # Extract aggregate metrics (aligned with multi_task_evaluation)
@@ -524,7 +525,7 @@ class OmniClassifierAccelerateTrainer:
                     # Step-based validation (if configured)
                     if validate_every_n_steps is not None and current_step % validate_every_n_steps == 0:
                         print(f"\n[STEP {current_step}] Running step-based validation...")
-                        val_results = self.validate(val_dataloader, "validation")
+                        val_results = self.validate(val_dataloader, "validation", current_step=current_step)
                         
                         if self.accelerator.is_main_process and val_results is not None:
                             # Check if this is the best model (using micro F1 as primary metric)
@@ -575,7 +576,7 @@ class OmniClassifierAccelerateTrainer:
 
             # Epoch-based validation phase (only if step-based validation is not configured)
             if validate_every_n_epochs is not None and (epoch + 1) % validate_every_n_epochs == 0:
-                val_results = self.validate(val_dataloader, "validation")
+                val_results = self.validate(val_dataloader, "validation", current_step=current_step)
                 
                 if self.accelerator.is_main_process and val_results is not None:
                     
@@ -607,7 +608,7 @@ class OmniClassifierAccelerateTrainer:
                     )
 
                     # Log validation results
-                    current_step = (epoch + 1) * len(train_dataloader)
+                    
                     log_validation_results(
                         val_results=val_results,
                         current_step=current_step,
@@ -702,7 +703,7 @@ class OmniClassifierAccelerateTrainer:
             expect_training_strategy=self.global_config.get("TRAINING_STRATEGY"),
         )
 
-        test_results = self.validate(test_dataloader, "test")
+        test_results = self.validate(test_dataloader, "test", current_step=0)
         
         if self.accelerator.is_main_process and test_results is not None:
             print(f"\nOverall TEST RESULTS:")
