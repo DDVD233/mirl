@@ -701,6 +701,8 @@ class OmniClassifierAccelerateTrainer:
             expect_training_strategy=self.global_config.get("TRAINING_STRATEGY"),
         )
 
+        raise(self.validation_result_dir)
+
         test_results = self.validate(test_dataloader, "test")
         
         if self.accelerator.is_main_process and test_results is not None:
