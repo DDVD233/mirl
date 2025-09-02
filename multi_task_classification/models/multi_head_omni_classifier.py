@@ -220,7 +220,7 @@ class MultiHeadOmniClassifier(nn.Module):
 
             local_logits = local_logits.to(logits_all.dtype)     # <— key line
 
-            block = torch.full((rows.numel(), G), neg_inf, device=pooled.device, dtype=pooled.dtype)
+            block = torch.full((rows.numel(), self.global_num_classes), neg_inf, device=pooled.device, dtype=pooled.dtype)
             col_index = cols.unsqueeze(0).expand(rows.numel(), cols.numel())
             block = block.scatter(1, col_index, local_logits.to(block.dtype))  # differentiable w.r.t. local
 
