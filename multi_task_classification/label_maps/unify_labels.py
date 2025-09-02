@@ -5,11 +5,11 @@
 Unify dataset labels into a single global class space and rewrite label_mapping VALUES
 to the unified class indices, while keeping KEYS exactly the same.
 
-Updates in this version:
-- Longest-prefix dataset parsing (handles mosei_emotion, mosei_senti, ptsd_in_the_wild).
-- Mental health is strictly binary (no collapse from severities; severities = unmapped).
-- Global class space (21 classes) with stable indices; label_mapping values are renumbered from 0.
-- Nested `global_classes` by domain in `meta`.
+This version:
+- Splits mental health into THREE domains: mental_health_ptsd, mental_health_depression, mental_health_anxiety.
+- Keeps the GLOBAL index space at 21 classes (stable indices).
+- Assumes mmpsy is split into mmpsy_anxiety and mmpsy_depression (dataset-level routing only).
+- Longest-prefix dataset parsing (mosei_emotion, mosei_senti, ptsd_in_the_wild, mmpsy_*).
 - End-of-run report lists anything unmapped/uncaught.
 """
 
@@ -19,10 +19,10 @@ from pathlib import Path
 from datetime import datetime
 
 # ==========
-# 1) HARD-CODED PATHS (edit these)
+# 1) PATHS
 # ==========
 INPUT_JSON  = "/Users/keane/Desktop/research/human-behavior/data/unified_scheme/label_maps/unified_scheme_binarymmpsy_no_vptd_chalearn_lmvd_esconv_full_label_map.json"
-OUTPUT_JSON = "/Users/keane/Desktop/research/human-behavior/data/unified_scheme/label_maps/final_unified_scheme_binarymmpsy_no_vptd_chalearn_lmvd_esconv_full_label_map.json"
+OUTPUT_JSON = "/Users/keane/Desktop/research/human-behavior/data/unified_scheme/label_maps/final_unified_scheme_SPLIT_MH_label_map.json"
 
 # ==========
 # Canonicals & Synonyms
@@ -51,12 +51,10 @@ EMOTION_CANONICAL = [
     "surprise",
 ]
 
-# Mental health canonical (strictly binaries; no severity handling)
-MENTAL_HEALTH_CANONICAL = [
-    "no_ptsd", "ptsd",
-    "no_depression", "depression",
-    "no_anxiety", "anxiety",
-]
+# Mental health canonical labels (domain-specific pairs)
+MH_PTSD_CANONICAL = ["no_ptsd", "ptsd"]                  # → global indices 15,16
+MH_DEPR_CANONICAL = ["no_depression", "depression"]      # → global indices 17,18
+MH_ANX_CANONICAL  = ["no_anxiety", "anxiety"]            # → global indices 19,20
 
 # Emotion synonyms (case-insensitive)
 EMOTION_SYNONYMS = {
@@ -81,7 +79,9 @@ SENTIMENT_SYNONYMS = {
     "strongly positive": "highly positive",
 }
 
-# Dataset → unified domain (single mental_health bucket)
+# ==========
+# Dataset → domain (task-specific datasets)
+# ==========
 DATASET_DOMAIN = {
     # sentiment intensity
     "chsimsv2": "sentiment_intensity",
@@ -96,21 +96,27 @@ DATASET_DOMAIN = {
     "ravdess": "emotion",
     "tess": "emotion",
 
-    # mental health (unified)
-    "ptsd_in_the_wild": "mental_health",
-    "mmpsy": "mental_health",
+    # mental health (split)
+    "ptsd_in_the_wild": "mental_health_ptsd",
+    "mmpsy_depression": "mental_health_depression",
+    "mmpsy_anxiety": "mental_health_anxiety",
 }
 
-# Build a **global** unified classes list (domain/label tuples) with stable order
+# ==========
+# Build GLOBAL unified classes (domain,label) tuples with STABLE order/indices
+# ==========
 GLOBAL_CLASSES = []
-# Sentiment
+# Sentiment → indices 0..6
 GLOBAL_CLASSES += [("sentiment_intensity", lab) for lab in SENTIMENT_CANONICAL]
-# Emotion
+# Emotion → indices 7..14
 GLOBAL_CLASSES += [("emotion", lab) for lab in EMOTION_CANONICAL]
-# Mental health
-GLOBAL_CLASSES += [("mental_health", lab) for lab in MENTAL_HEALTH_CANONICAL]
+# Mental health (split) → indices 15..20
+GLOBAL_CLASSES += [("mental_health_ptsd", lab) for lab in MH_PTSD_CANONICAL]       # 15,16
+GLOBAL_CLASSES += [("mental_health_depression", lab) for lab in MH_DEPR_CANONICAL] # 17,18
+GLOBAL_CLASSES += [("mental_health_anxiety", lab) for lab in MH_ANX_CANONICAL]     # 19,20
 
 GLOBAL_CLASS_TO_INDEX = {dl: i for i, dl in enumerate(GLOBAL_CLASSES)}
+NUM_CLASSES = len(GLOBAL_CLASSES)  # == 21
 
 # ==========
 # Helpers
@@ -137,27 +143,13 @@ def normalize_sentiment_label(raw: str) -> str:
     low = raw.strip().lower()
     return SENTIMENT_SYNONYMS.get(low, low)
 
-def mh_direct_binary(label_low: str):
-    """
-    Map direct mental health binaries to canonical tokens.
-    Returns (canonical_label or None, note)
-    """
-    l = " ".join(label_low.split())  # normalize spacing
-    if l in {"ptsd", "no ptsd"}:
-        return ("ptsd" if l == "ptsd" else "no_ptsd"), "PTSD direct binary"
-    if l in {"depression", "no depression"}:
-        return ("depression" if l == "depression" else "no_depression"), "Depression direct binary"
-    if l in {"anxiety", "no anxiety"}:
-        return ("anxiety" if l == "anxiety" else "no_anxiety"), "Anxiety direct binary"
-    return None, ""
-
 # ==========
 # Core
 # ==========
 
 def build_unified_and_renumber(data: dict):
     """
-    - Build unified_mapping and mental-health binary buckets.
+    - Build unified_mapping with split MH domains.
     - Rewrite label_mapping values to unified indices (GLOBAL_CLASSES).
     - Return updated data + report.
     """
@@ -169,11 +161,11 @@ def build_unified_and_renumber(data: dict):
         "empty_tail_label": [],
         "noncanonical_sentiment": [],
         "noncanonical_emotion": [],
-        "mental_health_unrecognized": [],
         "unmappable_to_global_class": [],
     }
 
     unified_mapping = {}   # key -> {domain, unified_label, notes, global_index}
+    # Optional convenience binning (kept for parity with your older meta)
     mh_bins = {
         "ptsd_binary": {},        # key -> no_ptsd/ptsd
         "depression_binary": {},  # key -> no_depression/depression
@@ -187,15 +179,15 @@ def build_unified_and_renumber(data: dict):
         dataset, tail = longest_prefix_parse(key, known_datasets)
         tail = tail.strip()
 
-        if not tail:
-            report["empty_tail_label"].append(key)
-
         if dataset is None:
+            # Unknown dataset → pass-through; likely unmappable
             domain = "unknown"
             uni_label = tail.lower()
             notes = "Dataset not recognized by longest-prefix match; pass-through."
+            report["unknown_dataset"].append(key)
+
         else:
-            domain = DATASET_DOMAIN.get(dataset, "unknown")
+            domain = DATASET_DOMAIN[dataset]
 
             if domain == "sentiment_intensity":
                 uni_label = normalize_sentiment_label(tail)
@@ -211,32 +203,49 @@ def build_unified_and_renumber(data: dict):
                     notes = f"Normalized '{tail}' -> '{uni_label}', NOT in canonical emotion set."
                     report["noncanonical_emotion"].append(key)
 
-            elif domain == "mental_health":
-                low = tail.lower()
-                direct, why = mh_direct_binary(low)
-                if direct is not None:
-                    uni_label = direct
-                    notes = why
-                    if direct in {"ptsd", "no_ptsd"}:
-                        mh_bins["ptsd_binary"][key] = direct
-                    elif direct in {"depression", "no_depression"}:
-                        mh_bins["depression_binary"][key] = direct
-                    elif direct in {"anxiety", "no_anxiety"}:
-                        mh_bins["anxiety_binary"][key] = direct
-                else:
-                    # Any non-binary MH labels (e.g., severities) are now *unrecognized* by design.
+            elif domain == "mental_health_ptsd":
+                low = " ".join(tail.lower().split())
+                if low not in {"ptsd", "no ptsd"}:
+                    notes = "Unrecognized PTSD label"
                     uni_label = low
-                    notes = "Unrecognized mental health label (not binary); pass-through & flagged."
-                    report["mental_health_unrecognized"].append(key)
+                else:
+                    uni_label = "ptsd" if low == "ptsd" else "no_ptsd"
+                    notes = "PTSD direct binary"
+                    mh_bins["ptsd_binary"][key] = uni_label
+
+            elif domain == "mental_health_depression":
+                low = " ".join(tail.lower().split())
+                if low not in {"depression", "no depression"}:
+                    notes = "Unrecognized depression label"
+                    uni_label = low
+                else:
+                    uni_label = "depression" if low == "depression" else "no_depression"
+                    notes = "Depression direct binary"
+                    mh_bins["depression_binary"][key] = uni_label
+
+            elif domain == "mental_health_anxiety":
+                low = " ".join(tail.lower().split())
+                if low not in {"anxiety", "no anxiety"}:
+                    notes = "Unrecognized anxiety label"
+                    uni_label = low
+                else:
+                    uni_label = "anxiety" if low == "anxiety" else "no_anxiety"
+                    notes = "Anxiety direct binary"
+                    mh_bins["anxiety_binary"][key] = uni_label
 
             else:
+                # Should not happen
                 uni_label = tail.lower()
                 notes = "Unknown domain; pass-through."
 
-        # Place into GLOBAL_CLASSES
+        # Map (domain, unified_label) → global index
         global_idx = GLOBAL_CLASS_TO_INDEX.get((domain, uni_label))
         if global_idx is None:
             report["unmappable_to_global_class"].append(f"{key} -> ({domain}, {uni_label})")
+            raise ValueError(
+                f"Key '{key}' normalized to ({domain}, '{uni_label}') "
+                f"is NOT in GLOBAL_CLASSES. Extend canonicals/synonyms or fix labels."
+            )
 
         unified_mapping[key] = {
             "domain": domain,
@@ -244,16 +253,9 @@ def build_unified_and_renumber(data: dict):
             "global_index": global_idx,
             "notes": notes,
         }
-
-        if global_idx is None:
-            raise ValueError(
-                f"Key '{key}' normalized to ({domain}, '{uni_label}') "
-                f"is NOT in GLOBAL_CLASSES. Extend canonical lists or add synonyms."
-            )
-
         new_label_mapping[key] = global_idx
 
-    # Build nested global_classes by domain
+    # Build nested global_classes by domain (reflecting split MH)
     global_classes_nested = {}
     for i, (d, l) in enumerate(GLOBAL_CLASSES):
         global_classes_nested.setdefault(d, []).append({"index": i, "label": l})
@@ -263,26 +265,28 @@ def build_unified_and_renumber(data: dict):
         "domains": {
             "sentiment_intensity": SENTIMENT_CANONICAL,
             "emotion": EMOTION_CANONICAL,
-            "mental_health": MENTAL_HEALTH_CANONICAL,
+            "mental_health_ptsd": MH_PTSD_CANONICAL,
+            "mental_health_depression": MH_DEPR_CANONICAL,
+            "mental_health_anxiety": MH_ANX_CANONICAL,
         },
         "synonyms": {
             "emotion": EMOTION_SYNONYMS,
             "sentiment_intensity": SENTIMENT_SYNONYMS,
         },
-        "dataset_domain": DATASET_DOMAIN,
-        "global_classes": global_classes_nested,  # nested by domain
+        "dataset_domain": DATASET_DOMAIN,       # routing is dataset-based only
+        "global_classes": global_classes_nested, # nested by domain
         "original_label_ids": original_label_ids,
         "unified_mapping": unified_mapping,
         "mental_health_notes": [
-            "Mental health labels are STRICT binaries only.",
-            "Non-binary MH labels (e.g., severities) are flagged as unrecognized in the report."
+            "Mental health split into PTSD/Depression/Anxiety sub-domains with binary labels only.",
+            "Routing is purely dataset-based (mmpsy_* and ptsd_in_the_wild)."
         ],
         "mental_health_binaries": mh_bins,
     }
 
     out = deepcopy(data)
     out["label_mapping"] = new_label_mapping
-    out["num_classes"] = len(GLOBAL_CLASSES)
+    out["num_classes"] = NUM_CLASSES  # stays 21
     out["meta"] = meta
 
     return out, report
@@ -321,7 +325,7 @@ def main():
     # Report
     print("\n=== Unification Report ===")
     for k in ["unknown_dataset", "empty_tail_label", "noncanonical_sentiment",
-              "noncanonical_emotion", "mental_health_unrecognized", "unmappable_to_global_class"]:
+              "noncanonical_emotion", "unmappable_to_global_class"]:
         vals = report.get(k, [])
         print(f"- {k} ({len(vals)}):")
         for item in vals:

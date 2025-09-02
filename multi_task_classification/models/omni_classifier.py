@@ -22,6 +22,8 @@ class OmniClassifier(nn.Module):
         )
 
         hidden_size = self._resolve_hidden_size(self.backbone)
+
+        # setting up the classifier heads
         self.classifier = nn.Linear(hidden_size, num_classes)
         
         # Store device_map for later use
