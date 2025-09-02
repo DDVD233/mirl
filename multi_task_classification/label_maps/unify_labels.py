@@ -21,8 +21,8 @@ from datetime import datetime
 # ==========
 # 1) PATHS
 # ==========
-INPUT_JSON  = "/Users/keane/Desktop/research/human-behavior/data/unified_scheme/label_maps/unified_scheme_binarymmpsy_no_vptd_chalearn_lmvd_esconv_full_label_map.json"
-OUTPUT_JSON = "/Users/keane/Desktop/research/human-behavior/data/unified_scheme/label_maps/final_unified_scheme_SPLIT_MH_label_map.json"
+INPUT_JSON  = "/Users/keane/Desktop/research/human-behavior/data/unified_scheme/label_maps/v2_non_unified_scheme_splitmmpsy_binarymmpsy_no_vptd_chalearn_lmvd_esconv.json"
+OUTPUT_JSON = "/Users/keane/Desktop/research/human-behavior/data/unified_scheme/label_maps/v2_unified_scheme_splitmmpsy_binarymmpsy_no_vptd_chalearn_lmvd_esconv.json"
 
 # ==========
 # Canonicals & Synonyms
@@ -52,9 +52,9 @@ EMOTION_CANONICAL = [
 ]
 
 # Mental health canonical labels (domain-specific pairs)
-MH_PTSD_CANONICAL = ["no_ptsd", "ptsd"]                  # → global indices 15,16
-MH_DEPR_CANONICAL = ["no_depression", "depression"]      # → global indices 17,18
-MH_ANX_CANONICAL  = ["no_anxiety", "anxiety"]            # → global indices 19,20
+MH_PTSD_CANONICAL = ["no ptsd", "ptsd"]                  # → global indices 15,16
+MH_DEPR_CANONICAL = ["no depression", "depression"]      # → global indices 17,18
+MH_ANX_CANONICAL  = ["no anxiety", "anxiety"]            # → global indices 19,20
 
 # Emotion synonyms (case-insensitive)
 EMOTION_SYNONYMS = {
@@ -167,9 +167,9 @@ def build_unified_and_renumber(data: dict):
     unified_mapping = {}   # key -> {domain, unified_label, notes, global_index}
     # Optional convenience binning (kept for parity with your older meta)
     mh_bins = {
-        "ptsd_binary": {},        # key -> no_ptsd/ptsd
-        "depression_binary": {},  # key -> no_depression/depression
-        "anxiety_binary": {},     # key -> no_anxiety/anxiety
+        "ptsd_binary": {},        # key -> no ptsd/ptsd
+        "depression_binary": {},  # key -> no depression/depression
+        "anxiety_binary": {},     # key -> no anxiety/anxiety
     }
 
     new_label_mapping = {}
@@ -209,7 +209,7 @@ def build_unified_and_renumber(data: dict):
                     notes = "Unrecognized PTSD label"
                     uni_label = low
                 else:
-                    uni_label = "ptsd" if low == "ptsd" else "no_ptsd"
+                    uni_label = "ptsd" if low == "ptsd" else "no ptsd"
                     notes = "PTSD direct binary"
                     mh_bins["ptsd_binary"][key] = uni_label
 
@@ -219,7 +219,7 @@ def build_unified_and_renumber(data: dict):
                     notes = "Unrecognized depression label"
                     uni_label = low
                 else:
-                    uni_label = "depression" if low == "depression" else "no_depression"
+                    uni_label = "depression" if low == "depression" else "no depression"
                     notes = "Depression direct binary"
                     mh_bins["depression_binary"][key] = uni_label
 
@@ -229,7 +229,7 @@ def build_unified_and_renumber(data: dict):
                     notes = "Unrecognized anxiety label"
                     uni_label = low
                 else:
-                    uni_label = "anxiety" if low == "anxiety" else "no_anxiety"
+                    uni_label = "anxiety" if low == "anxiety" else "no anxiety"
                     notes = "Anxiety direct binary"
                     mh_bins["anxiety_binary"][key] = uni_label
 
