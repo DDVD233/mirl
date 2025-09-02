@@ -9,11 +9,52 @@ from tqdm import tqdm
 import tempfile
 import subprocess
 import warnings
+import traceback
+import sys
+import signal
+import faulthandler
+
+# Enable fault handler for better segmentation fault debugging
+faulthandler.enable()
 
 # Common audio/video extensions
 AUDIO_EXTENSIONS = {'.wav', '.mp3', '.flac', '.aac', '.m4a', '.ogg', '.wma', '.opus'}
 VIDEO_EXTENSIONS = {'.mp4', '.avi', '.mov', '.mkv', '.flv', '.wmv', '.webm', '.m4v'}
 SUPPORTED_EXTENSIONS = AUDIO_EXTENSIONS | VIDEO_EXTENSIONS
+
+# Global flag for debug mode
+DEBUG_MODE = False
+
+
+def debug_print(msg: str):
+    """Print debug messages if DEBUG_MODE is True."""
+    global DEBUG_MODE
+    if DEBUG_MODE:
+        print(f"[DEBUG] {msg}")
+        sys.stdout.flush()
+
+
+def validate_audio_file(file_path: Path) -> bool:
+    """Validate that the audio file can be processed.
+    
+    Returns:
+        True if file appears valid, False otherwise
+    """
+    if not file_path.exists():
+        debug_print(f"File does not exist: {file_path}")
+        return False
+    
+    file_size = file_path.stat().st_size
+    if file_size == 0:
+        debug_print(f"File is empty: {file_path}")
+        return False
+    
+    if file_size > 1e9:  # 1GB limit
+        debug_print(f"File too large ({file_size/1e9:.2f}GB): {file_path}")
+        return False
+    
+    debug_print(f"File validated: {file_path} ({file_size/1e6:.2f}MB)")
+    return True
 
 
 def extract_audio_from_video(video_path: Path, temp_audio_path: Path) -> bool:
@@ -50,6 +91,41 @@ def extract_audio_from_video(video_path: Path, temp_audio_path: Path) -> bool:
         return False
 
 
+def safe_process_file(smile_instance, file_path: str, max_retries: int = 2):
+    """Safely process a file with OpenSMILE with retry logic.
+    
+    Args:
+        smile_instance: OpenSMILE Smile instance
+        file_path: Path to audio file
+        max_retries: Maximum number of retries
+    
+    Returns:
+        DataFrame with features or None if failed
+    """
+    for attempt in range(max_retries):
+        try:
+            debug_print(f"Processing attempt {attempt + 1} for {file_path}")
+            
+            # Try to process the file
+            features_df = smile_instance.process_file(file_path)
+            
+            if features_df is not None and not features_df.empty:
+                debug_print(f"Successfully processed: {file_path}")
+                return features_df
+            else:
+                debug_print(f"Empty result for: {file_path}")
+                
+        except Exception as e:
+            debug_print(f"Attempt {attempt + 1} failed: {e}")
+            if attempt == max_retries - 1:
+                raise
+            # Wait a bit before retry
+            import time
+            time.sleep(0.5)
+    
+    return None
+
+
 def extract_opensmile_features(
     file_path: Path,
     feature_set: str = 'ComParE_2016',
@@ -71,11 +147,34 @@ def extract_opensmile_features(
         - 'feature_level': feature level used
     """
     
-    # Initialize OpenSMILE
-    smile = opensmile.Smile(
-        feature_set=feature_set,
-        feature_level=feature_level
-    )
+    debug_print(f"Extracting features from: {file_path}")
+    debug_print(f"Feature set: {feature_set}, Level: {feature_level}")
+    
+    # Try using a simpler feature set if ComParE fails
+    feature_sets_to_try = [feature_set]
+    if feature_set == 'ComParE_2016':
+        # Add fallback feature sets
+        feature_sets_to_try.append('eGeMAPSv02')  # Much smaller, more stable
+        feature_sets_to_try.append('GeMAPSv01b')  # Even smaller
+    
+    last_error = None
+    for fs in feature_sets_to_try:
+        try:
+            debug_print(f"Trying feature set: {fs}")
+            
+            # Initialize OpenSMILE with current feature set
+            smile = opensmile.Smile(
+                feature_set=fs,
+                feature_level=feature_level
+            )
+            
+            actual_feature_set = fs  # Track which feature set worked
+            break
+        except Exception as e:
+            last_error = e
+            debug_print(f"Failed to initialize with {fs}: {e}")
+            if fs == feature_sets_to_try[-1]:
+                raise RuntimeError(f"Failed to initialize OpenSMILE with any feature set: {last_error}")
     
     # Check if input is video or audio
     is_video = file_path.suffix.lower() in VIDEO_EXTENSIONS
@@ -88,26 +187,40 @@ def extract_opensmile_features(
             if not extract_audio_from_video(file_path, temp_audio_path):
                 raise RuntimeError(f"Failed to extract audio from video: {file_path}")
             
-            # Process the extracted audio
-            features_df = smile.process_file(str(temp_audio_path))
+            # Validate the extracted audio
+            if not validate_audio_file(temp_audio_path):
+                raise RuntimeError(f"Invalid extracted audio from video: {file_path}")
+            
+            # Process the extracted audio with safety wrapper
+            features_df = safe_process_file(smile, str(temp_audio_path))
+            if features_df is None:
+                raise RuntimeError(f"Failed to process extracted audio from video: {file_path}")
     else:
-        # Process audio file directly
-        features_df = smile.process_file(str(file_path))
+        # Validate audio file first
+        if not validate_audio_file(file_path):
+            raise RuntimeError(f"Invalid audio file: {file_path}")
+        
+        # Process audio file directly with safety wrapper
+        features_df = safe_process_file(smile, str(file_path))
+        if features_df is None:
+            raise RuntimeError(f"Failed to process audio file: {file_path}")
     
     # Convert to numpy array and then to PyTorch tensor
     features_array = features_df.values
     feature_names = features_df.columns.tolist()
     
-    # Create output dictionary
+    # Create output dictionary with actual feature set used
     output = {
         'features': torch.tensor(features_array, dtype=torch.float32),
         'feature_names': feature_names,
         'file_path': str(file_path),
-        'feature_set': feature_set,
+        'feature_set': actual_feature_set,  # Use the actual feature set that worked
         'feature_level': feature_level,
         'num_windows': features_array.shape[0],
         'num_features': features_array.shape[1]
     }
+    
+    debug_print(f"Successfully extracted {features_array.shape} features")
     
     return output
 
@@ -196,6 +309,8 @@ def process_files_in_directory(
             output_path.parent.mkdir(parents=True, exist_ok=True)
             
             try:
+                debug_print(f"\nProcessing file: {file_path}")
+                
                 # Extract features
                 features = extract_opensmile_features(
                     file_path,
@@ -219,6 +334,8 @@ def process_files_in_directory(
                 error_count += 1
                 pbar.set_postfix({'processed': processed_count, 'skipped': skipped_count, 'errors': error_count})
                 tqdm.write(f"  Error processing {file_path.name}: {e}")
+                if DEBUG_MODE:
+                    tqdm.write(f"  Full traceback:\n{traceback.format_exc()}")
                 continue
     
     print(f"\n{'=' * 50}")
@@ -297,6 +414,41 @@ def list_available_feature_sets():
     print("  lld         - Low-level descriptors (frame-by-frame features)")
 
 
+def test_single_file(file_path: Path, feature_set: str = 'eGeMAPSv02'):
+    """Test processing a single file for debugging.
+    
+    Args:
+        file_path: Path to test file
+        feature_set: Feature set to use (default: simpler eGeMAPSv02)
+    """
+    global DEBUG_MODE
+    DEBUG_MODE = True
+    
+    print(f"\nTesting single file: {file_path}")
+    print(f"Feature set: {feature_set}")
+    print("=" * 50)
+    
+    try:
+        features = extract_opensmile_features(
+            file_path,
+            feature_set=feature_set,
+            feature_level='functionals'
+        )
+        
+        print(f"\nSuccess! Extracted features:")
+        print(f"  Shape: {features['features'].shape}")
+        print(f"  Feature set used: {features['feature_set']}")
+        print(f"  Number of features: {features['num_features']}")
+        
+        return features
+        
+    except Exception as e:
+        print(f"\nFailed to process file: {e}")
+        print(f"\nFull traceback:")
+        traceback.print_exc()
+        return None
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Extract OpenSMILE features from audio/video files and save as PyTorch tensors"
@@ -323,11 +475,34 @@ def main():
         action="store_true",
         help="List available feature sets and exit"
     )
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Enable debug mode with verbose output"
+    )
+    parser.add_argument(
+        "--test-file",
+        type=str,
+        help="Test processing a single file for debugging"
+    )
     
     args = parser.parse_args()
     
+    # Set debug mode globally
+    global DEBUG_MODE
+    DEBUG_MODE = args.debug
+    
     if args.list_features:
         list_available_feature_sets()
+        return
+    
+    # Test single file mode
+    if args.test_file:
+        test_file = Path(args.test_file)
+        if not test_file.exists():
+            print(f"Error: Test file does not exist: {test_file}")
+            return
+        test_single_file(test_file, args.feature_set)
         return
     
     base_dir = Path(args.directory)
