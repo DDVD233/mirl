@@ -422,7 +422,7 @@ def main():
         # Initialize model with training strategy
         print(f"[INFO] Initializing OmniClassifier with training strategy: {TRAINING_STRATEGY}")
         model = MultiHeadOmniClassifier(
-            num_classes=NUM_CLASSES, 
+            label_map=LABEL_MAP,
             freeze_backbone=TRAINING_STRATEGY,
             lora_config=LORA_CONFIG if TRAINING_STRATEGY == "lora" else None,
             device_map=DEVICE_MAP,
