@@ -173,7 +173,12 @@ class MultiHeadOmniClassifier(nn.Module):
         device, dtype = pooled.device, pooled.dtype
 
         # init masked logits; by default the logits are negative first in order to be ignored by the softmax
-        logits_all = torch.full((B, self.global_num_classes), NEG_INF, device=device, dtype=dtype)
+        # logits_all = torch.full((B, self.global_num_classes), NEG_INF, device=device, dtype=dtype)
+
+         # Use dtype-aware NEG_INF
+        neg_inf = torch.finfo(dtype).min / 2                     # safe huge negative in this dtype
+        logits_all = torch.full((B, self.global_num_classes),
+                                neg_inf, device=device, dtype=dtype)
 
         # compute per-domain logits and scatter into global slots
         domain_ids = domain_ids.to(device)
