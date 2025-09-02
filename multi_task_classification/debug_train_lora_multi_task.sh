@@ -24,7 +24,7 @@ export TORCH_USE_CUDA_DSA=1
 
 # Launch training with accelerate for head_only strategy
 echo "Launching head_only training with Accelerate..."
-accelerate launch --config_file configs/accelerate_config_qwen.yaml train.py \
+accelerate launch --config_file configs/accelerate_config_qwen.yaml train_multi_head.py \
     --mode train \
     --training_strategy lora \
     --train_batch_size 2 \
