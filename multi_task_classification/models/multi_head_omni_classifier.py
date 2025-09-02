@@ -191,7 +191,7 @@ class MultiHeadOmniClassifier(nn.Module):
             # essentially is a boolean mask of the samples that belong to the current domain
             # TRUE IF BELONGS TO THE CURRENT DOMAIN
             rows = (domain_ids == d).nonzero(as_tuple=True)[0]
-            if not rows.numel()==0:
+            if rows.numel()==0:
                 continue
 
             #obtain the global indices for the current domain
