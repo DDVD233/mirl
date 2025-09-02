@@ -31,7 +31,7 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml train.py \
     --lr 1e-4 \
     --epochs 10 \
     --save_checkpoint_dir "/scratch/keane/human_behaviour/2_lr_unified_scheme_full_lora_training_resume" \
-    --load_checkpoint_path "/scratch/keane/human_behaviour/2_lr_unified_scheme_full_lora_training/step_30000" \
+    --load_checkpoint_path "/scratch/keane/human_behaviour/2_lr_unified_scheme_full_lora_training_resume/step_40000" \
     --validate_every_n_steps 10000 \
     --validate_every_n_epochs 1 \
     --save_every_n_steps 10000 \
