@@ -25,6 +25,15 @@ SUPPORTED_EXTENSIONS = AUDIO_EXTENSIONS | VIDEO_EXTENSIONS
 # Global flag for debug mode
 DEBUG_MODE = False
 
+# Try to check OpenSMILE version
+try:
+    import opensmile
+    OPENSMILE_VERSION = getattr(opensmile, '__version__', 'Unknown')
+    print(f"OpenSMILE version detected: {OPENSMILE_VERSION}")
+except ImportError:
+    print("WARNING: OpenSMILE not found. Please install with: pip install opensmile")
+    OPENSMILE_VERSION = None
+
 
 def debug_print(msg: str):
     """Print debug messages if DEBUG_MODE is True."""
@@ -156,25 +165,13 @@ def extract_opensmile_features(
         # Add fallback feature sets
         feature_sets_to_try.append('eGeMAPSv02')  # Much smaller, more stable
         feature_sets_to_try.append('GeMAPSv01b')  # Even smaller
+        feature_sets_to_try.append('emobase')  # Alternative stable set
     
     last_error = None
-    for fs in feature_sets_to_try:
-        try:
-            debug_print(f"Trying feature set: {fs}")
-            
-            # Initialize OpenSMILE with current feature set
-            smile = opensmile.Smile(
-                feature_set=fs,
-                feature_level=feature_level
-            )
-            
-            actual_feature_set = fs  # Track which feature set worked
-            break
-        except Exception as e:
-            last_error = e
-            debug_print(f"Failed to initialize with {fs}: {e}")
-            if fs == feature_sets_to_try[-1]:
-                raise RuntimeError(f"Failed to initialize OpenSMILE with any feature set: {last_error}")
+    smile = None
+    actual_feature_set = None
+
+    smile = opensmile.Smile()
     
     # Check if input is video or audio
     is_video = file_path.suffix.lower() in VIDEO_EXTENSIONS
@@ -414,6 +411,41 @@ def list_available_feature_sets():
     print("  lld         - Low-level descriptors (frame-by-frame features)")
 
 
+def check_opensmile_installation():
+    """Check if OpenSMILE is properly installed and working."""
+    print("Checking OpenSMILE installation...")
+    try:
+        import opensmile
+        print(f"OpenSMILE version: {opensmile.__version__ if hasattr(opensmile, '__version__') else 'Unknown'}")
+        
+        # Check available feature sets
+        if hasattr(opensmile, 'FeatureSet'):
+            print("Available feature sets:")
+            for fs in opensmile.FeatureSet:
+                print(f"  - {fs}")
+        
+        # Try to create a basic instance
+        test_sets = ['emobase', 'eGeMAPSv02', 'GeMAPSv01b']
+        for test_set in test_sets:
+            try:
+                smile = opensmile.Smile(
+                    feature_set=test_set,
+                    feature_level='functionals'
+                )
+                print(f"✓ Successfully initialized with {test_set}")
+                return True
+            except Exception as e:
+                print(f"✗ Failed with {test_set}: {e}")
+        
+        return False
+    except ImportError as e:
+        print(f"OpenSMILE not installed: {e}")
+        print("Install with: pip install opensmile")
+        return False
+    except Exception as e:
+        print(f"Unexpected error: {e}")
+        return False
+
 def test_single_file(file_path: Path, feature_set: str = 'eGeMAPSv02'):
     """Test processing a single file for debugging.
     
@@ -485,12 +517,27 @@ def main():
         type=str,
         help="Test processing a single file for debugging"
     )
+    parser.add_argument(
+        "--check-install",
+        action="store_true",
+        help="Check OpenSMILE installation and exit"
+    )
     
     args = parser.parse_args()
     
     # Set debug mode globally
     global DEBUG_MODE
     DEBUG_MODE = args.debug
+    
+    # Check installation
+    if args.check_install:
+        if check_opensmile_installation():
+            print("\nOpenSMILE is properly installed!")
+        else:
+            print("\nOpenSMILE installation has issues. Please reinstall:")
+            print("  pip uninstall opensmile")
+            print("  pip install opensmile")
+        return
     
     if args.list_features:
         list_available_feature_sets()
