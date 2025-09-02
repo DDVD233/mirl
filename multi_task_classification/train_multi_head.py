@@ -324,7 +324,7 @@ def parse_parameters():
     with open(params['label_map_path'], 'r') as f:
         label_config = json.load(f)
     
-    params['full_label_scheme'] = label_config["full_label_scheme"]
+    params['full_label_scheme'] = label_config
     params['label_map'] = label_config["label_mapping"]
     params['num_classes'] = label_config["num_classes"]
     

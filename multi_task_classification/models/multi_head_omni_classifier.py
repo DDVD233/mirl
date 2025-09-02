@@ -44,7 +44,9 @@ class MultiHeadOmniClassifier(nn.Module):
                  **from_pretrained_kwargs):
         super().__init__()
 
-        self.full_label_scheme = full_label_scheme # basically the full label scheme
+        # basically the full label scheme; not just the label mapping;
+        # this includes the meta data
+        self.full_label_scheme = full_label_scheme 
 
         # obtaining the domain name, ids, datasets and global number of classes
         (self.domain_name_to_id,
