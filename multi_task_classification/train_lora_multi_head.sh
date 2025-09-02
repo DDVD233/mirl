@@ -43,7 +43,7 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml train_multi_
     --validate_every_n_epochs 1 \
     --validate_every_n_steps 1000 \
     --early_stopping_patience 99999 \
-    --project "debug-omni-classifier-multi-task-lora" \
+    --project "omni-classifier-multi-head-lora" \
     --gradient_accumulation_steps 128 \
 
 
