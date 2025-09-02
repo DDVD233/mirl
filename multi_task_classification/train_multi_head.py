@@ -324,6 +324,7 @@ def parse_parameters():
     with open(params['label_map_path'], 'r') as f:
         label_config = json.load(f)
     
+    params['full_label_scheme'] = label_config["full_label_scheme"]
     params['label_map'] = label_config["label_mapping"]
     params['num_classes'] = label_config["num_classes"]
     
@@ -401,6 +402,7 @@ def main():
     USE_WANDB = params['use_wandb']
     WANDB_PROJECT = params['wandb_project']
     WANDB_ENTITY = params['wandb_entity']
+    FULL_LABEL_SCHEME = params['full_label_scheme']
     LABEL_MAP = params['label_map']
     LABEL_MAP_PATH = params['label_map_path']
     NUM_CLASSES = params['num_classes']
@@ -422,7 +424,7 @@ def main():
         # Initialize model with training strategy
         print(f"[INFO] Initializing OmniClassifier with training strategy: {TRAINING_STRATEGY}")
         model = MultiHeadOmniClassifier(
-            label_map=LABEL_MAP,
+            full_label_scheme=FULL_LABEL_SCHEME,
             freeze_backbone=TRAINING_STRATEGY,
             lora_config=LORA_CONFIG if TRAINING_STRATEGY == "lora" else None,
             device_map=DEVICE_MAP,

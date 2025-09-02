@@ -56,6 +56,7 @@ class MultiHeadOmniClassifierAccelerateTrainer:
         self.global_config = global_config or {}
         
         # Use the label map from global config
+        self.full_label_scheme = self.global_config.get('FULL_LABEL_SCHEME', None)
         self.label_map = self.global_config.get('LABEL_MAP', {})
         self.label_map_path = self.global_config.get('LABEL_MAP_PATH', None)
 
@@ -138,7 +139,7 @@ class MultiHeadOmniClassifierAccelerateTrainer:
 
     def build_domain_routing(self):
         # === Build domain routing tables from label_map ===
-        meta = self.label_map.get("meta", {})
+        meta = self.full_label_scheme.get("meta", {})
         global_classes = meta.get("global_classes", {})
         domain_names = list(global_classes.keys())  # ['sentiment_intensity','emotion','mental_health']
         

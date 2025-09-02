@@ -6,7 +6,7 @@ from peft import LoraConfig, get_peft_model, TaskType
 
 NEG_INF = -1e9  # safe mask for "irrelevant" classes
 
-def build_domain_specs_from_labelmap(label_map: dict):
+def build_domain_specs_from_labelscheme(full_label_scheme: dict):
     """
     Returns:
       domain_name_to_id: {'sentiment_intensity':0, 'emotion':1, 'mental_health':2}
@@ -14,7 +14,7 @@ def build_domain_specs_from_labelmap(label_map: dict):
       dataset_to_domain_id: map dataset_name -> domain_id using meta.dataset_domain
       global_num_classes: int (= 21)
     """
-    meta = label_map["meta"]
+    meta = full_label_scheme["meta"]
     global_classes = meta["global_classes"]
     # preserve the ordering in the JSON
     domain_names = list(global_classes.keys())  # ['sentiment_intensity','emotion','mental_health']
@@ -28,14 +28,14 @@ def build_domain_specs_from_labelmap(label_map: dict):
     dataset_to_domain_name = meta["dataset_domain"]  # e.g. 'mosei_senti':'sentiment_intensity'
     dataset_to_domain_id = {ds: domain_name_to_id[dn] for ds, dn in dataset_to_domain_name.items()}
 
-    global_num_classes = label_map.get("num_classes", max(max(g) for g in domain_id_to_global_indices)+1)
+    global_num_classes = full_label_scheme.get("num_classes", max(max(g) for g in domain_id_to_global_indices)+1)
 
     return domain_name_to_id, domain_id_to_global_indices, dataset_to_domain_id, global_num_classes
 
 
 class MultiHeadOmniClassifier(nn.Module):
     def __init__(self,
-                 label_map: dict,
+                 full_label_scheme: dict,
                  freeze_backbone="head_only",
                  backbone_name='Qwen/Qwen2.5-Omni-7B',
                  lora_config=None,
@@ -43,13 +43,14 @@ class MultiHeadOmniClassifier(nn.Module):
                  torch_dtype=torch.float16,
                  **from_pretrained_kwargs):
         super().__init__()
-        self.label_map = label_map
+
+        self.full_label_scheme = full_label_scheme # basically the full label scheme
 
         # obtaining the domain name, ids, datasets and global number of classes
         (self.domain_name_to_id,
          self.domain_id_to_global_indices,
          self.dataset_to_domain_id,
-         self.global_num_classes) = build_domain_specs_from_labelmap(label_map)
+         self.global_num_classes) = build_domain_specs_from_labelscheme(self.full_label_scheme)
 
         # === Backbone ===
         model_kwargs = {
