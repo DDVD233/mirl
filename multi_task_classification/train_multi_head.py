@@ -468,6 +468,7 @@ def main():
         'NUM_CLASSES': NUM_CLASSES,
         'LORA_CONFIG': LORA_CONFIG,
         'label_config': label_config,
+        'FULL_LABEL_SCHEME': FULL_LABEL_SCHEME,
         'USE_SCHEDULER': params['use_scheduler'],
         'SCHEDULER_TYPE': params['scheduler_type'],
         'WARMUP_STEPS': params['warmup_steps'],
