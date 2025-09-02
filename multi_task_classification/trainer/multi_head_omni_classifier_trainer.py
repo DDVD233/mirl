@@ -496,7 +496,7 @@ class MultiHeadOmniClassifierAccelerateTrainer:
                         raise ValueError(f"Unexpected labels shape {labels.shape} (expected [B] or [B, C])")
                 
                 with self.accelerator.accumulate(self.model):
-                    logits = self.model(input_ids, attention_mask=attention_mask)
+                    logits = self.model(input_ids, attention_mask=attention_mask, domain_ids=domain_ids)
 
                     if not torch.isfinite(logits).all():
                         raise FloatingPointError("Non-finite logits encountered")
