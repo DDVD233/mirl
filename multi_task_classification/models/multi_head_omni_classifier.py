@@ -209,7 +209,17 @@ class MultiHeadOmniClassifier(nn.Module):
             # mask is which samples belong to domain d;
             # we only prepend to the "global slots" (which refers to the global indices for the current domain),
             # the current local logits.
+            # logits_all[mask][:, global_slots] = local_logits
+
+            local_logits = local_logits.to(logits_all.dtype)     # <— key line
+
+            print("h.dtype:", h.dtype)
+            print("pooled.dtype:", pooled.dtype)
+            print("logits_all.dtype:", logits_all.dtype)
+            print("local_logits.dtype:", local_logits.dtype)
+
             logits_all[mask][:, global_slots] = local_logits
+
 
         return logits_all
 
