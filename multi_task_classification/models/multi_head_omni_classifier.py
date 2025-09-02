@@ -187,8 +187,8 @@ class MultiHeadOmniClassifier(nn.Module):
         unique_domains = domain_ids.unique(sorted=True).tolist()
         for d in unique_domains:
             # iterate over the unique domains
-            # get the mask for the current domain
-            # essentially is a boolean mask of the samples that belong to the current domain
+            # get the rows for the current domain
+            # essentially is a boolean rows of the samples that belong to the current domain
             # TRUE IF BELONGS TO THE CURRENT DOMAIN
             rows = (domain_ids == d).nonzero(as_tuple=True)[0]
             if rows.numel()==0:
@@ -198,8 +198,9 @@ class MultiHeadOmniClassifier(nn.Module):
             # i.e. sentiment is only [0, 6]
             global_slots = self.domain_id_to_global_indices[d]  # list[int]
 
+            # obtain the tensor of the global slots
             cols = torch.as_tensor(
-                self.domain_id_to_global_indices[d],
+                global_slots,
                 device=pooled.device, dtype=torch.long
             )
 
@@ -225,7 +226,6 @@ class MultiHeadOmniClassifier(nn.Module):
             block = block.scatter(1, col_index, local_logits.to(block.dtype))  # differentiable w.r.t. local
 
             logits_all = logits_all.index_copy(0, rows, block)           # stitch rows
-
 
         return logits_all
 
