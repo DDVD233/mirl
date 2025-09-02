@@ -216,3 +216,17 @@ class MultiHeadOmniClassifier(nn.Module):
     @dataset_to_domain_id.setter
     def dataset_to_domain_id(self, v):
         self._dataset_to_domain_id = v
+
+    def get_trainable_parameters(self):
+        """
+        Get the number of trainable parameters for monitoring LoRA efficiency.
+        """
+        trainable_params = 0
+        all_param = 0
+        for _, param in self.backbone.named_parameters():
+            all_param += param.numel()
+            if param.requires_grad:
+                trainable_params += param.numel()
+        
+        print(f"Backbonetrainable params: {trainable_params:,} || all params: {all_param:,} || trainable%: {100 * trainable_params / all_param:.2f}%")
+        return trainable_params, all_param
