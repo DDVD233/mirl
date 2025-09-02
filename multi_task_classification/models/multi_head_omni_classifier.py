@@ -179,29 +179,36 @@ class MultiHeadOmniClassifier(nn.Module):
         neg_inf = torch.finfo(dtype).min / 2                     # safe huge negative in this dtype
         logits_all = torch.full((B, self.global_num_classes),
                                 neg_inf, device=device, dtype=dtype)
+        # DOUBLE CHECK WHETHER THIS REQUIRES GRADIENT CALCULATION
 
         # compute per-domain logits and scatter into global slots
         domain_ids = domain_ids.to(device)
+    
         unique_domains = domain_ids.unique(sorted=True).tolist()
         for d in unique_domains:
             # iterate over the unique domains
             # get the mask for the current domain
             # essentially is a boolean mask of the samples that belong to the current domain
             # TRUE IF BELONGS TO THE CURRENT DOMAIN
-            mask = (domain_ids == d)
-            if not mask.any():
+            rows = (domain_ids == d).nonzero(as_tuple=True)[0]
+            if not rows.numel()==0:
                 continue
+
+            #obtain the global indices for the current domain
+            # i.e. sentiment is only [0, 6]
+            global_slots = self.domain_id_to_global_indices[d]  # list[int]
+
+            cols = torch.as_tensor(
+                self.domain_id_to_global_indices[d],
+                device=pooled.device, dtype=torch.long
+            )
 
             # select the head for the current domain based on d
             head = self.heads[d]
 
             # select the embedding of the samples related to the specific current domain d
             # feed into the head to get the logits for the current domain
-            local_logits = head(pooled[mask])  # [B_d, K_d]; B_d number of samples in this domain; K_d is number of classes in this domain
-
-            # obtain the global indices for the current domain
-            # i.e. sentiment is only [0, 6]
-            global_slots = self.domain_id_to_global_indices[d]  # list[int]
+            local_logits = head(pooled.index_select(0, rows))  # [B_d, K_d]; B_d number of samples in this domain; K_d is number of classes in this domain
 
             # basically where the mask is true, we replace the logits with the global logits
             # logits_all is a big tensor of [B, global_num_classes (i.e. 21)], each with -1e9, where B is the batch size
@@ -213,12 +220,11 @@ class MultiHeadOmniClassifier(nn.Module):
 
             local_logits = local_logits.to(logits_all.dtype)     # <— key line
 
-            print("h.dtype:", h.dtype)
-            print("pooled.dtype:", pooled.dtype)
-            print("logits_all.dtype:", logits_all.dtype)
-            print("local_logits.dtype:", local_logits.dtype)
+            block = torch.full((rows.numel(), G), neg_inf, device=pooled.device, dtype=pooled.dtype)
+            col_index = cols.unsqueeze(0).expand(rows.numel(), cols.numel())
+            block = block.scatter(1, col_index, local_logits.to(block.dtype))  # differentiable w.r.t. local
 
-            logits_all[mask][:, global_slots] = local_logits
+            logits_all = logits_all.index_copy(0, rows, block)           # stitch rows
 
 
         return logits_all
