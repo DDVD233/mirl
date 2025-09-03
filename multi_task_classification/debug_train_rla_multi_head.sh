@@ -1,5 +1,5 @@
 #!/bin/bash
-echo "Starting LORA + Audio RLA training..."
+echo "Starting LORA + RLA training..."
 export CUDA_VISIBLE_DEVICES="0,1"
 export CUDA_LAUNCH_BLOCKING=1
 export TORCH_USE_CUDA_DSA=1
