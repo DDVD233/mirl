@@ -340,21 +340,18 @@ class RLAMultiHeadOmniClassifierAccelerateTrainer:
             for p in module.parameters():
                 p.requires_grad = flag
 
-        # 0) Freeze everything first
-        _set_requires_grad(self.model, False)
-        _set_requires_grad(self.video_adapter, False)
-        _set_requires_grad(self.audio_adapter, False)
-
-        param_groups = []
+        unfrozen_param_groups = []
 
         if self.rla_stage == "base_only":
-            # Train base only
-            _set_requires_grad(self.model, True)
-            base_params = [p for p in self.model.parameters() if p.requires_grad]
+            # NOTE: Assume that the model is already requires grad = TRUE
+            _set_requires_grad(self.video_adapter, False)
+            _set_requires_grad(self.audio_adapter, False)
+            base_params = [self.model.parameters()]
             if base_params:
-                param_groups.append({"params": base_params, "lr": base_lr})
+                unfrozen_param_groups.append({"params": base_params, "lr": base_lr})
 
         elif self.rla_stage == "residual_only":
+            _set_requires_grad(self.model, False)
             # Train adapters only
             _set_requires_grad(self.video_adapter, True)
             _set_requires_grad(self.audio_adapter, True)
@@ -364,17 +361,16 @@ class RLAMultiHeadOmniClassifierAccelerateTrainer:
             if self.audio_adapter is not None:
                 rla_params += [p for p in self.audio_adapter.parameters() if p.requires_grad]
             if rla_params:
-                param_groups.append({"params": rla_params, "lr": rla_lr})
+                unfrozen_param_groups.append({"params": rla_params, "lr": rla_lr})
 
         elif self.rla_stage == "joint":
             # Train base + adapters
-            _set_requires_grad(self.model, True)
             _set_requires_grad(self.video_adapter, True)
             _set_requires_grad(self.audio_adapter, True)
 
-            base_params = [p for p in self.model.parameters() if p.requires_grad]
+            base_params = [self.model.parameters()]
             if base_params:
-                param_groups.append({"params": base_params, "lr": base_lr})
+                unfrozen_param_groups.append({"params": base_params, "lr": base_lr})
 
             rla_params = []
             if self.video_adapter is not None:
@@ -382,12 +378,12 @@ class RLAMultiHeadOmniClassifierAccelerateTrainer:
             if self.audio_adapter is not None:
                 rla_params += [p for p in self.audio_adapter.parameters() if p.requires_grad]
             if rla_params:
-                param_groups.append({"params": rla_params, "lr": rla_lr})
+                unfrozen_param_groups.append({"params": rla_params, "lr": rla_lr})
 
         else:
             raise ValueError(f"Unknown RLA stage: {self.rla_stage}")
 
-        return param_groups
+        return unfrozen_param_groups
     
     def _accelerate_prepare(self, optimizer, train_dataloader, val_dataloader, scheduler=None):
         """
@@ -684,16 +680,16 @@ class RLAMultiHeadOmniClassifierAccelerateTrainer:
                     if not torch.isfinite(logits).all():
                         raise FloatingPointError("Non-finite logits encountered")
                     
-                    if (self.use_rla_video or self.use_rla_audio):
+                    if (self.rla_stage in {"residual_only", "joint"}) and (self.use_rla_video or self.use_rla_audio):
                         # apply the adapters to the logits
                         logits = apply_adapters(
-                            logits, 
-                            domain_ids,
-                            video_adapter=self.video_adapter,
-                            audio_adapter=self.audio_adapter,
-                            video_feats=pooled_video_feats,
-                            audio_feats=pooled_audio_feats,
-                            train_mode=True
+                                logits,
+                                domain_ids,
+                                video_adapter=self.video_adapter,
+                                audio_adapter=self.audio_adapter,
+                                video_feats=pooled_video_feats,
+                                audio_feats=pooled_audio_feats,
+                                train_mode=True,
                         )
 
                     loss = criterion(logits, labels)
