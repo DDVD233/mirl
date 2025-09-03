@@ -3,7 +3,7 @@ import sys
 import json
 import torch
 import time
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Subset
 from torch.optim import Adam
 from torch.nn import CrossEntropyLoss
 from tqdm import tqdm
