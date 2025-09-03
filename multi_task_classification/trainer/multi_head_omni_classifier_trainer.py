@@ -453,6 +453,10 @@ class MultiHeadOmniClassifierAccelerateTrainer:
                 persistent_workers=getattr(train_dataloader, "persistent_workers", False),
             )
 
+        # after building train_dataloader_resume
+        if train_dataloader_resume is not None:
+            (train_dataloader_resume,) = self.accelerator.prepare(train_dataloader_resume)
+
 
         # Get configuration values
         validate_every_n_epochs = self.global_config.get('VALIDATE_EVERY_N_EPOCHS', None)
@@ -488,12 +492,12 @@ class MultiHeadOmniClassifierAccelerateTrainer:
             effective_batch_correct = 0
             effective_batch_total = 0
 
-            for batch_idx, batch in tqdm(enumerate(cur_loader), desc="Training", total=len(train_dataloader), disable=not self.accelerator.is_main_process):
+            for batch_idx, batch in tqdm(enumerate(cur_loader), desc="Training", total=len(cur_loader), disable=not self.accelerator.is_main_process):
                 # Set model to training mode (needed because validation sets it to eval mode)
                 self.model.train()
 
-                if epoch == start_epoch and batch_idx < start_batch_offset:
-                    continue
+                # if epoch == start_epoch and batch_idx < start_batch_offset:
+                #     continue
                 
                 # Calculate current step for validation checking
                 current_step = (epoch * len(train_dataloader)) + batch_idx + 1
