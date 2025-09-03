@@ -27,6 +27,16 @@ class OmniClassifierDataset(RLHFDataset):
         # if "attention_mask" not in row_dict:
         #     row_dict["attention_mask"] = torch.ones_like(row_dict["input_ids"])
 
+
+        # LOADING OF VIDEO/AUDIO FEATURES
+        # -------------------------------------------------------------------
+        video_feats_path = row_dict.get('ext_video_feats', None)
+        audio_feats_path = row_dict.get('ext_audio_feats', None)
+
+        video_feat = torch.load(video_feats_path) if video_feats_path else None
+        audio_feat = torch.load(audio_feats_path) if audio_feats_path else None
+        row_dict['video_feats'] = video_feat
+        row_dict['audio_feats'] = audio_feat
         # -------------------------------------------------------------------
 
         # --- your existing label extraction ---

@@ -1,0 +1,89 @@
+system:
+  cuda_visible_devices: "2,3"  # Use all available GPUs
+
+mode: "train"  # Mode: train or test
+
+data:
+  train_file: "/scratch/keane/human_behaviour/human_behaviour_data/audio_sigs_train_meld.jsonl"
+  val_file: "/scratch/keane/human_behaviour/human_behaviour_data/audio_sigs_val_meld.jsonl"
+  test_file: "/scratch/keane/human_behaviour/human_behaviour_data/audio_sigs_test_meld.jsonl"
+  label_map_path: "/home/keaneong/human-behavior/verl/multi_task_classification/meld_label_map.json"
+
+model:
+  tokenizer_name: "Qwen/Qwen2.5-Omni-7B"
+  processor_name: "Qwen/Qwen2.5-Omni-7B"
+  training_strategy: "head_only"  # options: head_only, lora, full
+  device_map: null  # Changed from "auto" to "cpu" for Accelerate compatibility
+  torch_dtype: "float32"
+  lora_config:
+    r: 32
+    alpha: 64
+    dropout: 0.05
+    target_modules: ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "down_proj", "up_proj"]
+
+rla:
+  use_rla_video: false
+  use_rla_audio: false
+  rla_stage: "base_only"          # base_only | residual_only | joint
+  rla_hidden: 128
+  rla_p_moddrop_video: 0.30
+  rla_p_moddrop_audio: 0.30
+  d_video_feat: null              # e.g., 210 or 256
+  d_audio_feat: null              # e.g., 88 (eGeMAPS) or 180
+
+  # --- NEW: Processing features from the dict---
+  video_temporal: "meanstd"       # mean | meanstd | median | max | mean_max
+  video_use_conf: true            # use keypoint confidences
+
+  # MLP OPTIONS: (placeholders for now, not implemented yet)
+  video_use_mlp: false            # optional pre-MLP off by default
+  video_mlp_hidden: 256           # used only if video_use_mlp = true
+  video_out_dim: 256              # output dim of MLP; if you set d_video_feat in JSON, you may mirror that here
+
+  # MLP OPTIONS: (placeholders for now, not implemented yet)
+  # (audio placeholders for parity / future)
+  audio_use_mlp: false
+  audio_mlp_hidden: 128
+  audio_out_dim: 128
+
+train:
+  train_batch_size: 2 # Very small batch size for full training of large model
+  val_batch_size: 2
+  test_batch_size: 2 # Test batch size
+  lr: 1e-3  # depending on the different model components, this should be adjusted
+  epochs: 2
+  save_checkpoint_dir: "/scratch/keane/human_behaviour/full_head_only_finetune_accelerate"
+  load_checkpoint_path: null
+  validation_result_dir: null  # Directory to save validation results (predictions, ground truths, etc.)
+  save_every_n_epochs: 1
+  save_every_n_steps: null  # New: save every N steps (null = use epoch-based saving) One step is 1 batch
+  debug_dry_run: false
+  validate_every_n_epochs: 1
+  validate_every_n_steps: 50  # New: validate every N steps (null = use epoch-based validation) One step is 1 batch
+  early_stopping_patience: 99999
+  gradient_accumulation_steps: 16  # Number of batches to accumulate gradients before updating parameters
+  num_workers: 0  # WARNING: SET THIS TO 0 AS IT SHOULD BE AUTOMATICALLY HANDLED BY ACCELERATE
+  # Scheduler configuration
+  use_scheduler: false  # Set to false to disable scheduler
+  scheduler_type: "cosine"  # Options: "linear", "cosine", "cosine_with_restarts", "polynomial", "constant", "constant_with_warmup"
+  warmup_steps: 100  # Number of warmup steps (set to null to disable warmup)
+
+dataset_config:
+  max_prompt_length: 4096
+  modalities: "images,videos,audio"
+  prompt_key: "problem"
+  image_key: "images"
+  video_key: "videos"
+  audio_key: "audios"
+  label_key: "answer"
+  return_multi_modal_inputs: true
+  num_workers: 0
+  filter_overlong_prompts_workers: 0
+  filter_overlong_prompts: false
+  truncation: "right"
+  format_prompt: "/home/keaneong/human-behavior/verl/examples/format_prompt/default.jinja"
+
+wandb:
+  use: true
+  project: "omni-classifier-accelerate"
+  entity: null

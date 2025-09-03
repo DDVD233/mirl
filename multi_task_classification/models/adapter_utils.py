@@ -1,96 +1,146 @@
 # models/adapter_utils.py
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Iterable
 import torch
 import torch.nn.functional as F
-
-from .rla_adapters import VideoResidualAdapter, AudioResidualAdapter
-
-@torch.no_grad()
-def get_conf_from_local_logits(local_logits: torch.Tensor) -> torch.Tensor:
-    p = F.softmax(local_logits, dim=-1)
-    p_max, _ = p.max(dim=-1, keepdim=True)
-    entropy = -(p * (p.clamp_min(1e-12)).log()).sum(-1, keepdim=True)
-    if p.shape[-1] >= 2:
-        top2 = torch.topk(p, k=2, dim=-1).values
-        margin = top2[:, :1] - top2[:, 1:2]
-    else:
-        margin = torch.zeros_like(p_max)
-    return torch.cat([p_max, entropy, margin], dim=-1)  # [B,3]
+# models/feature_builders.py
+from typing import Dict, Literal
+import torch
+from .residual_logit_adapter import ResidualLogitAdapter
 
 def maybe_build_adapters(
     *,
     domain_id_to_global_indices,
-    train_dataset,
     use_rla_video: bool,
     use_rla_audio: bool,
     rla_hidden: int,
     p_moddrop_video: float,
     p_moddrop_audio: float,
-    rla_stage: str,
-    base_model,                 # nn.Module
     d_video_feat: Optional[int] = None,
     d_audio_feat: Optional[int] = None,
-) -> Tuple[Optional[VideoResidualAdapter], Optional[AudioResidualAdapter], int, int]:
+):
     """
-    Builds adapters once, infers feature dims if not provided, optionally freezes base (residual_only).
-    Returns: (video_adapter, audio_adapter, d_video_feat, d_audio_feat)
+    Builds adapters once given explicit feature dims (no dataset probing).
+    Returns: (video_adapter, audio_adapter).
     """
     video_adapter = None
     audio_adapter = None
 
-    if not (use_rla_video or use_rla_audio):
-        return None, None, d_video_feat or 0, d_audio_feat or 0
-
-    # Infer dims from a sample if needed
-    sample = train_dataset[0]
-    if use_rla_video and d_video_feat is None:
-        v = sample.get("video_feats", None)
-        if v is None:
-            raise KeyError("USE_RLA_VIDEO=True but dataset item lacks 'video_feats'")
-        d_video_feat = int(v.numel()) if torch.is_tensor(v) else int(v.size)
-
-    if use_rla_audio and d_audio_feat is None:
-        a = sample.get("audio_feats", None)
-        if a is None:
-            raise KeyError("USE_RLA_AUDIO=True but dataset item lacks 'audio_feats'")
-        d_audio_feat = int(a.numel()) if torch.is_tensor(a) else int(a.size)
-
     if use_rla_video:
-        video_adapter = VideoResidualAdapter(
-            domain_id_to_global_indices, d_video_feat=d_video_feat,
-            hidden=rla_hidden, p_moddrop=p_moddrop_video
+        if d_video_feat is None:
+            raise ValueError("USE_RLA_VIDEO=True but d_video_feat was not provided")
+        video_adapter = ResidualLogitAdapter(
+            domain_id_to_global_indices,
+            feat_key="video_feats",
+            feat_dim=d_video_feat,
+            hidden=rla_hidden,
+            p_moddrop=p_moddrop_video
         )
 
     if use_rla_audio:
-        audio_adapter = AudioResidualAdapter(
-            domain_id_to_global_indices, d_audio_feat=d_audio_feat,
-            hidden=rla_hidden, p_moddrop=p_moddrop_audio
+        if d_audio_feat is None:
+            raise ValueError("USE_RLA_AUDIO=True but d_audio_feat was not provided")
+        audio_adapter = ResidualLogitAdapter(
+            domain_id_to_global_indices,
+            feat_key="audio_feats",
+            feat_dim=d_audio_feat,
+            hidden=rla_hidden,
+            p_moddrop=p_moddrop_audio
         )
 
-    # Stage semantics
-    if rla_stage == "residual_only":
-        for p in base_model.parameters():
-            p.requires_grad = False
-
-    return video_adapter, audio_adapter, d_video_feat, d_audio_feat
-
+    return video_adapter, audio_adapter
 
 def apply_adapters(
     logits: torch.Tensor,
     domain_ids: torch.Tensor,
-    batch: dict,
     *,
-    video_adapter: Optional[VideoResidualAdapter],
-    audio_adapter: Optional[AudioResidualAdapter],
-    train_mode: bool
+    video_adapter: Optional[ResidualLogitAdapter],
+    audio_adapter: Optional[ResidualLogitAdapter],
+    video_feats: Optional[torch.Tensor] = None,   # <<—— direct tensors
+    audio_feats: Optional[torch.Tensor] = None,
+    train_mode: bool,
 ) -> torch.Tensor:
     """
-    Adds residuals in logit space using whatever adapters are present.
-    Safe if feats are missing: will just return logits unchanged.
+    Add residuals in logit space using whatever adapters are present.
+    If feats are None or adapter is None, logits are returned unchanged.
     """
     z = logits
-    if (video_adapter is not None) and ("video_feats" in batch):
-        z = video_adapter(z, domain_ids, train_mode=train_mode, video_feats=batch["video_feats"])
-    if (audio_adapter is not None) and ("audio_feats" in batch):
-        z = audio_adapter(z, domain_ids, train_mode=train_mode, audio_feats=batch["audio_feats"])
+    if (video_adapter is not None) and (video_feats is not None):
+        z = video_adapter(z, domain_ids, feats=video_feats, train_mode=train_mode)
+    if (audio_adapter is not None) and (audio_feats is not None):
+        z = audio_adapter(z, domain_ids, feats=audio_feats, train_mode=train_mode)
     return z
+
+
+
+### -----------------------------------------------------------------
+### RETRIEVAL OF OPENPOSE AND OPENSMILE FEATURES / POOLING UTILS
+### -----------------------------------------------------------------
+
+def _pool_temporal(x: torch.Tensor,
+                   mode: Literal["mean", "meanstd", "meanstdp25p75"] = "meanstd") -> torch.Tensor:
+    x = x.float()
+    if x.ndim != 2:
+        raise ValueError(f"Expected [T, D], got {tuple(x.shape)}")
+    if mode == "mean":
+        return x.mean(dim=0)
+    if mode == "meanstd":
+        m, s = x.mean(dim=0), x.std(dim=0)
+        return torch.cat([m, s], dim=0)
+    if mode == "meanstdp25p75":
+        T = x.size(0)
+        kth25 = max(1, int(0.25 * T))
+        kth75 = max(1, int(0.75 * T))
+        m, s = x.mean(dim=0), x.std(dim=0)
+        p25 = x.kthvalue(kth25, dim=0).values
+        p75 = x.kthvalue(kth75, dim=0).values
+        return torch.cat([m, s, p25, p75], dim=0)
+    raise ValueError(f"Unknown pooling mode: {mode}")
+
+def openpose_dict_to_framewise(data: Dict[str, torch.Tensor], use_conf: bool = True) -> torch.Tensor:
+    """
+    data may include any of: 'pose','face','left_hand','right_hand', each [T, K, 3] (x,y,conf)
+    returns [T, D_raw] by concatenating parts per frame.
+    """
+    chunks = []
+    for k in ("pose", "face", "left_hand", "right_hand"):
+        if k not in data:
+            continue
+        t = data[k]
+        if not torch.is_tensor(t):
+            t = torch.as_tensor(t)
+        t = t.float()
+        if t.ndim != 3:
+            raise ValueError(f"OpenPose part '{k}' must be [T,K,3], got {tuple(t.shape)}")
+        if not use_conf:
+            t = t[..., :2]  # drop the confidence
+        chunks.append(t.reshape(t.shape[0], -1))  # [T, K*C]
+    if not chunks:
+        raise KeyError("No valid OpenPose keys found in dict.")
+    return torch.cat(chunks, dim=-1)  # [T, D_raw_sum]
+
+def build_video_feat_single(
+    openpose: Dict[str, torch.Tensor],
+    temporal_mode: Literal["mean", "meanstd", "meanstdp25p75"] = "meanstd",
+    use_conf: bool = True,
+) -> torch.Tensor:
+    """OpenPose dict -> [D_vec]."""
+    seq = openpose_dict_to_framewise(openpose, use_conf=use_conf)  # [T, D_raw]
+    return _pool_temporal(seq, mode=temporal_mode)                 # [D_vec]
+
+def build_video_feats_batch(
+    openpose_list: Iterable[Dict[str, torch.Tensor]],
+    device: Optional[torch.device] = None,
+    temporal_mode: Literal["mean", "meanstd", "meanstdp25p75"] = "meanstd",
+    use_conf: bool = True,
+) -> torch.Tensor:
+    """List of OpenPose dicts -> [B, D_vec]."""
+    feats = [build_video_feat_single(op, temporal_mode=temporal_mode, use_conf=use_conf)
+             for op in openpose_list]
+    out = torch.stack(feats, dim=0)
+    if device is not None:
+        out = out.to(device)
+    return out
+
+# Audio: placeholder for now (return None to signal "not used")
+def build_audio_feats_placeholder(*args, **kwargs):
+    return None

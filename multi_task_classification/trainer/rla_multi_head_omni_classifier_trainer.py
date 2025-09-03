@@ -28,11 +28,11 @@ from evaluate.detailed_multi_task_evaluation import evaluate_predictions
 from accelerate import Accelerator
 from accelerate.utils import set_seed
 from accelerate.logging import get_logger
-from models.adapter_utils import maybe_build_adapters, apply_adapters
+from models.adapter_utils import maybe_build_adapters, apply_adapters, build_video_feats_batch
 
 logger = get_logger(__name__)
 
-class MultiHeadOmniClassifierAccelerateTrainer:
+class RLAMultiHeadOmniClassifierAccelerateTrainer:
     def __init__(self, data_files, val_data_files, test_data_files, tokenizer, processor, config, 
                  batch_size, val_batch_size, test_batch_size, lr, epochs, save_checkpoint_dir, load_checkpoint_path, model, 
                  gradient_accumulation_steps, num_workers=0, use_lora=False, global_config=None):
@@ -52,7 +52,6 @@ class MultiHeadOmniClassifierAccelerateTrainer:
         self.model = model
         self.label_key = config.get("label_key", "answer")
 
-        
         # Store global configuration for access to constants
         self.global_config = global_config or {}
         
@@ -60,6 +59,30 @@ class MultiHeadOmniClassifierAccelerateTrainer:
         self.full_label_scheme = self.global_config.get('FULL_LABEL_SCHEME', None)
         self.label_map = self.global_config.get('LABEL_MAP', {})
         self.label_map_path = self.global_config.get('LABEL_MAP_PATH', None)
+        
+        # Initialising of the RLA-related parameters
+        # Whether to enable each modality adapter
+        self.use_rla_video = self.global_config.get("USE_RLA_VIDEO", False)
+        self.use_rla_audio = self.global_config.get("USE_RLA_AUDIO", False)
+
+        # Training stage for adapters vs base:
+        #   "base_only"      -> train base only (no adapters built/applied)
+        #   "residual_only"  -> freeze base, train adapters only
+        #   "joint"          -> train base and adapters together
+        self.rla_stage     = self.global_config.get("RLA_STAGE", "base_only")
+
+        # Adapter architecture / regularization
+        self.rla_hidden    = self.global_config.get("RLA_HIDDEN", 128)
+        self.rla_pv        = self.global_config.get("RLA_P_MODDROP_VIDEO", 0.30)
+        self.rla_pa        = self.global_config.get("RLA_P_MODDROP_AUDIO", 0.30)
+
+        # Feature dimensions (optional; inferred from dataset[0] if None)
+        self.d_video_feat  = self.global_config.get("D_VIDEO_FEAT", None)
+        self.d_audio_feat  = self.global_config.get("D_AUDIO_FEAT", None)
+
+        # Adapter handles (populated later by maybe_build_adapters)
+        self.video_adapter = None
+        self.audio_adapter = None
 
         # after loading the label map, we need to build the domain routing tables
         self.build_domain_routing()
@@ -137,6 +160,13 @@ class MultiHeadOmniClassifierAccelerateTrainer:
             config=wandb_config,
             run_name=f"omni_classifier_accelerate_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
         )
+
+    def set_requires_grad(module, flag: bool):
+        # Helper function to free/unfreeze the different parts of the model
+        if module is None:
+            return
+        for p in module.parameters():
+            p.requires_grad = flag
 
     def build_domain_routing(self):
         # === Build domain routing tables from label_map ===
@@ -296,6 +326,69 @@ class MultiHeadOmniClassifierAccelerateTrainer:
     
         return start_epoch, start_batch_offset, global_step, meta, ckpt_dir
     
+    def prepare_params_for_training(self, base_lr: float = None, rla_lr: float = None):
+        """
+        Freeze/unfreeze according to self.rla_stage ∈ {"base_only","residual_only","joint"}
+        and build optimizer param groups. Simple, general, LoRA-compatible.
+        """
+        base_lr = self.lr if base_lr is None else base_lr
+        rla_lr  = self.lr if rla_lr  is None else rla_lr
+
+        def _set_requires_grad(module, flag: bool):
+            if module is None:
+                return
+            for p in module.parameters():
+                p.requires_grad = flag
+
+        # 0) Freeze everything first
+        _set_requires_grad(self.model, False)
+        _set_requires_grad(self.video_adapter, False)
+        _set_requires_grad(self.audio_adapter, False)
+
+        param_groups = []
+
+        if self.rla_stage == "base_only":
+            # Train base only
+            _set_requires_grad(self.model, True)
+            base_params = [p for p in self.model.parameters() if p.requires_grad]
+            if base_params:
+                param_groups.append({"params": base_params, "lr": base_lr})
+
+        elif self.rla_stage == "residual_only":
+            # Train adapters only
+            _set_requires_grad(self.video_adapter, True)
+            _set_requires_grad(self.audio_adapter, True)
+            rla_params = []
+            if self.video_adapter is not None:
+                rla_params += [p for p in self.video_adapter.parameters() if p.requires_grad]
+            if self.audio_adapter is not None:
+                rla_params += [p for p in self.audio_adapter.parameters() if p.requires_grad]
+            if rla_params:
+                param_groups.append({"params": rla_params, "lr": rla_lr})
+
+        elif self.rla_stage == "joint":
+            # Train base + adapters
+            _set_requires_grad(self.model, True)
+            _set_requires_grad(self.video_adapter, True)
+            _set_requires_grad(self.audio_adapter, True)
+
+            base_params = [p for p in self.model.parameters() if p.requires_grad]
+            if base_params:
+                param_groups.append({"params": base_params, "lr": base_lr})
+
+            rla_params = []
+            if self.video_adapter is not None:
+                rla_params += [p for p in self.video_adapter.parameters() if p.requires_grad]
+            if self.audio_adapter is not None:
+                rla_params += [p for p in self.audio_adapter.parameters() if p.requires_grad]
+            if rla_params:
+                param_groups.append({"params": rla_params, "lr": rla_lr})
+
+        else:
+            raise ValueError(f"Unknown RLA stage: {self.rla_stage}")
+
+        return param_groups
+    
     def _accelerate_prepare(self, optimizer, train_dataloader, val_dataloader, scheduler=None):
         """
         One place to call accelerate.prepare on all modules (base + adapters + opt + dls [+ scheduler]).
@@ -356,6 +449,7 @@ class MultiHeadOmniClassifierAccelerateTrainer:
                 labels = batch['labels']
                 attention_mask = batch.get('attention_mask', None)
 
+
                 # retrieve the batch and domain_ids for all the batch
                 if 'dataset' not in batch:
                     raise KeyError("Batch missing 'dataset' needed for domain routing.")
@@ -372,11 +466,12 @@ class MultiHeadOmniClassifierAccelerateTrainer:
                 logits = self.model(input_ids, attention_mask=attention_mask, domain_ids=domain_ids)
 
                 if (self.use_rla_video or self.use_rla_audio):
+                    # TODO: You'll need to add the video_feats and audio_feats here.
                     logits = apply_adapters(
                         logits, domain_ids, batch,
                         video_adapter=self.video_adapter,
                         audio_adapter=self.audio_adapter,
-                        train_mode=True
+                        train_mode=False
                         )
                 loss = criterion(logits, labels)
                 
@@ -445,34 +540,23 @@ class MultiHeadOmniClassifierAccelerateTrainer:
         train_dataloader = self.get_dataloader(self.data_files, self.batch_size, num_workers=self.num_workers, shuffle=True)
         val_dataloader = self.get_dataloader(self.val_data_files, self.val_batch_size, num_workers=self.num_workers, shuffle=False)
 
-        # Building adapters if required; # Build adapters once (and maybe freeze base)
-        self.video_adapter, self.audio_adapter, self.d_video_feat, self.d_audio_feat = maybe_build_adapters(
+        # Building adapters if required;
+        self.video_adapter, self.audio_adapter = maybe_build_adapters(
             domain_id_to_global_indices=self.domain_id_to_global_indices,
-            train_dataset=train_dataset,
             use_rla_video=self.use_rla_video,
             use_rla_audio=self.use_rla_audio,
             rla_hidden=self.rla_hidden,
             p_moddrop_video=self.rla_pv,
             p_moddrop_audio=self.rla_pa,
-            rla_stage=self.rla_stage,
-            base_model=self.model,
             d_video_feat=self.d_video_feat,
             d_audio_feat=self.d_audio_feat,
         )
 
         # optimizer, with an option to train the entire model or the adapters only etc.
-        params = []
-        if self.rla_stage in ("base_only", "joint"):
-            params.append({"params": self.model.parameters(), "lr": self.lr})
-        if self.rla_stage in ("residual_only", "joint"):
-            rla_params = []
-            if self.video_adapter is not None:
-                rla_params += list(self.video_adapter.parameters())
-            if self.audio_adapter is not None:
-                rla_params += list(self.audio_adapter.parameters())
-            if rla_params:
-                params.append({"params": rla_params, "lr": self.lr})
-        optimizer = Adam(params, lr=self.lr)
+        # Freeze/unfreeze + param groups
+        param_groups = self.prepare_params_for_training()
+        optimizer = Adam(param_groups, lr=self.lr)
+
 
         criterion = CrossEntropyLoss()
 
@@ -494,6 +578,7 @@ class MultiHeadOmniClassifierAccelerateTrainer:
             print("[INFO] Scheduler disabled - using constant learning rate")
 
         # Prepare everything with Accelerate
+        # Note that under the hood, the models and adapters are also prepared here.
         optimizer, train_dataloader, val_dataloader, scheduler = self._accelerate_prepare(
             optimizer=optimizer,
             train_dataloader=train_dataloader,
@@ -560,6 +645,31 @@ class MultiHeadOmniClassifierAccelerateTrainer:
                 # batch['dataset'] is typically a list/tuple length B
                 domain_ids = self._datasets_to_domain_ids(batch['dataset'], device=input_ids.device)
 
+                # TODO: change the batch loader so that it can take in the audio and video features directly
+                # Each should be of shape (B, D_feat)
+                if "audio_feats" in batch:
+                    audio_feats = batch["audio_feats"]
+
+                    # TODO: to insert the processing of the audio feats to be of shape (B, D_feat)
+                    pooled_audio_feats = None
+                else:
+                    pooled_audio_feats = None
+                
+                if "video_feats" in batch:
+                    # assume a torch loaded batch of video features
+                    video_feats = batch["video_feats"]
+                    
+                    # processing of the video feats to be of shape (B, D_feat)
+                    pooled_video_feats = build_video_feats_batch(
+                        video_feats,   # list of dicts
+                        device=input_ids.device,
+                        temporal_mode=self.global_config.get("RLA_VIDEO_TEMPORAL", "meanstd"),
+                        use_conf=self.global_config.get("RLA_VIDEO_USE_CONF", True),
+                    )
+            
+                else:
+                    pooled_video_feats = None
+
                 # labels sanity
                 if labels.dim() != 1:
                     # If your dataset sometimes emits multi-task/one-hot, squeeze or argmax here
@@ -575,10 +685,14 @@ class MultiHeadOmniClassifierAccelerateTrainer:
                         raise FloatingPointError("Non-finite logits encountered")
                     
                     if (self.use_rla_video or self.use_rla_audio):
+                        # apply the adapters to the logits
                         logits = apply_adapters(
-                            logits, domain_ids, batch,
+                            logits, 
+                            domain_ids,
                             video_adapter=self.video_adapter,
                             audio_adapter=self.audio_adapter,
+                            video_feats=pooled_video_feats,
+                            audio_feats=pooled_audio_feats,
                             train_mode=True
                         )
 
@@ -818,10 +932,10 @@ class MultiHeadOmniClassifierAccelerateTrainer:
 
 
         # everything should be prepared again by accelerator, including the model
-        optimizer, train_dataloader, val_dataloader, scheduler = self._accelerate_prepare(
+        optimizer, train_dataloader, test_dataloader, scheduler = self._accelerate_prepare(
             optimizer=optimizer,
             train_dataloader=train_dataloader,
-            val_dataloader=val_dataloader,
+            val_dataloader=test_dataloader,
             scheduler=scheduler
             )
         # loading of the model etc. 
