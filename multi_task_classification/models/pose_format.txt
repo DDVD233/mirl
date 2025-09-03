@@ -1,0 +1,4 @@
+# pose is [num_frames, key body points, (x,y, confidence)]
+# face is [num_frames, key face points, (x,y, confidence)]
+# left hand is [num_frames, key left hand points, (x,y, confidence)]
+# right hand is [num_frames, key right hand points, (x,y, confidence)]
