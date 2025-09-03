@@ -21,8 +21,8 @@ from datetime import datetime
 # ==========
 # 1) PATHS
 # ==========
-INPUT_JSON  = "/Users/keane/Desktop/research/human-behavior/data/unified_scheme/label_maps/v2_non_unified_scheme_splitmmpsy_binarymmpsy_no_vptd_chalearn_lmvd_esconv.json"
-OUTPUT_JSON = "/Users/keane/Desktop/research/human-behavior/data/unified_scheme/label_maps/v2_unified_scheme_splitmmpsy_binarymmpsy_no_vptd_chalearn_lmvd_esconv.json"
+INPUT_JSON  = "/home/keaneong/human-behavior/verl/multi_task_classification/feat_meld_label_map.json"
+OUTPUT_JSON = "/home/keaneong/human-behavior/verl/multi_task_classification/unified_feat_meld_label_map.json"
 
 # ==========
 # Canonicals & Synonyms
