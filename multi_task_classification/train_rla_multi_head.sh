@@ -18,7 +18,7 @@ export TORCH_USE_CUDA_DSA=1
   # --rla_hidden 128 \
   # --rla_p_moddrop_audio 0.30
 
-accelerate launch --config_file configs/accelerate_config_qwen.yaml train_multi_head.py \
+accelerate launch --config_file configs/accelerate_config_qwen.yaml train_rla_multi_head.py \
   --mode train \
   --training_strategy lora \
   --train_batch_size 2 \
