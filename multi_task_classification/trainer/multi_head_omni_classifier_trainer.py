@@ -437,21 +437,22 @@ class MultiHeadOmniClassifierAccelerateTrainer:
         )
 
         # 3) OPTIONAL resumed loader (only used for the first resumed epoch)
-        train_dataloader_resume = None
-        if start_batch_offset > 0:
-            samples_to_skip = start_batch_offset * self.batch_size
-            # Slice to skip heavy __getitem__ on earlier samples
-            resumed_ds = Subset(train_dataloader.dataset, range(samples_to_skip, len(train_dataloader.dataset)))
-            train_dataloader_resume = DataLoader(
-                resumed_ds,
-                batch_size=self.batch_size,
-                shuffle=False,                                  # keep it simple for the partial epoch
-                num_workers=getattr(train_dataloader, "num_workers", 0),
-                pin_memory=getattr(train_dataloader, "pin_memory", False),
-                drop_last=getattr(train_dataloader, "drop_last", False),
-                collate_fn=getattr(train_dataloader, "collate_fn", None),
-                persistent_workers=getattr(train_dataloader, "persistent_workers", False),
-            )
+        # TODO: REIMPLEMENT THIS WITH EXACT SAMPLER STATE RESTORATION
+        # train_dataloader_resume = None
+        # if start_batch_offset > 0:
+        #     samples_to_skip = start_batch_offset * self.batch_size
+        #     # Slice to skip heavy __getitem__ on earlier samples
+        #     resumed_ds = Subset(train_dataloader.dataset, range(samples_to_skip, len(train_dataloader.dataset)))
+        #     train_dataloader_resume = DataLoader(
+        #         resumed_ds,
+        #         batch_size=self.batch_size,
+        #         shuffle=False,                                  # keep it simple for the partial epoch
+        #         num_workers=getattr(train_dataloader, "num_workers", 0),
+        #         pin_memory=getattr(train_dataloader, "pin_memory", False),
+        #         drop_last=getattr(train_dataloader, "drop_last", False),
+        #         collate_fn=getattr(train_dataloader, "collate_fn", None),
+        #         persistent_workers=getattr(train_dataloader, "persistent_workers", False),
+        #     )
 
         # after building train_dataloader_resume
         if train_dataloader_resume is not None:
@@ -471,6 +472,7 @@ class MultiHeadOmniClassifierAccelerateTrainer:
             # Training phase
             self.model.train()
 
+            # TODO: REIMPLEMNT THIS
             # Use resumed loader only on the first partial epoch; afterwards, the full loader
             cur_loader = train_dataloader_resume if (epoch == start_epoch and train_dataloader_resume is not None) else train_dataloader
 
@@ -496,11 +498,12 @@ class MultiHeadOmniClassifierAccelerateTrainer:
                 # Set model to training mode (needed because validation sets it to eval mode)
                 self.model.train()
 
+                # TODO: REIMPLEMENT THIS
                 # if epoch == start_epoch and batch_idx < start_batch_offset:
                 #     continue
                 
                 # Calculate current step for validation checking
-                current_step = (epoch * len(train_dataloader)) + batch_idx + 1
+                current_step = (epoch * len(cur_loader)) + batch_idx + 1
                 
                 # --- defensive checks
                 if 'input_ids' not in batch or 'labels' not in batch:
@@ -596,7 +599,8 @@ class MultiHeadOmniClassifierAccelerateTrainer:
                         epochs=self.epochs,
                         accelerator=self.accelerator,
                         use_wandb=use_wandb,
-                        current_lr=current_lr
+                        current_lr=current_lr,
+                        current_step=current_step
                     )
 
                     if (batch_idx + 1) % self.gradient_accumulation_steps == 0:  
@@ -688,7 +692,8 @@ class MultiHeadOmniClassifierAccelerateTrainer:
                         train_acc=train_acc,
                         total_batches=len(train_dataloader),
                         accelerator=self.accelerator,
-                        use_wandb=use_wandb
+                        use_wandb=use_wandb,
+                        current_step=current_step
                     )
 
                     # Log validation results
@@ -710,7 +715,8 @@ class MultiHeadOmniClassifierAccelerateTrainer:
                     train_acc=train_acc,
                     total_batches=len(train_dataloader),
                     accelerator=self.accelerator,
-                    use_wandb=use_wandb
+                    use_wandb=use_wandb,
+                    current_step=current_step
                 )
 
             # Save checkpoint: every N epochs and also when best

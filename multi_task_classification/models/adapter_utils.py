@@ -78,6 +78,13 @@ def apply_adapters(
 
 def _pool_temporal(x: torch.Tensor,
                    mode: Literal["mean", "meanstd", "meanstdp25p75"] = "meanstd") -> torch.Tensor:
+    
+    # so essentially x looks like [T, K*C]
+    # and then when we take the mean along dim=0, we are taking the average of K*C feature values across T frames
+    # so the output shape is [K*C]
+    # similarly for std, p25, p75, etc.
+    # but then depending on what we want to use i.e. "mean", "meanstd", "meanstdp25p75", the shape will differ
+    # i.e. when we concatenate them, the shape will be from non cat [K*C], to cat 2 [2*K*C], or [4*K*C] respectively
     x = x.float()
     if x.ndim != 2:
         raise ValueError(f"Expected [T, D], got {tuple(x.shape)}")
@@ -113,9 +120,15 @@ def openpose_dict_to_framewise(data: Dict[str, torch.Tensor], use_conf: bool = T
             raise ValueError(f"OpenPose part '{k}' must be [T,K,3], got {tuple(t.shape)}")
         if not use_conf:
             t = t[..., :2]  # drop the confidence
+
+        # Flattening the last two dimensions (K, C) into a single dimension (K*C)
+        # i.e. we are just putting them side by side
         chunks.append(t.reshape(t.shape[0], -1))  # [T, K*C]
     if not chunks:
         raise KeyError("No valid OpenPose keys found in dict.")
+    
+    # concatenate them and put them side by side (along the last dimension)
+    # e.g., if we have pose, face, left_hand, right_hand, then the final shape is [T, (K1*C1)+(K2*C2)+(K3*C3)+(K4*C4)]
     return torch.cat(chunks, dim=-1)  # [T, D_raw_sum]
 
 def build_video_feat_single(
@@ -134,6 +147,9 @@ def build_video_feats_batch(
     use_conf: bool = True,
 ) -> torch.Tensor:
     """List of OpenPose dicts -> [B, D_vec]."""
+
+    # openpose_list is basically the list of dictionaries, each dictionary corresponds to one sample in the batch
+    # so openpose_list is of length B (the batch size)
     feats = [build_video_feat_single(op, temporal_mode=temporal_mode, use_conf=use_conf)
              for op in openpose_list]
     out = torch.stack(feats, dim=0)

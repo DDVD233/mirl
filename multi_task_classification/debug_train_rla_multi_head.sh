@@ -44,12 +44,13 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml train_multi_
   \
   --use_rla_video \
   --rla_stage residual_only \
-  --d_video_feat 210 \
+  --d_video_feat 3318 \
   --rla_hidden 128 \
   --rla_p_moddrop_video 0.30 \
   --rla_video_temporal meanstd \
   --rla_video_use_conf \
   
+  # NOTE: the d_video_feat will depend on the meanstd or mean modes etc. 
   # (optional) uncomment if you want the pre-MLP
   # --rla_video_use_mlp \
   # --rla_video_mlp_hidden 256 \

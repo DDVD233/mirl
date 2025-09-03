@@ -5,7 +5,7 @@ from .wandb_utils import log_metrics
 def log_batch_training_metrics(epoch, batch_idx, total_batches, loss,
                         correct, total, epoch_start_time, start_time, 
                         gradient_accumulation_steps, batch_size, epochs, 
-                        accelerator, use_wandb, current_lr=None):
+                        accelerator, use_wandb, current_lr=None, current_step=None):
     """Log training metrics to wandb."""
     if not use_wandb or not accelerator.is_main_process:
         return
@@ -27,7 +27,8 @@ def log_batch_training_metrics(epoch, batch_idx, total_batches, loss,
         if current_lr is not None:
             batch_info['learning_rate'] = float(current_lr)
         
-        current_step = (epoch * total_batches) + batch_idx + 1
+        if not current_step:
+            current_step = (epoch * total_batches) + batch_idx + 1
         log_metrics('effective_batch_metrics', batch_info, step=current_step)
 
     # Log training progress statistics
@@ -64,8 +65,8 @@ def log_batch_training_metrics(epoch, batch_idx, total_batches, loss,
         'current_batch': batch_idx + 1,
         'total_batches': total_batches
     }
-    
-    current_step = (epoch * total_batches) + batch_idx + 1
+    if not current_step:
+        current_step = (epoch * total_batches) + batch_idx + 1
     log_metrics('training_progress', progress_stats, step=current_step)
 
 
@@ -106,12 +107,14 @@ def log_validation_results(val_results, current_step, split_name, accelerator, u
                 log_metrics(f'dataset_{dataset_name}', metrics, step=current_step)
 
 
-def log_epoch_training_metrics(epoch, avg_train_loss, train_acc, total_batches, accelerator, use_wandb):
+def log_epoch_training_metrics(epoch, avg_train_loss, train_acc, total_batches, accelerator, use_wandb, current_step=None):
     """Log epoch-level training metrics."""
     if not use_wandb or not accelerator.is_main_process:
         return
     
-    current_step = (epoch + 1) * total_batches
+    if not current_step:    
+        current_step = (epoch + 1) * total_batches
+        
     log_metrics('train', {
         'loss': avg_train_loss,
         'accuracy': train_acc

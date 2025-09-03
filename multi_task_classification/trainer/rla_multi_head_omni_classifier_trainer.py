@@ -645,9 +645,88 @@ class RLAMultiHeadOmniClassifierAccelerateTrainer:
                 # Each should be of shape (B, D_feat)
                 if ("audio_feats" in batch) and (self.rla_stage in {"residual_only", "joint"}) and self.use_rla_audio:
                     audio_feats = batch["audio_feats"]
+                    # Process audio features into a dense tensor of shape (B, D_feat)
+                    # Accepts per-sample items as tensors/arrays/dicts. Pools temporal dims via mean/std.
+                    def _to_vec(a):
+                        # Convert a single sample's audio feat into 1D float tensor
+                        if isinstance(a, torch.Tensor):
+                            x = a.float()
+                        else:
+                            try:
+                                x = torch.as_tensor(a).float()
+                            except Exception:
+                                # Try common dict containers
+                                if isinstance(a, dict):
+                                    for k in ("features", "feat", "x", "data", "values", "arr"):
+                                        if k in a:
+                                            try:
+                                                x = torch.as_tensor(a[k]).float()
+                                                break
+                                            except Exception:
+                                                continue
+                                    else:
+                                        raise ValueError("Unsupported audio_feats dict structure")
+                                else:
+                                    raise ValueError("Unsupported audio_feats element type")
 
-                    # TODO: to insert the processing of the audio feats to be of shape (B, D_feat)
-                    pooled_audio_feats = None
+                        if x.ndim == 1:
+                            vec = x
+                        elif x.ndim >= 2:
+                            # Treat first dim as time; flatten remaining dims to features
+                            T = x.shape[0]
+                            x2 = x.reshape(T, -1)
+                            m = x2.mean(dim=0)
+                            s = x2.std(dim=0)
+                            vec = torch.cat([m, s], dim=0)
+                        else:
+                            vec = x.reshape(-1)
+
+                        # Conform to configured feature dim if provided
+                        target = self.d_audio_feat
+                        if isinstance(target, int) and target > 0:
+                            if vec.numel() < target:
+                                pad = torch.zeros(target - vec.numel(), dtype=vec.dtype, device=vec.device)
+                                vec = torch.cat([vec, pad], dim=0)
+                            elif vec.numel() > target:
+                                vec = vec[:target]
+                        return vec
+
+                    # Batch-level handling: could be a stacked tensor or an object array/list
+                    if isinstance(audio_feats, torch.Tensor):
+                        # If already (B, D), use directly. If (B, T, D), pool over T.
+                        af = audio_feats
+                        if af.ndim == 2:
+                            pooled_audio_feats = af.float().to(input_ids.device)
+                        elif af.ndim >= 3:
+                            B = af.size(0)
+                            T = af.size(1)
+                            x2 = af.reshape(B, T, -1).float()
+                            m = x2.mean(dim=1)
+                            s = x2.std(dim=1)
+                            pooled_audio_feats = torch.cat([m, s], dim=-1)
+                            # Align to target dim if necessary
+                            target = self.d_audio_feat
+                            if isinstance(target, int) and target > 0 and pooled_audio_feats.size(-1) != target:
+                                D = pooled_audio_feats.size(-1)
+                                if D < target:
+                                    pad = torch.zeros(B, target - D, dtype=pooled_audio_feats.dtype, device=pooled_audio_feats.device)
+                                    pooled_audio_feats = torch.cat([pooled_audio_feats, pad], dim=-1)
+                                else:
+                                    pooled_audio_feats = pooled_audio_feats[:, :target]
+                            pooled_audio_feats = pooled_audio_feats.to(input_ids.device)
+                        else:
+                            pooled_audio_feats = af.reshape(af.size(0), -1).float().to(input_ids.device)
+                    else:
+                        # Expect iterable of length B
+                        elems = list(audio_feats)
+                        vecs = [_to_vec(a) for a in elems]
+                        # If d_audio_feat not set, enforce equal lengths
+                        if self.d_audio_feat is None:
+                            L = vecs[0].numel()
+                            for v in vecs:
+                                if v.numel() != L:
+                                    raise ValueError("Inconsistent audio feature lengths in batch and D_AUDIO_FEAT not set")
+                        pooled_audio_feats = torch.stack(vecs, dim=0).to(input_ids.device)
                 else:
                     pooled_audio_feats = None
                 
@@ -656,6 +735,16 @@ class RLAMultiHeadOmniClassifierAccelerateTrainer:
                     video_feats = batch["video_feats"]
                     
                     # processing of the video feats to be of shape (B, D_feat)
+                    # video_feats should be a list of dictionaries with 
+                    # pose, face, left_hand, right_hand, audio, etc. as keys
+                    # each value is a tensor of shape (num_frames, num_landmarks(i.e. feature values), (x,y,c)))
+                    # and then we are pooling all of this into a single vector of shape (B, D_feat)
+                    # list of dictionaries, meaning each element in the list is a dictionary corresponding to one sample
+                    # within the batch ; batch encapsulates all the samples in the list
+                    # i.e. all of the num frames; landmarks; and (x,y,c) values are pooled into a single vector
+
+                    # the pooled_video_feats should look like [B, X*K*C], where K, C is basically the num_landmarks 
+                    # and (x,y,c) values, but averaged across the temporal dimension (num_frames)
                     pooled_video_feats = build_video_feats_batch(
                         video_feats,   # list of dicts
                         device=input_ids.device,

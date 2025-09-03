@@ -31,11 +31,11 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml train.py \
     --lr 1e-4 \
     --epochs 10 \
     --save_checkpoint_dir "/scratch/keane/human_behaviour/2_lr_unified_scheme_full_lora_training_resume" \
-    --load_checkpoint_path "/scratch/keane/human_behaviour/2_lr_unified_scheme_full_lora_training/step_30000" \
-    --validate_every_n_steps 10000 \
-    --validate_every_n_epochs None \
-    --save_every_n_steps 10000 \
-    --save_every_n_epochs None \
+    --load_checkpoint_path "/scratch/keane/human_behaviour/2_lr_unified_scheme_full_lora_training_resume/step_60000" \
+    --validate_every_n_steps None \
+    --validate_every_n_epochs 15000 \
+    --save_every_n_steps 15000 \
+    --save_every_n_epochs 1 \
     --early_stopping_patience 99999999 \
     --project "omni-classifier-lora-full-unified" \
     --gradient_accumulation_steps 128 \
