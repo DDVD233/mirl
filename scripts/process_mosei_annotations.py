@@ -54,21 +54,21 @@ def process_mosei_annotations(annotation_path: str) -> None:
         for entry in formatted_data:
             f.write(json.dumps(entry) + "\n")
 
-    # Add train test split of 80-20, calling it annotations_train.jsonl and annotations_test.jsonl
-    split_index = int(0.8 * len(formatted_data))
-    train_data = formatted_data[:split_index]
-    test_data = formatted_data[split_index:]
-    folder_name = annotation_path.rsplit("/", 1)[0] if "/" in annotation_path else "."
-    train_output_path = f"{folder_name}/annotations_train.jsonl"
-    test_output_path = f"{folder_name}/annotations_test.jsonl"
-
-    with open(train_output_path, "w") as f:
-        for entry in train_data:
-            f.write(json.dumps(entry) + "\n")
-
-    with open(test_output_path, "w") as f:
-        for entry in test_data:
-            f.write(json.dumps(entry) + "\n")
+    # # Add train test split of 80-20, calling it annotations_train.jsonl and annotations_test.jsonl
+    # split_index = int(0.8 * len(formatted_data))
+    # train_data = formatted_data[:split_index]
+    # test_data = formatted_data[split_index:]
+    # folder_name = annotation_path.rsplit("/", 1)[0] if "/" in annotation_path else "."
+    # train_output_path = f"{folder_name}/annotations_train.jsonl"
+    # test_output_path = f"{folder_name}/annotations_test.jsonl"
+    #
+    # with open(train_output_path, "w") as f:
+    #     for entry in train_data:
+    #         f.write(json.dumps(entry) + "\n")
+    #
+    # with open(test_output_path, "w") as f:
+    #     for entry in test_data:
+    #         f.write(json.dumps(entry) + "\n")
 
 if __name__ == "__main__":
     import argparse

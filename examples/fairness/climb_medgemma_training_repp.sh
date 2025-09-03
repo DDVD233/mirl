@@ -1,7 +1,7 @@
 set -x
 
 python3 -m verl.trainer.main_ppo \
-    algorithm.adv_estimator=reinforce_plus_plus \
+    algorithm.adv_estimator=rloo \
     data.train_files=/home/dvdai/orcd/scratch/high_modality/geom_train_demo_only.jsonl \
     data.val_files=/home/dvdai/orcd/scratch/high_modality/geom_valid_demo_only.jsonl \
     data.train_batch_size=512 \
@@ -18,9 +18,9 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.actor.optim.lr=5e-7 \
     actor_rollout_ref.model.use_remove_padding=False \
     actor_rollout_ref.actor.ppo_mini_batch_size=128 \
-    actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=4 \
-    actor_rollout_ref.actor.use_kl_loss=False \
-    actor_rollout_ref.actor.kl_loss_coef=1e-8 \
+    actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=2 \
+    actor_rollout_ref.actor.use_kl_loss=True \
+    actor_rollout_ref.actor.kl_loss_coef=1e-4 \
     actor_rollout_ref.actor.kl_loss_type=low_var_kl \
     actor_rollout_ref.actor.entropy_coeff=0 \
     actor_rollout_ref.actor.ulysses_sequence_parallel_size=1 \
@@ -45,8 +45,8 @@ python3 -m verl.trainer.main_ppo \
     trainer.critic_warmup=0 \
     trainer.logger='["console","wandb"]' \
     trainer.project_name='verl_climb' \
-    trainer.experiment_name='medgemma_training_demo_repp' \
-    trainer.n_gpus_per_node=2 \
+    trainer.experiment_name='medgemma_training_demo_rloo' \
+    trainer.n_gpus_per_node=4 \
     trainer.nnodes=1 \
     trainer.save_freq=20 \
     trainer.val_before_train=True \
