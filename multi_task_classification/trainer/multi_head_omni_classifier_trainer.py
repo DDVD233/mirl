@@ -455,7 +455,7 @@ class MultiHeadOmniClassifierAccelerateTrainer:
 
         # after building train_dataloader_resume
         if train_dataloader_resume is not None:
-            (train_dataloader_resume,) = self.accelerator.prepare(train_dataloader_resume)
+            train_dataloader_resume = self.accelerator.prepare(train_dataloader_resume)
 
 
         # Get configuration values
