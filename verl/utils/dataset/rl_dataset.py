@@ -193,8 +193,8 @@ class RLHFDataset(Dataset):
             "texts":   datasets.Sequence(datasets.Value("string")),
             "modality_signature": datasets.Value("string"),
             # TODO: THE BOTTOM TWO ARE JUST FOR DEBUGGING FOR NOW; remove when running the other scripts
-            "ext_video_feats": datasets.Sequence(datasets.Value("string")),  # <- optional, default []
-            "ext_audio_feats": datasets.Sequence(datasets.Value("string")),  # <- optional, default []
+            # "ext_video_feats": datasets.Sequence(datasets.Value("string")),  # <- optional, default []
+            # "ext_audio_feats": datasets.Sequence(datasets.Value("string")),  # <- optional, default []
         })
 
         for parquet_file in self.data_files:

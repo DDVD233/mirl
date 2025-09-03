@@ -436,6 +436,24 @@ class MultiHeadOmniClassifierAccelerateTrainer:
             expect_training_strategy=self.global_config.get("TRAINING_STRATEGY"),
         )
 
+        # 3) OPTIONAL resumed loader (only used for the first resumed epoch)
+        train_dataloader_resume = None
+        if start_batch_offset > 0:
+            samples_to_skip = start_batch_offset * self.batch_size
+            # Slice to skip heavy __getitem__ on earlier samples
+            resumed_ds = Subset(train_dataloader.dataset, range(samples_to_skip, len(train_dataloader.dataset)))
+            train_dataloader_resume = DataLoader(
+                resumed_ds,
+                batch_size=self.batch_size,
+                shuffle=False,                                  # keep it simple for the partial epoch
+                num_workers=getattr(train_dataloader, "num_workers", 0),
+                pin_memory=getattr(train_dataloader, "pin_memory", False),
+                drop_last=getattr(train_dataloader, "drop_last", False),
+                collate_fn=getattr(train_dataloader, "collate_fn", None),
+                persistent_workers=getattr(train_dataloader, "persistent_workers", False),
+            )
+
+
         # Get configuration values
         validate_every_n_epochs = self.global_config.get('VALIDATE_EVERY_N_EPOCHS', None)
         validate_every_n_steps = self.global_config.get('VALIDATE_EVERY_N_STEPS', None)
@@ -449,9 +467,16 @@ class MultiHeadOmniClassifierAccelerateTrainer:
             # Training phase
             self.model.train()
 
+            # Use resumed loader only on the first partial epoch; afterwards, the full loader
+            cur_loader = train_dataloader_resume if (epoch == start_epoch and train_dataloader_resume is not None) else train_dataloader
+
+            # Handle DDP per-epoch shuffling if the sampler exists
+            if hasattr(cur_loader, "sampler") and hasattr(cur_loader.sampler, "set_epoch"):
+                cur_loader.sampler.set_epoch(epoch)
+
             # Handling the SAMPLER SHUFFLING
-            if hasattr(train_dataloader, "sampler") and hasattr(train_dataloader.sampler, "set_epoch"):
-                train_dataloader.sampler.set_epoch(epoch)  # required for proper per-epoch shuffling in DDP. :contentReference[oaicite:4]{index=4}
+            # if hasattr(train_dataloader, "sampler") and hasattr(train_dataloader.sampler, "set_epoch"):
+            #     train_dataloader.sampler.set_epoch(epoch)  # required for proper per-epoch shuffling in DDP. :contentReference[oaicite:4]{index=4}
 
             total_loss = 0.0
             correct = 0
@@ -463,8 +488,7 @@ class MultiHeadOmniClassifierAccelerateTrainer:
             effective_batch_correct = 0
             effective_batch_total = 0
 
-
-            for batch_idx, batch in tqdm(enumerate(train_dataloader), desc="Training", total=len(train_dataloader), disable=not self.accelerator.is_main_process):
+            for batch_idx, batch in tqdm(enumerate(cur_loader), desc="Training", total=len(train_dataloader), disable=not self.accelerator.is_main_process):
                 # Set model to training mode (needed because validation sets it to eval mode)
                 self.model.train()
 

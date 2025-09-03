@@ -26,10 +26,10 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml train_multi_
   --test_batch_size 2 \
   --lr 1e-4 \
   --epochs 10 \
-  --train_file "/scratch/keane/human_behaviour/human_behaviour_data/v2_unified_scheme_train.jsonl" \
-  --val_file   "/scratch/keane/human_behaviour/human_behaviour_data/v2_unified_scheme_val.jsonl" \
-  --test_file  "/scratch/keane/human_behaviour/human_behaviour_data/v2_unified_scheme_test.jsonl" \
-  --label_map_path "/home/keaneong/human-behavior/verl/multi_task_classification/v2_unified_scheme_splitmmpsy_binarymmpsy_no_vptd_chalearn_lmvd_esconv.json" \
+  --train_file "/scratch/keane/human_behaviour/human_behaviour_data/feat_meld_train.jsonl" \
+  --val_file   "/scratch/keane/human_behaviour/human_behaviour_data/feat_meld_val.jsonl" \
+  --test_file  "/scratch/keane/human_behaviour/human_behaviour_data/feat_meld_test.jsonl" \
+  --label_map_path "/home/keaneong/human-behavior/verl/multi_task_classification/unified_feat_meld_label_map.json" \
   --save_every_n_epochs None \
   --save_every_n_steps 10000 \
   --save_checkpoint_dir "/scratch/keane/human_behaviour/multi_task_lora_training" \
@@ -47,7 +47,7 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml train_multi_
   --rla_p_moddrop_video 0.30 \
   --rla_video_temporal meanstd \
   --rla_video_use_conf \
-  
+
   # (optional) uncomment if you want the pre-MLP
   # --rla_video_use_mlp \
   # --rla_video_mlp_hidden 256 \

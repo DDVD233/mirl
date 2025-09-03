@@ -643,7 +643,7 @@ class RLAMultiHeadOmniClassifierAccelerateTrainer:
 
                 # TODO: change the batch loader so that it can take in the audio and video features directly
                 # Each should be of shape (B, D_feat)
-                if "audio_feats" in batch:
+                if ("audio_feats" in batch) and (self.rla_stage in {"residual_only", "joint"}) and self.use_rla_audio:
                     audio_feats = batch["audio_feats"]
 
                     # TODO: to insert the processing of the audio feats to be of shape (B, D_feat)
@@ -651,7 +651,7 @@ class RLAMultiHeadOmniClassifierAccelerateTrainer:
                 else:
                     pooled_audio_feats = None
                 
-                if "video_feats" in batch:
+                if ("video_feats" in batch) and (self.rla_stage in {"residual_only", "joint"}) and self.use_rla_video:
                     # assume a torch loaded batch of video features
                     video_feats = batch["video_feats"]
                     
