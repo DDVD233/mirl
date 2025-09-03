@@ -653,7 +653,7 @@ class RLAMultiHeadOmniClassifierAccelerateTrainer:
                 if ("video_feats" in batch) and (self.rla_stage in {"residual_only", "joint"}) and self.use_rla_video:
                     # assume a torch loaded batch of video features
                     video_feats = batch["video_feats"]
-                    raise Exception(f"DEBUG: Video Feats {video_feats}")
+                    # raise Exception(f"DEBUG: Video Feats {video_feats}")
                     
                     # processing of the video feats to be of shape (B, D_feat)
                     # video_feats should be a list of dictionaries with 
