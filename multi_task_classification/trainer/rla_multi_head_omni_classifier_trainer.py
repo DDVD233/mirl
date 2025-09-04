@@ -72,7 +72,7 @@ class RLAMultiHeadOmniClassifierAccelerateTrainer:
         #   "joint"          -> train base and adapters together
         self.rla_stage     = self.global_config.get("RLA_STAGE", "base_only")
         # self.resume_diff_cfg = bool(self.global_config.get("RLA_RESUME_DIFFERENT_TRAINING_CONFIG", False))
-        self.rla_resume_diff_cfg = True
+        self.rla_resume_diff_cfg = False
 
         # Adapter architecture / regularization
         self.rla_hidden    = self.global_config.get("RLA_HIDDEN", 128)
