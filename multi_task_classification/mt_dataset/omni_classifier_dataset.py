@@ -32,7 +32,8 @@ class OmniClassifierDataset(RLHFDataset):
         # -------------------------------------------------------------------
         video_feats_path = row_dict.get('ext_video_feats', None)
         audio_feats_path = row_dict.get('ext_audio_feats', None)
-
+        raise Exception(f"DEBUG: Video Feats {video_feats_path}")
+    
         video_feat = torch.load(video_feats_path) if video_feats_path else None
         audio_feat = torch.load(audio_feats_path) if audio_feats_path else None
         row_dict['video_feats'] = video_feat
