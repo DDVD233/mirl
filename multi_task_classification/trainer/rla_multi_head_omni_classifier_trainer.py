@@ -72,7 +72,7 @@ class RLAMultiHeadOmniClassifierAccelerateTrainer:
         #   "joint"          -> train base and adapters together
         self.rla_stage     = self.global_config.get("RLA_STAGE", "base_only")
         # self.resume_diff_cfg = bool(self.global_config.get("RLA_RESUME_DIFFERENT_TRAINING_CONFIG", False))
-        self.rla_resume_diff_cfg = False
+        self.rla_resume_diff_cfg = True
 
         # Adapter architecture / regularization
         self.rla_hidden    = self.global_config.get("RLA_HIDDEN", 128)
@@ -336,6 +336,10 @@ class RLAMultiHeadOmniClassifierAccelerateTrainer:
         return start_epoch, start_batch_offset, global_step, meta, ckpt_dir
     
     def prepare_params_for_training(self, base_lr: float = None, rla_lr: float = None):
+        """
+        Freeze/unfreeze according to self.rla_stage ∈ {"base_only","residual_only","joint"}
+        and build optimizer param groups. Simple, general, LoRA-compatible.
+        """
         base_lr = self.lr if base_lr is None else base_lr
         rla_lr  = self.lr if rla_lr  is None else rla_lr
 
@@ -345,63 +349,53 @@ class RLAMultiHeadOmniClassifierAccelerateTrainer:
             for p in module.parameters():
                 p.requires_grad = flag
 
-        # Refresh handles (post-prepare they point to wrapped submodules)
-        self.video_adapter = getattr(self.model, "video_adapter", None)
-        self.audio_adapter = getattr(self.model, "audio_adapter", None)
-
-        # Collect adapter params
-        adapter_params = []
-        if self.video_adapter is not None:
-            adapter_params += list(self.video_adapter.parameters())
-        if self.audio_adapter is not None:
-            adapter_params += list(self.audio_adapter.parameters())
-        adapter_param_ids = {id(p) for p in adapter_params}
-
-        def iter_base_params():
-            for name, p in self.model.named_parameters():
-                if name.startswith(("video_adapter", "audio_adapter")):
-                    continue
-                if id(p) in adapter_param_ids:
-                    continue
-                yield p
-
-        param_groups = []
-
+        unfrozen_param_groups = []
+        # NOTE: in the following, assume that the model is already has its required gradients
+        # set by a preceding code
         if self.rla_stage == "base_only":
             print("Freezing adapters, training base model only")
             _set_requires_grad(self.video_adapter, False)
             _set_requires_grad(self.audio_adapter, False)
-            _set_requires_grad(self.model, True)
-            base_params = [p for p in iter_base_params() if p.requires_grad]
+            base_params = self.model.parameters()
             if base_params:
-                param_groups.append({"params": base_params, "lr": base_lr})
+                unfrozen_param_groups.append({"params": base_params, "lr": base_lr})
 
         elif self.rla_stage == "residual_only":
             print("Freezing base model, training adapters only")
             _set_requires_grad(self.model, False)
+            # Train adapters only
             _set_requires_grad(self.video_adapter, True)
             _set_requires_grad(self.audio_adapter, True)
-            rla_params = [p for p in adapter_params if p.requires_grad]
+            rla_params = []
+            if self.video_adapter is not None:
+                rla_params += [p for p in self.video_adapter.parameters() if p.requires_grad]
+            if self.audio_adapter is not None:
+                rla_params += [p for p in self.audio_adapter.parameters() if p.requires_grad]
             if rla_params:
-                param_groups.append({"params": rla_params, "lr": rla_lr})
+                unfrozen_param_groups.append({"params": rla_params, "lr": rla_lr})
 
         elif self.rla_stage == "joint":
             print("Training both base model and adapters")
-            _set_requires_grad(self.model, True)
+            # Train base + adapters
             _set_requires_grad(self.video_adapter, True)
             _set_requires_grad(self.audio_adapter, True)
 
-            base_params = [p for p in iter_base_params() if p.requires_grad]
+            base_params = self.model.parameters()
             if base_params:
-                param_groups.append({"params": base_params, "lr": base_lr})
+                unfrozen_param_groups.append({"params": base_params, "lr": base_lr})
 
-            rla_params = [p for p in adapter_params if p.requires_grad]
+            rla_params = []
+            if self.video_adapter is not None:
+                rla_params += [p for p in self.video_adapter.parameters() if p.requires_grad]
+            if self.audio_adapter is not None:
+                rla_params += [p for p in self.audio_adapter.parameters() if p.requires_grad]
             if rla_params:
-                param_groups.append({"params": rla_params, "lr": rla_lr})
+                unfrozen_param_groups.append({"params": rla_params, "lr": rla_lr})
+
         else:
             raise ValueError(f"Unknown RLA stage: {self.rla_stage}")
 
-        return param_groups
+        return unfrozen_param_groups
     
     def _accelerate_prepare(
         self,
@@ -418,6 +412,11 @@ class RLAMultiHeadOmniClassifierAccelerateTrainer:
         """
         modules = [self.model]
 
+        if getattr(self, "video_adapter", None) is not None:
+            modules.append(self.video_adapter)
+        if getattr(self, "audio_adapter", None) is not None:
+            modules.append(self.audio_adapter)
+
         modules += [train_dataloader, val_dataloader]
 
         if optimizer:
@@ -430,6 +429,11 @@ class RLAMultiHeadOmniClassifierAccelerateTrainer:
         # ---- Unpack in the same order ----
         idx = 0
         self.model = prepared[idx]; idx += 1
+
+        if getattr(self, "video_adapter", None) is not None:
+            self.video_adapter = prepared[idx]; idx += 1
+        if getattr(self, "audio_adapter", None) is not None:
+            self.audio_adapter = prepared[idx]; idx += 1
 
         train_dataloader = prepared[idx]; idx += 1
         val_dataloader   = prepared[idx]; idx += 1
@@ -600,8 +604,7 @@ class RLAMultiHeadOmniClassifierAccelerateTrainer:
 
         # Building adapters if required;
         # NOTE WILL BE INITIALISED REGARDLESS OF WHETHER WE USE USE.RLA_VIDEO / USE.RLA_AUDIO
-
-        v, a = maybe_build_adapters(
+        self.video_adapter, self.audio_adapter = maybe_build_adapters(
             domain_id_to_global_indices=self.domain_id_to_global_indices,
             use_rla_video=self.use_rla_video,
             use_rla_audio=self.use_rla_audio,
@@ -609,13 +612,8 @@ class RLAMultiHeadOmniClassifierAccelerateTrainer:
             p_moddrop_video=self.rla_pv,
             p_moddrop_audio=self.rla_pa,
             d_video_feat=self.d_video_feat,
-            d_audio_feat=self.d_audio_feat,)
-        
-        self.model.video_adapter = v
-        self.model.audio_adapter = a
-        # Keep trainer handles pointing to submodules of self.model
-        self.video_adapter = self.model.video_adapter
-        self.audio_adapter = self.model.audio_adapter
+            d_audio_feat=self.d_audio_feat,
+        )
 
         # optimizer, with an option to train the entire model or the adapters only etc.
         # Freeze/unfreeze + param groups
@@ -665,7 +663,7 @@ class RLAMultiHeadOmniClassifierAccelerateTrainer:
                 # Prepare optimizer (and scheduler) after load
                 optimizer, scheduler = self.accelerator.prepare(optimizer, scheduler)
                 self.accelerator.register_for_checkpointing(scheduler)
-                print(f"... (resumed at step {global_step})")
+                print(f"[INFO] Using {self.scheduler_type} scheduler with {self.warmup_steps} warmup steps (resumed at step {global_step0})")
             else:
                 scheduler = None
                 optimizer = self.accelerator.prepare(optimizer)
@@ -1046,8 +1044,7 @@ class RLAMultiHeadOmniClassifierAccelerateTrainer:
         test_dataloader  = self.get_dataloader(self.test_data_files, self.test_batch_size, num_workers=self.num_workers, shuffle=False)
 
         # 2) Build adapters exactly as in training
-        # Build adapters exactly as in training
-        v, a = maybe_build_adapters(
+        self.video_adapter, self.audio_adapter = maybe_build_adapters(
             domain_id_to_global_indices=self.domain_id_to_global_indices,
             use_rla_video=self.use_rla_video,
             use_rla_audio=self.use_rla_audio,
@@ -1057,10 +1054,6 @@ class RLAMultiHeadOmniClassifierAccelerateTrainer:
             d_video_feat=self.d_video_feat,
             d_audio_feat=self.d_audio_feat,
         )
-        self.model.video_adapter = v
-        self.model.audio_adapter = a
-        self.video_adapter = self.model.video_adapter
-        self.audio_adapter = self.model.audio_adapter
 
         # 3) Mirror training’s (un)freeze and param-group wiring
         param_groups = self.prepare_params_for_training()
