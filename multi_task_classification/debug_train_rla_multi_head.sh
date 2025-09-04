@@ -48,7 +48,7 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml train_rla_mu
   --gradient_accumulation_steps 8 \
   \
   --use_rla_video \
-  --rla_stage residual_only \
+  --rla_stage base_only \
   --d_video_feat 3318 \
   --rla_hidden 128 \
   --rla_p_moddrop_video 0.00 \
