@@ -422,6 +422,13 @@ class RLHFDataset(Dataset):
             if item is None:
                 row_dict[key] = []
 
+        # create the video_ext and audio ext paths:
+        video_rel_path = row_dict.get('ext_video_feats', None)[0]
+        row_dict["ext_video_feats_path"] = os.path.join(self.base_dir, video_rel_path)
+
+        audio_rel_path = row_dict.get('ext_audio_feats', None)[0]
+        row_dict["ext_audio_feats_path"] = os.path.join(self.base_dir, audio_rel_path)
+
         # NOTE: BUILD_MESSAGES IS CALLED TWICE; 
         # NOTE: FIRST TIME IS TO GET THE LENGTH OF THE RAW PROMPT AND FILTER OUT 
         # NOTE: PROMPTS THAT DO NOT FIT THE LENGTH; 

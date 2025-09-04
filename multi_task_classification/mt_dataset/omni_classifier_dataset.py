@@ -30,10 +30,10 @@ class OmniClassifierDataset(RLHFDataset):
 
         # LOADING OF VIDEO/AUDIO FEATURES
         # -------------------------------------------------------------------
-        video_feats_path = row_dict.get('ext_video_feats', None)
-        audio_feats_path = row_dict.get('ext_audio_feats', None)
+        video_feats_path = row_dict.get('ext_video_feats_path', None)
+        audio_feats_path = row_dict.get('ext_audio_feats_path', None)
 
-        video_feats_path = "/scratch/keane/human_behaviour/human_behaviour_data/pose/meld_dataset/train/train_split/dia772_utt4.pt"
+        # video_feats_path = "/scratch/keane/human_behaviour/human_behaviour_data/pose/meld_dataset/train/train_split/dia772_utt4.pt"
     
         video_feat = torch.load(video_feats_path) if video_feats_path else None
         raise Exception(f"DEBUG: Video Feats {video_feat}")
