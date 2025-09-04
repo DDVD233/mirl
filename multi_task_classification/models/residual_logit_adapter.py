@@ -6,15 +6,15 @@ import torch.nn.functional as F
 
 @torch.no_grad()
 def get_conf_from_local_logits(local_logits: torch.Tensor) -> torch.Tensor:
-    p = F.softmax(local_logits, dim=-1)
-    p_max, _ = p.max(dim=-1, keepdim=True)
-    entropy = -(p * (p.clamp_min(1e-12)).log()).sum(-1, keepdim=True)
+    p = F.softmax(local_logits, dim=-1) # softmax to obtain the probability
+    p_max, _ = p.max(dim=-1, keepdim=True) #now obtain the top probaility for everything
+    entropy = -(p * (p.clamp_min(1e-12)).log()).sum(-1, keepdim=True) # compute entropy or uncertainty for the whole amount of logits
     if p.shape[-1] >= 2:
         top2 = torch.topk(p, k=2, dim=-1).values
-        margin = top2[:, :1] - top2[:, 1:2]
+        margin = top2[:, :1] - top2[:, 1:2] # obtain the difference between the top 2 probabilities
     else:
         margin = torch.zeros_like(p_max)
-    return torch.cat([p_max, entropy, margin], dim=-1)  # [B,3]
+    return torch.cat([p_max, entropy, margin], dim=-1)  # [B,3] # flatten
 
 class ResidualLogitAdapter(nn.Module):
     """
@@ -38,12 +38,13 @@ class ResidualLogitAdapter(nn.Module):
         self.p_moddrop = p_moddrop
 
         # One residual MLP per domain: [feat_dim + 3(conf)] -> K_d
+        # the +3 is the confidence from the current local logits
         mlps = []
         for slots in domain_id_to_global_indices:
             k_d = len(slots)
             mlps.append(
                 nn.Sequential(
-                    nn.Linear(feat_dim + 3, hidden),
+                    nn.Linear(feat_dim + 3, hidden), 
                     nn.ReLU(),
                     nn.Linear(hidden, k_d),
                 )
@@ -72,6 +73,8 @@ class ResidualLogitAdapter(nn.Module):
             return z_base_global
 
         z_out = z_base_global.clone()
+
+        # for a subset of all samples, drop the features for regulaization
         feats = self._maybe_drop(feats, train_mode)
 
         # Per-domain to handle variable K_d
@@ -87,13 +90,31 @@ class ResidualLogitAdapter(nn.Module):
 
             local_logits = z_out.index_select(0, rows).index_select(1, cols)  # [B_d, K_d]
 
-            raise Exception(f"DEBUG: Local Logits {local_logits}, shape {local_logits.shape}")
+            # raise Exception(f"DEBUG: Local Logits {local_logits}, shape {local_logits.shape}")
+
+            # obtaining the confidence from the local logits
             c = get_conf_from_local_logits(local_logits)                      # [B_d, 3]
+
+            # gather the rows of the feats that correspond to the current domain
+            # (so that we can essentially pass them through the MLP to obtain the residuals)
             df = feats.index_select(0, rows)                                  # [B_d, D_feat]
 
             x = torch.cat([df, c], dim=-1)                                    # [B_d, D_feat+3]
+
+            # alpha is a learnable scalar gate that lets training keep residuals small unless
+            # beneficial, it will scale the signal of the mlp per the domain
+            # dz_local is the actual residual that we will add to the global logits
+            # k_d is the number of classes for that domain
+            # so essentially its a representation of each amount added to the logits
             dz_local = self.mlps[d](x) * self.alphas[d]                       # [B_d, K_d]
 
+            raise(Exception(f"DEBUG: DZ Local {dz_local}, shape {dz_local.shape}, Alpha {self.alphas[d]}"))
+
+            # z_out is the global logits, so essentially for we are appending the dz_local to 
+            # the correct positions in the global logits corresponding to the same domain
+            # rows.unsqueeze(-1) makes it [B_d, 1] (handles the sample indices within the batch)
+            # cols.unsqueeze(0).expand(...) makes it [B_d, K_d] (handles the class indices within the global logits)
+            # so we append to the batch
             z_out[rows.unsqueeze(-1), cols.unsqueeze(0).expand(rows.numel(), cols.numel())] += dz_local
 
         return z_out
