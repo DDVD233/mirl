@@ -423,6 +423,8 @@ class RLHFDataset(Dataset):
                 row_dict[key] = []
 
         # create the video_ext and audio ext paths:
+        # TODO: This currently works for only the fist video within the .pt list
+        # i.e. "ext_video_feats": [path1, path2, ...], we only take the first one
         video_rel_path = row_dict.get('ext_video_feats', None)[0]
         row_dict["ext_video_feats_path"] = os.path.join(self.base_dir, video_rel_path)
 
