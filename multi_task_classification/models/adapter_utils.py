@@ -152,10 +152,10 @@ def build_video_feats_batch(
     # so openpose_list is of length B (the batch size)
     feats = [build_video_feat_single(op, temporal_mode=temporal_mode, use_conf=use_conf)
              for op in openpose_list]
-    raise Exception(f"DEBUG: Video Feats {feats}")
     out = torch.stack(feats, dim=0)
     if device is not None:
         out = out.to(device)
+    raise Exception(f"DEBUG: Video Feats {out}, shape {out.shape}")
     return out
 
 # Audio: placeholder for now (return None to signal "not used")
