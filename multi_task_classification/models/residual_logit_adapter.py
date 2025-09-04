@@ -67,7 +67,7 @@ class ResidualLogitAdapter(nn.Module):
         train_mode: bool = False,
     ) -> torch.Tensor:
         
-        raise Exception(f"DEBUG: Video Feats {feats}, z base global Logits, {z_base_global}, Domain IDs {domain_ids}")
+        raise Exception(f"DEBUG: Video Feats {feats}, z base global Logits, {z_base_global}, Domain IDs {domain_ids}, Domain id to global indices map {self.domain_id_to_global_indices}")
         if feats is None:
             return z_base_global
 
