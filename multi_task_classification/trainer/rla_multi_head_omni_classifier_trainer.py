@@ -429,6 +429,12 @@ class RLAMultiHeadOmniClassifierAccelerateTrainer:
     def validate(self, val_dataloader, split_name="validation", current_step=None):
         """Validate the model on the given dataloader."""
         self.model.eval()
+
+        if self.video_adapter is not None:
+            self.video_adapter.eval()
+        if self.audio_adapter is not None:
+            self.audio_adapter.eval()
+        
         total_loss = 0.0
         all_predictions = []
         all_labels = []
@@ -452,6 +458,41 @@ class RLAMultiHeadOmniClassifierAccelerateTrainer:
                 # batch['dataset'] is typically a list/tuple length B
                 domain_ids = self._datasets_to_domain_ids(batch['dataset'], device=input_ids.device)
 
+
+                # Each should be of shape (B, D_feat)
+                if ("audio_feats" in batch) and (self.rla_stage in {"residual_only", "joint"}) and self.use_rla_audio:
+                    audio_feats = batch["audio_feats"]
+                    # PLACEHOLDER FOR NOW
+                    pooled_audio_feats = None
+                else:
+                    pooled_audio_feats = None
+                
+                if ("video_feats" in batch) and (self.rla_stage in {"residual_only", "joint"}) and self.use_rla_video:
+                    # assume a torch loaded batch of video features
+                    video_feats = batch["video_feats"]
+                    
+                    # processing of the video feats to be of shape (B, D_feat)
+                    # video_feats should be a list of dictionaries with 
+                    # pose, face, left_hand, right_hand, audio, etc. as keys
+                    # each value is a tensor of shape (num_frames, num_landmarks(i.e. feature values), (x,y,c)))
+                    # and then we are pooling all of this into a single vector of shape (B, D_feat)
+                    # list of dictionaries, meaning each element in the list is a dictionary corresponding to one sample
+                    # within the batch ; batch encapsulates all the samples in the list
+                    # i.e. all of the num frames; landmarks; and (x,y,c) values are pooled into a single vector
+
+                    # the pooled_video_feats should look like [B, X*K*C], where K, C is basically the num_landmarks 
+                    # and (x,y,c) values, but averaged across the temporal dimension (num_frames)
+                    pooled_video_feats = build_video_feats_batch(
+                        video_feats,   # list of dicts
+                        device=input_ids.device,
+                        temporal_mode=self.global_config.get("RLA_VIDEO_TEMPORAL", "meanstd"),
+                        use_conf=self.global_config.get("RLA_VIDEO_USE_CONF", True),
+                        target_dim=self.d_video_feat
+                    )
+            
+                else:
+                    pooled_video_feats = None
+
                 # Handle labels shape
                 if labels.dim() != 1:
                     if labels.dim() == 2 and labels.size(1) == num_classes:
@@ -461,14 +502,19 @@ class RLAMultiHeadOmniClassifierAccelerateTrainer:
 
                 logits = self.model(input_ids, attention_mask=attention_mask, domain_ids=domain_ids)
 
-                if (self.use_rla_video or self.use_rla_audio):
-                    # TODO: You'll need to add the video_feats and audio_feats here.
-                    logits = apply_adapters(
-                        logits, domain_ids, batch,
-                        video_adapter=self.video_adapter,
-                        audio_adapter=self.audio_adapter,
-                        train_mode=False
+                if (self.rla_stage in {"residual_only", "joint"}) and (self.use_rla_video or self.use_rla_audio):
+                        # apply the adapters to the logits
+                        # to get new logits
+                        logits = apply_adapters(
+                                logits,
+                                domain_ids,
+                                video_adapter=self.video_adapter,
+                                audio_adapter=self.audio_adapter,
+                                video_feats=pooled_video_feats,
+                                audio_feats=pooled_audio_feats,
+                                train_mode=False,
                         )
+
                 loss = criterion(logits, labels)
                 
                 total_loss += loss.item() * input_ids.size(0)
@@ -602,6 +648,10 @@ class RLAMultiHeadOmniClassifierAccelerateTrainer:
         for epoch in tqdm(range(start_epoch, self.epochs), desc="Epochs", position=0, disable=not self.accelerator.is_main_process):
             # Training phase
             self.model.train()
+            if self.video_adapter is not None:
+                self.video_adapter.train()
+            if self.audio_adapter is not None:
+                self.audio_adapter.train()
 
             # Handling the SAMPLER SHUFFLING
             if hasattr(train_dataloader, "sampler") and hasattr(train_dataloader.sampler, "set_epoch"):
@@ -622,6 +672,13 @@ class RLAMultiHeadOmniClassifierAccelerateTrainer:
                 # Set model to training mode (needed because validation sets it to eval mode)
                 self.model.train()
 
+                # remember to set it back to train() mode after validation
+                if self.video_adapter is not None:
+                    self.video_adapter.train()
+                if self.audio_adapter is not None:
+                    self.audio_adapter.train()
+
+
                 if epoch == start_epoch and batch_idx < start_batch_offset:
                     continue
                 
@@ -641,7 +698,6 @@ class RLAMultiHeadOmniClassifierAccelerateTrainer:
                 # batch['dataset'] is typically a list/tuple length B
                 domain_ids = self._datasets_to_domain_ids(batch['dataset'], device=input_ids.device)
 
-                # TODO: change the batch loader so that it can take in the audio and video features directly
                 # Each should be of shape (B, D_feat)
                 if ("audio_feats" in batch) and (self.rla_stage in {"residual_only", "joint"}) and self.use_rla_audio:
                     audio_feats = batch["audio_feats"]
@@ -919,6 +975,18 @@ class RLAMultiHeadOmniClassifierAccelerateTrainer:
         print("="*50)
         train_dataloader = self.get_dataloader(self.data_files, self.batch_size, num_workers=self.num_workers, shuffle=True)
         test_dataloader = self.get_dataloader(self.test_data_files, self.test_batch_size, num_workers=self.num_workers, shuffle=False)
+
+        # Building adapters if required;
+        self.video_adapter, self.audio_adapter = maybe_build_adapters(
+            domain_id_to_global_indices=self.domain_id_to_global_indices,
+            use_rla_video=self.use_rla_video,
+            use_rla_audio=self.use_rla_audio,
+            rla_hidden=self.rla_hidden,
+            p_moddrop_video=self.rla_pv,
+            p_moddrop_audio=self.rla_pa,
+            d_video_feat=self.d_video_feat,
+            d_audio_feat=self.d_audio_feat,
+        )
 
         optimizer = Adam(self.model.parameters(), lr=self.lr)
         total_updates = self.epochs * len(train_dataloader)
