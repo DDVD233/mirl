@@ -29,6 +29,9 @@ class ResidualLogitAdapter(nn.Module):
         feat_dim: int,
         hidden: int = 128,
         p_moddrop: float = 0.3,
+        use_ln = False,
+        use_conf_gain = False,
+        conf_init_gain=3.0
     ):
         super().__init__()
         self.domain_id_to_global_indices = domain_id_to_global_indices
@@ -36,6 +39,16 @@ class ResidualLogitAdapter(nn.Module):
         self.feat_dim = feat_dim
         self.hidden = hidden
         self.p_moddrop = p_moddrop
+
+        # scaling up the confidnce signals
+        # LN is LAYER NORM 
+        self.use_ln = use_ln
+        self.use_conf_gain = use_conf_gain
+        if use_ln:
+            self.ln_feats = nn.LayerNorm(feat_dim)
+            self.ln_conf  = nn.LayerNorm(3)
+        if use_conf_gain:
+            self.conf_gain = nn.Parameter(torch.full((3,), conf_init_gain))
 
         # One residual MLP per domain: [feat_dim + 3(conf)] -> K_d
         # the +3 is the confidence from the current local logits
@@ -99,6 +112,14 @@ class ResidualLogitAdapter(nn.Module):
             # (so that we can essentially pass them through the MLP to obtain the residuals)
             df = feats.index_select(0, rows)                                  # [B_d, D_feat]
 
+            # NOTE: Putting the layer norm on the confidence as well as the features
+            if self.use_ln:
+                df = self.ln_feats(df)
+                c = self.ln_conf(c)
+            # NOTE: SCALING THE CONFIDENCE BY MULTIPLYING IT
+            if self.use_conf_gain:
+                c = c * self.conf_gain
+
             x = torch.cat([df, c], dim=-1)                                    # [B_d, D_feat+3]
 
             # alpha is a learnable scalar gate that lets training keep residuals small unless
@@ -108,7 +129,7 @@ class ResidualLogitAdapter(nn.Module):
             # so essentially its a representation of each amount added to the logits
             dz_local = self.mlps[d](x) * self.alphas[d]                       # [B_d, K_d]
 
-            raise(Exception(f"DEBUG: DZ Local {dz_local}, shape {dz_local.shape}, Alpha {self.alphas[d]}"))
+            # raise(Exception(f"DEBUG: DZ Local {dz_local}, shape {dz_local.shape}, Alpha {self.alphas[d]}"))
 
             # z_out is the global logits, so essentially for we are appending the dz_local to 
             # the correct positions in the global logits corresponding to the same domain
