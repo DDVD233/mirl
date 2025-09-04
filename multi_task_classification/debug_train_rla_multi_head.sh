@@ -22,6 +22,8 @@ export TORCH_USE_CUDA_DSA=1
 # meanstd would be 3318
 # meanstdp25p75 would be 6636
 
+# we have a few different options; base_only, residual_only, joint
+
 accelerate launch --config_file configs/accelerate_config_qwen.yaml train_rla_multi_head.py \
   --mode train \
   --training_strategy lora \
@@ -45,7 +47,7 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml train_rla_mu
   --gradient_accumulation_steps 8 \
   \
   --use_rla_video \
-  --rla_stage residual_only \
+  --rla_stage base_only \
   --d_video_feat 3318 \
   --rla_hidden 128 \
   --rla_p_moddrop_video 0.00 \
