@@ -62,16 +62,19 @@ def process_file(file_path, model, input_folder):
     print(f"Processing: {file_path.name}")
     
     # Transcribe with Whisper
-    result = model.transcribe(
-        str(file_path),
-        language=None,  # Auto-detect language
-        task="transcribe",
-        verbose=False
-    )
+    try:
+        result = model.transcribe(
+            str(file_path),
+            language=None,  # Auto-detect language
+            task="transcribe",
+            verbose=False
+        )
     
-    # Write SRT file
-    write_srt(result['segments'], output_path)
-    print(f"  -> Saved: {output_path.relative_to(input_folder)}")
+        # Write SRT file
+        write_srt(result['segments'], output_path)
+        print(f"  -> Saved: {output_path.relative_to(input_folder)}")
+    except Exception as e:
+        print(f"Error processing {file_path.name}: {e}")
 
 
 def process_folder(input_folder, model=None):
