@@ -67,7 +67,7 @@ class ResidualLogitAdapter(nn.Module):
         train_mode: bool = False,
     ) -> torch.Tensor:
         
-        raise Exception(f"DEBUG: Video Feats {feats}, z base global Logits, {z_base_global}, Domain IDs {domain_ids}, Domain id to global indices map {self.domain_id_to_global_indices}")
+        # raise Exception(f"DEBUG: Video Feats {feats}, z base global Logits, {z_base_global}, Domain IDs {domain_ids}, Domain id to global indices map {self.domain_id_to_global_indices}")
         if feats is None:
             return z_base_global
 
@@ -79,9 +79,15 @@ class ResidualLogitAdapter(nn.Module):
             rows = (domain_ids == d).nonzero(as_tuple=True)[0]
             if rows.numel() == 0:
                 continue
+
+            # domain_id_to_global_indices is a list of lists, 
+            # where each sublist contains the global class indices for that domain
+            # so essentially we are indexing to obtain the global logits for that domain to begin with.
             cols = torch.as_tensor(self.domain_id_to_global_indices[d], device=z_out.device, dtype=torch.long)
 
             local_logits = z_out.index_select(0, rows).index_select(1, cols)  # [B_d, K_d]
+
+            raise Exception(f"DEBUG: Local Logits {local_logits}, shape {local_logits.shape}")
             c = get_conf_from_local_logits(local_logits)                      # [B_d, 3]
             df = feats.index_select(0, rows)                                  # [B_d, D_feat]
 
