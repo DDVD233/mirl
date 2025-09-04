@@ -63,8 +63,7 @@ def apply_adapters(
     Add residuals in logit space using whatever adapters are present.
     If feats are None or adapter is None, logits are returned unchanged.
     """
-    z = logits
-    raise Exception(f"DEBUG: Video Feats {video_feats}, Logits, {logits}, Domain IDs {domain_ids}") 
+    z = logits 
     if (video_adapter is not None) and (video_feats is not None):
         z = video_adapter(z, domain_ids, feats=video_feats, train_mode=train_mode)
     if (audio_adapter is not None) and (audio_feats is not None):

@@ -66,6 +66,8 @@ class ResidualLogitAdapter(nn.Module):
         feats: Optional[torch.Tensor] = None,  # [B, D_feat]  <<—— direct tensor that we pass into this
         train_mode: bool = False,
     ) -> torch.Tensor:
+        
+        raise Exception(f"DEBUG: Video Feats {feats}, z base global Logits, {z_base_global}, Domain IDs {domain_ids}")
         if feats is None:
             return z_base_global
 
