@@ -656,7 +656,7 @@ class RLAMultiHeadOmniClassifierAccelerateTrainer:
                 print(f"[INFO] Using {self.scheduler_type} scheduler with {self.warmup_steps} warmup steps (resumed at step {global_step0})")
             else:
                 scheduler = None
-                optimizer, = self.accelerator.prepare(optimizer)
+                optimizer = self.accelerator.prepare(optimizer)
                 print("[INFO] Scheduler disabled - using constant learning rate")
 
         else:
