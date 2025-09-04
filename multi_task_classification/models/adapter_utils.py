@@ -148,12 +148,11 @@ def build_video_feats_batch(
 ) -> torch.Tensor:
     """List of OpenPose dicts -> [B, D_vec]."""
 
-    raise Exception(f"DEBUG: Video Feats {openpose_list}")
-
     # openpose_list is basically the list of dictionaries, each dictionary corresponds to one sample in the batch
     # so openpose_list is of length B (the batch size)
     feats = [build_video_feat_single(op, temporal_mode=temporal_mode, use_conf=use_conf)
              for op in openpose_list]
+    raise Exception(f"DEBUG: Video Feats {feats}")
     out = torch.stack(feats, dim=0)
     if device is not None:
         out = out.to(device)
