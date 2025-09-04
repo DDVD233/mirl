@@ -38,8 +38,9 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml train_rla_mu
   --label_map_path "/home/keaneong/human-behavior/verl/multi_task_classification/unified_feat_meld_label_map.json" \
   --save_every_n_epochs 1 \
   --save_every_n_steps 999999 \
-  --save_checkpoint_dir "/scratch/keane/human_behaviour/debug_rla" \
-  --validation_result_dir "/scratch/keane/human_behaviour/debug_rla/validation_results" \
+  --save_checkpoint_dir "/scratch/keane/human_behaviour/debug_rla_residual" \
+  --load_checkpoint_path "/scratch/keane/human_behaviour/debug_rla/step_2997" \
+  --validation_result_dir "/scratch/keane/human_behaviour/debug_rla_residual/validation_results" \
   --validate_every_n_epochs 1 \
   --validate_every_n_steps 999999 \
   --early_stopping_patience 99999 \
