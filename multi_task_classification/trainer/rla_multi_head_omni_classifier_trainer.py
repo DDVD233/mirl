@@ -65,11 +65,14 @@ class RLAMultiHeadOmniClassifierAccelerateTrainer:
         self.use_rla_video = self.global_config.get("USE_RLA_VIDEO", False)
         self.use_rla_audio = self.global_config.get("USE_RLA_AUDIO", False)
 
+
         # Training stage for adapters vs base:
         #   "base_only"      -> train base only (no adapters built/applied)
         #   "residual_only"  -> freeze base, train adapters only
         #   "joint"          -> train base and adapters together
         self.rla_stage     = self.global_config.get("RLA_STAGE", "base_only")
+        # self.resume_diff_cfg = bool(self.global_config.get("RLA_RESUME_DIFFERENT_TRAINING_CONFIG", False))
+        self.rla_resume_diff_cfg = True
 
         # Adapter architecture / regularization
         self.rla_hidden    = self.global_config.get("RLA_HIDDEN", 128)
@@ -388,29 +391,36 @@ class RLAMultiHeadOmniClassifierAccelerateTrainer:
 
         return unfrozen_param_groups
     
-    def _accelerate_prepare(self, optimizer, train_dataloader, val_dataloader, scheduler=None):
+    def _accelerate_prepare(
+        self,
+        train_dataloader,
+        val_dataloader,
+        optimizer=None,
+        scheduler=None,
+    ):
         """
-        One place to call accelerate.prepare on all modules (base + adapters + opt + dls [+ scheduler]).
-        Sets self.model / self.video_adapter / self.audio_adapter / optimizer / dls / scheduler in-place.
-        Returns (optimizer, train_dataloader, val_dataloader, scheduler) after prepare().
+        Prepare modules with Accelerate.
+
+        - If `optimizer` is None, only model/adapters/dataloaders are prepared.
+        - If `optimizer` is provided, it (and `scheduler`, if provided) are prepared too.
         """
         modules = [self.model]
 
-        # Include adapters if present
         if getattr(self, "video_adapter", None) is not None:
             modules.append(self.video_adapter)
         if getattr(self, "audio_adapter", None) is not None:
             modules.append(self.audio_adapter)
 
-        # Optimizer + dataloaders (always prepared)
-        modules.extend([optimizer, train_dataloader, val_dataloader])
+        modules += [train_dataloader, val_dataloader]
 
-        if scheduler:
-            modules.append(scheduler)
+        if optimizer:
+            modules.append(optimizer)
+            if scheduler:
+                modules.append(scheduler)
 
         prepared = self.accelerator.prepare(*modules)
 
-        # ---- Unpack in the same order we appended ----
+        # ---- Unpack in the same order ----
         idx = 0
         self.model = prepared[idx]; idx += 1
 
@@ -419,15 +429,16 @@ class RLAMultiHeadOmniClassifierAccelerateTrainer:
         if getattr(self, "audio_adapter", None) is not None:
             self.audio_adapter = prepared[idx]; idx += 1
 
-        optimizer = prepared[idx]; idx += 1
         train_dataloader = prepared[idx]; idx += 1
         val_dataloader   = prepared[idx]; idx += 1
 
-        if scheduler:
-            scheduler = prepared[idx]; idx += 1
-            self.accelerator.register_for_checkpointing(scheduler)
+        if optimizer:
+            optimizer = prepared[idx]; idx += 1
+            if scheduler:
+                scheduler = prepared[idx]; idx += 1
+                self.accelerator.register_for_checkpointing(scheduler)
 
-        return optimizer, train_dataloader, val_dataloader, scheduler
+        return train_dataloader, val_dataloader, optimizer, scheduler
 
     def validate(self, val_dataloader, split_name="validation", current_step=None):
         """Validate the model on the given dataloader."""
@@ -600,9 +611,7 @@ class RLAMultiHeadOmniClassifierAccelerateTrainer:
 
         # optimizer, with an option to train the entire model or the adapters only etc.
         # Freeze/unfreeze + param groups
-        param_groups = self.prepare_params_for_training()
-        optimizer = Adam(param_groups, lr=self.lr)
-
+        first_param_groups = self.prepare_params_for_training()
 
         criterion = CrossEntropyLoss()
 
@@ -610,35 +619,77 @@ class RLAMultiHeadOmniClassifierAccelerateTrainer:
         # updates_per_epoch = ceil(len(train_dataloader) / max(1, self.gradient_accumulation_steps))
         total_updates = self.epochs * len(train_dataloader)
         
-        # Get the scheduler
-        if self.use_scheduler:
-            scheduler = get_scheduler(
-                self.scheduler_type,
-                optimizer,
-                num_warmup_steps=self.warmup_steps,
-                num_training_steps=total_updates
+        if self.rla_resume_diff_cfg:
+
+            # ================= DIFFERENT TRAINING CONFIG RESUME =================
+            # 1) Prepare ONLY model/adapters/dataloaders (optimizer=None toggles behavior)
+            train_dataloader, val_dataloader, _, _ = self._accelerate_prepare(
+                train_dataloader=train_dataloader,
+                val_dataloader=val_dataloader,
+                optimizer=None,
+                scheduler=None,
             )
-            print(f"[INFO] Using {self.scheduler_type} scheduler with {self.warmup_steps} warmup steps")
+            # (ignore _opt/_sch—they are None)
+
+            # 2) Load state now: restores model shards/RNG ONLY (no optimizer to rekey)
+            start_epoch, start_batch_offset, global_step, _, _ = self.load_checkpoint_unified(
+                accelerator=self.accelerator,
+                model=self.model,
+                base_ckpt_dir=self.checkpoint_dir,
+                explicit_dir=self.load_checkpoint_path or None,
+                expect_training_strategy=self.global_config.get("TRAINING_STRATEGY"),
+            )
+
+            updated_param_groups = self.prepare_params_for_training()
+            optimizer = Adam(updated_param_groups, lr=self.lr)
+            
+            if self.use_scheduler:
+                scheduler = get_scheduler(
+                    self.scheduler_type,
+                    optimizer,
+                    num_warmup_steps=self.warmup_steps,
+                    num_training_steps=total_updates
+                )
+                # Prepare optimizer (and scheduler) after load
+                optimizer, scheduler = self.accelerator.prepare(optimizer, scheduler)
+                self.accelerator.register_for_checkpointing(scheduler)
+                print(f"[INFO] Using {self.scheduler_type} scheduler with {self.warmup_steps} warmup steps (resumed at step {global_step0})")
+            else:
+                scheduler = None
+                optimizer, = self.accelerator.prepare(optimizer)
+                print("[INFO] Scheduler disabled - using constant learning rate")
+
         else:
-            scheduler = None
-            print("[INFO] Scheduler disabled - using constant learning rate")
+            optimizer = Adam(first_param_groups, lr=self.lr)
+            # Get the scheduler
+            if self.use_scheduler:
+                scheduler = get_scheduler(
+                    self.scheduler_type,
+                    optimizer,
+                    num_warmup_steps=self.warmup_steps,
+                    num_training_steps=total_updates
+                )
+                print(f"[INFO] Using {self.scheduler_type} scheduler with {self.warmup_steps} warmup steps")
+            else:
+                scheduler = None
+                print("[INFO] Scheduler disabled - using constant learning rate")
 
-        # Prepare everything with Accelerate
-        # Note that under the hood, the models and adapters are also prepared here.
-        optimizer, train_dataloader, val_dataloader, scheduler = self._accelerate_prepare(
-            optimizer=optimizer,
-            train_dataloader=train_dataloader,
-            val_dataloader=val_dataloader,
-            scheduler=scheduler
+            # Prepare everything with Accelerate
+            # Note that under the hood, the models and adapters are also prepared here.
+            train_dataloader, val_dataloader, optimizer, scheduler = self._accelerate_prepare(
+                train_dataloader=train_dataloader,
+                val_dataloader=val_dataloader,
+                optimizer=optimizer,
+                scheduler=scheduler
+                )
+
+            start_epoch, start_batch_offset, _, _, _ = self.load_checkpoint_unified(
+                accelerator=self.accelerator,
+                model=self.model,
+                base_ckpt_dir=self.checkpoint_dir,
+                explicit_dir=self.load_checkpoint_path or None,
+                expect_training_strategy=self.global_config.get("TRAINING_STRATEGY"),
             )
-
-        start_epoch, start_batch_offset, _, _, _ = self.load_checkpoint_unified(
-            accelerator=self.accelerator,
-            model=self.model,
-            base_ckpt_dir=self.checkpoint_dir,
-            explicit_dir=self.load_checkpoint_path or None,
-            expect_training_strategy=self.global_config.get("TRAINING_STRATEGY"),
-        )
 
         # Get configuration values
         validate_every_n_epochs = self.global_config.get('VALIDATE_EVERY_N_EPOCHS', None)
