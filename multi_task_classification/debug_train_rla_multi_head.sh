@@ -23,6 +23,7 @@ export TORCH_USE_CUDA_DSA=1
 # meanstdp25p75 would be 6636
 
 # we have a few different options; base_only, residual_only, joint
+  # --load_checkpoint_path "/scratch/keane/human_behaviour/debug_rla/step_2997" \
 
 accelerate launch --config_file configs/accelerate_config_qwen.yaml train_rla_multi_head.py \
   --mode train \
@@ -38,9 +39,8 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml train_rla_mu
   --label_map_path "/home/keaneong/human-behavior/verl/multi_task_classification/unified_feat_meld_label_map.json" \
   --save_every_n_epochs 1 \
   --save_every_n_steps 999999 \
-  --save_checkpoint_dir "/scratch/keane/human_behaviour/debug_rla_residual" \
-  --load_checkpoint_path "/scratch/keane/human_behaviour/debug_rla/step_2997" \
-  --validation_result_dir "/scratch/keane/human_behaviour/debug_rla_residual/validation_results" \
+  --save_checkpoint_dir "/scratch/keane/human_behaviour/debug_rla_residual_res_only" \
+  --validation_result_dir "/scratch/keane/human_behaviour/debug_rla_residual_res_only/validation_results" \
   --validate_every_n_epochs 1 \
   --validate_every_n_steps 999999 \
   --early_stopping_patience 99999 \
