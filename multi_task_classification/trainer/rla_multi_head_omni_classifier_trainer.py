@@ -670,7 +670,9 @@ class RLAMultiHeadOmniClassifierAccelerateTrainer:
                         device=input_ids.device,
                         temporal_mode=self.global_config.get("RLA_VIDEO_TEMPORAL", "meanstd"),
                         use_conf=self.global_config.get("RLA_VIDEO_USE_CONF", True),
+                        target_dim=self.d_video_feat
                     )
+                    raise Exception("Shape of pool_video_feats is : ", pooled_video_feats.shape)
             
                 else:
                     pooled_video_feats = None

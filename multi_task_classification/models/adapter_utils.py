@@ -131,6 +131,18 @@ def openpose_dict_to_framewise(data: Dict[str, torch.Tensor], use_conf: bool = T
     # e.g., if we have pose, face, left_hand, right_hand, then the final shape is [T, (K1*C1)+(K2*C2)+(K3*C3)+(K4*C4)]
     return torch.cat(chunks, dim=-1)  # [T, D_raw_sum]
 
+def _pad_trunc_1d(x: torch.Tensor, target_dim: int) -> torch.Tensor:
+    """x: [D_var] -> [D_target] by right-pad with zeros or truncate."""
+    D = x.numel()
+    if D == target_dim:
+        return x
+    if D > target_dim:
+        return x[:target_dim]
+    out = x.new_zeros(target_dim)
+    out[:D] = x
+    return out
+
+
 def build_video_feat_single(
     openpose: Dict[str, torch.Tensor],
     temporal_mode: Literal["mean", "meanstd", "meanstdp25p75"] = "meanstd",
@@ -145,17 +157,24 @@ def build_video_feats_batch(
     device: Optional[torch.device] = None,
     temporal_mode: Literal["mean", "meanstd", "meanstdp25p75"] = "meanstd",
     use_conf: bool = True,
+    target_dim: int = None,   # <-- NEW: pass your D_VIDEO_FEAT (e.g., 3318)
 ) -> torch.Tensor:
-    """List of OpenPose dicts -> [B, D_vec]."""
+    """
+    List of OpenPose dicts -> [B, target_dim].
+    We pool each sample to a 1-D vector and pad/truncate to `target_dim`.
+    If `target_dim` is None, we use the max length seen in the batch.
+    """
+    # Build raw per-sample vectors (variable length)
+    raw = [build_video_feat_single(op, temporal_mode=temporal_mode, use_conf=use_conf)
+           for op in openpose_list]
 
-    # openpose_list is basically the list of dictionaries, each dictionary corresponds to one sample in the batch
-    # so openpose_list is of length B (the batch size)
-    feats = [build_video_feat_single(op, temporal_mode=temporal_mode, use_conf=use_conf)
-             for op in openpose_list]
-    out = torch.stack(feats, dim=0)
+    if target_dim is None:
+        raise ValueError("target_video_feature_dim must be provided to ensure consistent feature size across batches")
+
+    feats = [_pad_trunc_1d(v, target_dim) for v in raw]   # all [target_dim]
+    out = torch.stack(feats, dim=0)                       # [B, target_dim]
     if device is not None:
         out = out.to(device)
-    raise Exception(f"DEBUG: Video Feats {out}, shape {out.shape}")
     return out
 
 # Audio: placeholder for now (return None to signal "not used")
