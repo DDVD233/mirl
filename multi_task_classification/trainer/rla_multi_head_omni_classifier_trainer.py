@@ -632,13 +632,15 @@ class RLAMultiHeadOmniClassifierAccelerateTrainer:
             # (ignore _opt/_sch—they are None)
 
             # 2) Load state now: restores model shards/RNG ONLY (no optimizer to rekey)
-            start_epoch, start_batch_offset, global_step, _, _ = self.load_checkpoint_unified(
+            _, _, global_step, _, _ = self.load_checkpoint_unified(
                 accelerator=self.accelerator,
                 model=self.model,
                 base_ckpt_dir=self.checkpoint_dir,
                 explicit_dir=self.load_checkpoint_path or None,
                 expect_training_strategy=self.global_config.get("TRAINING_STRATEGY"),
             )
+            start_epoch = 0
+            start_batch_offset = 0
 
             updated_param_groups = self.prepare_params_for_training()
             optimizer = Adam(updated_param_groups, lr=self.lr)
