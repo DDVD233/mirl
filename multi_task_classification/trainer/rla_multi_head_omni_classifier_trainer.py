@@ -341,16 +341,18 @@ class RLAMultiHeadOmniClassifierAccelerateTrainer:
                 p.requires_grad = flag
 
         unfrozen_param_groups = []
-
+        # NOTE: in the following, assume that the model is already has its required gradients
+        # set by a preceding code
         if self.rla_stage == "base_only":
-            # NOTE: Assume that the model is already requires grad = TRUE
+            print("Freezing adapters, training base model only")
             _set_requires_grad(self.video_adapter, False)
             _set_requires_grad(self.audio_adapter, False)
-            base_params = [self.model.parameters()]
+            base_params = self.model.parameters()
             if base_params:
                 unfrozen_param_groups.append({"params": base_params, "lr": base_lr})
 
         elif self.rla_stage == "residual_only":
+            print("Freezing base model, training adapters only")
             _set_requires_grad(self.model, False)
             # Train adapters only
             _set_requires_grad(self.video_adapter, True)
@@ -364,11 +366,12 @@ class RLAMultiHeadOmniClassifierAccelerateTrainer:
                 unfrozen_param_groups.append({"params": rla_params, "lr": rla_lr})
 
         elif self.rla_stage == "joint":
+            print("Training both base model and adapters")
             # Train base + adapters
             _set_requires_grad(self.video_adapter, True)
             _set_requires_grad(self.audio_adapter, True)
 
-            base_params = [self.model.parameters()]
+            base_params = self.model.parameters()
             if base_params:
                 unfrozen_param_groups.append({"params": base_params, "lr": base_lr})
 
