@@ -25,13 +25,15 @@ export TORCH_USE_CUDA_DSA=1
 # we have a few different options; base_only, residual_only, joint
   # --load_checkpoint_path "/scratch/keane/human_behaviour/debug_rla/step_2997" \
 
+# for lora we put 1e-4
+# but for rla we put 1e-3
 accelerate launch --config_file configs/accelerate_config_qwen.yaml train_rla_multi_head.py \
   --mode train \
   --training_strategy lora \
   --train_batch_size 1 \
   --val_batch_size 2 \
   --test_batch_size 2 \
-  --lr 1e-4 \
+  --lr 1e-3 \
   --epochs 10 \
   --train_file "/scratch/keane/human_behaviour/human_behaviour_data/0.2_feat_meld_train.jsonl" \
   --val_file   "/scratch/keane/human_behaviour/human_behaviour_data/feat_meld_val.jsonl" \
