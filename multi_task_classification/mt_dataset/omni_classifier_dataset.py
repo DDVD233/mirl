@@ -2,6 +2,7 @@ import numpy as np
 import os
 import sys
 import torch
+from torch.utils.data import BatchSampler
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from verl.utils.dataset.rl_dataset import RLHFDataset
 
@@ -71,3 +72,30 @@ class OmniClassifierDataset(RLHFDataset):
         row_dict["labels"] = torch.tensor(label, dtype=torch.long)
 
         return row_dict
+
+class SkipBatchSampler(torch.utils.data.Sampler):
+    """
+    Wrap an existing *batch* sampler and skip the first `skip_batches` batches.
+    This only advances the sampler (indices), NOT the dataset (no __getitem__ calls).
+    """
+    def __init__(self, batch_sampler: BatchSampler, skip_batches: int):
+        self.batch_sampler = batch_sampler
+        self.skip_batches = int(max(0, skip_batches))
+
+    def __iter__(self):
+        it = iter(self.batch_sampler)
+        # consume batch indices without touching dataset
+        for _ in range(self.skip_batches):
+            try:
+                next(it)
+            except StopIteration:
+                return
+        for batch in it:
+            yield batch
+
+    def __len__(self):
+        try:
+            return max(0, len(self.batch_sampler) - self.skip_batches)
+        except TypeError:
+            # Fallback if underlying batch_sampler has no __len__
+            return 0

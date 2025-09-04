@@ -223,6 +223,9 @@ def compute_metrics_by_dataset(
         # domain add-ons
         domain = dataset_to_domain.get(dataset_name)
         if domain == "sentiment_intensity":
+            # TODO: For baselines, probably have to change this so that it
+            # TODO: works with <dataset>_<sentiment> mapping ;
+            # TODO; i.e. remove the <dataset>_ prefix
             senti = compute_sentiment_collapsed_metrics(
                 preds, gts, meta_config, compute_set_metrics  # inject standard fn
             )
@@ -238,7 +241,6 @@ def compute_metrics_by_dataset(
             for wa_cm in emo["weighted_accuracy_per_class"]:
                 class_name = wa_cm["class_name"]  # e.g., "anger", "pleasant_surprise"
                 result[f"{dataset_name}/{class_name}/emotion_weighted_accuracy"] = wa_cm["weighted_accuracy"]
-
 
     return result
 

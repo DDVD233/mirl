@@ -586,6 +586,7 @@ class RLAMultiHeadOmniClassifierAccelerateTrainer:
         val_dataloader = self.get_dataloader(self.val_data_files, self.val_batch_size, num_workers=self.num_workers, shuffle=False)
 
         # Building adapters if required;
+        # NOTE WILL BE INITIALISED REGARDLESS OF WHETHER WE USE USE.RLA_VIDEO / USE.RLA_AUDIO
         self.video_adapter, self.audio_adapter = maybe_build_adapters(
             domain_id_to_global_indices=self.domain_id_to_global_indices,
             use_rla_video=self.use_rla_video,

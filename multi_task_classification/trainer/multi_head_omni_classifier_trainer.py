@@ -3,7 +3,7 @@ import sys
 import json
 import torch
 import time
-from torch.utils.data import DataLoader, Subset
+from torch.utils.data import DataLoader
 from torch.optim import Adam
 from torch.nn import CrossEntropyLoss
 from tqdm import tqdm
@@ -17,7 +17,7 @@ from math import ceil
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
 # Local imports
-from mt_dataset.omni_classifier_dataset import OmniClassifierDataset
+from mt_dataset.omni_classifier_dataset import OmniClassifierDataset, SkipBatchSampler
 from verl.utils.dataset.rl_dataset import collate_fn
 from utils.wandb_utils import init_wandb, log_metrics, finish
 from utils.logger import log_batch_training_metrics, log_validation_results, log_epoch_training_metrics
@@ -89,6 +89,9 @@ class MultiHeadOmniClassifierAccelerateTrainer:
         )
         
         # Set seed for reproducibility
+        # This makes sure that the dataloader shuffling is preserved, 
+        # so that the random sampler uses this fixed generator
+        # each epoch
         set_seed(42)
         
         # Initialize wandb
@@ -437,23 +440,23 @@ class MultiHeadOmniClassifierAccelerateTrainer:
         )
 
         # 3) OPTIONAL resumed loader (only used for the first resumed epoch)
-        # TODO: REIMPLEMENT THIS WITH EXACT SAMPLER STATE RESTORATION
-        # train_dataloader_resume = None
-        # if start_batch_offset > 0:
-        #     samples_to_skip = start_batch_offset * self.batch_size
-        #     # Slice to skip heavy __getitem__ on earlier samples
-        #     resumed_ds = Subset(train_dataloader.dataset, range(samples_to_skip, len(train_dataloader.dataset)))
-        #     train_dataloader_resume = DataLoader(
-        #         resumed_ds,
-        #         batch_size=self.batch_size,
-        #         shuffle=False,                                  # keep it simple for the partial epoch
-        #         num_workers=getattr(train_dataloader, "num_workers", 0),
-        #         pin_memory=getattr(train_dataloader, "pin_memory", False),
-        #         drop_last=getattr(train_dataloader, "drop_last", False),
-        #         collate_fn=getattr(train_dataloader, "collate_fn", None),
-        #         persistent_workers=getattr(train_dataloader, "persistent_workers", False),
-        #     )
-
+        train_dataloader_resume = None
+        # If the base offset is > 0, then we need to reinitialize the dataloader to skip to the correct batch idx
+        if start_batch_offset > 0:
+            # Reuse the *same* dataset and the *same* batch_sampler (which encodes shuffle order)
+            orig_bs = getattr(train_dataloader, "batch_sampler", None)
+            if orig_bs is None:
+                raise RuntimeError("Expected train_dataloader to have a batch_sampler when shuffle=True.")
+            resume_bs = SkipBatchSampler(orig_bs, skip_batches=start_batch_offset)
+            train_dataloader_resume = DataLoader(
+                train_dataloader.dataset,
+                batch_sampler=resume_bs,
+                num_workers=getattr(train_dataloader, "num_workers", 0),
+                pin_memory=getattr(train_dataloader, "pin_memory", True),
+                collate_fn=getattr(train_dataloader, "collate_fn", None),
+                persistent_workers=getattr(train_dataloader, "persistent_workers", False),
+            )
+            
         # after building train_dataloader_resume
         if train_dataloader_resume is not None:
             train_dataloader_resume = self.accelerator.prepare(train_dataloader_resume)
@@ -472,17 +475,15 @@ class MultiHeadOmniClassifierAccelerateTrainer:
             # Training phase
             self.model.train()
 
-            # TODO: REIMPLEMNT THIS
-            # Use resumed loader only on the first partial epoch; afterwards, the full loader
+            # Use the resume loader only for the first (partial) resumed epoch
             cur_loader = train_dataloader_resume if (epoch == start_epoch and train_dataloader_resume is not None) else train_dataloader
 
-            # Handle DDP per-epoch shuffling if the sampler exists
-            if hasattr(cur_loader, "sampler") and hasattr(cur_loader.sampler, "set_epoch"):
-                cur_loader.sampler.set_epoch(epoch)
-
-            # Handling the SAMPLER SHUFFLING
-            # if hasattr(train_dataloader, "sampler") and hasattr(train_dataloader.sampler, "set_epoch"):
-            #     train_dataloader.sampler.set_epoch(epoch)  # required for proper per-epoch shuffling in DDP. :contentReference[oaicite:4]{index=4}
+            # Robustly find the underlying sampler to call set_epoch(epoch) if it exists
+            sampler = getattr(cur_loader, "sampler", None)
+            if sampler is None and hasattr(cur_loader, "batch_sampler"):
+                sampler = getattr(cur_loader.batch_sampler, "sampler", None)
+            if hasattr(sampler, "set_epoch"):
+                sampler.set_epoch(epoch)
 
             total_loss = 0.0
             correct = 0
@@ -494,16 +495,16 @@ class MultiHeadOmniClassifierAccelerateTrainer:
             effective_batch_correct = 0
             effective_batch_total = 0
 
+            # Adjust step math so logs/checkpoints reflect true global position
+            # So essentially if we are resuming mid checkpoint, then we need to use this base_offset
+            base_offset = start_batch_offset if (epoch == start_epoch and train_dataloader_resume is not None) else 0
+
             for batch_idx, batch in tqdm(enumerate(cur_loader), desc="Training", total=len(cur_loader), disable=not self.accelerator.is_main_process):
                 # Set model to training mode (needed because validation sets it to eval mode)
                 self.model.train()
 
-                # TODO: REIMPLEMENT THIS
-                # if epoch == start_epoch and batch_idx < start_batch_offset:
-                #     continue
-                
-                # Calculate current step for validation checking
-                current_step = (epoch * len(cur_loader)) + batch_idx + 1
+                # current_step uses the *full* epoch length plus what we've already completed
+                current_step = (epoch * len(train_dataloader)) + base_offset + batch_idx + 1
                 
                 # --- defensive checks
                 if 'input_ids' not in batch or 'labels' not in batch:
@@ -649,7 +650,7 @@ class MultiHeadOmniClassifierAccelerateTrainer:
                             accelerator=self.accelerator,
                             model=self.model,
                             epoch=epoch,
-                            batch_idx=batch_idx,
+                            batch_idx=base_offset + batch_idx,
                             len_train_dataloader=len(train_dataloader),
                             training_strategy=self.global_config.get("TRAINING_STRATEGY"),
                             base_ckpt_dir=self.checkpoint_dir,
@@ -725,7 +726,7 @@ class MultiHeadOmniClassifierAccelerateTrainer:
                 accelerator=self.accelerator,
                 model=self.model,
                 epoch=epoch,
-                batch_idx=batch_idx,
+                batch_idx=base_offset + batch_idx, # save the offset within the epoch
                 len_train_dataloader=len(train_dataloader),
                 training_strategy=self.global_config.get("TRAINING_STRATEGY"),
                 base_ckpt_dir=self.checkpoint_dir,
