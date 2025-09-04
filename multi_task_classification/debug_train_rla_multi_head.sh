@@ -32,12 +32,12 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml train_rla_mu
   --val_file   "/scratch/keane/human_behaviour/human_behaviour_data/feat_meld_val.jsonl" \
   --test_file  "/scratch/keane/human_behaviour/human_behaviour_data/feat_meld_test.jsonl" \
   --label_map_path "/home/keaneong/human-behavior/verl/multi_task_classification/v2_unified_scheme_splitmmpsy_binarymmpsy_no_vptd_chalearn_lmvd_esconv.json" \
-  --save_every_n_epochs None \
-  --save_every_n_steps 10000 \
+  --save_every_n_epochs 1 \
+  --save_every_n_steps 999999 \
   --save_checkpoint_dir "/scratch/keane/human_behaviour/multi_task_lora_training" \
   --validation_result_dir "/scratch/keane/human_behaviour/multi_task_lora_training/validation_results" \
   --validate_every_n_epochs 1 \
-  --validate_every_n_steps 10000 \
+  --validate_every_n_steps 999999 \
   --early_stopping_patience 99999 \
   --project "debug-rla-omni-classifier-multi-head-lora" \
   --gradient_accumulation_steps 128 \
