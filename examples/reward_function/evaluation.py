@@ -651,60 +651,60 @@ def compute_metrics_by_data_source(
                 fdrs.append(age_results["fdr"])
                 for k, v in age_results.items():
                     result[f"fairness/{dataset_name}/age/{k}"] = v
+
+                # parent_results = parent(predictions, ground_truths, demographics)
+                # for k, v in parent_results.items():
+                #     result[f"fairness/{dataset_name}/parent/{k}"] = v
+                avg_acc = sum(accs) / len(accs)
+                result[f"fairness/{dataset_name}/avg_acc"] = avg_acc
+                overall_acc.append(avg_acc)
+                avg_f1 = sum(f1s) / len(f1s)
+                result[f"fairness/{dataset_name}/avg_f1"] = avg_f1
+                overall_f1.append(avg_f1)
+                avg_tpr = sum(tprs) / len(tprs)
+                result[f"fairness/{dataset_name}/avg_tpr"] = avg_tpr
+                overall_tpr.append(avg_tpr)
+                avg_fpr = sum(fprs) / len(fprs)
+                result[f"fairness/{dataset_name}/avg_fpr"] = avg_fpr
+                overall_fpr.append(avg_fpr)
+                avg_fdr = sum(fdrs) / len(fdrs)
+                result[f"fairness/{dataset_name}/avg_fdr"] = avg_fdr
+                overall_fdr.append(avg_fdr)
+
+                avg = sum(acc_diffs) / len(acc_diffs)
+                result[f"fairness/{dataset_name}/avg_acc_diff"] = avg
+                print(f"[fairness/{dataset_name}] avg_acc_diff = {avg:.4f}")
+                std = sum(acc_stds) / len(acc_stds)
+                result[f"fairness/{dataset_name}/std_acc"] = std
+                print(f"[fairness/{dataset_name}] std_acc = {std:.4f}")
+                overall_acc_std.append(std)
+                overall_acc_diff.append(avg)
+
+                avg = sum(f1_diffs) / len(f1_diffs)
+                result[f"fairness/{dataset_name}/avg_f1_diff"] = avg
+                print(f"[fairness/{dataset_name}] avg_f1_diff = {avg:.4f}")
+                std = sum(f1_stds) / len(f1_stds)
+                result[f"fairness/{dataset_name}/f1_std"] = std
+                print(f"[fairness/{dataset_name}] f1_std = {std:.4f}")
+                overall_f1_std.append(std)
+                overall_f1_diff.append(avg)
+
+                avg = sum(tpr_diffs) / len(tpr_diffs)
+                result[f"fairness/{dataset_name}/avg_tpr_diff"] = avg
+                print(f"[fairness/{dataset_name}] avg_tpr_diff = {avg:.4f}")
+                overall_tpr_diff.append(avg)
+
+                avg = sum(fpr_diffs) / len(fpr_diffs)
+                result[f"fairness/{dataset_name}/avg_fpr_diff"] = avg
+                print(f"[fairness/{dataset_name}] avg_fpr_diff = {avg:.4f}")
+                overall_fpr_diff.append(avg)
+
+                avg = sum(fdr_diffs) / len(fdr_diffs)
+                result[f"fairness/{dataset_name}/avg_fdr_diff"] = avg
+                print(f"[fairness/{dataset_name}] avg_fdr_diff = {avg:.4f}")
+                overall_fdr_diff.append(avg)
             except ZeroDivisionError:
                 pass
-
-            # parent_results = parent(predictions, ground_truths, demographics)
-            # for k, v in parent_results.items():
-            #     result[f"fairness/{dataset_name}/parent/{k}"] = v
-            avg_acc = sum(accs) / len(accs)
-            result[f"fairness/{dataset_name}/avg_acc"] = avg_acc
-            overall_acc.append(avg_acc)
-            avg_f1 = sum(f1s) / len(f1s)
-            result[f"fairness/{dataset_name}/avg_f1"] = avg_f1
-            overall_f1.append(avg_f1)
-            avg_tpr = sum(tprs) / len(tprs)
-            result[f"fairness/{dataset_name}/avg_tpr"] = avg_tpr
-            overall_tpr.append(avg_tpr)
-            avg_fpr = sum(fprs) / len(fprs)
-            result[f"fairness/{dataset_name}/avg_fpr"] = avg_fpr
-            overall_fpr.append(avg_fpr)
-            avg_fdr = sum(fdrs) / len(fdrs)
-            result[f"fairness/{dataset_name}/avg_fdr"] = avg_fdr
-            overall_fdr.append(avg_fdr)
-
-            avg = sum(acc_diffs) / len(acc_diffs)
-            result[f"fairness/{dataset_name}/avg_acc_diff"] = avg
-            print(f"[fairness/{dataset_name}] avg_acc_diff = {avg:.4f}")
-            std = sum(acc_stds) / len(acc_stds)
-            result[f"fairness/{dataset_name}/std_acc"] = std
-            print(f"[fairness/{dataset_name}] std_acc = {std:.4f}")
-            overall_acc_std.append(std)
-            overall_acc_diff.append(avg)
-
-            avg = sum(f1_diffs) / len(f1_diffs)
-            result[f"fairness/{dataset_name}/avg_f1_diff"] = avg
-            print(f"[fairness/{dataset_name}] avg_f1_diff = {avg:.4f}")
-            std = sum(f1_stds) / len(f1_stds)
-            result[f"fairness/{dataset_name}/f1_std"] = std
-            print(f"[fairness/{dataset_name}] f1_std = {std:.4f}")
-            overall_f1_std.append(std)
-            overall_f1_diff.append(avg)
-
-            avg = sum(tpr_diffs) / len(tpr_diffs)
-            result[f"fairness/{dataset_name}/avg_tpr_diff"] = avg
-            print(f"[fairness/{dataset_name}] avg_tpr_diff = {avg:.4f}")
-            overall_tpr_diff.append(avg)
-
-            avg = sum(fpr_diffs) / len(fpr_diffs)
-            result[f"fairness/{dataset_name}/avg_fpr_diff"] = avg
-            print(f"[fairness/{dataset_name}] avg_fpr_diff = {avg:.4f}")
-            overall_fpr_diff.append(avg)
-
-            avg = sum(fdr_diffs) / len(fdr_diffs)
-            result[f"fairness/{dataset_name}/avg_fdr_diff"] = avg
-            print(f"[fairness/{dataset_name}] avg_fdr_diff = {avg:.4f}")
-            overall_fdr_diff.append(avg)
 
         # Calculate data source average (equal dataset weighting)
         if total_datasets_in_source > 0:

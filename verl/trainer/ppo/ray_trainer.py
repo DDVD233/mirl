@@ -19,6 +19,7 @@ This trainer supports model-agonistic model initialization with huggingface
 """
 
 import json
+import logging
 import os
 import uuid
 from collections import defaultdict
@@ -647,9 +648,12 @@ class RayPPOTrainer:
         self._maybe_log_val_generations(inputs=sample_inputs, outputs=sample_outputs, scores=sample_scores)
 
         # Per data source metrics
-        metrics = compute_metrics_by_data_source(all_predictions, all_ground_truths,
-                                                 all_data_sources, all_datasets, all_demographics)
-        wandb.log(metrics, step=self.global_steps)
+        try:
+            metrics = compute_metrics_by_data_source(all_predictions, all_ground_truths,
+                                                     all_data_sources, all_datasets, all_demographics)
+            wandb.log(metrics, step=self.global_steps)
+        except Exception as e:
+            logging.warning(f"Warning: Could not compute data source metrics. Error: {e}")
 
         for key_info, lst in reward_extra_infos_dict.items():
             assert len(lst) == 0 or len(lst) == len(sample_scores), f"{key_info}: {len(lst)=}, {len(sample_scores)=}"
