@@ -59,7 +59,7 @@ Then, follow these steps to set up the environment and install the necessary dep
    MAX_JOBS=16 python setup.py install
    ```
    
-5. (Optional) Configure WandB for experiment tracking
+5. (Optional) Configure WanDB for experiment tracking
    ```bash
    wandb login
    ```

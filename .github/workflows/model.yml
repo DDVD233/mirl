@@ -33,25 +33,9 @@
 name: model_rmpad
 
 on:
-  # Trigger the workflow on push or pull request,
-  # but only for the main branch
+  # Trigger the workflow on any push or pull request
   push:
-    branches:
-      - main
-      - v0.*
   pull_request:
-    branches:
-      - main
-      - v0.*
-    paths:
-      - "verl/**/*.py"
-      # Entrypoints
-      - ".github/workflows/model.yml"
-      - "tests/special_distributed/test_fsdp_ckpt.py"
-      - "tests/special_distributed/test_mcore_config_converter.py"
-      - "tests/special_distributed/test_tensor_dict.py"
-      - "tests/models/**"
-      - "tests/special_distributed/run_all.sh"
 
 # Declare permissions just read content.
 permissions:
