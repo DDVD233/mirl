@@ -76,9 +76,6 @@ def parse_parameters():
 
     # --- NEW: RLA feature-builder options (video first; audio placeholders for future) ---
     # Essentially building the features from the dictionaries of openpose keypoints
-    parser.add_argument('--rla_video_temporal', type=str,
-                        choices=['mean','meanstd','median','max','mean_max'],
-                        help='How to pool across time for OpenPose dicts (default: meanstd)')
     parser.add_argument('--rla_video_use_conf', action='store_true',
                         help='If set, include keypoint confidence channels in features')
     # RLA stage resume
