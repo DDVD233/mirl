@@ -32,7 +32,7 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml train_rla_mu
   --train_batch_size 1 \
   --val_batch_size 2 \
   --test_batch_size 2 \
-  --lr 1e-3 \
+  --lr 1e-4 \
   --epochs 10 \
   --train_file "/scratch/keane/human_behaviour/human_behaviour_data/0.2_feat_meld_train.jsonl" \
   --val_file   "/scratch/keane/human_behaviour/human_behaviour_data/feat_meld_val.jsonl" \
