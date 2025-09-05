@@ -242,6 +242,7 @@ def opensmile_to_framewise(d: Dict) -> torch.Tensor:
 def _maybe_normalize(v: torch.Tensor, norm: str | None) -> torch.Tensor:
     # NORMALIZE THE AUDIO FEATURES TO PREVENT NUMERICAL ISSUES; i.e. the residuals from blowing up or getting swamped
     if norm is None:  return v
+    if norm == "none": return v
     if norm == "l2":  return v / v.norm(p=2).clamp_min(1e-6)
     if norm == "zscore":
         m, s = v.mean(), v.std(unbiased=False).clamp_min(1e-6)

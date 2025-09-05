@@ -29,19 +29,27 @@ export TORCH_USE_CUDA_DSA=1
 # but for rla we put 1e-3
 
 # CONFIDENCE GAIN IS BASICALLY WHETHER OR NOT WE SCALE THE CONFIDENCE OF THE LOGITS THAT ARE FED INTO THE ADAPTERSS
-  # --use_ln \
+  # --rla_video_use_ln \
+  # --rla_audio_use_ln \
   # --rla_video_use_conf_gain \
+  # --rla_video_conf_init_gain 3.0 \
   # --rla_audio_use_conf_gain \
-  # --conf_init_gain 3.0 \
+  # --rla_audio_conf_init_gain 3.0 \
+  # --rla_video_alpha_init 2.0 \
+  # --rla_audio_alpha_init 2.0 \
 
 
 accelerate launch --config_file configs/accelerate_config_qwen.yaml train_rla_multi_head.py \
   --mode train \
+  --rla_resume_diff_training_stage true \
   --training_strategy lora \
   --train_batch_size 1 \
   --val_batch_size 2 \
   --test_batch_size 2 \
   --lr 1e-4 \
+  --hard_gamma 0.0 \
+  --base_lr 1e-5 \
+  --rla_lr  5e-4 \
   --epochs 10 \
   --train_file "/scratch/keane/human_behaviour/human_behaviour_data/0.2_feat_meld_train.jsonl" \
   --val_file   "/scratch/keane/human_behaviour/human_behaviour_data/feat_meld_val.jsonl" \
@@ -62,18 +70,15 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml train_rla_mu
   --use_rla_audio \
   --d_video_feat 3318 \
   --d_audio_feat 6373 \
-  --rla_video_hidden 256 \
-  --rla_audio_hidden 128 \
-  --base_lr 1e-5 \
-  --rla_lr  5e-4 \
-  --rla_p_moddrop_video 0.00 \
+  --rla_hidden_video 256 \
+  --rla_hidden_audio 128 \
+  --rla_p_moddrop_video 0.10 \
   --rla_p_moddrop_audio 0.10 \
   --rla_video_temporal meanstd \
-  --rla_video_use_conf \
-  --rla_video_norm l2 \
-  --rla_audio_norm zscore \
+  --rla_video_norm none \
+  --rla_audio_norm l2 \
   --rla_audio_temporal none \
-  --hard_gamma 0.0 \
-  --alpha_init 2.0                 
+  --rla_video_alpha_init 2.0 \
+  --rla_audio_alpha_init 2.0 \      
 
 echo "Run finished."
