@@ -718,7 +718,7 @@ class RLAMultiHeadOmniClassifierAccelerateTrainer:
                 # self.accelerator.register_for_checkpointing(scheduler)
                 print(f"[INFO] Using {self.scheduler_type} scheduler with {self.warmup_steps} warmup steps)")
             else:
-                # scheduler = None
+                scheduler = None
                 # optimizer = self.accelerator.prepare(optimizer)
                 print("[INFO] Scheduler disabled - using constant learning rate")
 
