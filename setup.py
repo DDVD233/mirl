@@ -28,20 +28,31 @@ install_requires = [
     "codetiming",
     "datasets",
     "dill",
+    "flash-attn",
     "hydra-core",
-    "numpy<2.0.0",
+    "liger-kernel",
+    "numpy",
     "pandas",
     "peft",
     "pyarrow>=19.0.0",
     "pybind11",
     "pylatexenc",
-    "ray[default]>=2.41.0",
+    "pre-commit",
+    "ray[default]",
+    "tensordict",
     "torchdata",
-    "tensordict>=0.8.0,<=0.9.1,!=0.9.0",
     "transformers",
     "wandb",
-    "packaging>=20.0",
+    "packaging",
+    "uvicorn",
+    "fastapi",
+    "latex2sympy2_extended",
+    "math_verify",
     "tensorboard",
+    "ujson",
+    "scikit-learn",
+    "mathruler",
+    "ninja",
 ]
 
 TEST_REQUIRES = ["pytest", "pre-commit", "py-spy", "pytest-asyncio"]
@@ -49,11 +60,11 @@ PRIME_REQUIRES = ["pyext"]
 GEO_REQUIRES = ["mathruler", "torchvision", "qwen_vl_utils"]
 GPU_REQUIRES = ["liger-kernel", "flash-attn"]
 MATH_REQUIRES = ["math-verify"]  # Add math-verify as an optional dependency
-VLLM_REQUIRES = ["tensordict>=0.8.0,<=0.9.1,!=0.9.0", "vllm>=0.7.3,<=0.9.1"]
+VLLM_REQUIRES = ["tensordict", "vllm>=0.10.1"]
 SGLANG_REQUIRES = [
-    "tensordict>=0.8.0,<=0.9.1,!=0.9.0",
+    "tensordict",
     "sglang[srt,openai]==0.4.10.post2",
-    "torch==2.7.1",
+    "torch",
 ]
 TRL_REQUIRES = ["trl<=0.9.6"]
 MCORE_REQUIRES = ["mbridge"]
