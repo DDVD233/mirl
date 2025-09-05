@@ -142,7 +142,7 @@ class RLAMultiHeadOmniClassifierAccelerateTrainer:
         wandb_config = {
             "model_name": self.global_config.get('TOKENIZER_NAME', ''),
             "training_strategy": self.global_config.get('TRAINING_STRATEGY', ''),
-            "batch_size": self.batch_size,
+            "train_batch_size": self.batch_size,
             "val_batch_size": self.val_batch_size,
             "test_batch_size": self.test_batch_size,
             "gradient_accumulation_steps": self.gradient_accumulation_steps,
@@ -168,6 +168,54 @@ class RLAMultiHeadOmniClassifierAccelerateTrainer:
             "use_scheduler": self.use_scheduler,
             "scheduler_type": self.scheduler_type if self.use_scheduler else None,
             "warmup_steps": self.warmup_steps if self.use_scheduler else None
+
+            # ==========================
+            # RLA: high-level toggles
+            # ==========================
+            "rla_use_video": bool(self.global_config.get("USE_RLA_VIDEO", False)),
+            "rla_use_audio": bool(self.global_config.get("USE_RLA_AUDIO", False)),
+            "rla_stage": self.global_config.get("RLA_STAGE", "base_only"),
+            "rla_resume_diff_training_stage": bool(self.global_config.get("RLA_RESUME_DIFF_TRAINING_STAGE", False)),
+
+            # ==========================
+            # RLA: feature dims / pooling / norms
+            # ==========================
+            "rla_d_video_feat": self.global_config.get("D_VIDEO_FEAT", None),
+            "rla_d_audio_feat": self.global_config.get("D_AUDIO_FEAT", None),
+
+            "rla_video_temporal": self.global_config.get("RLA_VIDEO_TEMPORAL", "meanstd"),
+            "rla_video_norm": self.global_config.get("RLA_VIDEO_NORM", None),  # none|l2|zscore
+
+            "rla_audio_temporal": self.global_config.get("RLA_AUDIO_TEMPORAL", "none"),
+            "rla_audio_norm": self.global_config.get("RLA_AUDIO_NORM", "l2"),
+
+            # ==========================
+            # RLA: adapter architecture / regularization
+            # ==========================
+            "rla_hidden_global": self.global_config.get("RLA_HIDDEN", 128),
+            "rla_hidden_video": int(self.global_config.get("RLA_HIDDEN_VIDEO", self.rla_hidden)),
+            "rla_hidden_audio": int(self.global_config.get("RLA_HIDDEN_AUDIO", self.rla_hidden)),
+
+            "rla_p_moddrop_video": self.global_config.get("RLA_P_MODDROP_VIDEO", 0.30),
+            "rla_p_moddrop_audio": self.global_config.get("RLA_P_MODDROP_AUDIO", 0.30),
+
+            "rla_video_use_ln": bool(self.global_config.get("RLA_VIDEO_USE_LN", False)),
+            "rla_video_use_conf_gain": bool(self.global_config.get("RLA_VIDEO_USE_CONF_GAIN", False)),
+            "rla_video_conf_init_gain": float(self.global_config.get("RLA_VIDEO_CONF_INIT_GAIN", 3.0)),
+            "rla_video_alpha_init": float(self.global_config.get("RLA_VIDEO_ALPHA_INIT", 1.0)),
+
+            "rla_audio_use_ln": bool(self.global_config.get("RLA_AUDIO_USE_LN", False)),
+            "rla_audio_use_conf_gain": bool(self.global_config.get("RLA_AUDIO_USE_CONF_GAIN", False)),
+            "rla_audio_conf_init_gain": float(self.global_config.get("RLA_AUDIO_CONF_INIT_GAIN", 3.0)),
+            "rla_audio_alpha_init": float(self.global_config.get("RLA_AUDIO_ALPHA_INIT", 1.0)),
+
+            # ==========================
+            # RLA: optimization knobs
+            # ==========================
+            "base_lr": float(self.global_config.get("BASE_LR", self.lr * 0.25)),
+            "rla_lr": float(self.global_config.get("RLA_LR", self.lr * 5.0)),
+            "hard_gamma": float(self.global_config.get("HARD_GAMMA", 0.0)),
+    
         }
         init_wandb(
             project=self.global_config.get('WANDB_PROJECT', ''),
