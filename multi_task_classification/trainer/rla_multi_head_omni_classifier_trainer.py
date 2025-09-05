@@ -86,7 +86,6 @@ class RLAMultiHeadOmniClassifierAccelerateTrainer:
 
         # Feature pipeline knobs
         self.video_temporal = self.global_config.get("RLA_VIDEO_TEMPORAL", "meanstd")
-        self.video_use_conf = bool(self.global_config.get("RLA_VIDEO_USE_CONF", True))
         self.video_norm     = self.global_config.get("RLA_VIDEO_NORM", None)          # <<< NEW
 
         self.audio_temporal = self.global_config.get("RLA_AUDIO_TEMPORAL", "none")

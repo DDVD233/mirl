@@ -37,7 +37,6 @@ rla:
 
   # Additional params for video adapters
   video_temporal: "meanstd"       # mean | meanstd | median | max | mean_max
-  video_use_conf: true            # use keypoint confidences
   video_norm: null
   video_use_ln: false
   video_use_conf_gain: false
@@ -49,6 +48,7 @@ rla:
   audio_temporal: "none"            # none|mean|meanstd|meanstdp25p75
   audio_norm: "l2"                  # none|l2|zscore
   audio_use_ln: false
+  # essentially for boosting all the confidence stuffs
   audio_use_conf_gain: false
   audio_conf_init_gain: 3.0
   audio_alpha_init: 1.0

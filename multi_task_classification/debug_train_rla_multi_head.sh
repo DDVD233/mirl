@@ -72,13 +72,15 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml train_rla_mu
   --d_audio_feat 6373 \
   --rla_hidden_video 256 \
   --rla_hidden_audio 512 \
-  --rla_p_moddrop_video 0.10 \
-  --rla_p_moddrop_audio 0.10 \
+  --rla_p_moddrop_video 0.20 \
+  --rla_p_moddrop_audio 0.20 \
   --rla_video_temporal meanstd \
   --rla_video_norm none \
   --rla_audio_norm l2 \
   --rla_audio_temporal none \
   --rla_video_alpha_init 2.0 \
-  --rla_audio_alpha_init 2.0      
+  --rla_audio_alpha_init 2.0 \
+  --rla_video_use_ln \
+  --rla_audio_use_ln \     
 
 echo "Run finished."
