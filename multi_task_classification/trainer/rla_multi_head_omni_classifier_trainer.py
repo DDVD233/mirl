@@ -167,7 +167,7 @@ class RLAMultiHeadOmniClassifierAccelerateTrainer:
             "mixed_precision": "fp16",
             "use_scheduler": self.use_scheduler,
             "scheduler_type": self.scheduler_type if self.use_scheduler else None,
-            "warmup_steps": self.warmup_steps if self.use_scheduler else None
+            "warmup_steps": self.warmup_steps if self.use_scheduler else None,
 
             # ==========================
             # RLA: high-level toggles
