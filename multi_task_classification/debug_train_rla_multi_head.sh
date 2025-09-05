@@ -49,13 +49,16 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml train_rla_mu
   --project "debug-rla-omni-classifier-multi-head-lora" \
   --gradient_accumulation_steps 8 \
   \
+   --rla_stage joint \
   --use_rla_video \
-  --rla_stage joint \
+  --use_rla_audio \
   --d_video_feat 3318 \
-  --rla_hidden 128 \
+  --d_audio_feat 6373 \
+  --rla_hidden 512 \
   --rla_p_moddrop_video 0.00 \
   --rla_video_temporal meanstd \
   --rla_video_use_conf \
+  
   
   # NOTE: the d_video_feat will depend on the meanstd or mean modes etc. 
   # (optional) uncomment if you want the pre-MLP

@@ -70,38 +70,72 @@ def apply_adapters(
         z = audio_adapter(z, domain_ids, feats=audio_feats, train_mode=train_mode)
     return z
 
-
-
 ### -----------------------------------------------------------------
 ### RETRIEVAL OF OPENPOSE AND OPENSMILE FEATURES / POOLING UTILS
 ### -----------------------------------------------------------------
 
-def _pool_temporal(x: torch.Tensor,
-                   mode: Literal["mean", "meanstd", "meanstdp25p75"] = "meanstd") -> torch.Tensor:
-    
-    # so essentially x looks like [T, K*C]
-    # and then when we take the mean along dim=0, we are taking the average of K*C feature values across T frames
-    # so the output shape is [K*C]
-    # similarly for std, p25, p75, etc.
-    # but then depending on what we want to use i.e. "mean", "meanstd", "meanstdp25p75", the shape will differ
-    # i.e. when we concatenate them, the shape will be from non cat [K*C], to cat 2 [2*K*C], or [4*K*C] respectively
+# models/adapter_utils.py
+
+from typing import Literal
+import torch
+
+PoolMode = Literal["none", "mean", "meanstd", "meanstdp25p75"]
+
+# HELPER FUNCTION FOR TRUNCATION/ PADDING
+def _pad_trunc_1d(x: torch.Tensor, target_dim: int) -> torch.Tensor:
+    """x: [D_var] -> [D_target] by right-pad with zeros or truncate."""
+    D = x.numel()
+    if D == target_dim:
+        return x
+    if D > target_dim:
+        return x[:target_dim]
+    out = x.new_zeros(target_dim)
+    out[:D] = x
+    return out
+
+
+def pool_temporal(x: torch.Tensor, mode: PoolMode = "meanstd") -> torch.Tensor:
+    """
+    x: [T, D]  (for functionals, T=1)
+    Modes:
+      - "none": requires T==1, returns [D] unchanged
+      - "mean": returns [D]
+      - "meanstd": returns [2D]  (concat mean, std)
+      - "meanstdp25p75": returns [4D] (mean, std, p25, p75)
+    """
     x = x.float()
     if x.ndim != 2:
         raise ValueError(f"Expected [T, D], got {tuple(x.shape)}")
+
+    T, D = x.shape
+    if mode == "none":
+        if T != 1:
+            raise ValueError(f"pool_temporal(mode='none') expects T==1, got T={T}")
+        return x.squeeze(0)  # [D]
+
     if mode == "mean":
-        return x.mean(dim=0)
+        return x.mean(dim=0)  # [D]
+
     if mode == "meanstd":
-        m, s = x.mean(dim=0), x.std(dim=0)
-        return torch.cat([m, s], dim=0)
+        m = x.mean(dim=0)
+        # use unbiased=False to avoid NaNs when T==1
+        s = x.std(dim=0, unbiased=False)
+        return torch.cat([m, s], dim=0)  # [2D]
+
     if mode == "meanstdp25p75":
-        T = x.size(0)
+        # stats
+        m = x.mean(dim=0)
+        s = x.std(dim=0, unbiased=False)
+        # quantiles via kthvalue (consistent with your video code)
         kth25 = max(1, int(0.25 * T))
         kth75 = max(1, int(0.75 * T))
-        m, s = x.mean(dim=0), x.std(dim=0)
-        p25 = x.kthvalue(kth25, dim=0).values
-        p75 = x.kthvalue(kth75, dim=0).values
-        return torch.cat([m, s, p25, p75], dim=0)
+        p25   = x.kthvalue(kth25, dim=0).values
+        p75   = x.kthvalue(kth75, dim=0).values
+        return torch.cat([m, s, p25, p75], dim=0)  # [4D]
+
     raise ValueError(f"Unknown pooling mode: {mode}")
+
+# ALL OPENPOSE FUNCTIONALITY
 
 def openpose_dict_to_framewise(data: Dict[str, torch.Tensor], use_conf: bool = True) -> torch.Tensor:
     """
@@ -131,18 +165,6 @@ def openpose_dict_to_framewise(data: Dict[str, torch.Tensor], use_conf: bool = T
     # e.g., if we have pose, face, left_hand, right_hand, then the final shape is [T, (K1*C1)+(K2*C2)+(K3*C3)+(K4*C4)]
     return torch.cat(chunks, dim=-1)  # [T, D_raw_sum]
 
-def _pad_trunc_1d(x: torch.Tensor, target_dim: int) -> torch.Tensor:
-    """x: [D_var] -> [D_target] by right-pad with zeros or truncate."""
-    D = x.numel()
-    if D == target_dim:
-        return x
-    if D > target_dim:
-        return x[:target_dim]
-    out = x.new_zeros(target_dim)
-    out[:D] = x
-    return out
-
-
 def build_video_feat_single(
     openpose: Dict[str, torch.Tensor],
     temporal_mode: Literal["mean", "meanstd", "meanstdp25p75"] = "meanstd",
@@ -150,7 +172,7 @@ def build_video_feat_single(
 ) -> torch.Tensor:
     """OpenPose dict -> [D_vec]."""
     seq = openpose_dict_to_framewise(openpose, use_conf=use_conf)  # [T, D_raw]
-    return _pool_temporal(seq, mode=temporal_mode)                 # [D_vec]
+    return pool_temporal(seq, mode=temporal_mode)                 # [D_vec]
 
 def build_video_feats_batch(
     openpose_list: Iterable[Dict[str, torch.Tensor]],
@@ -177,6 +199,56 @@ def build_video_feats_batch(
         out = out.to(device)
     return out
 
-# Audio: placeholder for now (return None to signal "not used")
-def build_audio_feats_placeholder(*args, **kwargs):
-    return None
+### ALL OPENSMILE FUNCTIONALITY
+
+def opensmile_to_framewise(d: Dict) -> torch.Tensor:
+    if "features" not in d:
+        raise KeyError("OpenSmile dict missing 'features'")
+    
+    # TODO: depending on this, we can also extract the different types of functionals (i.e. types of features)
+    # TODO: from the feature set.
+    x = d["features"]
+    if not torch.is_tensor(x):
+        x = torch.as_tensor(x)
+    x = x.float()
+    if x.ndim == 1:
+        x = x.unsqueeze(0)  # [1, D]
+    if x.ndim != 2:
+        raise ValueError(f"'features' must be [T, D] or [D], got {tuple(x.shape)}")
+    return x  # [T, D]
+
+def _maybe_normalize(v: torch.Tensor, norm: str | None) -> torch.Tensor:
+    # NORMALIZE THE AUDIO FEATURES TO PREVENT NUMERICAL ISSUES; i.e. the residuals from blowing up or getting swamped
+    if norm is None:  return v
+    if norm == "l2":  return v / v.norm(p=2).clamp_min(1e-6)
+    if norm == "zscore":
+        m, s = v.mean(), v.std(unbiased=False).clamp_min(1e-6)
+        return (v - m) / s
+    raise ValueError(f"Unknown norm: {norm}")
+
+def build_audio_feat_single(opensmile_dict: Dict,
+                            temporal_mode: PoolMode = "none",
+                            norm: str | None = None) -> torch.Tensor:
+    # we assume that the opensmile_dict contains the "features" key
+    # which is basically in the format of [1, 6373]
+    seq = opensmile_to_framewise(opensmile_dict)         # [T, D]
+    # we take the whole sequence from features
+    v   = pool_temporal(seq, mode=temporal_mode)          # [D | 2D | 4D] # NONE FOR NOW
+    return _maybe_normalize(v, norm)
+
+def build_audio_feats_batch(opensmile_list: Iterable[Dict],
+                            device: torch.device | None = None,
+                            temporal_mode: PoolMode = "none",
+                            norm: str | None = None,
+                            target_dim: int | None = None) -> torch.Tensor:
+    # opensmile list is a list of all the samples basically within the batch
+    # each item in the list is a dict that contains the opensmile features for that sample
+    raw = [build_audio_feat_single(d, temporal_mode=temporal_mode, norm=norm)
+           for d in opensmile_list]
+    if target_dim is None:
+        raise ValueError("Set D_AUDIO_FEAT in config; target_dim is required.")
+    feats = [_pad_trunc_1d(v, target_dim) for v in raw]
+    out = torch.stack(feats, dim=0)
+    if device is not None:
+        out = out.to(device)
+    return out

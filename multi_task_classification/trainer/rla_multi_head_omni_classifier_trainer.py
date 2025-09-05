@@ -29,7 +29,7 @@ from evaluate.detailed_multi_task_evaluation import evaluate_predictions
 from accelerate import Accelerator
 from accelerate.utils import set_seed
 from accelerate.logging import get_logger
-from models.adapter_utils import maybe_build_adapters, apply_adapters, build_video_feats_batch
+from models.adapter_utils import maybe_build_adapters, apply_adapters, build_video_feats_batch, build_audio_feats_batch
 
 logger = get_logger(__name__)
 
@@ -776,8 +776,16 @@ class RLAMultiHeadOmniClassifierAccelerateTrainer:
                 # Each should be of shape (B, D_feat)
                 if ("audio_feats" in batch) and (self.rla_stage in {"residual_only", "joint"}) and self.use_rla_audio:
                     audio_feats = batch["audio_feats"]
-                    # PLACEHOLDER FOR NOW
-                    pooled_audio_feats = None
+
+                    # folllowing the video_feats_batch, the pooled_audio_feats should be [B, X*K*C]
+                    pooled_audio_feats = build_audio_feats_batch(
+                        audio_feats,
+                        device=input_ids.device,
+                        temporal_mode=self.global_config.get("RLA_AUDIO_TEMPORAL", "none"),
+                        norm=self.global_config.get("RLA_AUDIO_NORM", "l2"),
+                        target_dim=self.d_audio_feat, 
+                    )
+
                 else:
                     pooled_audio_feats = None
                 
