@@ -12,6 +12,7 @@ from math import floor
 from pathlib import Path
 from transformers import get_scheduler
 from math import ceil
+import torch.nn.functional as F   # (already imported above)
 
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
@@ -831,8 +832,23 @@ class RLAMultiHeadOmniClassifierAccelerateTrainer:
                                 audio_feats=pooled_audio_feats,
                                 train_mode=True,
                         )
-
-                    loss = criterion(logits, labels)
+                    
+                    # NOTE: WEIGHING OF HARD EXAMPLES 
+                    # TODO: ARE THE LOGITS/ CONFIDENCE IMPACTED BY OUR NEGATIVE INFINITY MASKING?
+                    gamma = self.global_config.get("HARD_GAMMA", 0.0)  # set >0 to enable
+                    if gamma > 0:
+                        with torch.no_grad():
+                            probs = torch.softmax(logits, dim=-1)
+                            # p_true: prob assigned to ground-truth class per sample
+                            p_true = probs.gather(1, labels.unsqueeze(1)).squeeze(1)  # [B]
+                            # hardness in [0,1]; higher = harder
+                            hardness = (1.0 - p_true).clamp_(1e-6, 1.0)
+                            weights = hardness.pow(gamma)                              # [B]
+                        ce_per_sample = F.cross_entropy(logits, labels, reduction='none')  # [B]
+                        # Normalize by sum of weights to keep loss scale stable
+                        loss = (weights * ce_per_sample).sum() / (weights.sum().clamp_min(1.0))
+                    else:
+                        loss = criterion(logits, labels)
 
                     if not torch.isfinite(loss):
                         raise FloatingPointError("Non-finite loss encountered")

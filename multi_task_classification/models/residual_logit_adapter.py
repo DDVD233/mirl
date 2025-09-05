@@ -65,7 +65,12 @@ class ResidualLogitAdapter(nn.Module):
         self.mlps = nn.ModuleList(mlps)
 
         # Per-domain learnable scale on the residual
-        self.alphas = nn.Parameter(torch.ones(len(domain_id_to_global_indices), dtype=torch.float))
+        # self.alphas = nn.Parameter(torch.ones(len(domain_id_to_global_indices), dtype=torch.float))
+
+        # e.g., start at 2.0 for every domain
+        self.alphas = nn.Parameter(torch.full(
+            (len(domain_id_to_global_indices),), 2.0, dtype=torch.float
+        ))
 
     def _maybe_drop(self, feats: Optional[torch.Tensor], train_mode: bool) -> Optional[torch.Tensor]:
         if feats is None or not train_mode or self.p_moddrop <= 0:
