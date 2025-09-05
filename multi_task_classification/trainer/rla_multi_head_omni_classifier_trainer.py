@@ -71,14 +71,26 @@ class RLAMultiHeadOmniClassifierAccelerateTrainer:
         #   "base_only"      -> train base only (no adapters built/applied)
         #   "residual_only"  -> freeze base, train adapters only
         #   "joint"          -> train base and adapters together
-        self.rla_stage     = self.global_config.get("RLA_STAGE", "base_only")
-        # self.resume_diff_cfg = bool(self.global_config.get("RLA_RESUME_DIFFERENT_TRAINING_CONFIG", False))
-        self.rla_resume_diff_training_stage = False
+        # inside __init__
+        self.rla_stage  = self.global_config.get("RLA_STAGE", "base_only")
+        self.rla_resume_diff_training_stage = bool(
+            self.global_config.get("RLA_RESUME_DIFF_TRAINING_STAGE", False)  # <<< was hardcoded False
+        )
 
-        # Adapter architecture / regularization
-        self.rla_hidden    = self.global_config.get("RLA_HIDDEN", 128)
-        self.rla_pv        = self.global_config.get("RLA_P_MODDROP_VIDEO", 0.30)
-        self.rla_pa        = self.global_config.get("RLA_P_MODDROP_AUDIO", 0.30)
+        self.rla_hidden = self.global_config.get("RLA_HIDDEN", 128)
+        self.rla_hidden_video = int(self.global_config.get("RLA_HIDDEN_VIDEO", self.rla_hidden))  # <<< NEW
+        self.rla_hidden_audio = int(self.global_config.get("RLA_HIDDEN_AUDIO", self.rla_hidden))  # <<< NEW
+
+        self.rla_pv = self.global_config.get("RLA_P_MODDROP_VIDEO", 0.30)
+        self.rla_pa = self.global_config.get("RLA_P_MODDROP_AUDIO", 0.30)
+
+        # Feature pipeline knobs
+        self.video_temporal = self.global_config.get("RLA_VIDEO_TEMPORAL", "meanstd")
+        self.video_use_conf = bool(self.global_config.get("RLA_VIDEO_USE_CONF", True))
+        self.video_norm     = self.global_config.get("RLA_VIDEO_NORM", None)          # <<< NEW
+
+        self.audio_temporal = self.global_config.get("RLA_AUDIO_TEMPORAL", "none")
+        self.audio_norm     = self.global_config.get("RLA_AUDIO_NORM", "l2")
 
         # Feature dimensions (optional; inferred from dataset[0] if None)
         self.d_video_feat  = self.global_config.get("D_VIDEO_FEAT", None)
@@ -670,21 +682,32 @@ class RLAMultiHeadOmniClassifierAccelerateTrainer:
         # Building adapters if required;
         # NOTE WILL BE INITIALISED REGARDLESS OF WHETHER WE USE USE.RLA_VIDEO / USE.RLA_AUDIO
         self.video_adapter, self.audio_adapter = maybe_build_adapters(
-            domain_id_to_global_indices=self.domain_id_to_global_indices,
-            use_rla_video=self.use_rla_video,
-            use_rla_audio=self.use_rla_audio,
-            rla_hidden=self.rla_hidden,
-            p_moddrop_video=self.rla_pv,
-            p_moddrop_audio=self.rla_pa,
-            d_video_feat=self.d_video_feat,
-            d_audio_feat=self.d_audio_feat,
-        )
-
+                domain_id_to_global_indices=self.domain_id_to_global_indices,
+                use_rla_video=self.use_rla_video,
+                use_rla_audio=self.use_rla_audio,
+                rla_hidden_video=self.rla_hidden_video,
+                rla_hidden_audio=self.rla_hidden_audio,
+                p_moddrop_video=self.rla_pv,
+                p_moddrop_audio=self.rla_pa,
+                d_video_feat=self.d_video_feat,
+                d_audio_feat=self.d_audio_feat,
+                # per-modality adapter knobs
+                video_use_ln=bool(self.global_config.get("RLA_VIDEO_USE_LN", False)),
+                video_use_conf_gain=bool(self.global_config.get("RLA_VIDEO_USE_CONF_GAIN", False)),
+                video_conf_init_gain=float(self.global_config.get("RLA_VIDEO_CONF_INIT_GAIN", 3.0)),
+                video_alpha_init=float(self.global_config.get("RLA_VIDEO_ALPHA_INIT", 1.0)),
+                audio_use_ln=bool(self.global_config.get("RLA_AUDIO_USE_LN", False)),
+                audio_use_conf_gain=bool(self.global_config.get("RLA_AUDIO_USE_CONF_GAIN", False)),
+                audio_conf_init_gain=float(self.global_config.get("RLA_AUDIO_CONF_INIT_GAIN", 3.0)),
+                audio_alpha_init=float(self.global_config.get("RLA_AUDIO_ALPHA_INIT", 1.0)),
+            )
         criterion = CrossEntropyLoss()
         # ---- Compute update-steps-aware schedule sizes ----
         total_updates = self.epochs * len(train_dataloader)
         base_lr = self.global_config.get("BASE_LR", self.lr * 0.25)
         rla_lr  = self.global_config.get("RLA_LR",  self.lr * 5.0)
+        # for hard examples learning (if used)
+        gamma   = float(self.global_config.get("HARD_GAMMA", 0.0))
 
         # always init containers
         self.prepared_opts, self.prepared_scheds = [], []
@@ -819,8 +842,8 @@ class RLAMultiHeadOmniClassifierAccelerateTrainer:
                     pooled_audio_feats = build_audio_feats_batch(
                         audio_feats,
                         device=input_ids.device,
-                        temporal_mode=self.global_config.get("RLA_AUDIO_TEMPORAL", "none"),
-                        norm=self.global_config.get("RLA_AUDIO_NORM", "l2"),
+                        temporal_mode=self.audio_temporal,
+                        norm=self.audio_norm,
                         target_dim=self.d_audio_feat, 
                     )
 
@@ -847,6 +870,7 @@ class RLAMultiHeadOmniClassifierAccelerateTrainer:
                         device=input_ids.device,
                         temporal_mode=self.global_config.get("RLA_VIDEO_TEMPORAL", "meanstd"),
                         use_conf=self.global_config.get("RLA_VIDEO_USE_CONF", True),
+                        norm=self.video_norm,                    # <<< NEW
                         target_dim=self.d_video_feat
                     )
             
@@ -881,7 +905,6 @@ class RLAMultiHeadOmniClassifierAccelerateTrainer:
                     
                     # NOTE: WEIGHING OF HARD EXAMPLES 
                     # TODO: ARE THE LOGITS/ CONFIDENCE IMPACTED BY OUR NEGATIVE INFINITY MASKING?
-                    gamma = self.global_config.get("HARD_GAMMA", 0.0)  # set >0 to enable
                     if gamma > 0:
                         with torch.no_grad():
                             probs = torch.softmax(logits, dim=-1)
@@ -1118,16 +1141,25 @@ class RLAMultiHeadOmniClassifierAccelerateTrainer:
 
         # 2) Build adapters exactly as in training
         self.video_adapter, self.audio_adapter = maybe_build_adapters(
-            domain_id_to_global_indices=self.domain_id_to_global_indices,
-            use_rla_video=self.use_rla_video,
-            use_rla_audio=self.use_rla_audio,
-            rla_hidden=self.rla_hidden,
-            p_moddrop_video=self.rla_pv,
-            p_moddrop_audio=self.rla_pa,
-            d_video_feat=self.d_video_feat,
-            d_audio_feat=self.d_audio_feat,
-        )
-
+                domain_id_to_global_indices=self.domain_id_to_global_indices,
+                use_rla_video=self.use_rla_video,
+                use_rla_audio=self.use_rla_audio,
+                rla_hidden_video=self.rla_hidden_video,
+                rla_hidden_audio=self.rla_hidden_audio,
+                p_moddrop_video=self.rla_pv,
+                p_moddrop_audio=self.rla_pa,
+                d_video_feat=self.d_video_feat,
+                d_audio_feat=self.d_audio_feat,
+                # per-modality adapter knobs
+                video_use_ln=bool(self.global_config.get("RLA_VIDEO_USE_LN", False)),
+                video_use_conf_gain=bool(self.global_config.get("RLA_VIDEO_USE_CONF_GAIN", False)),
+                video_conf_init_gain=float(self.global_config.get("RLA_VIDEO_CONF_INIT_GAIN", 3.0)),
+                video_alpha_init=float(self.global_config.get("RLA_VIDEO_ALPHA_INIT", 1.0)),
+                audio_use_ln=bool(self.global_config.get("RLA_AUDIO_USE_LN", False)),
+                audio_use_conf_gain=bool(self.global_config.get("RLA_AUDIO_USE_CONF_GAIN", False)),
+                audio_conf_init_gain=float(self.global_config.get("RLA_AUDIO_CONF_INIT_GAIN", 3.0)),
+                audio_alpha_init=float(self.global_config.get("RLA_AUDIO_ALPHA_INIT", 1.0)),
+            )
 
         # --- Phase 1: modules-only prepare (model + adapters, plus loaders) ---
         train_dataloader, test_dataloader = self._accelerate_prepare_modules(
@@ -1157,7 +1189,7 @@ class RLAMultiHeadOmniClassifierAccelerateTrainer:
             ]
 
         # --- Phase 2: prepare ONLY the optimizers/schedulers ---
-        self.prepared_opts, self.prepared_scheds = self._prepare_opts_schedulers(opts_in_order, sch_in_order)
+        self.prepared_opts, self.prepared_scheds = self._accelerate_prepare_opts_scheds(opts_in_order, sch_in_order)
 
         # --- Load (model + optimizer(s) + scheduler(s) + RNG) ---
         _ = self.load_checkpoint_unified(

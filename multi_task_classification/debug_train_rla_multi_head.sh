@@ -27,6 +27,14 @@ export TORCH_USE_CUDA_DSA=1
 # --load_checkpoint_path "/scratch/keane/human_behaviour/debug_rla/step_1998"
 # for lora we put 1e-4
 # but for rla we put 1e-3
+
+# CONFIDENCE GAIN IS BASICALLY WHETHER OR NOT WE SCALE THE CONFIDENCE OF THE LOGITS THAT ARE FED INTO THE ADAPTERSS
+  # --use_ln \
+  # --rla_video_use_conf_gain \
+  # --rla_audio_use_conf_gain \
+  # --conf_init_gain 3.0 \
+
+
 accelerate launch --config_file configs/accelerate_config_qwen.yaml train_rla_multi_head.py \
   --mode train \
   --training_strategy lora \
@@ -38,10 +46,10 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml train_rla_mu
   --train_file "/scratch/keane/human_behaviour/human_behaviour_data/0.2_feat_meld_train.jsonl" \
   --val_file   "/scratch/keane/human_behaviour/human_behaviour_data/feat_meld_val.jsonl" \
   --test_file  "/scratch/keane/human_behaviour/human_behaviour_data/feat_meld_test.jsonl" \
-  --label_map_path "/home/keaneong/human-behavior/verl/multi_task_classification/unified_feat_meld_label_map.json" \
+  --label_map_path "/home/keane/human-behavior/verl/multi_task_classification/unified_feat_meld_label_map.json" \
   --save_every_n_epochs 1 \
-  --save_every_n_steps 4 \
-  --load_checkpoint_path "/scratch/keane/human_behaviour/resume_debug_rla_residual_res_only/step_4" \
+  --save_every_n_steps 99999999 \
+  --load_checkpoint_path "/scratch/keane/human_behaviour/debug_rla/step_1998" \
   --save_checkpoint_dir "/scratch/keane/human_behaviour/resume_debug_rla_residual_res_only" \
   --validation_result_dir "/scratch/keane/human_behaviour/debug_rla_residual_res_only/validation_results" \
   --validate_every_n_epochs 1 \
@@ -49,23 +57,23 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml train_rla_mu
   --early_stopping_patience 99999 \
   --project "debug-rla-omni-classifier-multi-head-lora" \
   --gradient_accumulation_steps 8 \
-  \
-   --rla_stage joint \
+  --rla_stage joint \
   --use_rla_video \
   --use_rla_audio \
   --d_video_feat 3318 \
   --d_audio_feat 6373 \
-  --rla_hidden 256 \
+  --rla_video_hidden 256 \
+  --rla_audio_hidden 128 \
+  --base_lr 1e-5 \
+  --rla_lr  5e-4 \
   --rla_p_moddrop_video 0.00 \
+  --rla_p_moddrop_audio 0.10 \
   --rla_video_temporal meanstd \
   --rla_video_use_conf \
-  
-  
-  # NOTE: the d_video_feat will depend on the meanstd or mean modes etc. 
-  # (optional) uncomment if you want the pre-MLP
-  # --rla_video_use_mlp \
-  # --rla_video_mlp_hidden 256 \
-  # --rla_video_out_dim 256
-
+  --rla_video_norm l2 \
+  --rla_audio_norm zscore \
+  --rla_audio_temporal none \
+  --hard_gamma 0.0 \
+  --alpha_init 2.0                 
 
 echo "Run finished."

@@ -16,22 +16,19 @@ def get_conf_from_local_logits(local_logits: torch.Tensor) -> torch.Tensor:
         margin = torch.zeros_like(p_max)
     return torch.cat([p_max, entropy, margin], dim=-1)  # [B,3] # flatten
 
+# models/rla_adapters.py
 class ResidualLogitAdapter(nn.Module):
-    """
-    Single, modality-agnostic residual adapter.
-    You specify which feature tensor to read via `feat_key` (only used by caller)
-    and the input dimensionality via `feat_dim`.
-    """
     def __init__(
         self,
         domain_id_to_global_indices: List[List[int]],
-        feat_key: str,           # e.g., "video_feats" or "audio_feats" (for clarity/logging)
+        feat_key: str,
         feat_dim: int,
         hidden: int = 128,
         p_moddrop: float = 0.3,
-        use_ln = False,
-        use_conf_gain = False,
-        conf_init_gain=3.0
+        use_ln: bool = False,
+        use_conf_gain: bool = False,
+        conf_init_gain: float = 3.0,
+        alpha_init: float = 1.0,             # <<< NEW
     ):
         super().__init__()
         self.domain_id_to_global_indices = domain_id_to_global_indices
@@ -40,8 +37,6 @@ class ResidualLogitAdapter(nn.Module):
         self.hidden = hidden
         self.p_moddrop = p_moddrop
 
-        # scaling up the confidnce signals
-        # LN is LAYER NORM 
         self.use_ln = use_ln
         self.use_conf_gain = use_conf_gain
         if use_ln:
@@ -50,26 +45,21 @@ class ResidualLogitAdapter(nn.Module):
         if use_conf_gain:
             self.conf_gain = nn.Parameter(torch.full((3,), conf_init_gain))
 
-        # One residual MLP per domain: [feat_dim + 3(conf)] -> K_d
-        # the +3 is the confidence from the current local logits
         mlps = []
         for slots in domain_id_to_global_indices:
             k_d = len(slots)
             mlps.append(
                 nn.Sequential(
-                    nn.Linear(feat_dim + 3, hidden), 
+                    nn.Linear(feat_dim + 3, hidden),
                     nn.ReLU(),
                     nn.Linear(hidden, k_d),
                 )
             )
         self.mlps = nn.ModuleList(mlps)
 
-        # Per-domain learnable scale on the residual
-        # self.alphas = nn.Parameter(torch.ones(len(domain_id_to_global_indices), dtype=torch.float))
-
-        # e.g., start at 2.0 for every domain
+        # Per-domain learnable residual scale (configurable init)
         self.alphas = nn.Parameter(torch.full(
-            (len(domain_id_to_global_indices),), 3.0, dtype=torch.float
+            (len(domain_id_to_global_indices),), float(alpha_init), dtype=torch.float
         ))
 
     def _maybe_drop(self, feats: Optional[torch.Tensor], train_mode: bool) -> Optional[torch.Tensor]:

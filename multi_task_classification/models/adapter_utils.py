@@ -12,11 +12,21 @@ def maybe_build_adapters(
     domain_id_to_global_indices,
     use_rla_video: bool,
     use_rla_audio: bool,
-    rla_hidden: int,
+    rla_hidden_video: int,                     # <<< NEW
+    rla_hidden_audio: int,                     # <<< NEW
     p_moddrop_video: float,
     p_moddrop_audio: float,
     d_video_feat: Optional[int] = None,
     d_audio_feat: Optional[int] = None,
+     # NEW: per-modality adapter knobs
+    video_use_ln: bool = False,
+    video_use_conf_gain: bool = False,
+    video_conf_init_gain: float = 3.0,
+    video_alpha_init: float = 1.0,
+    audio_use_ln: bool = False,
+    audio_use_conf_gain: bool = False,
+    audio_conf_init_gain: float = 3.0,
+    audio_alpha_init: float = 1.0,
 ):
     """
     Builds adapters once given explicit feature dims (no dataset probing).
@@ -28,25 +38,34 @@ def maybe_build_adapters(
     if use_rla_video:
         if d_video_feat is None:
             raise ValueError("USE_RLA_VIDEO=True but d_video_feat was not provided")
+        
         video_adapter = ResidualLogitAdapter(
             domain_id_to_global_indices,
             feat_key="video_feats",
             feat_dim=d_video_feat,
-            hidden=rla_hidden,
-            p_moddrop=p_moddrop_video
+            hidden=rla_hidden_video,
+            p_moddrop=p_moddrop_video,
+            use_ln=video_use_ln,
+            use_conf_gain=video_use_conf_gain,
+            conf_init_gain=video_conf_init_gain,
+            alpha_init=video_alpha_init,
         )
 
     if use_rla_audio:
         if d_audio_feat is None:
             raise ValueError("USE_RLA_AUDIO=True but d_audio_feat was not provided")
+        
         audio_adapter = ResidualLogitAdapter(
             domain_id_to_global_indices,
             feat_key="audio_feats",
             feat_dim=d_audio_feat,
-            hidden=rla_hidden,
-            p_moddrop=p_moddrop_audio
+            hidden=rla_hidden_audio,
+            p_moddrop=p_moddrop_audio,
+            use_ln=audio_use_ln,
+            use_conf_gain=audio_use_conf_gain,
+            conf_init_gain=audio_conf_init_gain,
+            alpha_init=audio_alpha_init,
         )
-
     return video_adapter, audio_adapter
 
 def apply_adapters(
@@ -169,16 +188,19 @@ def build_video_feat_single(
     openpose: Dict[str, torch.Tensor],
     temporal_mode: Literal["mean", "meanstd", "meanstdp25p75"] = "meanstd",
     use_conf: bool = True,
+    norm: Optional[str] = None,  
 ) -> torch.Tensor:
     """OpenPose dict -> [D_vec]."""
     seq = openpose_dict_to_framewise(openpose, use_conf=use_conf)  # [T, D_raw]
-    return pool_temporal(seq, mode=temporal_mode)                 # [D_vec]
+    v = pool_temporal(seq, mode=temporal_mode)  # [D | 2D | 4D]
+    return _maybe_normalize(v, norm)                 # [D_vec]
 
 def build_video_feats_batch(
     openpose_list: Iterable[Dict[str, torch.Tensor]],
     device: Optional[torch.device] = None,
     temporal_mode: Literal["mean", "meanstd", "meanstdp25p75"] = "meanstd",
     use_conf: bool = True,
+    norm: Optional[str] = None,  # NEW
     target_dim: int = None,   # <-- NEW: pass your D_VIDEO_FEAT (e.g., 3318)
 ) -> torch.Tensor:
     """
@@ -187,7 +209,7 @@ def build_video_feats_batch(
     If `target_dim` is None, we use the max length seen in the batch.
     """
     # Build raw per-sample vectors (variable length)
-    raw = [build_video_feat_single(op, temporal_mode=temporal_mode, use_conf=use_conf)
+    raw = [build_video_feat_single(op, temporal_mode=temporal_mode, use_conf=use_conf, norm=norm)
            for op in openpose_list]
 
     if target_dim is None:

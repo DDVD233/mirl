@@ -90,11 +90,49 @@ def parse_parameters():
 
     # (Optional future: audio builder flags; keep as placeholders now)
     parser.add_argument('--rla_audio_use_mlp', action='store_true',
-                        help='[placeholder] Enable audio processing MLP')
+                        help='Enable audio processing MLP')
     parser.add_argument('--rla_audio_mlp_hidden', type=int,
-                        help='[placeholder] Hidden size for audio processing MLP')
+                        help='Hidden size for audio processing MLP')
     parser.add_argument('--rla_audio_out_dim', type=int,
-                        help='[placeholder] Output dim for audio processing MLP')
+                        help='Output dim for audio processing MLP')
+    
+    # RLA stage resume
+    parser.add_argument('--rla_resume_diff_training_stage', action='store_true',
+                        help='Allow resuming from checkpoint saved in a different training stage graph')
+
+    # Separate hidden sizes
+    parser.add_argument('--rla_hidden_video', type=int, help='Hidden dim for VIDEO adapter MLPs')
+    parser.add_argument('--rla_hidden_audio', type=int, help='Hidden dim for AUDIO adapter MLPs')
+
+    # Video norms/temporal
+    parser.add_argument('--rla_video_norm', type=str, choices=['none','l2','zscore'],
+                        help='Normalization for video feature vector')
+    parser.add_argument('--rla_video_temporal', type=str,
+                        choices=['mean','meanstd','meanstdp25p75'],
+                        help='Temporal pooling for OpenPose (default: meanstd)')
+
+    # Audio norms/temporal
+    parser.add_argument('--rla_audio_norm', type=str, choices=['none','l2','zscore'],
+                        help='Normalization for audio feature vector (default: l2)')
+    parser.add_argument('--rla_audio_temporal', type=str,
+                        choices=['none','mean','meanstd','meanstdp25p75'],
+                        help='Temporal pooling for OpenSMILE (default: none)')
+
+    # Adapter extras per modality
+    parser.add_argument('--rla_video_use_ln', action='store_true')
+    parser.add_argument('--rla_video_use_conf_gain', action='store_true')
+    parser.add_argument('--rla_video_conf_init_gain', type=float)
+    parser.add_argument('--rla_video_alpha_init', type=float)
+
+    parser.add_argument('--rla_audio_use_ln', action='store_true')
+    parser.add_argument('--rla_audio_use_conf_gain', action='store_true')
+    parser.add_argument('--rla_audio_conf_init_gain', type=float)
+    parser.add_argument('--rla_audio_alpha_init', type=float)
+
+    # LRs + gamma
+    parser.add_argument('--base_lr', type=float, help='LR for base model params')
+    parser.add_argument('--rla_lr', type=float, help='LR for adapter params')
+    parser.add_argument('--hard_gamma', type=float, help='Hard example weighting gamma')
     
     # Scheduler parameters
     parser.add_argument('--use_scheduler', action='store_true', help='Enable learning rate scheduler')
@@ -218,6 +256,55 @@ def parse_parameters():
         cfg.rla.audio_mlp_hidden = args.rla_audio_mlp_hidden
     if args.rla_audio_out_dim is not None:
         cfg.rla.audio_out_dim = args.rla_audio_out_dim
+
+    # rla.resume_diff_training_stage
+    if args.rla_resume_diff_training_stage:
+        cfg.rla.resume_diff_training_stage = True
+
+    # separate hidden
+    if args.rla_hidden_video is not None:
+        cfg.rla.rla_hidden_video = args.rla_hidden_video
+    if args.rla_hidden_audio is not None:
+        cfg.rla.rla_hidden_audio = args.rla_hidden_audio
+
+    # video norm/temporal
+    if args.rla_video_norm is not None:
+        cfg.rla.video_norm = args.rla_video_norm
+    if args.rla_video_temporal is not None:
+        cfg.rla.video_temporal = args.rla_video_temporal
+
+    # audio norm/temporal
+    if args.rla_audio_norm is not None:
+        cfg.rla.audio_norm = args.rla_audio_norm
+    if args.rla_audio_temporal is not None:
+        cfg.rla.audio_temporal = args.rla_audio_temporal
+
+    # adapter extras
+    if args.rla_video_use_ln:            
+        cfg.rla.video_use_ln = True
+    if args.rla_video_use_conf_gain:     
+        cfg.rla.video_use_conf_gain = True
+    if args.rla_video_conf_init_gain is not None: 
+        cfg.rla.video_conf_init_gain = args.rla_video_conf_init_gain
+    if args.rla_video_alpha_init is not None:     
+        cfg.rla.video_alpha_init = args.rla_video_alpha_init
+
+    if args.rla_audio_use_ln:            
+        cfg.rla.audio_use_ln = True
+    if args.rla_audio_use_conf_gain:     
+        cfg.rla.audio_use_conf_gain = True
+    if args.rla_audio_conf_init_gain is not None: 
+        cfg.rla.audio_conf_init_gain = args.rla_audio_conf_init_gain
+    if args.rla_audio_alpha_init is not None:     
+        cfg.rla.audio_alpha_init = args.rla_audio_alpha_init
+
+    # LRs + gamma
+    if args.base_lr is not None:
+        cfg.train.base_lr = args.base_lr
+    if args.rla_lr is not None:
+        cfg.train.rla_lr = args.rla_lr
+    if args.hard_gamma is not None:
+        cfg.train.hard_gamma = args.hard_gamma
     
     # Training parameters
     if args.train_batch_size is not None:
@@ -355,6 +442,33 @@ def parse_parameters():
     params['rla_audio_mlp_hidden'] = int(getattr(cfg.rla, 'audio_mlp_hidden', 128))
     params['rla_audio_out_dim']    = int(getattr(cfg.rla, 'audio_out_dim', params['d_audio_feat'] or 128))
     
+    # per-modality hidden
+    params['rla_hidden_video'] = int(getattr(cfg.rla, 'rla_hidden_video', getattr(cfg.rla, 'rla_hidden', 128)))
+    params['rla_hidden_audio'] = int(getattr(cfg.rla, 'rla_hidden_audio', getattr(cfg.rla, 'rla_hidden', 128)))
+
+    # norms/temporal
+    params['rla_video_norm']     = getattr(cfg.rla, 'video_norm', None)
+    params['rla_audio_norm']     = getattr(cfg.rla, 'audio_norm', 'l2')
+    params['rla_audio_temporal'] = getattr(cfg.rla, 'audio_temporal', 'none')
+
+    # resume graph
+    params['rla_resume_diff_training_stage'] = bool(getattr(cfg.rla, 'resume_diff_training_stage', False))
+
+    # adapter extras
+    params['rla_video_use_ln']           = bool(getattr(cfg.rla, 'video_use_ln', False))
+    params['rla_video_use_conf_gain']    = bool(getattr(cfg.rla, 'video_use_conf_gain', False))
+    params['rla_video_conf_init_gain']   = float(getattr(cfg.rla, 'video_conf_init_gain', 3.0))
+    params['rla_video_alpha_init']       = float(getattr(cfg.rla, 'video_alpha_init', 1.0))
+
+    params['rla_audio_use_ln']           = bool(getattr(cfg.rla, 'audio_use_ln', False))
+    params['rla_audio_use_conf_gain']    = bool(getattr(cfg.rla, 'audio_use_conf_gain', False))
+    params['rla_audio_conf_init_gain']   = float(getattr(cfg.rla, 'audio_conf_init_gain', 3.0))
+    params['rla_audio_alpha_init']       = float(getattr(cfg.rla, 'audio_alpha_init', 1.0))
+
+    # LRs + gamma
+    params['base_lr']   = float(getattr(cfg.train, 'base_lr', params['lr'] * 0.25))
+    params['rla_lr']    = float(getattr(cfg.train, 'rla_lr',  params['lr'] * 5.0))
+    params['hard_gamma']= float(getattr(cfg.train, 'hard_gamma', 0.0))
 
     # Convert torch_dtype string to actual torch dtype
     if params['torch_dtype_str'] == "float16":
@@ -592,6 +706,28 @@ def main():
         'RLA_AUDIO_USE_MLP' : params['rla_audio_use_mlp'],     # placeholders
         'RLA_AUDIO_MLP_HID' : params['rla_audio_mlp_hidden'],
         'RLA_AUDIO_OUT_DIM' : params['rla_audio_out_dim'],
+        # Different training stage
+        'RLA_RESUME_DIFF_TRAINING_STAGE': params['rla_resume_diff_training_stage'],
+        'RLA_HIDDEN_VIDEO': params['rla_hidden_video'],
+        'RLA_HIDDEN_AUDIO': params['rla_hidden_audio'],
+
+        'RLA_VIDEO_NORM': params['rla_video_norm'],
+        'RLA_AUDIO_NORM': params['rla_audio_norm'],
+        'RLA_AUDIO_TEMPORAL': params['rla_audio_temporal'],
+
+        'RLA_VIDEO_USE_LN': params['rla_video_use_ln'],
+        'RLA_VIDEO_USE_CONF_GAIN': params['rla_video_use_conf_gain'],
+        'RLA_VIDEO_CONF_INIT_GAIN': params['rla_video_conf_init_gain'],
+        'RLA_VIDEO_ALPHA_INIT': params['rla_video_alpha_init'],
+
+        'RLA_AUDIO_USE_LN': params['rla_audio_use_ln'],
+        'RLA_AUDIO_USE_CONF_GAIN': params['rla_audio_use_conf_gain'],
+        'RLA_AUDIO_CONF_INIT_GAIN': params['rla_audio_conf_init_gain'],
+        'RLA_AUDIO_ALPHA_INIT': params['rla_audio_alpha_init'],
+
+        'BASE_LR': params['base_lr'],
+        'RLA_LR':  params['rla_lr'],
+        'HARD_GAMMA': params['hard_gamma'],
     }
 
     trainer = RLAMultiHeadOmniClassifierAccelerateTrainer(
