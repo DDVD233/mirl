@@ -44,7 +44,7 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml train_multi_
     --validate_every_n_epochs 1 \
     --validate_every_n_steps 15000 \
     --early_stopping_patience 99999999 \
-    --project "omni-classifier-multi-head-lora" \
+    --project "test-omni-classifier-multi-head-lora" \
     --gradient_accumulation_steps 128 \
 
 echo "Lora Multi Head Testing completed!"
