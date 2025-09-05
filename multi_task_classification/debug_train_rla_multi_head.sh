@@ -41,7 +41,7 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml train_rla_mu
   --save_every_n_epochs 1 \
   --save_every_n_steps 999999 \
   --load_checkpoint_path "/scratch/keane/human_behaviour/debug_rla/step_1998" \
-  --save_checkpoint_dir "/scratch/keane/human_behaviour/debug_rla_residual_res_only" \
+  --save_checkpoint_dir "/scratch/keane/human_behaviour/resume_debug_rla_residual_res_only" \
   --validation_result_dir "/scratch/keane/human_behaviour/debug_rla_residual_res_only/validation_results" \
   --validate_every_n_epochs 1 \
   --validate_every_n_steps 999999 \
