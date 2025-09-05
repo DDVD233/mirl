@@ -23,7 +23,6 @@ export TORCH_USE_CUDA_DSA=1
 # meanstdp25p75 would be 6636
 
 # we have a few different options; base_only, residual_only, joint
-  # --load_checkpoint_path "/scratch/keane/human_behaviour/debug_rla/step_2997" \
 
 # for lora we put 1e-4
 # but for rla we put 1e-3
@@ -39,8 +38,9 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml train_rla_mu
   --val_file   "/scratch/keane/human_behaviour/human_behaviour_data/feat_meld_val.jsonl" \
   --test_file  "/scratch/keane/human_behaviour/human_behaviour_data/feat_meld_test.jsonl" \
   --label_map_path "/home/keaneong/human-behavior/verl/multi_task_classification/unified_feat_meld_label_map.json" \
-  --save_every_n_epochs 1 \
+  --save_every_n_epochs 10 \
   --save_every_n_steps 999999 \
+  --load_checkpoint_path "/scratch/keane/human_behaviour/debug_rla/step_2997" \
   --save_checkpoint_dir "/scratch/keane/human_behaviour/debug_rla_residual_res_only" \
   --validation_result_dir "/scratch/keane/human_behaviour/debug_rla_residual_res_only/validation_results" \
   --validate_every_n_epochs 1 \
@@ -50,7 +50,7 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml train_rla_mu
   --gradient_accumulation_steps 8 \
   \
   --use_rla_video \
-  --rla_stage residual_only \
+  --rla_stage joint \
   --d_video_feat 3318 \
   --rla_hidden 128 \
   --rla_p_moddrop_video 0.00 \
