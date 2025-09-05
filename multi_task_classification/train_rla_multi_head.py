@@ -12,7 +12,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 # Local imports
 from others.dummy_classifier import DummyClassifier
 from models.multi_head_omni_classifier import MultiHeadOmniClassifier
-from trainer.rla_multi_head_omni_classifier_trainer import RLAMultiHeadOmniClassifierAccelerateTrainer
+from verl.multi_task_classification.trainer.rla_multi_head_omni_classifier_trainer import RLAMultiHeadOmniClassifierAccelerateTrainer
 
 def parse_parameters():
     """

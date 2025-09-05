@@ -209,14 +209,6 @@ class RLAMultiHeadOmniClassifierAccelerateTrainer:
 
         # store the tensors for the domain ids
         return torch.tensor(ids, dtype=torch.long, device=device)
-    
-    def _current_model_order(self):
-        order = ["base"]
-        if self.rla_stage in {"residual_only", "joint"} and getattr(self, "video_adapter", None) is not None:
-            order.append("video")
-        if self.rla_stage in {"residual_only", "joint"} and getattr(self, "audio_adapter", None) is not None:
-            order.append("audio")
-        return order
 
     def get_dataloader(self, data_files, batch_size, num_workers=0, shuffle=True):
         dataset = OmniClassifierDataset(
@@ -251,27 +243,37 @@ class RLAMultiHeadOmniClassifierAccelerateTrainer:
         training_strategy: str,
         base_ckpt_dir: str,
     ):
+        """
+        Saves a resume-ready checkpoint+meta. Uses your definition:
+        current_step = epoch * len_dl + (batch_idx + 1)
+        """
+        # accelerator.wait_for_everyone()
+
         global_step = epoch * len_train_dataloader + (batch_idx + 1)
 
         ckpt_dir = os.path.join(base_ckpt_dir, f"step_{global_step}")
         os.makedirs(ckpt_dir, exist_ok=True)
 
+        # 1) Save Accelerate state: model, optimizer, scaler, RNG, registered objs
         accelerator.save_state(ckpt_dir)
+
         accelerator.wait_for_everyone()
 
+        # only save this in the main process
         if accelerator.is_main_process:
+            # 2) Minimal meta sidecar
             meta = {
                 "epoch": int(epoch),
                 "global_step": int(global_step),
                 "len_train_dataloader": int(len_train_dataloader),
                 "training_strategy": str(training_strategy),
-                "model_order": self._current_model_order(),  # <— NEW
                 "saved_at_unix": time.time(),
             }
             with open(os.path.join(ckpt_dir, "meta.json"), "w") as f:
                 json.dump(meta, f, indent=2)
 
         accelerator.print(f"[save] checkpoint @ step {global_step} → {ckpt_dir}")
+
         return ckpt_dir
 
     def load_checkpoint_unified(
@@ -401,24 +403,21 @@ class RLAMultiHeadOmniClassifierAccelerateTrainer:
 
         return bundles
     
-    def _accelerate_prepare_modules(
-        self, 
-        train_dataloader, 
-        val_dataloader, 
-        *, 
-        prepare_base_model: bool = True, 
-        prepare_adapters: bool = False
+    def _accelerate_prepare(
+        self,
+        train_dataloader,
+        val_dataloader,
+        optimizer=None,
+        scheduler=None,
+        prepare_adapters=False,
     ):
         """
-        Prepare ONLY the specified modules + dataloaders.
-        - prepare_base_model: whether to include the main model.
-        - prepare_adapters:   whether to include adapters (video/audio).
-        Returns the prepared objects in the same order they were passed in.
+        Prepare with Accelerate in two phases to avoid mixing modules with optimizer:
+        (1) modules-only: model [+ adapters if requested] + dataloaders
+        (2) opt-only: optimizer [+ scheduler]
         """
-        modules = []
-
-        if prepare_base_model:
-            modules.append(self.model)
+        # ----- Phase 1: modules-only -----
+        modules = [self.model]
 
         if self.rla_stage in {"residual_only", "joint"} and prepare_adapters:
             if getattr(self, "video_adapter", None) is not None:
@@ -430,9 +429,9 @@ class RLAMultiHeadOmniClassifierAccelerateTrainer:
 
         prepared = self.accelerator.prepare(*modules)
 
+        # Unpack Phase 1
         idx = 0
-        if prepare_base_model:
-            self.model = prepared[idx]; idx += 1
+        self.model = prepared[idx]; idx += 1
 
         if self.rla_stage in {"residual_only", "joint"} and prepare_adapters:
             if getattr(self, "video_adapter", None) is not None:
@@ -443,65 +442,15 @@ class RLAMultiHeadOmniClassifierAccelerateTrainer:
         train_dataloader = prepared[idx]; idx += 1
         val_dataloader   = prepared[idx]; idx += 1
 
-        # Return exactly what was prepared in the same logical grouping
-        return train_dataloader, val_dataloader, (
-            self.model if prepare_base_model else None,
-            self.video_adapter if prepare_adapters else None,
-            self.audio_adapter if prepare_adapters else None
-        )
-    
-    def _build_per_module_optimizers(self, bundles):
-        """Return (opts_in_order, names_in_order) matching module prepare order: base, video?, audio?."""
-        from torch.optim import Adam
-        opt_base  = Adam(bundles["base"]["params"],  lr=bundles["base"]["lr"])   if bundles["base"]  else None
-        opt_video = Adam(bundles["video"]["params"], lr=bundles["video"]["lr"])  if bundles["video"] else None
-        opt_audio = Adam(bundles["audio"]["params"], lr=bundles["audio"]["lr"])  if bundles["audio"] else None
-        opts = [o for o in (opt_base, opt_video, opt_audio) if o is not None]
-        names = [n for n, o in zip(["base","video","audio"], (opt_base, opt_video, opt_audio)) if o is not None]
-        return opts, names
+        # ----- Phase 2: optimizer/scheduler-only -----
+        if optimizer is not None:
+            if scheduler is not None:
+                optimizer, scheduler = self.accelerator.prepare(optimizer, scheduler)
+                self.accelerator.register_for_checkpointing(scheduler)
+            else:
+                (optimizer,) = self.accelerator.prepare(optimizer)
 
-    def _build_schedulers(self, opts_in_order, total_updates):
-        """Per-optimizer schedulers, same order as optimizers. May return []."""
-        if not self.use_scheduler:
-            return []
-        from transformers import get_scheduler
-        scheds = [
-            get_scheduler(
-                self.scheduler_type,
-                o,
-                num_warmup_steps=self.warmup_steps,
-                num_training_steps=total_updates,
-            ) for o in opts_in_order
-        ]
-        return scheds
-
-    def _accelerate_prepare_opts_scheds(self, opts_in_order, scheds_in_order):
-        """Prepare ONLY optimizers/schedulers and register schedulers for checkpointing."""
-        if scheds_in_order:
-            prepared = self.accelerator.prepare(*opts_in_order, *scheds_in_order)
-            n_opt = len(opts_in_order)
-            self.prepared_opts   = list(prepared[:n_opt])
-            self.prepared_scheds = list(prepared[n_opt:])
-            for s in self.prepared_scheds:
-                self.accelerator.register_for_checkpointing(s)
-        else:
-            self.prepared_opts   = list(self.accelerator.prepare(*opts_in_order))
-            self.prepared_scheds = []
-
-    def _step_all_opts(self):
-        for opt in self.prepared_opts:
-            opt.step()
-
-    def _zero_all_opts(self):
-        for opt in self.prepared_opts:
-            opt.zero_grad(set_to_none=True)
-
-    def _step_all_scheds(self):
-        for sch in self.prepared_scheds:
-            sch.step()
-
-    def _current_lr_for_logging(self):
-        return (self.prepared_opts[0].param_groups[0]["lr"] if self.prepared_opts else self.lr)
+        return train_dataloader, val_dataloader, optimizer, scheduler
 
     def validate(self, val_dataloader, split_name="validation", current_step=None):
         """Validate the model on the given dataloader."""
@@ -680,75 +629,143 @@ class RLAMultiHeadOmniClassifierAccelerateTrainer:
             d_audio_feat=self.d_audio_feat,
         )
 
-        criterion = CrossEntropyLoss()
-        # ---- Compute update-steps-aware schedule sizes ----
-        total_updates = self.epochs * len(train_dataloader)
+
+
+        # optimizer, with an option to train the entire model or the adapters only etc.
+        # Freeze/unfreeze + param groups
+        # --- LR overrides (RLA > base) ---------------------------------------------
         base_lr = self.global_config.get("BASE_LR", self.lr * 0.25)
         rla_lr  = self.global_config.get("RLA_LR",  self.lr * 5.0)
+        first_param_groups = self.prepare_params_for_training(base_lr=base_lr, rla_lr=rla_lr)
+        # ---------------------------------------------------------------------------
 
-        # always init containers
-        self.prepared_opts, self.prepared_scheds = [], []
+        # first_param_groups = self.prepare_params_for_training()
 
+        criterion = CrossEntropyLoss()
+
+        # ---- Compute update-steps-aware schedule sizes ----
+        # updates_per_epoch = ceil(len(train_dataloader) / max(1, self.gradient_accumulation_steps))
+        total_updates = self.epochs * len(train_dataloader)
+        
         if self.rla_resume_diff_training_stage:
-            # Phase 1: prepare modules WITHOUT adapters (we'll add fresh adapters next)
-            # Because you'll likely be resuming from a base model only checkpoint
-            train_dataloader, val_dataloader, (prepared_model, _, _) = self._accelerate_prepare_modules(
-                train_dataloader, val_dataloader,
-                prepare_base_model=True,
-                prepare_adapters=False,
+
+            # ================= DIFFERENT TRAINING CONFIG RESUME =================
+            # 1) Prepare ONLY model/adapters/dataloaders (optimizer=None toggles behavior)
+            # 2) It will also not prepare the adapter if they self.rla_stage=="base_only"
+            # 3) It will also not prepare the adapter if self.rla_resume_diff_cfg is True (which is in this case)
+            # We do this because we do not want to load the state for the adapters via load_checkpoint_unified
+            # since they are newly built and have no state to load.
+            train_dataloader, val_dataloader, _, _ = self._accelerate_prepare(
+                train_dataloader=train_dataloader,
+                val_dataloader=val_dataloader,
+                optimizer=None,
+                scheduler=None,
+                prepare_adapters=False
             )
-            # Load only model/RNG
-            start_epoch, start_batch_offset, _, _, _ = self.load_checkpoint_unified(
+
+            # 2) Load state now: restores model shards/RNG ONLY (no optimizer to rekey)
+            # Since we didn't prepare the adapter, the adapter states will not be loaded.
+            start_epoch, start_batch_offset, global_step, _, _ = self.load_checkpoint_unified(
                 accelerator=self.accelerator,
                 model=self.model,
                 base_ckpt_dir=self.checkpoint_dir,
                 explicit_dir=self.load_checkpoint_path or None,
                 expect_training_strategy=self.global_config.get("TRAINING_STRATEGY"),
-                rla_resume_diff_cfg=True,
+                rla_resume_diff_cfg=self.rla_resume_diff_training_stage,
             )
-            # Phase 1b: now prepare freshly built adapters as modules-only
+
+            # 3) Prepare adapters in a MODULES-ONLY call (so save_state will track them)
+            # remember that they were previously unprepared
             if self.rla_stage in {"residual_only", "joint"}:
-                adapters = []
-                if self.video_adapter is not None: adapters.append(self.video_adapter)
-                if self.audio_adapter is not None: adapters.append(self.audio_adapter)
-                if adapters:
-                    prepared = self.accelerator.prepare(*adapters)
+                adapters_to_prepare = []
+                if self.video_adapter is not None:
+                    adapters_to_prepare.append(self.video_adapter)
+                if self.audio_adapter is not None:
+                    adapters_to_prepare.append(self.audio_adapter)
+                if len(adapters_to_prepare) > 0:
+                    prepared = self.accelerator.prepare(*adapters_to_prepare)
                     i = 0
                     if self.video_adapter is not None:
                         self.video_adapter = prepared[i]; i += 1
-                    if self.audio_adapter is not None and i < len(prepared):
-                        self.audio_adapter = prepared[i]
+                    if self.audio_adapter is not None:
+                        self.audio_adapter = prepared[i] if i < len(prepared) else self.audio_adapter
 
-            # Phase 2: build per-module optimizers/schedulers for CURRENT prepared modules
+            # prepare the new param groups after loading the wrapped models; particularly
+            # for the model group.
             bundles = self.prepare_params_for_training(base_lr=base_lr, rla_lr=rla_lr)
-            opts_in_order, self._opt_names_in_order = self._build_per_module_optimizers(bundles)
-            sch_in_order = self._build_schedulers(opts_in_order, total_updates)
-            self._accelerate_prepare_opts_scheds(opts_in_order, sch_in_order)
+            # the optimizer can just points to the updated param groups
+            # because its a new optimizer instance that takes in the updated param groups
+            # where the updated param groups now point to the wrapped model
+
+            opt_base  = torch.optim.Adam(bundles["base"]["params"],  lr=bundles["base"]["lr"])   if bundles["base"]  else None
+            opt_video = torch.optim.Adam(bundles["video"]["params"], lr=bundles["video"]["lr"])  if bundles["video"] else None
+            opt_audio = torch.optim.Adam(bundles["audio"]["params"], lr=bundles["audio"]["lr"])  if bundles["audio"] else None
+
+            opts_in_order = [o for o in (opt_base, opt_video, opt_audio) if o is not None]
+
+            sch_in_order = []
+            if self.use_scheduler:
+                for o in opts_in_order:
+                    sch = get_scheduler(
+                        self.scheduler_type,
+                        o,
+                        num_warmup_steps=self.warmup_steps,
+                        num_training_steps=total_updates
+                    )
+                    sch_in_order.append(sch)
+                # Prepare optimizer (and scheduler) seperately from the modules
+                # optimizer, scheduler = self.accelerator.prepare(optimizer, scheduler)
+                # self.accelerator.register_for_checkpointing(scheduler)
+                print(f"[INFO] Using {self.scheduler_type} scheduler with {self.warmup_steps} warmup steps)")
+            else:
+                scheduler = None
+                # optimizer = self.accelerator.prepare(optimizer)
+                print("[INFO] Scheduler disabled - using constant learning rate")
+
+            if self.use_scheduler:
+                # TODO: make this robust
+                prepared_objs = self.accelerator.prepare(*opts_in_order, *sch_in_order)
+                # unpack back to opt_* and sch_* in order
+            else:
+                prepared_opts = self.accelerator.prepare(*opts_in_order)
+                # unpack opts back in order
+            # Also register each scheduler so save_state() captures counters
+            for s in (sch_in_order if self.use_scheduler else []):
+                self.accelerator.register_for_checkpointing(s)
 
         else:
-            # SAME-REGIME (or fresh)
-            # Phase 1: prepare modules WITH adapters if active
-            train_dataloader, val_dataloader, (prepared_model, prepared_video, prepared_audio) = self._accelerate_prepare_modules(
-                                                                        train_dataloader, val_dataloader,
-                                                                        prepare_base_model=True,  # don’t wrap the model again
-                                                                        prepare_adapters=True,
-                                                                    )
-            
-            # Load full state (model+opts+scheds+RNG) if compatible
+            optimizer = Adam(first_param_groups)
+            # Get the scheduler
+            if self.use_scheduler:
+                scheduler = get_scheduler(
+                    self.scheduler_type,
+                    optimizer,
+                    num_warmup_steps=self.warmup_steps,
+                    num_training_steps=total_updates
+                )
+                print(f"[INFO] Using {self.scheduler_type} scheduler with {self.warmup_steps} warmup steps")
+            else:
+                scheduler = None
+                print("[INFO] Scheduler disabled - using constant learning rate")
+
+            # Prepare everything with Accelerate
+            # Note that under the hood, the models and adapters are also prepared here.
+            train_dataloader, val_dataloader, optimizer, scheduler = self._accelerate_prepare(
+                train_dataloader=train_dataloader,
+                val_dataloader=val_dataloader,
+                optimizer=optimizer,
+                scheduler=scheduler
+                )
+
             start_epoch, start_batch_offset, _, _, _ = self.load_checkpoint_unified(
                 accelerator=self.accelerator,
                 model=self.model,
                 base_ckpt_dir=self.checkpoint_dir,
                 explicit_dir=self.load_checkpoint_path or None,
                 expect_training_strategy=self.global_config.get("TRAINING_STRATEGY"),
-                rla_resume_diff_cfg=False,
+                rla_resume_diff_cfg=self.rla_resume_diff_training_stage
             )
-            # Phase 2: rebuild per-module optimizers/schedulers (so shapes/flags match current freeze plan)
-            bundles = self.prepare_params_for_training(base_lr=base_lr, rla_lr=rla_lr)
-            opts_in_order, self._opt_names_in_order = self._build_per_module_optimizers(bundles)
-            sch_in_order = self._build_schedulers(opts_in_order, total_updates)
-            self._accelerate_prepare_opts_scheds(opts_in_order, sch_in_order)
-            
+
         # Get configuration values
         validate_every_n_epochs = self.global_config.get('VALIDATE_EVERY_N_EPOCHS', None)
         validate_every_n_steps = self.global_config.get('VALIDATE_EVERY_N_STEPS', None)
@@ -905,27 +922,31 @@ class RLAMultiHeadOmniClassifierAccelerateTrainer:
                     # NOTE: This if condition is not necessary as the accelerator 
                     # already syncs before stepping
                     # if self.accelerator.sync_gradients:
+                    for opt in prepared_opts:
+                        opt.step()
+                    
+                    for opt in prepared_opts:
+                        opt.zero_grad()
 
-                    self._step_all_opts()
-                    self._step_all_scheds()
-                    self._zero_all_opts()
+                    # TODO: MAKE SURE TO MAKE THIS WORK WITH MULTIPLE OPTIMIZERS
+                    # optimizer.step()
 
-                    current_lr = self._current_lr_for_logging()
+                    # if scheduler is not None:
+                    #     scheduler.step()
+
+                    # optimizer.zero_grad()
                     
                     # PURELY FOR LOGGING PURPOSES
-                    # if scheduler is not None:
-                    #     did_update = False
-                    #     if self.accelerator.sync_gradients:
-                    #         did_update = True
-                    #     if did_update:
-                    #         if self.prepared_opts:
-                    #             current_lr = self.prepared_opts[0].param_groups[0]['lr']
-                    #         else:
-                    #             current_lr = optimizer.param_groups[0]['lr'] 
-                    #     else:
-                    #         current_lr = None
-                    # else:
-                    #     current_lr = self.lr
+                    if scheduler is not None:
+                        did_update = False
+                        if self.accelerator.sync_gradients:
+                            did_update = True
+                        if did_update:
+                            current_lr = optimizer.param_groups[0]['lr'] 
+                        else:
+                            current_lr = None
+                    else:
+                        current_lr = self.lr
                         
                 with torch.no_grad():
                     # Accumulate metrics for effective batch
