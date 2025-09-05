@@ -68,7 +68,6 @@ def parse_parameters():
     parser.add_argument('--use_rla_audio', action='store_true', help='Enable audio residual logit adapter')
     parser.add_argument('--rla_stage', type=str, choices=['base_only','residual_only','joint'],
                         help='RLA training stage')
-    parser.add_argument('--rla_hidden', type=int, help='Hidden dim for per-domain MLPs')
     parser.add_argument('--rla_p_moddrop_video', type=float, help='Video modality dropout prob')
     parser.add_argument('--rla_p_moddrop_audio', type=float, help='Audio modality dropout prob')
     parser.add_argument('--d_video_feat', type=int, help='Flattened dimension of video (OpenPose/OpenFace) features')
@@ -208,8 +207,6 @@ def parse_parameters():
         cfg.rla.use_rla_audio = True
     if args.rla_stage is not None:
         cfg.rla.rla_stage = args.rla_stage
-    if args.rla_hidden is not None:
-        cfg.rla.rla_hidden = args.rla_hidden
     if args.rla_p_moddrop_video is not None:
         cfg.rla.rla_p_moddrop_video = args.rla_p_moddrop_video
     if args.rla_p_moddrop_audio is not None:
@@ -388,7 +385,6 @@ def parse_parameters():
     params['use_rla_video'] = bool(cfg.rla.use_rla_video)
     params['use_rla_audio'] = bool(cfg.rla.use_rla_audio)
     params['rla_stage'] = str(cfg.rla.rla_stage)
-    params['rla_hidden'] = int(cfg.rla.rla_hidden)
     params['rla_p_moddrop_video'] = float(cfg.rla.rla_p_moddrop_video)
     params['rla_p_moddrop_audio'] = float(cfg.rla.rla_p_moddrop_audio)
     params['d_video_feat'] = None if cfg.rla.d_video_feat in [None, "None"] else int(cfg.rla.d_video_feat)
@@ -650,7 +646,6 @@ def main():
         'USE_RLA_VIDEO': params['use_rla_video'],
         'USE_RLA_AUDIO': params['use_rla_audio'],
         'RLA_STAGE': params['rla_stage'],
-        'RLA_HIDDEN': params['rla_hidden'],
         'RLA_P_MODDROP_VIDEO': params['rla_p_moddrop_video'],
         'RLA_P_MODDROP_AUDIO': params['rla_p_moddrop_audio'],
         'D_VIDEO_FEAT': params['d_video_feat'],
