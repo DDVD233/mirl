@@ -426,15 +426,14 @@ class RLHFDataset(Dataset):
         # TODO: This currently works for only the fist video within the .pt list
         # i.e. "ext_video_feats": [path1, path2, ...], we only take the first one
         video_rel_path = row_dict.get('ext_video_feats', None)
-        print(video_rel_path)
-        if video_rel_path is not None:
+        if video_rel_path:
             vidoe_rel_path = video_rel_path[0]
             row_dict["ext_video_feats_path"] = os.path.join(self.base_dir, video_rel_path)
         else:
             row_dict["ext_video_feats_path"] = None
         
         audio_rel_path = row_dict.get('ext_audio_feats', None)
-        if audio_rel_path is not None:
+        if audio_rel_path:
             audio_rel_path = audio_rel_path[0]
             row_dict["ext_audio_feats_path"] = os.path.join(self.base_dir, audio_rel_path)
         else:
