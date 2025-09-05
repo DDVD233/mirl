@@ -615,9 +615,17 @@ class RLAMultiHeadOmniClassifierAccelerateTrainer:
             d_audio_feat=self.d_audio_feat,
         )
 
+
+
         # optimizer, with an option to train the entire model or the adapters only etc.
         # Freeze/unfreeze + param groups
-        first_param_groups = self.prepare_params_for_training()
+        # --- LR overrides (RLA > base) ---------------------------------------------
+        base_lr = self.global_config.get("BASE_LR", self.lr * 0.25)
+        rla_lr  = self.global_config.get("RLA_LR",  self.lr * 5.0)
+        first_param_groups = self.prepare_params_for_training(base_lr=base_lr, rla_lr=rla_lr)
+        # ---------------------------------------------------------------------------
+
+        # first_param_groups = self.prepare_params_for_training()
 
         criterion = CrossEntropyLoss()
 
@@ -650,8 +658,8 @@ class RLAMultiHeadOmniClassifierAccelerateTrainer:
             start_epoch = 0
             start_batch_offset = 0
 
-            updated_param_groups = self.prepare_params_for_training()
-            optimizer = Adam(updated_param_groups, lr=self.lr)
+            updated_param_groups = self.prepare_params_for_training(base_lr=base_lr, rla_lr=rla_lr)
+            optimizer = Adam(updated_param_groups)
             
             if self.use_scheduler:
                 scheduler = get_scheduler(
@@ -670,7 +678,7 @@ class RLAMultiHeadOmniClassifierAccelerateTrainer:
                 print("[INFO] Scheduler disabled - using constant learning rate")
 
         else:
-            optimizer = Adam(first_param_groups, lr=self.lr)
+            optimizer = Adam(first_param_groups)
             # Get the scheduler
             if self.use_scheduler:
                 scheduler = get_scheduler(
