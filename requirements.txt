@@ -28,3 +28,4 @@ tensorboard
 ujson
 scikit-learn
 mathruler
+ninja
