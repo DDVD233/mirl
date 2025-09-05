@@ -425,11 +425,19 @@ class RLHFDataset(Dataset):
         # create the video_ext and audio ext paths:
         # TODO: This currently works for only the fist video within the .pt list
         # i.e. "ext_video_feats": [path1, path2, ...], we only take the first one
-        video_rel_path = row_dict.get('ext_video_feats', None)[0]
-        row_dict["ext_video_feats_path"] = os.path.join(self.base_dir, video_rel_path)
-
-        audio_rel_path = row_dict.get('ext_audio_feats', None)[0]
-        row_dict["ext_audio_feats_path"] = os.path.join(self.base_dir, audio_rel_path)
+        video_rel_path = row_dict.get('ext_video_feats', None)
+        if video_rel_path is not None:
+            vidoe_rel_path = video_rel_path[0]
+            row_dict["ext_video_feats_path"] = os.path.join(self.base_dir, video_rel_path)
+        else:
+            row_dict["ext_video_feats_path"] = None
+        
+        audio_rel_path = row_dict.get('ext_audio_feats', None)
+        if audio_rel_path is not None:
+            audio_rel_path = audio_rel_path[0]
+            row_dict["ext_audio_feats_path"] = os.path.join(self.base_dir, audio_rel_path)
+        else:
+            row_dict["ext_audio_feats_path"] = None
 
         # NOTE: BUILD_MESSAGES IS CALLED TWICE; 
         # NOTE: FIRST TIME IS TO GET THE LENGTH OF THE RAW PROMPT AND FILTER OUT 

@@ -47,4 +47,4 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml train_multi_
     --project "omni-classifier-multi-head-lora" \
     --gradient_accumulation_steps 128 \
 
-echo "Lora Multi Head Testubg completed!"
+echo "Lora Multi Head Testing completed!"
