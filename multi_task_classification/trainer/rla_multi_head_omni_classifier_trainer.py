@@ -73,7 +73,7 @@ class RLAMultiHeadOmniClassifierAccelerateTrainer:
         #   "joint"          -> train base and adapters together
         self.rla_stage     = self.global_config.get("RLA_STAGE", "base_only")
         # self.resume_diff_cfg = bool(self.global_config.get("RLA_RESUME_DIFFERENT_TRAINING_CONFIG", False))
-        self.rla_resume_diff_cfg = True
+        self.rla_resume_diff_training_stage = True
 
         # Adapter architecture / regularization
         self.rla_hidden    = self.global_config.get("RLA_HIDDEN", 128)
@@ -404,46 +404,46 @@ class RLAMultiHeadOmniClassifierAccelerateTrainer:
         val_dataloader,
         optimizer=None,
         scheduler=None,
+        prepare_adapters=False,
     ):
         """
-        Prepare modules with Accelerate.
-
-        - If `optimizer` is None, only model/adapters/dataloaders are prepared.
-        - If `optimizer` is provided, it (and `scheduler`, if provided) are prepared too.
+        Prepare with Accelerate in two phases to avoid mixing modules with optimizer:
+        (1) modules-only: model [+ adapters if requested] + dataloaders
+        (2) opt-only: optimizer [+ scheduler]
         """
+        # ----- Phase 1: modules-only -----
         modules = [self.model]
 
-        # if getattr(self, "video_adapter", None) is not None:
-        #     modules.append(self.video_adapter)
-        # if getattr(self, "audio_adapter", None) is not None:
-        #     modules.append(self.audio_adapter)
+        if self.rla_stage in {"residual_only", "joint"} and prepare_adapters:
+            if getattr(self, "video_adapter", None) is not None:
+                modules.append(self.video_adapter)
+            if getattr(self, "audio_adapter", None) is not None:
+                modules.append(self.audio_adapter)
 
         modules += [train_dataloader, val_dataloader]
 
-        if optimizer:
-            modules.append(optimizer)
-            if scheduler:
-                modules.append(scheduler)
-
         prepared = self.accelerator.prepare(*modules)
 
-        # ---- Unpack in the same order ----
+        # Unpack Phase 1
         idx = 0
         self.model = prepared[idx]; idx += 1
 
-        # if getattr(self, "video_adapter", None) is not None:
-        #     self.video_adapter = prepared[idx]; idx += 1
-        # if getattr(self, "audio_adapter", None) is not None:
-        #     self.audio_adapter = prepared[idx]; idx += 1
+        if self.rla_stage in {"residual_only", "joint"} and prepare_adapters:
+            if getattr(self, "video_adapter", None) is not None:
+                self.video_adapter = prepared[idx]; idx += 1
+            if getattr(self, "audio_adapter", None) is not None:
+                self.audio_adapter = prepared[idx]; idx += 1
 
         train_dataloader = prepared[idx]; idx += 1
         val_dataloader   = prepared[idx]; idx += 1
 
-        if optimizer:
-            optimizer = prepared[idx]; idx += 1
-            if scheduler:
-                scheduler = prepared[idx]; idx += 1
+        # ----- Phase 2: optimizer/scheduler-only -----
+        if optimizer is not None:
+            if scheduler is not None:
+                optimizer, scheduler = self.accelerator.prepare(optimizer, scheduler)
                 self.accelerator.register_for_checkpointing(scheduler)
+            else:
+                (optimizer,) = self.accelerator.prepare(optimizer)
 
         return train_dataloader, val_dataloader, optimizer, scheduler
 
@@ -483,8 +483,16 @@ class RLAMultiHeadOmniClassifierAccelerateTrainer:
                 # Each should be of shape (B, D_feat)
                 if ("audio_feats" in batch) and (self.rla_stage in {"residual_only", "joint"}) and self.use_rla_audio:
                     audio_feats = batch["audio_feats"]
-                    # PLACEHOLDER FOR NOW
-                    pooled_audio_feats = None
+
+                    # folllowing the video_feats_batch, the pooled_audio_feats should be [B, X*K*C]
+                    pooled_audio_feats = build_audio_feats_batch(
+                        audio_feats,
+                        device=input_ids.device,
+                        temporal_mode=self.global_config.get("RLA_AUDIO_TEMPORAL", "none"),
+                        norm=self.global_config.get("RLA_AUDIO_NORM", "l2"),
+                        target_dim=self.d_audio_feat, 
+                    )
+
                 else:
                     pooled_audio_feats = None
                 
@@ -634,32 +642,55 @@ class RLAMultiHeadOmniClassifierAccelerateTrainer:
         # updates_per_epoch = ceil(len(train_dataloader) / max(1, self.gradient_accumulation_steps))
         total_updates = self.epochs * len(train_dataloader)
         
-        if self.rla_resume_diff_cfg:
+        if self.rla_resume_diff_training_stage:
 
             # ================= DIFFERENT TRAINING CONFIG RESUME =================
             # 1) Prepare ONLY model/adapters/dataloaders (optimizer=None toggles behavior)
+            # 2) It will also not prepare the adapter if they self.rla_stage=="base_only"
+            # 3) It will also not prepare the adapter if self.rla_resume_diff_cfg is True (which is in this case)
+            # We do this because we do not want to load the state for the adapters via load_checkpoint_unified
+            # since they are newly built and have no state to load.
             train_dataloader, val_dataloader, _, _ = self._accelerate_prepare(
                 train_dataloader=train_dataloader,
                 val_dataloader=val_dataloader,
                 optimizer=None,
                 scheduler=None,
+                prepare_adapters=False
             )
-            # (ignore _opt/_sch—they are None)
 
             # 2) Load state now: restores model shards/RNG ONLY (no optimizer to rekey)
-            _, _, global_step, _, _ = self.load_checkpoint_unified(
+            # Since we didn't prepare the adapter, the adapter states will not be loaded.
+            start_epoch, start_batch_offset, global_step, _, _ = self.load_checkpoint_unified(
                 accelerator=self.accelerator,
                 model=self.model,
                 base_ckpt_dir=self.checkpoint_dir,
                 explicit_dir=self.load_checkpoint_path or None,
                 expect_training_strategy=self.global_config.get("TRAINING_STRATEGY"),
-                rla_resume_diff_cfg=self.rla_resume_diff_cfg,
+                rla_resume_diff_cfg=self.rla_resume_diff_training_stage,
             )
-            # start epoch is 0 and start batch offset is 0 when starting training from scratch
-            start_epoch = 0
-            start_batch_offset = 0
 
+            # 3) Prepare adapters in a MODULES-ONLY call (so save_state will track them)
+            # remember that they were previously unprepared
+            if self.rla_stage in {"residual_only", "joint"}:
+                adapters_to_prepare = []
+                if self.video_adapter is not None:
+                    adapters_to_prepare.append(self.video_adapter)
+                if self.audio_adapter is not None:
+                    adapters_to_prepare.append(self.audio_adapter)
+                if len(adapters_to_prepare) > 0:
+                    prepared = self.accelerator.prepare(*adapters_to_prepare)
+                    i = 0
+                    if self.video_adapter is not None:
+                        self.video_adapter = prepared[i]; i += 1
+                    if self.audio_adapter is not None:
+                        self.audio_adapter = prepared[i] if i < len(prepared) else self.audio_adapter
+
+            # prepare the new param groups after loading the wrapped models; particularly
+            # for the model group.
             updated_param_groups = self.prepare_params_for_training(base_lr=base_lr, rla_lr=rla_lr)
+            # the optimizer can just points to the updated param groups
+            # because its a new optimizer instance that takes in the updated param groups
+            # where the updated param groups now point to the wrapped model
             optimizer = Adam(updated_param_groups)
             
             if self.use_scheduler:
@@ -669,18 +700,13 @@ class RLAMultiHeadOmniClassifierAccelerateTrainer:
                     num_warmup_steps=self.warmup_steps,
                     num_training_steps=total_updates
                 )
-                # Prepare optimizer (and scheduler) after load
-                optimizer, scheduler, self.video_adapter, self.audio_adapter = self.accelerator.prepare(optimizer, 
-                                                                                                        scheduler, 
-                                                                                                        self.video_adapter, 
-                                                                                                        self.audio_adapter)
+                # Prepare optimizer (and scheduler) seperately from the modules
+                optimizer, scheduler = self.accelerator.prepare(optimizer, scheduler)
                 self.accelerator.register_for_checkpointing(scheduler)
                 print(f"[INFO] Using {self.scheduler_type} scheduler with {self.warmup_steps} warmup steps)")
             else:
                 scheduler = None
-                optimizer, self.video_adapter, self.audio_adapter = self.accelerator.prepare(optimizer, 
-                                                                                             self.video_adapter, 
-                                                                                             self.audio_adapter)
+                optimizer = self.accelerator.prepare(optimizer)
                 print("[INFO] Scheduler disabled - using constant learning rate")
 
         else:
@@ -713,7 +739,7 @@ class RLAMultiHeadOmniClassifierAccelerateTrainer:
                 base_ckpt_dir=self.checkpoint_dir,
                 explicit_dir=self.load_checkpoint_path or None,
                 expect_training_strategy=self.global_config.get("TRAINING_STRATEGY"),
-                rla_resume_diff_cfg=self.rla_resume_diff_cfg
+                rla_resume_diff_cfg=self.rla_resume_diff_training_stage
             )
 
         # Get configuration values
