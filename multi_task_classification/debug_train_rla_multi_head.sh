@@ -81,6 +81,6 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml train_rla_mu
   --rla_video_alpha_init 2.0 \
   --rla_audio_alpha_init 2.0 \
   --rla_video_use_ln \
-  --rla_audio_use_ln \     
+  --rla_audio_use_ln    
 
 echo "Run finished."
