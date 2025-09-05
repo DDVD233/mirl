@@ -413,10 +413,10 @@ class RLAMultiHeadOmniClassifierAccelerateTrainer:
         """
         modules = [self.model]
 
-        if getattr(self, "video_adapter", None) is not None:
-            modules.append(self.video_adapter)
-        if getattr(self, "audio_adapter", None) is not None:
-            modules.append(self.audio_adapter)
+        # if getattr(self, "video_adapter", None) is not None:
+        #     modules.append(self.video_adapter)
+        # if getattr(self, "audio_adapter", None) is not None:
+        #     modules.append(self.audio_adapter)
 
         modules += [train_dataloader, val_dataloader]
 
@@ -431,10 +431,10 @@ class RLAMultiHeadOmniClassifierAccelerateTrainer:
         idx = 0
         self.model = prepared[idx]; idx += 1
 
-        if getattr(self, "video_adapter", None) is not None:
-            self.video_adapter = prepared[idx]; idx += 1
-        if getattr(self, "audio_adapter", None) is not None:
-            self.audio_adapter = prepared[idx]; idx += 1
+        # if getattr(self, "video_adapter", None) is not None:
+        #     self.video_adapter = prepared[idx]; idx += 1
+        # if getattr(self, "audio_adapter", None) is not None:
+        #     self.audio_adapter = prepared[idx]; idx += 1
 
         train_dataloader = prepared[idx]; idx += 1
         val_dataloader   = prepared[idx]; idx += 1
@@ -670,12 +670,17 @@ class RLAMultiHeadOmniClassifierAccelerateTrainer:
                     num_training_steps=total_updates
                 )
                 # Prepare optimizer (and scheduler) after load
-                optimizer, scheduler = self.accelerator.prepare(optimizer, scheduler)
+                optimizer, scheduler, self.video_adapter, self.audio_adapter = self.accelerator.prepare(optimizer, 
+                                                                                                        scheduler, 
+                                                                                                        self.video_adapter, 
+                                                                                                        self.audio_adapter)
                 self.accelerator.register_for_checkpointing(scheduler)
-                print(f"[INFO] Using {self.scheduler_type} scheduler with {self.warmup_steps} warmup steps (resumed at step {global_step0})")
+                print(f"[INFO] Using {self.scheduler_type} scheduler with {self.warmup_steps} warmup steps)")
             else:
                 scheduler = None
-                optimizer = self.accelerator.prepare(optimizer)
+                optimizer, self.video_adapter, self.audio_adapter = self.accelerator.prepare(optimizer, 
+                                                                                             self.video_adapter, 
+                                                                                             self.audio_adapter)
                 print("[INFO] Scheduler disabled - using constant learning rate")
 
         else:
