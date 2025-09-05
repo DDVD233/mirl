@@ -23,7 +23,7 @@ export TORCH_USE_CUDA_DSA=1
     # --warmup_steps 25
 
 # Launch training with accelerate for head_only strategy
-echo "Launching head_only training with Accelerate..."
+echo "Launching Multi Head Testing with Accelerate..."
 accelerate launch --config_file configs/accelerate_config_qwen.yaml train_multi_head.py \
     --mode test \
     --training_strategy lora \
