@@ -71,7 +71,7 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml train_rla_mu
   --d_video_feat 3318 \
   --d_audio_feat 6373 \
   --rla_hidden_video 256 \
-  --rla_hidden_audio 128 \
+  --rla_hidden_audio 512 \
   --rla_p_moddrop_video 0.10 \
   --rla_p_moddrop_audio 0.10 \
   --rla_video_temporal meanstd \
