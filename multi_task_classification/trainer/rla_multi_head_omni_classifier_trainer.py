@@ -1128,43 +1128,47 @@ class RLAMultiHeadOmniClassifierAccelerateTrainer:
             d_audio_feat=self.d_audio_feat,
         )
 
-        # 3) Mirror training’s (un)freeze and param-group wiring
-        param_groups = self.prepare_params_for_training()
 
-        # 4) Construct optimizer/scheduler (same classes as training)
-        optimizer = Adam(param_groups, lr=self.lr)
-        # We won’t step it during test; it just needs to exist for load_state().
-        if self.use_scheduler:
-            # The exact num_training_steps won’t matter: load_state will overwrite counters.
-            total_updates = self.epochs * len(train_dataloader)
-            scheduler = get_scheduler(
-                self.scheduler_type,
-                optimizer,
-                num_warmup_steps=self.warmup_steps,
-                num_training_steps=total_updates
-            )
-        else:
-            scheduler = None
-
-        # 5) Prepare model(+adapters)+dataloaders+optimizer(+scheduler) identically to training
-        train_dataloader, test_dataloader, optimizer, scheduler = self._accelerate_prepare(
+        # --- Phase 1: modules-only prepare (model + adapters, plus loaders) ---
+        train_dataloader, test_dataloader = self._accelerate_prepare_modules(
             train_dataloader=train_dataloader,
             val_dataloader=test_dataloader,
-            optimizer=optimizer,
-            scheduler=scheduler,
+            prepare_base_model=True,
+            prepare_adapters=(self.rla_stage in {"residual_only", "joint"}),
         )
 
-        # 6) Load everything (model + optimizer + scheduler + RNG) from checkpoint
-        #    same-config resume: allow optimizer state to be restored & rekeyed
+        # --- Build per-module optimizers (no stepping during test; required so load_state can map) ---
+        base_lr = self.global_config.get("BASE_LR", self.lr * 0.25)
+        rla_lr  = self.global_config.get("RLA_LR",  self.lr * 5.0)
+        bundles = self.prepare_params_for_training(base_lr=base_lr, rla_lr=rla_lr)
+
+        opts_in_order, opt_names = self._build_per_module_optimizers(bundles)   # e.g., ["base","video","audio"]
+        # Optional schedulers (harmless in test; needed if checkpoints contain them)
+        sch_in_order = []
+        if self.use_scheduler and len(opts_in_order) > 0:
+            total_updates = max(1, self.epochs * len(train_dataloader))  # any positive int is fine for rekeying
+            sch_in_order = [
+                get_scheduler(
+                    self.scheduler_type,
+                    o,
+                    num_warmup_steps=self.warmup_steps,
+                    num_training_steps=total_updates
+                ) for o in opts_in_order
+            ]
+
+        # --- Phase 2: prepare ONLY the optimizers/schedulers ---
+        self.prepared_opts, self.prepared_scheds = self._prepare_opts_schedulers(opts_in_order, sch_in_order)
+
+        # --- Load (model + optimizer(s) + scheduler(s) + RNG) ---
         _ = self.load_checkpoint_unified(
             accelerator=self.accelerator,
             model=self.model,
             base_ckpt_dir=self.checkpoint_dir,
             explicit_dir=self.load_checkpoint_path or None,
             expect_training_strategy=self.global_config.get("TRAINING_STRATEGY"),
-            rla_resume_diff_cfg=False,
+            rla_resume_diff_cfg=False,  # test assumes same regime graph
         )
-
+        
         test_results = self.validate(test_dataloader, "test", current_step=1)
         
         if self.accelerator.is_main_process and test_results is not None:
