@@ -420,6 +420,7 @@ def parse_parameters():
     params['rla_audio_alpha_init']       = float(getattr(cfg.rla, 'audio_alpha_init', 1.0))
 
     # LRs + gamma
+    params['lr'] = float(cfg.train.lr)
     params['base_lr']   = float(getattr(cfg.train, 'base_lr', params['lr'] * 0.25))
     params['rla_lr']    = float(getattr(cfg.train, 'rla_lr',  params['lr'] * 5.0))
     params['hard_gamma']= float(getattr(cfg.train, 'hard_gamma', 0.0))
@@ -438,7 +439,6 @@ def parse_parameters():
     params['train_batch_size'] = cfg.train.train_batch_size
     params['val_batch_size'] = cfg.train.val_batch_size
     params['test_batch_size'] = cfg.train.test_batch_size
-    params['lr'] = float(cfg.train.lr)
     params['epochs'] = int(cfg.train.epochs)
     params['save_checkpoint_dir'] = cfg.train.save_checkpoint_dir
     params['load_checkpoint_path'] = cfg.train.load_checkpoint_path
