@@ -81,21 +81,6 @@ def parse_parameters():
                         help='How to pool across time for OpenPose dicts (default: meanstd)')
     parser.add_argument('--rla_video_use_conf', action='store_true',
                         help='If set, include keypoint confidence channels in features')
-    parser.add_argument('--rla_video_use_mlp', action='store_true',
-                        help='If set, pass pooled vector through a small MLP before the adapter')
-    parser.add_argument('--rla_video_mlp_hidden', type=int,
-                        help='Hidden size for the optional video processing MLP')
-    parser.add_argument('--rla_video_out_dim', type=int,
-                        help='Output dim for optional video processing MLP (if enabled)')
-
-    # (Optional future: audio builder flags; keep as placeholders now)
-    parser.add_argument('--rla_audio_use_mlp', action='store_true',
-                        help='Enable audio processing MLP')
-    parser.add_argument('--rla_audio_mlp_hidden', type=int,
-                        help='Hidden size for audio processing MLP')
-    parser.add_argument('--rla_audio_out_dim', type=int,
-                        help='Output dim for audio processing MLP')
-    
     # RLA stage resume
     parser.add_argument('--rla_resume_diff_training_stage', action='store_true',
                         help='Allow resuming from checkpoint saved in a different training stage graph')
@@ -242,20 +227,6 @@ def parse_parameters():
         cfg.rla.video_temporal = args.rla_video_temporal
     if args.rla_video_use_conf:
         cfg.rla.video_use_conf = True
-    if args.rla_video_use_mlp:
-        cfg.rla.video_use_mlp = True
-    if args.rla_video_mlp_hidden is not None:
-        cfg.rla.video_mlp_hidden = args.rla_video_mlp_hidden
-    if args.rla_video_out_dim is not None:
-        cfg.rla.video_out_dim = args.rla_video_out_dim
-
-    # RLA audio processing (placeholders)
-    if args.rla_audio_use_mlp:
-        cfg.rla.audio_use_mlp = True
-    if args.rla_audio_mlp_hidden is not None:
-        cfg.rla.audio_mlp_hidden = args.rla_audio_mlp_hidden
-    if args.rla_audio_out_dim is not None:
-        cfg.rla.audio_out_dim = args.rla_audio_out_dim
 
     # rla.resume_diff_training_stage
     if args.rla_resume_diff_training_stage:
@@ -432,16 +403,6 @@ def parse_parameters():
     params['rla_video_temporal']   = getattr(cfg.rla, 'video_temporal', 'meanstd')
     params['rla_video_use_conf']   = bool(getattr(cfg.rla, 'video_use_conf', True))
 
-    # Placeholders for MLP options (not implemented yet)
-    params['rla_video_use_mlp']    = bool(getattr(cfg.rla, 'video_use_mlp', False))
-    params['rla_video_mlp_hidden'] = int(getattr(cfg.rla, 'video_mlp_hidden', 256))
-    params['rla_video_out_dim']    = int(getattr(cfg.rla, 'video_out_dim', params['d_video_feat'] or 256))
-
-    # Audio builder (placeholders)
-    params['rla_audio_use_mlp']    = bool(getattr(cfg.rla, 'audio_use_mlp', False))
-    params['rla_audio_mlp_hidden'] = int(getattr(cfg.rla, 'audio_mlp_hidden', 128))
-    params['rla_audio_out_dim']    = int(getattr(cfg.rla, 'audio_out_dim', params['d_audio_feat'] or 128))
-    
     # per-modality hidden
     params['rla_hidden_video'] = int(getattr(cfg.rla, 'rla_hidden_video', getattr(cfg.rla, 'rla_hidden', 128)))
     params['rla_hidden_audio'] = int(getattr(cfg.rla, 'rla_hidden_audio', getattr(cfg.rla, 'rla_hidden', 128)))
@@ -700,12 +661,6 @@ def main():
         # RLA feature-builder parameters
         'RLA_VIDEO_TEMPORAL': params['rla_video_temporal'],    # 'meanstd' (default)
         'RLA_VIDEO_USE_CONF': params['rla_video_use_conf'],    # True
-        'RLA_VIDEO_USE_MLP' : params['rla_video_use_mlp'],     # False
-        'RLA_VIDEO_MLP_HID' : params['rla_video_mlp_hidden'],  # 256
-        'RLA_VIDEO_OUT_DIM' : params['rla_video_out_dim'],     # D or 256
-        'RLA_AUDIO_USE_MLP' : params['rla_audio_use_mlp'],     # placeholders
-        'RLA_AUDIO_MLP_HID' : params['rla_audio_mlp_hidden'],
-        'RLA_AUDIO_OUT_DIM' : params['rla_audio_out_dim'],
         # Different training stage
         'RLA_RESUME_DIFF_TRAINING_STAGE': params['rla_resume_diff_training_stage'],
         'RLA_HIDDEN_VIDEO': params['rla_hidden_video'],
