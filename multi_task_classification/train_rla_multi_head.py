@@ -219,8 +219,6 @@ def parse_parameters():
     # RLA video processing
     if args.rla_video_temporal is not None:
         cfg.rla.video_temporal = args.rla_video_temporal
-    if args.rla_video_use_conf:
-        cfg.rla.video_use_conf = True
 
     # rla.resume_diff_training_stage
     if args.rla_resume_diff_training_stage:
@@ -394,7 +392,6 @@ def parse_parameters():
     # --- NEW: RLA feature-builder knobs ---
     # Video builder
     params['rla_video_temporal']   = getattr(cfg.rla, 'video_temporal', 'meanstd')
-    params['rla_video_use_conf']   = bool(getattr(cfg.rla, 'video_use_conf', True))
 
     # per-modality hidden
     params['rla_hidden_video'] = int(getattr(cfg.rla, 'rla_hidden_video', getattr(cfg.rla, 'rla_hidden', 128)))
@@ -652,7 +649,6 @@ def main():
         'D_AUDIO_FEAT': params['d_audio_feat'],
         # RLA feature-builder parameters
         'RLA_VIDEO_TEMPORAL': params['rla_video_temporal'],    # 'meanstd' (default)
-        'RLA_VIDEO_USE_CONF': params['rla_video_use_conf'],    # True
         # Different training stage
         'RLA_RESUME_DIFF_TRAINING_STAGE': params['rla_resume_diff_training_stage'],
         'RLA_HIDDEN_VIDEO': params['rla_hidden_video'],
