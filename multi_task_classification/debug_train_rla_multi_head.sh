@@ -54,7 +54,7 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml train_rla_mu
   --train_file "/scratch/keane/human_behaviour/human_behaviour_data/0.2_feat_meld_train.jsonl" \
   --val_file   "/scratch/keane/human_behaviour/human_behaviour_data/feat_meld_val.jsonl" \
   --test_file  "/scratch/keane/human_behaviour/human_behaviour_data/feat_meld_test.jsonl" \
-  --label_map_path "/home/keane/human-behavior/verl/multi_task_classification/unified_feat_meld_label_map.json" \
+  --label_map_path "/home/keaneong/human-behavior/verl/multi_task_classification/unified_feat_meld_label_map.json" \
   --save_every_n_epochs 1 \
   --save_every_n_steps 99999999 \
   --load_checkpoint_path "/scratch/keane/human_behaviour/debug_rla/step_1998" \
