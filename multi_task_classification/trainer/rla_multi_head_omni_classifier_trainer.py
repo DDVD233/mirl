@@ -339,7 +339,8 @@ class RLAMultiHeadOmniClassifierAccelerateTrainer:
     def prepare_params_for_training(self, base_lr: float = None, rla_lr: float = None):
         """
         Freeze/unfreeze according to self.rla_stage ∈ {"base_only","residual_only","joint"}
-        and build optimizer param groups. Simple, general, LoRA-compatible.
+        and return per-module param bundles so we can build one optimizer per prepared model.
+        This keeps adapters modular (separate nn.Modules, separate optimizers).
         """
         base_lr = self.lr if base_lr is None else base_lr
         rla_lr  = self.lr if rla_lr  is None else rla_lr
@@ -350,53 +351,57 @@ class RLAMultiHeadOmniClassifierAccelerateTrainer:
             for p in module.parameters():
                 p.requires_grad = flag
 
-        unfrozen_param_groups = []
-        # NOTE: in the following, assume that the model is already has its required gradients
-        # set by a preceding code
+        bundles = {"base": None, "video": None, "audio": None}
+
         if self.rla_stage == "base_only":
+            # train base only
             print("Freezing adapters, training base model only")
             _set_requires_grad(self.video_adapter, False)
             _set_requires_grad(self.audio_adapter, False)
-            base_params = self.model.parameters()
+            base_params = [p for p in self.model.parameters() if p.requires_grad]
             if base_params:
-                unfrozen_param_groups.append({"params": base_params, "lr": base_lr})
+                bundles["base"] = {"params": base_params, "lr": base_lr}
 
         elif self.rla_stage == "residual_only":
+            # train adapters only
             print("Freezing base model, training adapters only")
             _set_requires_grad(self.model, False)
-            # Train adapters only
             _set_requires_grad(self.video_adapter, True)
             _set_requires_grad(self.audio_adapter, True)
-            rla_params = []
+
             if self.video_adapter is not None:
-                rla_params += [p for p in self.video_adapter.parameters() if p.requires_grad]
+                vid_params = [p for p in self.video_adapter.parameters() if p.requires_grad]
+                if vid_params:
+                    bundles["video"] = {"params": vid_params, "lr": rla_lr}
+
             if self.audio_adapter is not None:
-                rla_params += [p for p in self.audio_adapter.parameters() if p.requires_grad]
-            if rla_params:
-                unfrozen_param_groups.append({"params": rla_params, "lr": rla_lr})
+                aud_params = [p for p in self.audio_adapter.parameters() if p.requires_grad]
+                if aud_params:
+                    bundles["audio"] = {"params": aud_params, "lr": rla_lr}
 
         elif self.rla_stage == "joint":
+            # train base + adapters (still separate optimizers per module)
             print("Training both base model and adapters")
-            # Train base + adapters
             _set_requires_grad(self.video_adapter, True)
             _set_requires_grad(self.audio_adapter, True)
 
-            base_params = self.model.parameters()
+            base_params = [p for p in self.model.parameters() if p.requires_grad]
             if base_params:
-                unfrozen_param_groups.append({"params": base_params, "lr": base_lr})
+                bundles["base"] = {"params": base_params, "lr": base_lr}
 
-            rla_params = []
             if self.video_adapter is not None:
-                rla_params += [p for p in self.video_adapter.parameters() if p.requires_grad]
-            if self.audio_adapter is not None:
-                rla_params += [p for p in self.audio_adapter.parameters() if p.requires_grad]
-            if rla_params:
-                unfrozen_param_groups.append({"params": rla_params, "lr": rla_lr})
+                vid_params = [p for p in self.video_adapter.parameters() if p.requires_grad]
+                if vid_params:
+                    bundles["video"] = {"params": vid_params, "lr": rla_lr}
 
+            if self.audio_adapter is not None:
+                aud_params = [p for p in self.audio_adapter.parameters() if p.requires_grad]
+                if aud_params:
+                    bundles["audio"] = {"params": aud_params, "lr": rla_lr}
         else:
             raise ValueError(f"Unknown RLA stage: {self.rla_stage}")
 
-        return unfrozen_param_groups
+        return bundles
     
     def _accelerate_prepare(
         self,
@@ -687,27 +692,46 @@ class RLAMultiHeadOmniClassifierAccelerateTrainer:
 
             # prepare the new param groups after loading the wrapped models; particularly
             # for the model group.
-            updated_param_groups = self.prepare_params_for_training(base_lr=base_lr, rla_lr=rla_lr)
+            bundles = self.prepare_params_for_training(base_lr=base_lr, rla_lr=rla_lr)
             # the optimizer can just points to the updated param groups
             # because its a new optimizer instance that takes in the updated param groups
             # where the updated param groups now point to the wrapped model
-            optimizer = Adam(updated_param_groups)
-            
+
+            opt_base  = torch.optim.Adam(bundles["base"]["params"],  lr=bundles["base"]["lr"])   if bundles["base"]  else None
+            opt_video = torch.optim.Adam(bundles["video"]["params"], lr=bundles["video"]["lr"])  if bundles["video"] else None
+            opt_audio = torch.optim.Adam(bundles["audio"]["params"], lr=bundles["audio"]["lr"])  if bundles["audio"] else None
+
+            opts_in_order = [o for o in (opt_base, opt_video, opt_audio) if o is not None]
+
+            sch_in_order = []
             if self.use_scheduler:
-                scheduler = get_scheduler(
-                    self.scheduler_type,
-                    optimizer,
-                    num_warmup_steps=self.warmup_steps,
-                    num_training_steps=total_updates
-                )
+                for o in opts_in_order:
+                    sch = get_scheduler(
+                        self.scheduler_type,
+                        o,
+                        num_warmup_steps=self.warmup_steps,
+                        num_training_steps=total_updates
+                    )
+                    sch_in_order.append(sch)
                 # Prepare optimizer (and scheduler) seperately from the modules
-                optimizer, scheduler = self.accelerator.prepare(optimizer, scheduler)
-                self.accelerator.register_for_checkpointing(scheduler)
+                # optimizer, scheduler = self.accelerator.prepare(optimizer, scheduler)
+                # self.accelerator.register_for_checkpointing(scheduler)
                 print(f"[INFO] Using {self.scheduler_type} scheduler with {self.warmup_steps} warmup steps)")
             else:
-                scheduler = None
-                optimizer = self.accelerator.prepare(optimizer)
+                # scheduler = None
+                # optimizer = self.accelerator.prepare(optimizer)
                 print("[INFO] Scheduler disabled - using constant learning rate")
+
+            if self.use_scheduler:
+                # TODO: make this robust
+                prepared_objs = self.accelerator.prepare(*opts_in_order, *sch_in_order)
+                # unpack back to opt_* and sch_* in order
+            else:
+                prepared_opts = self.accelerator.prepare(*opts_in_order)
+                # unpack opts back in order
+            # Also register each scheduler so save_state() captures counters
+            for s in (sch_in_order if self.use_scheduler else []):
+                self.accelerator.register_for_checkpointing(s)
 
         else:
             optimizer = Adam(first_param_groups)
@@ -898,12 +922,19 @@ class RLAMultiHeadOmniClassifierAccelerateTrainer:
                     # NOTE: This if condition is not necessary as the accelerator 
                     # already syncs before stepping
                     # if self.accelerator.sync_gradients:
-                    optimizer.step()
+                    for opt in prepared_opts:
+                        opt.step()
+                    
+                    for opt in prepared_opts:
+                        opt.zero_grad()
 
-                    if scheduler is not None:
-                        scheduler.step()
+                    # TODO: MAKE SURE TO MAKE THIS WORK WITH MULTIPLE OPTIMIZERS
+                    # optimizer.step()
 
-                    optimizer.zero_grad()
+                    # if scheduler is not None:
+                    #     scheduler.step()
+
+                    # optimizer.zero_grad()
                     
                     # PURELY FOR LOGGING PURPOSES
                     if scheduler is not None:
