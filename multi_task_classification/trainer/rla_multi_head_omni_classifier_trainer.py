@@ -73,7 +73,7 @@ class RLAMultiHeadOmniClassifierAccelerateTrainer:
         #   "joint"          -> train base and adapters together
         self.rla_stage     = self.global_config.get("RLA_STAGE", "base_only")
         # self.resume_diff_cfg = bool(self.global_config.get("RLA_RESUME_DIFFERENT_TRAINING_CONFIG", False))
-        self.rla_resume_diff_training_stage = True
+        self.rla_resume_diff_training_stage = False
 
         # Adapter architecture / regularization
         self.rla_hidden    = self.global_config.get("RLA_HIDDEN", 128)
@@ -1168,7 +1168,7 @@ class RLAMultiHeadOmniClassifierAccelerateTrainer:
             expect_training_strategy=self.global_config.get("TRAINING_STRATEGY"),
             rla_resume_diff_cfg=False,  # test assumes same regime graph
         )
-        
+
         test_results = self.validate(test_dataloader, "test", current_step=1)
         
         if self.accelerator.is_main_process and test_results is not None:
