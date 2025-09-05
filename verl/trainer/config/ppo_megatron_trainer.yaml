@@ -112,7 +112,7 @@ trainer:
 
 global_profiler:
   _target_: verl.utils.profiler.ProfilerConfig
-  tool: null  # choose between nsys, npu, torch
+  tool: null  # choose between nsys, npu, torch, torch_memory
   steps: null   # profile steps
   profile_continuous_steps: False
   save_path: "outputs/profile"   # profiler saving path
@@ -165,6 +165,20 @@ global_profiler:
         # Send signal to the target application's process group. We let the program to exit by itself.
         kill: none
 
-ray_init:
-  num_cpus: null # `None` means using all CPUs, which might cause hang if limited in systems like SLURM. Please set to a number allowed then.
+    # enable memory visualization for debugging memory usage
+    torch_memory:
+      #  Maximum number of allocation entries to record
+      trace_alloc_max_entries: 100_000
+      # The depth of the call stack to capture for each allocation
+      stack_depth: 32
+      # 'alloc': records only allocation events || 'state': records memory state changes || 'all': records both.
+      context: "all"
+      # 'python': records Python stacks || 'cpp': records C++ stacks (available in some versions) || 'all': records both.
+      stacks: "all"
+      # devices, record_context etc.
+      kw_args: {}
+
+ray_kwargs:
+  ray_init:
+    num_cpus: null # `None` means using all CPUs, which might cause hang if limited in systems like SLURM. Please set to a number allowed then.
   timeline_json_file: null

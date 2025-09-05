@@ -36,6 +36,10 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.model.enable_gradient_checkpointing=True \
     actor_rollout_ref.actor.fsdp_config.param_offload=False \
     actor_rollout_ref.actor.fsdp_config.optimizer_offload=False \
+    global_profiler.tool=torch_memory \
+    global_profiler.save_path=./mem_snapshots \
+    global_profiler.global_tool_config.torch_memory.trace_alloc_max_entries=100000 \
+    global_profiler.global_tool_config.torch_memory.stack_depth=32 \
     actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=32 \
     actor_rollout_ref.rollout.tensor_model_parallel_size=1 \
     actor_rollout_ref.rollout.name=sglang \
@@ -44,7 +48,8 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.rollout.n=16 \
     actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=32 \
     actor_rollout_ref.ref.fsdp_config.param_offload=True \
-    actor_rollout_ref.rollout.over_sample_rate=0 \
+    actor_rollout_ref.rollout.over_sample_rate=0.1 \
+    actor_rollout_ref.rollout.mode=sync \
     algorithm.use_kl_in_reward=False \
     trainer.critic_warmup=0 \
     trainer.logger='["console","wandb"]' \

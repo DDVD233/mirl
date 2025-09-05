@@ -134,7 +134,7 @@ class FSDPEngine(BaseEngine):
             else entropy_from_logits
         )
 
-    def is_mp_src_rank_with_outputs(self):
+    def is_collect(self):
         is_collect = self.ulysses_device_mesh["sp"].get_local_rank() == 0
         return is_collect
 
