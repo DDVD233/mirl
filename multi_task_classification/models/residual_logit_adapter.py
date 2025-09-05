@@ -69,7 +69,7 @@ class ResidualLogitAdapter(nn.Module):
 
         # e.g., start at 2.0 for every domain
         self.alphas = nn.Parameter(torch.full(
-            (len(domain_id_to_global_indices),), 2.0, dtype=torch.float
+            (len(domain_id_to_global_indices),), 3.0, dtype=torch.float
         ))
 
     def _maybe_drop(self, feats: Optional[torch.Tensor], train_mode: bool) -> Optional[torch.Tensor]:
