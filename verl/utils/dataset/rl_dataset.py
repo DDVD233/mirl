@@ -427,7 +427,7 @@ class RLHFDataset(Dataset):
         # i.e. "ext_video_feats": [path1, path2, ...], we only take the first one
         video_rel_path = row_dict.get('ext_video_feats', None)
         if video_rel_path:
-            vidoe_rel_path = video_rel_path[0]
+            video_rel_path = video_rel_path[0]
             row_dict["ext_video_feats_path"] = os.path.join(self.base_dir, video_rel_path)
         else:
             row_dict["ext_video_feats_path"] = None
