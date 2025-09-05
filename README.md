@@ -27,6 +27,14 @@ MIRL is a flexible reinforcement learning framework for training large language 
 
 ### Installation
 
+To get started with MIRL, first clone the repository and navigate to the project directory:
+
+```bash
+git clone https://github.com/DDVD233/mirl
+```
+
+Then, follow these steps to set up the environment and install the necessary dependencies:
+
 1. **Create a new conda environment**
    ```bash
    conda create -n mirl python=3.11
