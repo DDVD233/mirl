@@ -58,6 +58,12 @@ Then, follow these steps to set up the environment and install the necessary dep
    cd flash-attention
    MAX_JOBS=16 python setup.py install
    ```
+   
+5. (Optional) Configure WandB for experiment tracking
+   ```bash
+   wandb login
+   ```
+   And follow the prompts to set up your WandB account.
 
 ## Acknowledgments
 
