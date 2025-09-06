@@ -24,15 +24,7 @@ SUPPORTED_EXTENSIONS = AUDIO_EXTENSIONS | VIDEO_EXTENSIONS
 
 # Global flag for debug mode
 DEBUG_MODE = False
-
-# Try to check OpenSMILE version
-try:
-    import opensmile
-    OPENSMILE_VERSION = getattr(opensmile, '__version__', 'Unknown')
-    print(f"OpenSMILE version detected: {OPENSMILE_VERSION}")
-except ImportError:
-    print("WARNING: OpenSMILE not found. Please install with: pip install opensmile")
-    OPENSMILE_VERSION = None
+import opensmile
 
 
 def debug_print(msg: str):
@@ -158,17 +150,6 @@ def extract_opensmile_features(
     
     debug_print(f"Extracting features from: {file_path}")
     debug_print(f"Feature set: {feature_set}, Level: {feature_level}")
-    
-    # Try using a simpler feature set if ComParE fails
-    feature_sets_to_try = [feature_set]
-    if feature_set == 'ComParE_2016':
-        # Add fallback feature sets
-        feature_sets_to_try.append('eGeMAPSv02')  # Much smaller, more stable
-        feature_sets_to_try.append('GeMAPSv01b')  # Even smaller
-        feature_sets_to_try.append('emobase')  # Alternative stable set
-    
-    last_error = None
-    smile = None
     actual_feature_set = None
 
     smile = opensmile.Smile()
@@ -307,6 +288,11 @@ def process_files_in_directory(
             
             try:
                 debug_print(f"\nProcessing file: {file_path}")
+                # skip filename starting with . (hidden files)
+                if file_path.name.startswith('.'):
+                    skipped_count += 1
+                    pbar.set_postfix({'processed': processed_count, 'skipped': skipped_count, 'errors': error_count})
+                    continue
                 
                 # Extract features
                 features = extract_opensmile_features(
