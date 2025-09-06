@@ -19,7 +19,7 @@ import torchaudio
 def process_audio(
     audio: Union[str, dict],
     processor=None,
-    max_seconds: float = 60  # keep audio to this many seconds max
+    max_seconds: float = 10  # keep audio to this many seconds max
 ) -> Tuple[torch.Tensor, int]:
     """
     Load audio, convert to mono, resample, and clip to max_seconds.
@@ -67,7 +67,8 @@ def process_audio(
 
     except Exception as e:
         print(f"Error processing audio {audio_path}: {e}")
-        dummy_audio = torch.zeros((int(16000 * max_seconds),), dtype=torch.float32)
+        dummy_seconds = 0.5
+        dummy_audio = torch.zeros((int(16000 * dummy_seconds),), dtype=torch.float32)
         return dummy_audio, 16000
 
 
