@@ -40,9 +40,10 @@ export TORCH_USE_CUDA_DSA=1
 
   # --load_checkpoint_path "/scratch/keane/human_behaviour/debug_rla/step_1998" \
 
+
+  # --rla_resume_diff_training_stage \
 accelerate launch --config_file configs/accelerate_config_qwen.yaml train_rla_multi_head.py \
   --mode train \
-  --rla_resume_diff_training_stage \
   --training_strategy lora \
   --train_batch_size 1 \
   --val_batch_size 2 \
