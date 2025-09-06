@@ -44,7 +44,7 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml train_multi_
     --validate_every_n_steps 999999 \
     --early_stopping_patience 99999 \
     --project "full-base-only-meld-rla-omni-classifier-multi-head-lora" \
-    --gradient_accumulation_steps 1 \
+    --gradient_accumulation_steps 8 \
 
 
 echo "Head-only training completed!"
