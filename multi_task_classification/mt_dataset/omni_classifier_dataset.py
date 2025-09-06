@@ -9,13 +9,18 @@ from verl.utils.dataset.rl_dataset import RLHFDataset
 import os
 import torch
 
-# -------- helpers (modular + reusable) --------
-def log_failed_path(path: str, kind: str, logfile: str = "/home/keaneong/human-behavior/verl/multi_task_classification/failed_ext_paths_log/missing_feats.txt") -> None:
+def log_failed_path(
+    path: str,
+    kind: str,
+    logfile: str = "/home/keaneong/human-behavior/verl/multi_task_classification/failed_ext_paths_log/missing_feats.txt"
+) -> None:
     """
     Append a single failed path to logfile.
-    kind: "video" or "audio" (or any label you like)
+    kind: "video" or "audio" (or any label you like).
+    Auto-creates parent directory if missing.
     """
     try:
+        os.makedirs(os.path.dirname(logfile), exist_ok=True)
         with open(logfile, "a") as f:
             f.write(f"{kind}\t{path}\n")
     except Exception as e:

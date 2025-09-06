@@ -6,6 +6,24 @@ import torch.nn.functional as F
 from typing import Dict, Literal
 import torch
 from .residual_logit_adapter import ResidualLogitAdapter
+import os
+
+ERROR_LOG_FILE = "/home/keaneong/human-behavior/verl/multi_task_classification/failed_ext_paths_log/adapter_utils_errors.txt"
+
+def log_problem(where: str, detail: str, extra: dict | None = None) -> None:
+    """
+    Append problematic file info into a hardcoded txt file.
+    Never throws; creates parent directory if needed.
+    """
+    if extra is None:
+        extra = {}
+    try:
+        os.makedirs(os.path.dirname(ERROR_LOG_FILE), exist_ok=True)
+        with open(ERROR_LOG_FILE, "a") as f:
+            f.write(f"[RLA:{where}] {detail} | extra={extra}\n")
+    except Exception as e:
+        # Last-resort safeguard: print a warning but don't crash training
+        print(f"[WARN] Failed to log problem: {e} ({where}: {detail})")
 
 def maybe_build_adapters(
     *,
@@ -101,8 +119,10 @@ import torch
 PoolMode = Literal["none", "mean", "meanstd", "meanstdp25p75"]
 
 # HELPER FUNCTION FOR TRUNCATION/ PADDING
-def _pad_trunc_1d(x: torch.Tensor, target_dim: int) -> torch.Tensor:
-    """x: [D_var] -> [D_target] by right-pad with zeros or truncate."""
+def _pad_trunc_1d(x: torch.Tensor | None, target_dim: int) -> torch.Tensor:
+    if x is None:
+        log_problem("_pad_trunc_1d", "received None; zero-filling", extra={"target_dim": target_dim})
+        return torch.zeros(target_dim)
     D = x.numel()
     if D == target_dim:
         return x
@@ -111,133 +131,6 @@ def _pad_trunc_1d(x: torch.Tensor, target_dim: int) -> torch.Tensor:
     out = x.new_zeros(target_dim)
     out[:D] = x
     return out
-
-
-def pool_temporal(x: torch.Tensor, mode: PoolMode = "meanstd") -> torch.Tensor:
-    """
-    x: [T, D]  (for functionals, T=1)
-    Modes:
-      - "none": requires T==1, returns [D] unchanged
-      - "mean": returns [D]
-      - "meanstd": returns [2D]  (concat mean, std)
-      - "meanstdp25p75": returns [4D] (mean, std, p25, p75)
-    """
-    x = x.float()
-    if x.ndim != 2:
-        raise ValueError(f"Expected [T, D], got {tuple(x.shape)}")
-
-    T, D = x.shape
-    if mode == "none":
-        if T != 1:
-            raise ValueError(f"pool_temporal(mode='none') expects T==1, got T={T}")
-        return x.squeeze(0)  # [D]
-
-    if mode == "mean":
-        return x.mean(dim=0)  # [D]
-
-    if mode == "meanstd":
-        m = x.mean(dim=0)
-        # use unbiased=False to avoid NaNs when T==1
-        s = x.std(dim=0, unbiased=False)
-        return torch.cat([m, s], dim=0)  # [2D]
-
-    if mode == "meanstdp25p75":
-        # stats
-        m = x.mean(dim=0)
-        s = x.std(dim=0, unbiased=False)
-        # quantiles via kthvalue (consistent with your video code)
-        kth25 = max(1, int(0.25 * T))
-        kth75 = max(1, int(0.75 * T))
-        p25   = x.kthvalue(kth25, dim=0).values
-        p75   = x.kthvalue(kth75, dim=0).values
-        return torch.cat([m, s, p25, p75], dim=0)  # [4D]
-
-    raise ValueError(f"Unknown pooling mode: {mode}")
-
-# ALL OPENPOSE FUNCTIONALITY
-
-def openpose_dict_to_framewise(data: Dict[str, torch.Tensor], use_conf: bool = True) -> torch.Tensor:
-    """
-    data may include any of: 'pose','face','left_hand','right_hand', each [T, K, 3] (x,y,conf)
-    returns [T, D_raw] by concatenating parts per frame.
-    """
-    chunks = []
-    for k in ("pose", "face", "left_hand", "right_hand"):
-        if k not in data:
-            continue
-        t = data[k]
-        if not torch.is_tensor(t):
-            t = torch.as_tensor(t)
-        t = t.float()
-        if t.ndim != 3:
-            raise ValueError(f"OpenPose part '{k}' must be [T,K,3], got {tuple(t.shape)}")
-        if not use_conf:
-            t = t[..., :2]  # drop the confidence
-
-        # Flattening the last two dimensions (K, C) into a single dimension (K*C)
-        # i.e. we are just putting them side by side
-        chunks.append(t.reshape(t.shape[0], -1))  # [T, K*C]
-    if not chunks:
-        raise KeyError("No valid OpenPose keys found in dict.")
-    
-    # concatenate them and put them side by side (along the last dimension)
-    # e.g., if we have pose, face, left_hand, right_hand, then the final shape is [T, (K1*C1)+(K2*C2)+(K3*C3)+(K4*C4)]
-    return torch.cat(chunks, dim=-1)  # [T, D_raw_sum]
-
-def build_video_feat_single(
-    openpose: Dict[str, torch.Tensor],
-    temporal_mode: Literal["mean", "meanstd", "meanstdp25p75"] = "meanstd",
-    use_conf: bool = True,
-    norm: Optional[str] = None,  
-) -> torch.Tensor:
-    """OpenPose dict -> [D_vec]."""
-    seq = openpose_dict_to_framewise(openpose, use_conf=use_conf)  # [T, D_raw]
-    v = pool_temporal(seq, mode=temporal_mode)  # [D | 2D | 4D]
-    return _maybe_normalize(v, norm)                 # [D_vec]
-
-def build_video_feats_batch(
-    openpose_list: Iterable[Dict[str, torch.Tensor]],
-    device: Optional[torch.device] = None,
-    temporal_mode: Literal["mean", "meanstd", "meanstdp25p75"] = "meanstd",
-    use_conf: bool = True,
-    norm: Optional[str] = None,  # NEW
-    target_dim: int = None,   # <-- NEW: pass your D_VIDEO_FEAT (e.g., 3318)
-) -> torch.Tensor:
-    """
-    List of OpenPose dicts -> [B, target_dim].
-    We pool each sample to a 1-D vector and pad/truncate to `target_dim`.
-    If `target_dim` is None, we use the max length seen in the batch.
-    """
-    # Build raw per-sample vectors (variable length)
-    raw = [build_video_feat_single(op, temporal_mode=temporal_mode, use_conf=use_conf, norm=norm)
-           for op in openpose_list]
-
-    if target_dim is None:
-        raise ValueError("target_video_feature_dim must be provided to ensure consistent feature size across batches")
-
-    feats = [_pad_trunc_1d(v, target_dim) for v in raw]   # all [target_dim]
-    out = torch.stack(feats, dim=0)                       # [B, target_dim]
-    if device is not None:
-        out = out.to(device)
-    return out
-
-### ALL OPENSMILE FUNCTIONALITY
-
-def opensmile_to_framewise(d: Dict) -> torch.Tensor:
-    if "features" not in d:
-        raise KeyError("OpenSmile dict missing 'features'")
-    
-    # TODO: depending on this, we can also extract the different types of functionals (i.e. types of features)
-    # TODO: from the feature set.
-    x = d["features"]
-    if not torch.is_tensor(x):
-        x = torch.as_tensor(x)
-    x = x.float()
-    if x.ndim == 1:
-        x = x.unsqueeze(0)  # [1, D]
-    if x.ndim != 2:
-        raise ValueError(f"'features' must be [T, D] or [D], got {tuple(x.shape)}")
-    return x  # [T, D]
 
 def _maybe_normalize(v: torch.Tensor, norm: str | None) -> torch.Tensor:
     # NORMALIZE THE AUDIO FEATURES TO PREVENT NUMERICAL ISSUES; i.e. the residuals from blowing up or getting swamped
@@ -249,29 +142,197 @@ def _maybe_normalize(v: torch.Tensor, norm: str | None) -> torch.Tensor:
         return (v - m) / s
     raise ValueError(f"Unknown norm: {norm}")
 
-def build_audio_feat_single(opensmile_dict: Dict,
-                            temporal_mode: PoolMode = "none",
-                            norm: str | None = None) -> torch.Tensor:
-    # we assume that the opensmile_dict contains the "features" key
-    # which is basically in the format of [1, 6373]
-    seq = opensmile_to_framewise(opensmile_dict)         # [T, D]
-    # we take the whole sequence from features
-    v   = pool_temporal(seq, mode=temporal_mode)          # [D | 2D | 4D] # NONE FOR NOW
+def pool_temporal(x: torch.Tensor, mode: PoolMode = "meanstd") -> torch.Tensor | None:
+    """
+    x: [T, D]  (for functionals, T=1). Returns pooled tensor or None if invalid/empty.
+    """
+    if x is None:
+        log_problem("pool_temporal", "received None tensor")
+        return None
+
+    x = x.float()
+    if x.ndim != 2:
+        log_problem("pool_temporal", f"expected [T, D], got {tuple(x.shape)}")
+        return None
+
+    T, D = x.shape
+    if T == 0 or D == 0:
+        log_problem("pool_temporal", f"empty input with shape [T={T}, D={D}]")
+        return None
+
+    if mode == "none":
+        if T != 1:
+            log_problem("pool_temporal", f"mode='none' expects T==1, got T={T}")
+            return None
+        return x.squeeze(0)  # [D]
+
+    if mode == "mean":
+        return x.mean(dim=0)  # [D]
+
+    if mode == "meanstd":
+        m = x.mean(dim=0)
+        s = x.std(dim=0, unbiased=False)
+        return torch.cat([m, s], dim=0)  # [2D]
+
+    if mode == "meanstdp25p75":
+        m = x.mean(dim=0)
+        s = x.std(dim=0, unbiased=False)
+        kth25 = max(1, int(0.25 * T))
+        kth75 = max(1, int(0.75 * T))
+        p25   = x.kthvalue(kth25, dim=0).values
+        p75   = x.kthvalue(kth75, dim=0).values
+        return torch.cat([m, s, p25, p75], dim=0)  # [4D]
+
+    log_problem("pool_temporal", f"unknown pooling mode: {mode}")
+    return None
+
+# ALL OPENPOSE FUNCTIONALITY
+def openpose_dict_to_framewise(data: Dict[str, torch.Tensor] | None, use_conf: bool = True) -> torch.Tensor | None:
+    if data is None or not isinstance(data, dict):
+        log_problem("openpose_to_framewise", "input is None or not dict")
+        return None
+
+    chunks = []
+    for k in ("pose", "face", "left_hand", "right_hand"):
+        if k not in data:
+            continue
+        t = data[k]
+        if t is None:
+            log_problem("openpose_to_framewise", f"part '{k}' is None")
+            continue
+        if not torch.is_tensor(t):
+            try:
+                t = torch.as_tensor(t)
+            except Exception as e:
+                log_problem("openpose_to_framewise", f"cannot to_tensor '{k}': {e.__class__.__name__}")
+                continue
+        t = t.float()
+        if t.ndim != 3 or t.shape[-1] not in (2, 3):
+            log_problem("openpose_to_framewise", f"bad shape for '{k}': {tuple(t.shape)}")
+            continue
+        if t.shape[0] == 0:
+            log_problem("openpose_to_framewise", f"empty frames for '{k}'")
+            continue
+        if not use_conf:
+            t = t[..., :2]
+        chunks.append(t.reshape(t.shape[0], -1))
+    if not chunks:
+        log_problem("openpose_to_framewise", "no valid parts", extra={"keys": list(data.keys())})
+        return None
+    try:
+        return torch.cat(chunks, dim=-1)
+    except Exception as e:
+        log_problem("openpose_to_framewise", f"concat failed: {e.__class__.__name__}")
+        return None
+
+def build_video_feat_single(openpose: Dict[str, torch.Tensor] | None,
+                            temporal_mode: Literal["mean", "meanstd", "meanstdp25p75"] = "meanstd",
+                            use_conf: bool = True,
+                            norm: Optional[str] = None) -> torch.Tensor | None:
+    seq = openpose_dict_to_framewise(openpose, use_conf=use_conf)
+    if seq is None:
+        return None
+    v = pool_temporal(seq, mode=temporal_mode)
+    if v is None:
+        return None
     return _maybe_normalize(v, norm)
 
-def build_audio_feats_batch(opensmile_list: Iterable[Dict],
+def build_video_feats_batch(openpose_list: Iterable[Dict[str, torch.Tensor] | None],
+                            device: Optional[torch.device] = None,
+                            temporal_mode: Literal["mean", "meanstd", "meanstdp25p75"] = "meanstd",
+                            use_conf: bool = True,
+                            norm: Optional[str] = None,
+                            target_dim: int = None) -> torch.Tensor | None:
+    if target_dim is None:
+        log_problem("build_video_feats_batch", "target_dim not set")
+        return None
+
+    vecs: list[torch.Tensor] = []
+    for idx, op in enumerate(openpose_list):
+        v = build_video_feat_single(op, temporal_mode=temporal_mode, use_conf=use_conf, norm=norm)
+        if v is None or v.numel() == 0:
+            keys = list(op.keys()) if isinstance(op, dict) else None
+            tname = type(op).__name__ if op is not None else "None"
+            log_problem("build_video_feats_batch", f"invalid sample at idx={idx}",
+                        extra={"type": tname, "keys": keys})
+            return None
+        vecs.append(_pad_trunc_1d(v, target_dim))
+    try:
+        out = torch.stack(vecs, dim=0)
+    except Exception as e:
+        log_problem("build_video_feats_batch", f"stack failed: {e.__class__.__name__}", extra={"B": len(vecs)})
+        return None
+    if device is not None:
+        out = out.to(device)
+    return out
+
+### ALL OPENSMILE FUNCTIONALITY
+
+
+def opensmile_to_framewise(d: Dict | None) -> torch.Tensor | None:
+    if d is None or not isinstance(d, dict):
+        log_problem("opensmile_to_framewise", "input is None or not dict")
+        return None
+    if "features" not in d:
+        log_problem("opensmile_to_framewise", "missing 'features'", extra={"keys": list(d.keys())})
+        return None
+
+    x = d["features"]
+    if x is None:
+        log_problem("opensmile_to_framewise", "'features' is None")
+        return None
+    try:
+        if not torch.is_tensor(x):
+            x = torch.as_tensor(x)
+        x = x.float()
+    except Exception as e:
+        log_problem("opensmile_to_framewise", f"tensor convert failed: {e.__class__.__name__}")
+        return None
+    if x.numel() == 0:
+        log_problem("opensmile_to_framewise", "'features' empty")
+        return None
+    if x.ndim == 1:
+        x = x.unsqueeze(0)
+    if x.ndim != 2:
+        log_problem("opensmile_to_framewise", f"bad shape {tuple(x.shape)} (want [T,D] or [D])")
+        return None
+    return x
+
+def build_audio_feat_single(opensmile_dict: Dict | None,
+                            temporal_mode: PoolMode = "none",
+                            norm: str | None = None) -> torch.Tensor | None:
+    seq = opensmile_to_framewise(opensmile_dict)
+    if seq is None:
+        return None
+    v = pool_temporal(seq, mode=temporal_mode)
+    if v is None:
+        return None
+    return _maybe_normalize(v, norm)
+
+def build_audio_feats_batch(opensmile_list: Iterable[Dict | None],
                             device: torch.device | None = None,
                             temporal_mode: PoolMode = "none",
                             norm: str | None = None,
-                            target_dim: int | None = None) -> torch.Tensor:
-    # opensmile list is a list of all the samples basically within the batch
-    # each item in the list is a dict that contains the opensmile features for that sample
-    raw = [build_audio_feat_single(d, temporal_mode=temporal_mode, norm=norm)
-           for d in opensmile_list]
+                            target_dim: int | None = None) -> torch.Tensor | None:
     if target_dim is None:
-        raise ValueError("Set D_AUDIO_FEAT in config; target_dim is required.")
-    feats = [_pad_trunc_1d(v, target_dim) for v in raw]
-    out = torch.stack(feats, dim=0)
+        log_problem("build_audio_feats_batch", "target_dim not set")
+        return None
+
+    vecs: list[torch.Tensor] = []
+    for idx, d in enumerate(opensmile_list):
+        v = build_audio_feat_single(d, temporal_mode=temporal_mode, norm=norm)
+        if v is None or v.numel() == 0:
+            keys = list(d.keys()) if isinstance(d, dict) else None
+            tname = type(d).__name__ if d is not None else "None"
+            log_problem("build_audio_feats_batch", f"invalid sample at idx={idx}",
+                        extra={"type": tname, "keys": keys})
+            return None
+        vecs.append(_pad_trunc_1d(v, target_dim))
+    try:
+        out = torch.stack(vecs, dim=0)
+    except Exception as e:
+        log_problem("build_audio_feats_batch", f"stack failed: {e.__class__.__name__}", extra={"B": len(vecs)})
+        return None
     if device is not None:
         out = out.to(device)
     return out
