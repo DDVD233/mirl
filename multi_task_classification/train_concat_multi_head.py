@@ -592,7 +592,7 @@ def main():
         model = ConcatMultiHeadOmniClassifier(
             full_label_scheme=FULL_LABEL_SCHEME,
             freeze_backbone=TRAINING_STRATEGY,
-            lora_config=global_config.get("LORA_CONFIG", None),
+            lora_config=LORA_CONFIG if TRAINING_STRATEGY == "lora" else None,
             use_concat_fusion=True,
             d_audio_feat=global_config.get("D_AUDIO_FEAT", 0),
             d_video_feat=global_config.get("D_VIDEO_FEAT", 0),
