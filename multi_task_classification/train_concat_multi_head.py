@@ -590,9 +590,8 @@ def main():
         # Initialize model with training strategy
         print(f"[INFO] Initializing OmniClassifier with training strategy: {TRAINING_STRATEGY}")
         model = ConcatMultiHeadOmniClassifier(
-            full_label_scheme=GLOBAL_LABEL_SCHEME_JSON,
-            freeze_backbone=global_config.get("TRAINING_STRATEGY", "head_only"),
-            backbone_name=global_config.get("TOKENIZER_NAME", "Qwen/Qwen2.5-Omni-7B"),
+            full_label_scheme=FULL_LABEL_SCHEME,
+            freeze_backbone=TRAINING_STRATEGY,
             lora_config=global_config.get("LORA_CONFIG", None),
             use_concat_fusion=True,
             d_audio_feat=global_config.get("D_AUDIO_FEAT", 0),
@@ -600,6 +599,8 @@ def main():
             add_av_presence_bits=True,
             fusion_dropout=0.1,
             fusion_norm=True,
+            device_map=DEVICE_MAP,
+            torch_dtype=TORCH_DTYPE,
         )
         # Print trainable parameters info
         model.get_trainable_parameters()
