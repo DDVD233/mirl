@@ -28,10 +28,11 @@ from evaluate.detailed_multi_task_evaluation import evaluate_predictions
 from accelerate import Accelerator
 from accelerate.utils import set_seed
 from accelerate.logging import get_logger
+from models.concat_utils import get_concat_features
 
 logger = get_logger(__name__)
 
-class MultiHeadOmniClassifierAccelerateTrainer:
+class ConcatMultiHeadOmniClassifierAccelerateTrainer:
     def __init__(self, data_files, val_data_files, test_data_files, tokenizer, processor, config, 
                  batch_size, val_batch_size, test_batch_size, lr, epochs, save_checkpoint_dir, load_checkpoint_path, model, 
                  gradient_accumulation_steps, num_workers=0, use_lora=False, global_config=None):
@@ -331,6 +332,8 @@ class MultiHeadOmniClassifierAccelerateTrainer:
                         labels = labels.argmax(dim=1)
                     else:
                         raise ValueError(f"Unexpected labels shape {labels.shape}")
+                    
+                # TODO: Edit this to also obtain the pooling vectors for concatenation
 
                 logits = self.model(input_ids, attention_mask=attention_mask, domain_ids=domain_ids)
                 loss = criterion(logits, labels)
@@ -528,8 +531,30 @@ class MultiHeadOmniClassifierAccelerateTrainer:
                     else:
                         raise ValueError(f"Unexpected labels shape {labels.shape} (expected [B] or [B, C])")
                 
+                # NOTE: Obtain the vectors for the modalities here
+                # Get pooled, fixed-shape modality vectors (per-sample zero-substitution)
+                audio_vec, video_vec = get_concat_features(
+                    batch,
+                    device=input_ids.device,
+                    d_audio_feat=getattr(self, "d_audio_feat", self.global_config.get("D_AUDIO_FEAT", 0)),
+                    d_video_feat=getattr(self, "d_video_feat", self.global_config.get("D_VIDEO_FEAT", 0)),
+                    audio_temporal=getattr(self, "audio_temporal", "none"),
+                    audio_norm=getattr(self, "audio_norm", None),
+                    video_temporal=self.global_config.get("RLA_VIDEO_TEMPORAL", "meanstd"),
+                    video_norm=getattr(self, "video_norm", None),
+                    use_conf=self.global_config.get("RLA_VIDEO_USE_CONF", True),
+                    dtype=torch.float32,  # keep it stable; your model can cast later
+                )
+
+                
                 with self.accelerator.accumulate(self.model):
-                    logits = self.model(input_ids, attention_mask=attention_mask, domain_ids=domain_ids)
+                    logits = self.model(
+                    input_ids,
+                    attention_mask=attention_mask,
+                    domain_ids=domain_ids,
+                    audio_vec=audio_vec,  
+                    video_vec=video_vec,  
+                )
 
                     if not torch.isfinite(logits).all():
                         raise FloatingPointError("Non-finite logits encountered")
