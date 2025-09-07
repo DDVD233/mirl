@@ -53,9 +53,9 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml train_rla_mu
   --base_lr 1e-4 \
   --rla_lr  5e-5 \
   --epochs 10 \
-  --train_file "/scratch/keane/human_behaviour/human_behaviour_data/feat_meld_train.jsonl" \
-  --val_file   "/scratch/keane/human_behaviour/human_behaviour_data/feat_meld_val.jsonl" \
-  --test_file  "/scratch/keane/human_behaviour/human_behaviour_data/feat_meld_test.jsonl" \
+  --train_file "/scratch/keane/human_behaviour/human_behaviour_data/rla_chsimsv2_train_w_feats.jsonl" \
+  --val_file   "/scratch/keane/human_behaviour/human_behaviour_data/rla_chsimsv2_test_w_feats.jsonl" \
+  --test_file  "/scratch/keane/human_behaviour/human_behaviour_data/rla_chsimsv2_test_w_feats.jsonl" \
   --label_map_path "/home/keaneong/human-behavior/verl/multi_task_classification/unified_feat_meld_label_map.json" \
   --save_every_n_epochs 1 \
   --save_every_n_steps 99999999 \
