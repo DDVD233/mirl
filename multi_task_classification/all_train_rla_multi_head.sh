@@ -39,7 +39,7 @@ export TORCH_USE_CUDA_DSA=1
   # --rla_audio_alpha_init 2.0 \
 
   # --load_checkpoint_path "/scratch/keane/human_behaviour/debug_rla/step_1998" \
-
+# --label_map_path "/home/keaneong/human-behavior/verl/multi_task_classification/unified_label_map_w_feats_v5_unified_scheme_splitmmpsy_binarymmpsy_no_vptd_chalearn_lmvd_esconv.json" \
 
   # --rla_resume_diff_training_stage \
 accelerate launch --config_file configs/accelerate_config_qwen.yaml train_rla_multi_head.py \
@@ -56,7 +56,7 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml train_rla_mu
   --train_file "/scratch/keane/human_behaviour/human_behaviour_data/feat_meld_train.jsonl" \
   --val_file "/scratch/keane/human_behaviour/human_behaviour_data/v5_val.jsonl" \
   --test_file "/scratch/keane/human_behaviour/human_behaviour_data/v5_test.jsonl" \
-  --label_map_path "/home/keaneong/human-behavior/verl/multi_task_classification/unified_label_map_w_feats_v5_unified_scheme_splitmmpsy_binarymmpsy_no_vptd_chalearn_lmvd_esconv.json" \
+  --label_map_path "/home/keaneong/human-behavior/verl/multi_task_classification/unified_feat_meld_label_map.json" \
   --save_every_n_epochs 1 \
   --save_every_n_steps 10000 \
   --save_checkpoint_dir "/scratch/keane/human_behaviour/full_joint_rla" \
