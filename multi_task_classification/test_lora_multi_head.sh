@@ -22,6 +22,16 @@ export TORCH_USE_CUDA_DSA=1
     # --scheduler_type cosine \
     # --warmup_steps 25
 
+#   --train_file "/scratch/keane/human_behaviour/human_behaviour_data/rla_ptsd_train_w_feats.jsonl" \
+#   --val_file   "/scratch/keane/human_behaviour/human_behaviour_data/rla_ptsd_test_w_feats.jsonl" \
+#   --test_file  "/scratch/keane/human_behaviour/human_behaviour_data/rla_ptsd_test_w_feats.jsonl" \
+#   --label_map_path "/home/keaneong/human-behavior/verl/multi_task_classification/v2_unified_scheme_splitmmpsy_binarymmpsy_no_vptd_chalearn_lmvd_esconv.json" \
+
+# --train_file "/scratch/keane/human_behaviour/human_behaviour_data/v2_unified_scheme_train.jsonl" \
+#     --val_file "/scratch/keane/human_behaviour/human_behaviour_data/v2_unified_scheme_val.jsonl" \
+#     --test_file "/scratch/keane/human_behaviour/human_behaviour_data/v2_unified_scheme_test.jsonl" \
+#     --label_map_path "/home/keaneong/human-behavior/verl/multi_task_classification/v2_unified_scheme_splitmmpsy_binarymmpsy_no_vptd_chalearn_lmvd_esconv.json" \
+
 # Launch training with accelerate for head_only strategy
 echo "Launching Multi Head Testing with Accelerate..."
 accelerate launch --config_file configs/accelerate_config_qwen.yaml train_multi_head.py \
@@ -32,9 +42,9 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml train_multi_
     --test_batch_size 2 \
     --lr 1e-4 \
     --epochs 10 \
-    --train_file "/scratch/keane/human_behaviour/human_behaviour_data/v2_unified_scheme_train.jsonl" \
-    --val_file "/scratch/keane/human_behaviour/human_behaviour_data/v2_unified_scheme_val.jsonl" \
-    --test_file "/scratch/keane/human_behaviour/human_behaviour_data/v2_unified_scheme_test.jsonl" \
+    --train_file "/scratch/keane/human_behaviour/human_behaviour_data/rla_ptsd_train_w_feats.jsonl" \
+    --val_file   "/scratch/keane/human_behaviour/human_behaviour_data/rla_ptsd_test_w_feats.jsonl" \
+    --test_file  "/scratch/keane/human_behaviour/human_behaviour_data/rla_ptsd_test_w_feats.jsonl" \
     --label_map_path "/home/keaneong/human-behavior/verl/multi_task_classification/v2_unified_scheme_splitmmpsy_binarymmpsy_no_vptd_chalearn_lmvd_esconv.json" \
     --save_every_n_epochs 999999 \
     --save_every_n_steps 999999 \
