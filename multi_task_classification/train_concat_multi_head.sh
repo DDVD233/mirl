@@ -5,8 +5,8 @@
 
 echo "Starting head_only training..."
 
-# Set CUDA_VISIBLE_DEVICES to use GPUs 2 and 3
-export CUDA_VISIBLE_DEVICES="2,3"
+# Set CUDA_VISIBLE_DEVICES to use GPUs 0 and 1
+export CUDA_VISIBLE_DEVICES="0,1"
 echo "Using GPUs: $CUDA_VISIBLE_DEVICES"
 
 # Set environment variables for better performance
