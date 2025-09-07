@@ -53,61 +53,55 @@ def extract_features_from_video(video_path: Path) -> Dict[str, torch.Tensor]:
                 min_detection_confidence=0.5,
                 min_tracking_confidence=0.5) as hands:
 
-        # Create progress bar for frames
-        with tqdm(total=total_frames, desc=f"  Extracting features", unit="frames", leave=False) as pbar:
-            frame_count = 0
-            while cap.isOpened():
-                ret, frame = cap.read()
-                if not ret:
-                    break
+        # Process frames without progress bar
+        frame_count = 0
+        while cap.isOpened():
+            ret, frame = cap.read()
+            if not ret:
+                break
 
-                frame_count += 1
+            frame_count += 1
 
-                # Convert BGR to RGB
-                image_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                image_rgb.flags.writeable = False
+            # Convert BGR to RGB
+            image_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            image_rgb.flags.writeable = False
 
-                # Process pose, face, and hands
-                pose_results = pose.process(image_rgb)
-                face_results = face_mesh.process(image_rgb)
-                hand_results = hands.process(image_rgb)
+            # Process pose, face, and hands
+            pose_results = pose.process(image_rgb)
+            face_results = face_mesh.process(image_rgb)
+            hand_results = hands.process(image_rgb)
 
-                # Extract pose landmarks (33 landmarks x 3 coordinates)
-                if pose_results.pose_landmarks:
-                    pose_landmarks = np.array([[lm.x, lm.y, lm.z] for lm in pose_results.pose_landmarks.landmark])
-                else:
-                    pose_landmarks = np.zeros((33, 3))
-                pose_features.append(pose_landmarks)
+            # Extract pose landmarks (33 landmarks x 3 coordinates)
+            if pose_results.pose_landmarks:
+                pose_landmarks = np.array([[lm.x, lm.y, lm.z] for lm in pose_results.pose_landmarks.landmark])
+            else:
+                pose_landmarks = np.zeros((33, 3))
+            pose_features.append(pose_landmarks)
 
-                # Extract face landmarks (468 landmarks x 3 coordinates)
-                if face_results.multi_face_landmarks and len(face_results.multi_face_landmarks) > 0:
-                    face_landmarks = np.array(
-                        [[lm.x, lm.y, lm.z] for lm in face_results.multi_face_landmarks[0].landmark])
-                else:
-                    face_landmarks = np.zeros((468, 3))
-                face_features.append(face_landmarks)
+            # Extract face landmarks (468 landmarks x 3 coordinates)
+            if face_results.multi_face_landmarks and len(face_results.multi_face_landmarks) > 0:
+                face_landmarks = np.array(
+                    [[lm.x, lm.y, lm.z] for lm in face_results.multi_face_landmarks[0].landmark])
+            else:
+                face_landmarks = np.zeros((468, 3))
+            face_features.append(face_landmarks)
 
-                # Extract hand landmarks (21 landmarks x 3 coordinates per hand)
-                left_hand = np.zeros((21, 3))
-                right_hand = np.zeros((21, 3))
+            # Extract hand landmarks (21 landmarks x 3 coordinates per hand)
+            left_hand = np.zeros((21, 3))
+            right_hand = np.zeros((21, 3))
 
-                if hand_results.multi_hand_landmarks and hand_results.multi_handedness:
-                    for hand_landmarks, handedness in zip(hand_results.multi_hand_landmarks,
-                                                          hand_results.multi_handedness):
-                        hand_array = np.array([[lm.x, lm.y, lm.z] for lm in hand_landmarks.landmark])
-                        if handedness.classification[0].label == 'Left':
-                            left_hand = hand_array
-                        else:
-                            right_hand = hand_array
+            if hand_results.multi_hand_landmarks and hand_results.multi_handedness:
+                for hand_landmarks, handedness in zip(hand_results.multi_hand_landmarks,
+                                                      hand_results.multi_handedness):
+                    hand_array = np.array([[lm.x, lm.y, lm.z] for lm in hand_landmarks.landmark])
+                    if handedness.classification[0].label == 'Left':
+                        left_hand = hand_array
+                    else:
+                        right_hand = hand_array
 
-                left_hand_features.append(left_hand)
-                right_hand_features.append(right_hand)
-                valid_frames.append(frame_count - 1)  # 0-indexed
-
-                # Update progress bar
-                pbar.update(1)
-                if frame_count % 100 == 0:
-                    pbar.set_postfix({'fps': f'{fps:.1f}', 'detected': f'{len(valid_frames)}'})
+            left_hand_features.append(left_hand)
+            right_hand_features.append(right_hand)
+            valid_frames.append(frame_count - 1)  # 0-indexed
 
     # Release resources
     cap.release()
@@ -161,15 +155,15 @@ def process_single_video(args: Tuple[Path, Path, Path]) -> Tuple[str, Optional[s
     """Process a single video file (worker function for parallel processing).
     
     Args:
-        args: Tuple of (mp4_file, base_dir, pose_dir)
+c        args: Tuple of (video_file, base_dir, pose_dir)
     
     Returns:
         Tuple of (status, error_message) where status is 'processed', 'skipped', or 'error'
     """
-    mp4_file, base_dir, pose_dir = args
+    video_file, base_dir, pose_dir = args
     
     # Get relative path from base_dir
-    relative_path = mp4_file.relative_to(base_dir)
+    relative_path = video_file.relative_to(base_dir)
     
     # Create output path maintaining directory structure
     output_path = pose_dir / relative_path.with_suffix('.pt')
@@ -183,14 +177,14 @@ def process_single_video(args: Tuple[Path, Path, Path]) -> Tuple[str, Optional[s
     
     try:
         # Extract features
-        features = extract_features_from_video(mp4_file)
+        features = extract_features_from_video(video_file)
         
         # Save features as PyTorch file
         torch.save(features, output_path)
         return ('processed', None)
         
     except Exception as e:
-        return ('error', f"Error processing {mp4_file.name}: {e}")
+        return ('error', f"Error processing {video_file.name}: {e}")
 
 
 def process_videos_in_directory(base_dir: Path, num_workers: int = 8):
@@ -204,22 +198,25 @@ def process_videos_in_directory(base_dir: Path, num_workers: int = 8):
     pose_dir = base_dir / "pose"
 
     print("Scanning for video files...")
-    # Find all .mp4 files recursively
-    mp4_files = list(base_dir.rglob("*.mp4"))
-
+    # Find all video files recursively (support multiple formats)
+    video_extensions = ['*.mp4', '*.avi', '*.mov', '*.mkv', '*.flv', '*.wmv', '*.webm', '*.m4v', '*.mpg', '*.mpeg']
+    video_files = []
+    for ext in video_extensions:
+        video_files.extend(list(base_dir.rglob(ext)))
+    
     # Filter out files already in pose directory
-    mp4_files = [f for f in mp4_files if "pose" not in f.parts]
+    video_files = [f for f in video_files if "pose" not in f.parts]
 
-    if not mp4_files:
-        print("No .mp4 files found to process")
+    if not video_files:
+        print(f"No video files found to process (supported: {', '.join(ext[1:] for ext in video_extensions)})")
         return
 
-    print(f"Found {len(mp4_files)} .mp4 file(s) to process")
+    print(f"Found {len(video_files)} video file(s) to process")
     print(f"Features will be saved to: {pose_dir}")
     print(f"Using {num_workers} parallel workers\n")
 
     # Prepare arguments for parallel processing
-    process_args = [(mp4_file, base_dir, pose_dir) for mp4_file in mp4_files]
+    process_args = [(video_file, base_dir, pose_dir) for video_file in video_files]
     
     processed_count = 0
     error_count = 0
@@ -228,7 +225,7 @@ def process_videos_in_directory(base_dir: Path, num_workers: int = 8):
     # Use multiprocessing Pool for parallel processing
     with Pool(processes=num_workers) as pool:
         # Process videos in parallel with progress bar
-        with tqdm(total=len(mp4_files), desc="Processing videos", unit="video") as pbar:
+        with tqdm(total=len(video_files), desc="Processing videos", unit="video") as pbar:
             # Use imap_unordered for better performance
             for status, error_msg in pool.imap_unordered(process_single_video, process_args):
                 if status == 'processed':
@@ -281,10 +278,10 @@ def load_and_inspect_features(pt_file_path: Path):
 
 def main():
     parser = argparse.ArgumentParser(description="Extract MediaPipe features from videos and save as PyTorch tensors")
-    parser.add_argument("directory", help="Base directory to search for .mp4 files")
+    parser.add_argument("directory", help="Base directory to search for video files")
     parser.add_argument("--inspect", action="store_true", help="Inspect existing .pt files instead of processing")
-    parser.add_argument("--workers", type=int, default=8, 
-                        help="Number of parallel workers (default: 8, use -1 for all CPU cores)")
+    parser.add_argument("--workers", type=int, default=16,
+                        help="Number of parallel workers (default: 16, use -1 for all CPU cores)")
     args = parser.parse_args()
 
     base_dir = Path(args.directory)
