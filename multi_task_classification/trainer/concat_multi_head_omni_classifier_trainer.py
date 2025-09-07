@@ -333,9 +333,26 @@ class ConcatMultiHeadOmniClassifierAccelerateTrainer:
                     else:
                         raise ValueError(f"Unexpected labels shape {labels.shape}")
                     
-                # TODO: Edit this to also obtain the pooling vectors for concatenation
+                audio_vec, video_vec = get_concat_features(
+                    batch,
+                    device=input_ids.device,
+                    d_audio_feat=getattr(self, "d_audio_feat", self.global_config.get("D_AUDIO_FEAT", 0)),
+                    d_video_feat=getattr(self, "d_video_feat", self.global_config.get("D_VIDEO_FEAT", 0)),
+                    audio_temporal=getattr(self, "audio_temporal", "none"),
+                    audio_norm=getattr(self, "audio_norm", None),
+                    video_temporal=self.global_config.get("RLA_VIDEO_TEMPORAL", "meanstd"),
+                    video_norm=getattr(self, "video_norm", None),
+                    use_conf=self.global_config.get("RLA_VIDEO_USE_CONF", True),
+                    dtype=torch.float32,
+                )
 
-                logits = self.model(input_ids, attention_mask=attention_mask, domain_ids=domain_ids)
+                logits = self.model(
+                        input_ids,
+                        attention_mask=attention_mask,
+                        domain_ids=domain_ids,
+                        audio_vec=audio_vec,
+                        video_vec=video_vec,
+                    )
                 loss = criterion(logits, labels)
                 
                 total_loss += loss.item() * input_ids.size(0)
