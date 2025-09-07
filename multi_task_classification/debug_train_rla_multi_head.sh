@@ -41,8 +41,8 @@ export TORCH_USE_CUDA_DSA=1
   # --load_checkpoint_path "/scratch/keane/human_behaviour/debug_rla/step_1998" \
 
 
-  # --rla_resume_diff_training_stage \
 accelerate launch --config_file configs/accelerate_config_qwen.yaml train_rla_multi_head.py \
+  --rla_resume_diff_training_stage \
   --mode train \
   --training_strategy lora \
   --train_batch_size 2 \
@@ -61,6 +61,7 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml train_rla_mu
   --save_every_n_steps 99999999 \
   --save_checkpoint_dir "/scratch/keane/human_behaviour/new_full_joint_rla" \
   --validation_result_dir "/scratch/keane/human_behaviour/new_full_joint_rla/validation_results" \
+  --load_checkpoint_path "/scratch/keane/human_behaviour/multi_head_lora_training/step_60000" \
   --validate_every_n_epochs 1 \
   --validate_every_n_steps 999999 \
   --early_stopping_patience 99999 \
