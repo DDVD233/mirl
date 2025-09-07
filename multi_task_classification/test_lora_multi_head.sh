@@ -3,7 +3,7 @@
 # Shell script for head_only training strategy
 # This script launches training with only the classification head being trained
 
-echo "Starting head_only training..."
+echo "Starting Multi Head Testing..."
 
 # Set CUDA_VISIBLE_DEVICES to use GPUs 2 and 3
 export CUDA_VISIBLE_DEVICES="0,1"
