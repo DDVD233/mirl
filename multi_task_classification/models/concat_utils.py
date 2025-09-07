@@ -4,7 +4,7 @@ from typing import Iterable, Optional, Tuple
 import torch
 
 # Import ONLY the existing single-sample utilities you already have.
-from adapter_utils import (
+from .adapter_utils import (
     build_audio_feat_single,      # (dict|None) -> 1D tensor or None
     build_video_feat_single,      # (dict|None) -> 1D tensor or None
     _pad_trunc_1d,               # (tensor|None, target_dim) -> 1D tensor (zero-pads/truncs)
