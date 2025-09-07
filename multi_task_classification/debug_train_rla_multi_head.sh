@@ -51,7 +51,7 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml train_rla_mu
   --lr 1e-4 \
   --hard_gamma 0.0 \
   --base_lr 1e-4 \
-  --rla_lr  5e-4 \
+  --rla_lr  5e-5 \
   --epochs 10 \
   --train_file "/scratch/keane/human_behaviour/human_behaviour_data/feat_meld_train.jsonl" \
   --val_file   "/scratch/keane/human_behaviour/human_behaviour_data/feat_meld_val.jsonl" \
