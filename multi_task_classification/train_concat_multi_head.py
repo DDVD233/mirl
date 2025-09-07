@@ -575,35 +575,6 @@ def main():
     LORA_CONFIG = params['lora_config']
     config = params['dataset_config']
     MODE = params['mode']
-
-
-    # Load tokenizer and processor
-    tokenizer = AutoTokenizer.from_pretrained(TOKENIZER_NAME)
-    processor = AutoProcessor.from_pretrained(PROCESSOR_NAME)
-    
-    print(f"[INFO] Initializing model with {NUM_CLASSES} classes")
-    
-    if DEBUG_DRY_RUN:
-        print("[INFO] Using DummyClassifier for dry-run (no backbone loaded).")
-        model = DummyClassifier(num_classes=NUM_CLASSES)
-    else:
-        # Initialize model with training strategy
-        print(f"[INFO] Initializing OmniClassifier with training strategy: {TRAINING_STRATEGY}")
-        model = ConcatMultiHeadOmniClassifier(
-            full_label_scheme=FULL_LABEL_SCHEME,
-            freeze_backbone=TRAINING_STRATEGY,
-            lora_config=LORA_CONFIG if TRAINING_STRATEGY == "lora" else None,
-            use_concat_fusion=True,
-            d_audio_feat=global_config.get("D_AUDIO_FEAT", 0),
-            d_video_feat=global_config.get("D_VIDEO_FEAT", 0),
-            add_av_presence_bits=True,
-            fusion_dropout=0.1,
-            fusion_norm=True,
-            device_map=DEVICE_MAP,
-            torch_dtype=TORCH_DTYPE,
-        )
-        # Print trainable parameters info
-        model.get_trainable_parameters()
     
     # Create global config dictionary for trainer
     global_config = {
@@ -678,6 +649,35 @@ def main():
         'RLA_LR':  params['rla_lr'],
         'HARD_GAMMA': params['hard_gamma'],
     }
+
+
+    # Load tokenizer and processor
+    tokenizer = AutoTokenizer.from_pretrained(TOKENIZER_NAME)
+    processor = AutoProcessor.from_pretrained(PROCESSOR_NAME)
+    
+    print(f"[INFO] Initializing model with {NUM_CLASSES} classes")
+    
+    if DEBUG_DRY_RUN:
+        print("[INFO] Using DummyClassifier for dry-run (no backbone loaded).")
+        model = DummyClassifier(num_classes=NUM_CLASSES)
+    else:
+        # Initialize model with training strategy
+        print(f"[INFO] Initializing OmniClassifier with training strategy: {TRAINING_STRATEGY}")
+        model = ConcatMultiHeadOmniClassifier(
+            full_label_scheme=FULL_LABEL_SCHEME,
+            freeze_backbone=TRAINING_STRATEGY,
+            lora_config=LORA_CONFIG if TRAINING_STRATEGY == "lora" else None,
+            use_concat_fusion=True,
+            d_audio_feat=global_config.get("D_AUDIO_FEAT", 0),
+            d_video_feat=global_config.get("D_VIDEO_FEAT", 0),
+            add_av_presence_bits=True,
+            fusion_dropout=0.1,
+            fusion_norm=True,
+            device_map=DEVICE_MAP,
+            torch_dtype=TORCH_DTYPE,
+        )
+        # Print trainable parameters info
+        model.get_trainable_parameters()
 
     trainer = ConcatMultiHeadOmniClassifierAccelerateTrainer(
         data_files=TRAIN_DATA_FILE,
