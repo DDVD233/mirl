@@ -53,7 +53,7 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml train_rla_mu
   --base_lr 1e-4 \
   --rla_lr  5e-5 \
   --epochs 10 \
-  --train_file "/scratch/keane/human_behaviour/human_behaviour_data/feat_meld_train.jsonl" \
+  --train_file "/scratch/keane/human_behaviour/human_behaviour_data/0.2_feat_meld_train.jsonl" \
   --val_file   "/scratch/keane/human_behaviour/human_behaviour_data/feat_meld_val.jsonl" \
   --test_file  "/scratch/keane/human_behaviour/human_behaviour_data/feat_meld_test.jsonl" \
   --label_map_path "/home/keaneong/human-behavior/verl/multi_task_classification/unified_feat_meld_label_map.json" \
@@ -73,8 +73,8 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml train_rla_mu
   --d_audio_feat 6373 \
   --rla_hidden_video 256 \
   --rla_hidden_audio 256 \
-  --rla_p_moddrop_video 0 \
-  --rla_p_moddrop_audio 0 \
+  --rla_p_moddrop_video 0.20 \
+  --rla_p_moddrop_audio 0.20 \
   --rla_video_temporal meanstd \
   --rla_video_norm none \
   --rla_audio_norm l2 \
