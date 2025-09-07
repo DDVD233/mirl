@@ -67,7 +67,7 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml train_rla_mu
   --validate_every_n_steps 999999 \
   --early_stopping_patience 99999 \
   --project "full-meld-rla-omni-classifier-multi-head-lora" \
-  --gradient_accumulation_steps 8 \
+  --gradient_accumulation_steps 4 \
   --rla_stage residual_only \
   --use_rla_video \
   --use_rla_audio \
