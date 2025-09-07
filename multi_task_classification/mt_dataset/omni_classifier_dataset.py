@@ -123,8 +123,8 @@ class SkipBatchSampler(torch.utils.data.Sampler):
     def __init__(self, batch_sampler: BatchSampler, skip_batches: int):
         self.batch_sampler = batch_sampler
         self.skip_batches = int(max(0, skip_batches))
-        self.batch_size = getattr(base_batch_sampler, 'batch_size', None)
-        self.drop_last = getattr(base_batch_sampler, 'drop_last', False)
+        self.batch_size = getattr(BatchSampler, 'batch_size', None)
+        self.drop_last = getattr(BatchSampler, 'drop_last', False)
 
     def __iter__(self):
         it = iter(self.batch_sampler)
