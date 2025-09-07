@@ -41,8 +41,6 @@ export TORCH_USE_CUDA_DSA=1
   # --load_checkpoint_path "/scratch/keane/human_behaviour/debug_rla/step_1998" \
 
 # --label_map_path "/home/keaneong/human-behavior/verl/multi_task_classification/unified_feat_meld_label_map.json" \
-  # --use_rla_video \
-  # --use_rla_audio \
 
 accelerate launch --config_file configs/accelerate_config_qwen.yaml train_rla_multi_head.py \
   --rla_resume_diff_training_stage \
@@ -52,9 +50,9 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml train_rla_mu
   --val_batch_size 2 \
   --test_batch_size 2 \
   --lr 0 \
-  --hard_gamma 0 \
+  --hard_gamma 5.0 \
   --base_lr 0 \
-  --rla_lr  0 \
+  --rla_lr  5e-4 \
   --epochs 10 \
   --train_file "/scratch/keane/human_behaviour/human_behaviour_data/rla_ptsd_train_w_feats.jsonl" \
   --val_file   "/scratch/keane/human_behaviour/human_behaviour_data/rla_ptsd_test_w_feats.jsonl" \
@@ -83,6 +81,8 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml train_rla_mu
   --rla_audio_temporal none \
   --rla_video_alpha_init 3.0 \
   --rla_audio_alpha_init 3.0 \
+  --use_rla_video \
+  --use_rla_audio \
   --rla_video_use_ln \
   --rla_audio_use_ln    
 
