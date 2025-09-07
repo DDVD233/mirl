@@ -86,7 +86,6 @@ class MultiHeadOmniClassifierAccelerateTrainer:
             mixed_precision='fp16',  # Use fp16 for better memory efficiency
             log_with="wandb" if use_wandb else None,
             project_dir=save_checkpoint_dir if use_wandb else None,
-            even_batches=False,
         )
         
         # Set seed for reproducibility
