@@ -53,8 +53,8 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml train_rla_mu
   --test_batch_size 2 \
   --lr 1e-4 \
   --hard_gamma 0 \
-  --base_lr 1e-4 \
-  --rla_lr  5e-4 \
+  --base_lr 0 \
+  --rla_lr  0 \
   --epochs 10 \
   --train_file "/scratch/keane/human_behaviour/human_behaviour_data/rla_ptsd_train_w_feats.jsonl" \
   --val_file   "/scratch/keane/human_behaviour/human_behaviour_data/rla_ptsd_test_w_feats.jsonl" \
