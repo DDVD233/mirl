@@ -867,6 +867,9 @@ class RLAMultiHeadOmniClassifierAccelerateTrainer:
                 # Set model to training mode (needed because validation sets it to eval mode)
                 self.model.train()
 
+                # Calculate current step for validation checking
+                current_step = (epoch * len(train_dataloader)) + batch_idx + 1
+                
                 # remember to set it back to train() mode after validation
                 if self.video_adapter is not None:
                     self.video_adapter.train()
@@ -876,9 +879,6 @@ class RLAMultiHeadOmniClassifierAccelerateTrainer:
 
                 if epoch == start_epoch and batch_idx < start_batch_offset:
                     continue
-                
-                # Calculate current step for validation checking
-                current_step = (epoch * len(train_dataloader)) + batch_idx + 1
                 
                 # --- defensive checks
                 if 'input_ids' not in batch or 'labels' not in batch:
