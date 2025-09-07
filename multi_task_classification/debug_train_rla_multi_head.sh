@@ -52,7 +52,7 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml train_rla_mu
   --lr 1e-4 \
   --hard_gamma 5.0 \
   --base_lr 1e-4 \
-  --rla_lr  1e-3 \
+  --rla_lr  5e-4 \
   --epochs 10 \
   --train_file "/scratch/keane/human_behaviour/human_behaviour_data/rla_chsimsv2_train_w_feats.jsonl" \
   --val_file   "/scratch/keane/human_behaviour/human_behaviour_data/rla_chsimsv2_test_w_feats.jsonl" \
