@@ -45,7 +45,7 @@ export TORCH_USE_CUDA_DSA=1
 accelerate launch --config_file configs/accelerate_config_qwen.yaml train_rla_multi_head.py \
   --mode train \
   --training_strategy lora \
-  --train_batch_size 2 \
+  --train_batch_size 1 \
   --val_batch_size 2 \
   --test_batch_size 2 \
   --lr 1e-4 \
