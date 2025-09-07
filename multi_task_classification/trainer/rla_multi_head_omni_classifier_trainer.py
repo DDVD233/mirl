@@ -426,6 +426,10 @@ class RLAMultiHeadOmniClassifierAccelerateTrainer:
             _set_requires_grad(self.video_adapter, True)
             _set_requires_grad(self.audio_adapter, True)
 
+            base_params = list(self.model.parameters())
+            if base_params:
+                bundles["base"] = {"params": base_params, "lr": 0.0, "weight_decay": 0.0}
+
             if self.video_adapter is not None:
                 vid_params = [p for p in self.video_adapter.parameters() if p.requires_grad]
                 if vid_params:
@@ -511,10 +515,11 @@ class RLAMultiHeadOmniClassifierAccelerateTrainer:
     
     def _build_per_module_optimizers(self, bundles):
         """Return (opts_in_order, names_in_order) matching module prepare order: base, video?, audio?."""
-        from torch.optim import Adam
         opt_base  = Adam(bundles["base"]["params"],  lr=bundles["base"]["lr"])   if bundles["base"]  else None
         opt_video = Adam(bundles["video"]["params"], lr=bundles["video"]["lr"])  if bundles["video"] else None
         opt_audio = Adam(bundles["audio"]["params"], lr=bundles["audio"]["lr"])  if bundles["audio"] else None
+
+        # build all the optimizers regardless
         opts = [o for o in (opt_base, opt_video, opt_audio) if o is not None]
         names = [n for n, o in zip(["base","video","audio"], (opt_base, opt_video, opt_audio)) if o is not None]
         return opts, names
@@ -1252,7 +1257,7 @@ class RLAMultiHeadOmniClassifierAccelerateTrainer:
             ]
 
         # --- Phase 2: prepare ONLY the optimizers/schedulers ---
-        self.prepared_opts, self.prepared_scheds = self._accelerate_prepare_opts_scheds(opts_in_order, sch_in_order)
+        self._accelerate_prepare_opts_scheds(opts_in_order, sch_in_order)
 
         # --- Load (model + optimizer(s) + scheduler(s) + RNG) ---
         _ = self.load_checkpoint_unified(
