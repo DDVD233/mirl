@@ -40,6 +40,7 @@ export TORCH_USE_CUDA_DSA=1
 
   # --load_checkpoint_path "/scratch/keane/human_behaviour/debug_rla/step_1998" \
 
+# --label_map_path "/home/keaneong/human-behavior/verl/multi_task_classification/unified_feat_meld_label_map.json" \
 
 accelerate launch --config_file configs/accelerate_config_qwen.yaml train_rla_multi_head.py \
   --rla_resume_diff_training_stage \
@@ -56,7 +57,7 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml train_rla_mu
   --train_file "/scratch/keane/human_behaviour/human_behaviour_data/rla_chsimsv2_train_w_feats.jsonl" \
   --val_file   "/scratch/keane/human_behaviour/human_behaviour_data/rla_chsimsv2_test_w_feats.jsonl" \
   --test_file  "/scratch/keane/human_behaviour/human_behaviour_data/rla_chsimsv2_test_w_feats.jsonl" \
-  --label_map_path "/home/keaneong/human-behavior/verl/multi_task_classification/unified_feat_meld_label_map.json" \
+  --label_map_path "/home/keaneong/human-behavior/verl/multi_task_classification/v2_unified_scheme_splitmmpsy_binarymmpsy_no_vptd_chalearn_lmvd_esconv.json" \
   --save_every_n_epochs 1 \
   --save_every_n_steps 99999999 \
   --save_checkpoint_dir "/scratch/keane/human_behaviour/new_full_joint_rla" \
