@@ -87,6 +87,7 @@ class MultiHeadOmniClassifierAccelerateTrainer:
             log_with="wandb" if use_wandb else None,
             project_dir=save_checkpoint_dir if use_wandb else None,
         )
+        self.accelerator.even_batches = False
         
         # Set seed for reproducibility
         # This makes sure that the dataloader shuffling is preserved, 
