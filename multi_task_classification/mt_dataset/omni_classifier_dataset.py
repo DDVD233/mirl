@@ -46,7 +46,7 @@ def _resolve_single_path(maybe_path):
 
     return None
 
-def load_feat_or_none(path, kind: str, logfile: str = "missing_feats.txt"):
+def load_feat_or_none(path, kind: str, logfile: str = "/home/keaneong/human-behavior/verl/multi_task_classification/failed_ext_paths_log/missing_feats.txt"):
     """
     Try to load a torch .pt feature file. If missing or load fails, log and return None.
     """
