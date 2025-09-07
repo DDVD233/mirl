@@ -136,15 +136,6 @@ class RLAMultiHeadOmniClassifierAccelerateTrainer:
         
         # Initialize training start time
         self.start_time = time.time()
-
-        # --- RLA hot-swap bookkeeping ---
-        # self.rla_ckpt_dir = self.global_config.get("RLA_CKPT_DIR", "rla_ckpts")
-        self.rla_ckpt_dir = os.path.join(self.checkpoint_dir, "rla_ckpts")
-        os.makedirs(self.rla_ckpt_dir, exist_ok=True)
-        self._active_rla_dataset = None
-        self._video_init_state = None
-        self._audio_init_state = None
-
         
     def _init_wandb(self):
         """Initialize wandb logging via wandb_utils."""
@@ -402,6 +393,65 @@ class RLAMultiHeadOmniClassifierAccelerateTrainer:
     
         return start_epoch, start_batch_offset, global_step, meta, ckpt_dir
     
+        # ==== NEW: single-optimizer helpers ====
+    def _param_groups_from_bundles(self, bundles):
+        """
+        Convert the 'bundles' dict produced by prepare_params_for_training()
+        into a list of Adam param_groups, each with its own lr.
+        """
+        param_groups = []
+        if bundles["base"] is not None:
+            param_groups.append({"params": bundles["base"]["params"], "lr": bundles["base"]["lr"]})
+        if bundles["video"] is not None:
+            param_groups.append({"params": bundles["video"]["params"], "lr": bundles["video"]["lr"]})
+        if bundles["audio"] is not None:
+            param_groups.append({"params": bundles["audio"]["params"], "lr": bundles["audio"]["lr"]})
+        return param_groups
+
+    def _build_single_optimizer(self, bundles):
+        from torch.optim import Adam
+        param_groups = self._param_groups_from_bundles(bundles)
+        if not param_groups:
+            raise RuntimeError("No trainable parameters found to build the optimizer.")
+        return Adam(param_groups)
+
+    def _build_single_scheduler(self, optimizer, total_updates):
+        if not self.use_scheduler:
+            return None
+        from transformers import get_scheduler
+        return get_scheduler(
+            self.scheduler_type,
+            optimizer,
+            num_warmup_steps=self.warmup_steps,
+            num_training_steps=total_updates,
+        )
+
+    def _accelerate_prepare_opt_sched(self, optimizer, scheduler):
+        """Prepare and register for checkpointing; store on self."""
+        if scheduler is not None:
+            prepared_opt, prepared_sched = self.accelerator.prepare(optimizer, scheduler)
+            self.optimizer = prepared_opt
+            self.scheduler = prepared_sched
+            self.accelerator.register_for_checkpointing(self.scheduler)
+        else:
+            self.optimizer = self.accelerator.prepare(optimizer)
+            self.scheduler = None
+
+    # small convenience wrappers (replace multi-opt versions)
+    def _opt_step(self):
+        self.optimizer.step()
+
+    def _opt_zero(self):
+        self.optimizer.zero_grad(set_to_none=True)
+
+    def _sched_step(self):
+        if self.scheduler is not None:
+            self.scheduler.step()
+
+    def _current_lr_for_logging(self):
+        # Return lr of first param group; others can be inspected via .param_groups
+        return self.optimizer.param_groups[0]["lr"] if hasattr(self, "optimizer") else self.lr
+    
     def prepare_params_for_training(self, base_lr: float = None, rla_lr: float = None):
         """
         Freeze/unfreeze according to self.rla_stage ∈ {"base_only","residual_only","joint"}
@@ -555,76 +605,6 @@ class RLAMultiHeadOmniClassifierAccelerateTrainer:
         else:
             self.prepared_opts   = list(self.accelerator.prepare(*opts_in_order))
             self.prepared_scheds = []
-
-    def _step_all_opts(self):
-        for opt in self.prepared_opts:
-            opt.step()
-
-    def _zero_all_opts(self):
-        for opt in self.prepared_opts:
-            opt.zero_grad(set_to_none=True)
-
-    def _step_all_scheds(self):
-        for sch in self.prepared_scheds:
-            sch.step()
-
-    def _current_lr_for_logging(self):
-        return (self.prepared_opts[0].param_groups[0]["lr"] if self.prepared_opts else self.lr)
-    
-        # ---- RLA hot-swap helpers ----
-    def _rla_ckpt_path(self, dataset_key: str, kind: str) -> str:
-        # kind in {"video","audio"}
-        return os.path.join(self.rla_ckpt_dir, f"{dataset_key}.{kind}.pt")
-
-    def _batch_dataset_key(self, batch) -> str:
-        ds = batch.get("dataset", None)
-        if ds is None:
-            raise KeyError("Batch missing 'dataset' for RLA hot-swap.")
-        if isinstance(ds, (list, tuple)):
-            first = ds[0].decode("utf-8") if isinstance(ds[0], bytes) else ds[0]
-            if not all(((d.decode("utf-8") if isinstance(d, bytes) else d) == first) for d in ds):
-                # Keep it simple and safe: require homogeneous batches by dataset
-                raise ValueError("Mixed-dataset batch encountered; group batches by dataset for RLA hot-swap.")
-            return first
-        return ds.decode("utf-8") if isinstance(ds, bytes) else ds
-
-    def _broadcast_module(self, module: torch.nn.Module):
-        # Rank-0 has correct params; broadcast to all ranks so every process matches
-        self.accelerator.wait_for_everyone()
-        with torch.no_grad():
-            for p in module.parameters():
-                self.accelerator.broadcast(p.data, src=0)
-            for b in module.buffers():
-                self.accelerator.broadcast(b.data, src=0)
-
-    def _save_active_rla(self, dataset_key: str):
-        if self.accelerator.is_main_process:
-            if self.video_adapter is not None:
-                torch.save(self.video_adapter.state_dict(), self._rla_ckpt_path(dataset_key, "video"))
-            if self.audio_adapter is not None:
-                torch.save(self.audio_adapter.state_dict(), self._rla_ckpt_path(dataset_key, "audio"))
-        self.accelerator.wait_for_everyone()
-
-    def _load_rla_for_dataset(self, dataset_key: str, *, train_mode: bool):
-        # Rank-0 loads/reset; then broadcast to others
-        if self.accelerator.is_main_process:
-            if self.video_adapter is not None:
-                vp = self._rla_ckpt_path(dataset_key, "video")
-                sd = torch.load(vp, map_location="cpu") if os.path.exists(vp) else self._video_init_state
-                self.video_adapter.load_state_dict(sd, strict=True)
-            if self.audio_adapter is not None:
-                ap = self._rla_ckpt_path(dataset_key, "audio")
-                sd = torch.load(ap, map_location="cpu") if os.path.exists(ap) else self._audio_init_state
-                self.audio_adapter.load_state_dict(sd, strict=True)
-        # sync to all ranks
-        if self.video_adapter is not None:
-            self._broadcast_module(self.video_adapter)
-            self.video_adapter.train(train_mode)
-        if self.audio_adapter is not None:
-            self._broadcast_module(self.audio_adapter)
-            self.audio_adapter.train(train_mode)
-        self._active_rla_dataset = dataset_key
-
 
     def validate(self, val_dataloader, split_name="validation", current_step=None):
         """Validate the model on the given dataloader."""
@@ -824,13 +804,6 @@ class RLAMultiHeadOmniClassifierAccelerateTrainer:
                 audio_conf_init_gain=float(self.global_config.get("RLA_AUDIO_CONF_INIT_GAIN", 3.0)),
                 audio_alpha_init=float(self.global_config.get("RLA_AUDIO_ALPHA_INIT", 1.0)),
             )
-        
-        # Cache initial (reset) states for each adapter
-        if self.video_adapter is not None and self._video_init_state is None:
-            self._video_init_state = {k: v.detach().cpu().clone() for k, v in self.video_adapter.state_dict().items()}
-        if self.audio_adapter is not None and self._audio_init_state is None:
-            self._audio_init_state = {k: v.detach().cpu().clone() for k, v in self.audio_adapter.state_dict().items()}
-
         criterion = CrossEntropyLoss()
         # ---- Compute update-steps-aware schedule sizes ----
         total_updates = self.epochs * len(train_dataloader)
@@ -874,10 +847,9 @@ class RLAMultiHeadOmniClassifierAccelerateTrainer:
 
             # Phase 2: build per-module optimizers/schedulers for CURRENT prepared modules
             bundles = self.prepare_params_for_training(base_lr=base_lr, rla_lr=rla_lr)
-            opts_in_order, self._opt_names_in_order = self._build_per_module_optimizers(bundles)
-            sch_in_order = self._build_schedulers(opts_in_order, total_updates)
-            self._accelerate_prepare_opts_scheds(opts_in_order, sch_in_order)
-
+            optimizer = self._build_single_optimizer(bundles)
+            scheduler = self._build_single_scheduler(optimizer, total_updates)
+            self._accelerate_prepare_opt_sched(optimizer, scheduler)
         else:
             # SAME-REGIME (or fresh)
             # Phase 1: prepare modules WITH adapters if active
@@ -898,9 +870,9 @@ class RLAMultiHeadOmniClassifierAccelerateTrainer:
             )
             # Phase 2: rebuild per-module optimizers/schedulers (so shapes/flags match current freeze plan)
             bundles = self.prepare_params_for_training(base_lr=base_lr, rla_lr=rla_lr)
-            opts_in_order, self._opt_names_in_order = self._build_per_module_optimizers(bundles)
-            sch_in_order = self._build_schedulers(opts_in_order, total_updates)
-            self._accelerate_prepare_opts_scheds(opts_in_order, sch_in_order)
+            optimizer = self._build_single_optimizer(bundles)
+            scheduler = self._build_single_scheduler(optimizer, total_updates)
+            self._accelerate_prepare_opt_sched(optimizer, scheduler)
             
         # Get configuration values
         validate_every_n_epochs = self.global_config.get('VALIDATE_EVERY_N_EPOCHS', None)
@@ -963,15 +935,6 @@ class RLAMultiHeadOmniClassifierAccelerateTrainer:
                     raise KeyError("Batch missing 'dataset' needed for domain routing.")
                 # batch['dataset'] is typically a list/tuple length B
                 domain_ids = self._datasets_to_domain_ids(batch['dataset'], device=input_ids.device)
-
-                # Ensure the correct tiny adapter weights are loaded for this batch's dataset
-                ds_key = self._batch_dataset_key(batch)
-                if (self.rla_stage in {"residual_only", "joint"}) and (self.use_rla_video or self.use_rla_audio):
-                    if self._active_rla_dataset is None:
-                        self._load_rla_for_dataset(ds_key, train_mode=True)
-                    elif ds_key != self._active_rla_dataset:
-                        self._save_active_rla(self._active_rla_dataset)
-                        self._load_rla_for_dataset(ds_key, train_mode=True)
 
                 # Each should be of shape (B, D_feat)
                 if ("audio_feats" in batch) and (batch["audio_feats"] is not None) \
@@ -1072,10 +1035,9 @@ class RLAMultiHeadOmniClassifierAccelerateTrainer:
                     # already syncs before stepping
                     # if self.accelerator.sync_gradients:
 
-                    self._step_all_opts()
-                    self._step_all_scheds()
-                    self._zero_all_opts()
-
+                    self._opt_step()
+                    self._sched_step()
+                    self._opt_zero()
                     current_lr = self._current_lr_for_logging()
                     
                     # PURELY FOR LOGGING PURPOSES
@@ -1188,10 +1150,6 @@ class RLAMultiHeadOmniClassifierAccelerateTrainer:
             # Calculate training metrics
             avg_train_loss = total_loss / max(1, total)
             train_acc = correct / max(1, total)
-
-            if (self.rla_stage in {"residual_only","joint"}) and (self.use_rla_video or self.use_rla_audio) and (self._active_rla_dataset is not None):
-                self._save_active_rla(self._active_rla_dataset)
-
             
             if self.accelerator.is_main_process:
                 print(f"Epoch {epoch+1}/{self.epochs} - Train Loss: {avg_train_loss:.4f} - Train Acc: {train_acc:.4f}")
@@ -1319,24 +1277,14 @@ class RLAMultiHeadOmniClassifierAccelerateTrainer:
         # --- Build per-module optimizers (no stepping during test; required so load_state can map) ---
         base_lr = self.global_config.get("BASE_LR", self.lr * 0.25)
         rla_lr  = self.global_config.get("RLA_LR",  self.lr * 5.0)
+
         bundles = self.prepare_params_for_training(base_lr=base_lr, rla_lr=rla_lr)
+        optimizer = self._build_single_optimizer(bundles)
+        # Any positive total_updates is fine for rekeying in test()
+        total_updates = max(1, self.epochs * len(train_dataloader))
+        scheduler = self._build_single_scheduler(optimizer, total_updates)
+        self._accelerate_prepare_opt_sched(optimizer, scheduler)
 
-        opts_in_order, opt_names = self._build_per_module_optimizers(bundles)   # e.g., ["base","video","audio"]
-        # Optional schedulers (harmless in test; needed if checkpoints contain them)
-        sch_in_order = []
-        if self.use_scheduler and len(opts_in_order) > 0:
-            total_updates = max(1, self.epochs * len(train_dataloader))  # any positive int is fine for rekeying
-            sch_in_order = [
-                get_scheduler(
-                    self.scheduler_type,
-                    o,
-                    num_warmup_steps=self.warmup_steps,
-                    num_training_steps=total_updates
-                ) for o in opts_in_order
-            ]
-
-        # --- Phase 2: prepare ONLY the optimizers/schedulers ---
-        self.prepared_opts, self.prepared_scheds = self._accelerate_prepare_opts_scheds(opts_in_order, sch_in_order)
 
         # --- Load (model + optimizer(s) + scheduler(s) + RNG) ---
         _ = self.load_checkpoint_unified(
