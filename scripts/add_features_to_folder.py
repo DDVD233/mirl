@@ -5,8 +5,9 @@ import torch
 import numpy as np
 from pathlib import Path
 import argparse
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 from tqdm import tqdm
+from multiprocessing import Pool, cpu_count
 
 # Initialize MediaPipe
 mp_pose = mp.solutions.pose
@@ -156,7 +157,43 @@ def extract_features_from_video(video_path: Path) -> Dict[str, torch.Tensor]:
     return features
 
 
-def process_videos_in_directory(base_dir: Path):
+def process_single_video(args: Tuple[Path, Path, Path]) -> Tuple[str, Optional[str]]:
+    """Process a single video file (worker function for parallel processing).
+    
+    Args:
+        args: Tuple of (mp4_file, base_dir, pose_dir)
+    
+    Returns:
+        Tuple of (status, error_message) where status is 'processed', 'skipped', or 'error'
+    """
+    mp4_file, base_dir, pose_dir = args
+    
+    # Get relative path from base_dir
+    relative_path = mp4_file.relative_to(base_dir)
+    
+    # Create output path maintaining directory structure
+    output_path = pose_dir / relative_path.with_suffix('.pt')
+    
+    # Skip if already processed
+    if output_path.exists():
+        return ('skipped', None)
+    
+    # Create output directory if it doesn't exist
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    
+    try:
+        # Extract features
+        features = extract_features_from_video(mp4_file)
+        
+        # Save features as PyTorch file
+        torch.save(features, output_path)
+        return ('processed', None)
+        
+    except Exception as e:
+        return ('error', f"Error processing {mp4_file.name}: {e}")
+
+
+def process_videos_in_directory(base_dir: Path, num_workers: int = 8):
     """Process all videos in directory and subdirectories, saving features to pose folder."""
 
     if not base_dir.exists():
@@ -178,54 +215,39 @@ def process_videos_in_directory(base_dir: Path):
         return
 
     print(f"Found {len(mp4_files)} .mp4 file(s) to process")
-    print(f"Features will be saved to: {pose_dir}\n")
+    print(f"Features will be saved to: {pose_dir}")
+    print(f"Using {num_workers} parallel workers\n")
 
+    # Prepare arguments for parallel processing
+    process_args = [(mp4_file, base_dir, pose_dir) for mp4_file in mp4_files]
+    
     processed_count = 0
     error_count = 0
     skipped_count = 0
-
-    # Main progress bar for all videos
-    with tqdm(mp4_files, desc="Processing videos", unit="video") as pbar:
-        for mp4_file in pbar:
-            # Get relative path from base_dir
-            relative_path = mp4_file.relative_to(base_dir)
-
-            # Create output path maintaining directory structure
-            output_path = pose_dir / relative_path.with_suffix('.pt')
-
-            # Update progress bar description
-            pbar.set_description(f"Processing: {relative_path.name[:30]}")
-
-            # Skip if already processed
-            if output_path.exists():
-                skipped_count += 1
-                pbar.set_postfix({'processed': processed_count, 'skipped': skipped_count, 'errors': error_count})
-                continue
-
-            # Create output directory if it doesn't exist
-            output_path.parent.mkdir(parents=True, exist_ok=True)
-
-            try:
-                # Extract features
-                features = extract_features_from_video(mp4_file)
-
-                # Save features as PyTorch file
-                torch.save(features, output_path)
-                processed_count += 1
-
-                # Update progress bar postfix
+    
+    # Use multiprocessing Pool for parallel processing
+    with Pool(processes=num_workers) as pool:
+        # Process videos in parallel with progress bar
+        with tqdm(total=len(mp4_files), desc="Processing videos", unit="video") as pbar:
+            # Use imap_unordered for better performance
+            for status, error_msg in pool.imap_unordered(process_single_video, process_args):
+                if status == 'processed':
+                    processed_count += 1
+                elif status == 'skipped':
+                    skipped_count += 1
+                elif status == 'error':
+                    error_count += 1
+                    if error_msg:
+                        tqdm.write(f"  {error_msg}")
+                
+                # Update progress bar
+                pbar.update(1)
                 pbar.set_postfix({
                     'processed': processed_count,
                     'skipped': skipped_count,
                     'errors': error_count,
-                    'shapes': f"P:{features['pose'].shape[0]}x33"
+                    'workers': num_workers
                 })
-
-            except Exception as e:
-                error_count += 1
-                pbar.set_postfix({'processed': processed_count, 'skipped': skipped_count, 'errors': error_count})
-                tqdm.write(f"  Error processing {mp4_file.name}: {e}")
-                continue
 
     print(f"\n{'=' * 50}")
     print(f"Processing complete!")
@@ -261,9 +283,17 @@ def main():
     parser = argparse.ArgumentParser(description="Extract MediaPipe features from videos and save as PyTorch tensors")
     parser.add_argument("directory", help="Base directory to search for .mp4 files")
     parser.add_argument("--inspect", action="store_true", help="Inspect existing .pt files instead of processing")
+    parser.add_argument("--workers", type=int, default=8, 
+                        help="Number of parallel workers (default: 8, use -1 for all CPU cores)")
     args = parser.parse_args()
 
     base_dir = Path(args.directory)
+    
+    # Determine number of workers
+    if args.workers == -1:
+        num_workers = cpu_count()
+    else:
+        num_workers = args.workers
     
     if args.inspect:
         # Inspect mode: look for .pt files in base directory and optionally in pose subdirectory
@@ -296,7 +326,7 @@ def main():
             print(f"\n... and {len(pt_files) - 3} more files")
     else:
         # Process mode: extract features from videos
-        process_videos_in_directory(base_dir)
+        process_videos_in_directory(base_dir, num_workers=num_workers)
 
 
 if __name__ == "__main__":
