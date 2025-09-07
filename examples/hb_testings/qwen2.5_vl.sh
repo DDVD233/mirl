@@ -2,8 +2,8 @@ set -x
 
 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
-    data.train_files=/scratch/keane/human_behaviour/human_behaviour_data/audio_sigs_train_meld.jsonl \
-    data.val_files=/scratch/keane/human_behaviour/human_behaviour_data/audio_sigs_val_meld.jsonl \
+    data.train_files=/scratch/keane/human_behaviour/human_behaviour_data/v5_train.jsonl \
+    data.val_files=/scratch/keane/human_behaviour/human_behaviour_data/v5_test.jsonl \
     data.train_batch_size=512 \
     data.val_batch_size=128 \
     data.max_prompt_length=4096 \
@@ -19,7 +19,7 @@ python3 -m verl.trainer.main_ppo \
     data.train_modality_batching.drop_last=True \
     data.val_modality_batching.enabled=True \
     data.val_modality_batching.drop_last=False \
-    data.format_prompt=/home/keaneong/human-behavior/verl/examples/format_prompt/default.jinja \
+    data.format_prompt=examples/format_prompt/default.jinja \
     actor_rollout_ref.model.path=Qwen/Qwen2.5-Omni-7B \
     actor_rollout_ref.actor.optim.lr=1e-7 \
     actor_rollout_ref.model.use_remove_padding=False \
@@ -47,7 +47,7 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.rollout.max_model_len=8192 \
     actor_rollout_ref.rollout.max_num_batched_tokens=8192 \
     algorithm.use_kl_in_reward=False \
-    custom_reward_function.path=/home/keaneong/human-behavior/verl/examples/reward_function/human_behaviour.py \
+    custom_reward_function.path=examples/reward_function/human_behaviour.py \
     custom_reward_function.name=human_behaviour_compute_score_batch \
     reward_model.reward_manager=batch \
     trainer.critic_warmup=0 \
