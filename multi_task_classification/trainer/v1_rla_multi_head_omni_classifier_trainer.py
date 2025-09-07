@@ -393,65 +393,6 @@ class RLAMultiHeadOmniClassifierAccelerateTrainer:
     
         return start_epoch, start_batch_offset, global_step, meta, ckpt_dir
     
-        # ==== NEW: single-optimizer helpers ====
-    def _param_groups_from_bundles(self, bundles):
-        """
-        Convert the 'bundles' dict produced by prepare_params_for_training()
-        into a list of Adam param_groups, each with its own lr.
-        """
-        param_groups = []
-        if bundles["base"] is not None:
-            param_groups.append({"params": bundles["base"]["params"], "lr": bundles["base"]["lr"]})
-        if bundles["video"] is not None:
-            param_groups.append({"params": bundles["video"]["params"], "lr": bundles["video"]["lr"]})
-        if bundles["audio"] is not None:
-            param_groups.append({"params": bundles["audio"]["params"], "lr": bundles["audio"]["lr"]})
-        return param_groups
-
-    def _build_single_optimizer(self, bundles):
-        from torch.optim import Adam
-        param_groups = self._param_groups_from_bundles(bundles)
-        if not param_groups:
-            raise RuntimeError("No trainable parameters found to build the optimizer.")
-        return Adam(param_groups)
-
-    def _build_single_scheduler(self, optimizer, total_updates):
-        if not self.use_scheduler:
-            return None
-        from transformers import get_scheduler
-        return get_scheduler(
-            self.scheduler_type,
-            optimizer,
-            num_warmup_steps=self.warmup_steps,
-            num_training_steps=total_updates,
-        )
-
-    def _accelerate_prepare_opt_sched(self, optimizer, scheduler):
-        """Prepare and register for checkpointing; store on self."""
-        if scheduler is not None:
-            prepared_opt, prepared_sched = self.accelerator.prepare(optimizer, scheduler)
-            self.optimizer = prepared_opt
-            self.scheduler = prepared_sched
-            self.accelerator.register_for_checkpointing(self.scheduler)
-        else:
-            self.optimizer = self.accelerator.prepare(optimizer)
-            self.scheduler = None
-
-    # small convenience wrappers (replace multi-opt versions)
-    def _opt_step(self):
-        self.optimizer.step()
-
-    def _opt_zero(self):
-        self.optimizer.zero_grad(set_to_none=True)
-
-    def _sched_step(self):
-        if self.scheduler is not None:
-            self.scheduler.step()
-
-    def _current_lr_for_logging(self):
-        # Return lr of first param group; others can be inspected via .param_groups
-        return self.optimizer.param_groups[0]["lr"] if hasattr(self, "optimizer") else self.lr
-    
     def prepare_params_for_training(self, base_lr: float = None, rla_lr: float = None):
         """
         Freeze/unfreeze according to self.rla_stage ∈ {"base_only","residual_only","joint"}
@@ -605,6 +546,21 @@ class RLAMultiHeadOmniClassifierAccelerateTrainer:
         else:
             self.prepared_opts   = list(self.accelerator.prepare(*opts_in_order))
             self.prepared_scheds = []
+
+    def _step_all_opts(self):
+        for opt in self.prepared_opts:
+            opt.step()
+
+    def _zero_all_opts(self):
+        for opt in self.prepared_opts:
+            opt.zero_grad(set_to_none=True)
+
+    def _step_all_scheds(self):
+        for sch in self.prepared_scheds:
+            sch.step()
+
+    def _current_lr_for_logging(self):
+        return (self.prepared_opts[0].param_groups[0]["lr"] if self.prepared_opts else self.lr)
 
     def validate(self, val_dataloader, split_name="validation", current_step=None):
         """Validate the model on the given dataloader."""
@@ -847,9 +803,10 @@ class RLAMultiHeadOmniClassifierAccelerateTrainer:
 
             # Phase 2: build per-module optimizers/schedulers for CURRENT prepared modules
             bundles = self.prepare_params_for_training(base_lr=base_lr, rla_lr=rla_lr)
-            optimizer = self._build_single_optimizer(bundles)
-            scheduler = self._build_single_scheduler(optimizer, total_updates)
-            self._accelerate_prepare_opt_sched(optimizer, scheduler)
+            opts_in_order, self._opt_names_in_order = self._build_per_module_optimizers(bundles)
+            sch_in_order = self._build_schedulers(opts_in_order, total_updates)
+            self._accelerate_prepare_opts_scheds(opts_in_order, sch_in_order)
+
         else:
             # SAME-REGIME (or fresh)
             # Phase 1: prepare modules WITH adapters if active
@@ -870,9 +827,9 @@ class RLAMultiHeadOmniClassifierAccelerateTrainer:
             )
             # Phase 2: rebuild per-module optimizers/schedulers (so shapes/flags match current freeze plan)
             bundles = self.prepare_params_for_training(base_lr=base_lr, rla_lr=rla_lr)
-            optimizer = self._build_single_optimizer(bundles)
-            scheduler = self._build_single_scheduler(optimizer, total_updates)
-            self._accelerate_prepare_opt_sched(optimizer, scheduler)
+            opts_in_order, self._opt_names_in_order = self._build_per_module_optimizers(bundles)
+            sch_in_order = self._build_schedulers(opts_in_order, total_updates)
+            self._accelerate_prepare_opts_scheds(opts_in_order, sch_in_order)
             
         # Get configuration values
         validate_every_n_epochs = self.global_config.get('VALIDATE_EVERY_N_EPOCHS', None)
@@ -1035,9 +992,10 @@ class RLAMultiHeadOmniClassifierAccelerateTrainer:
                     # already syncs before stepping
                     # if self.accelerator.sync_gradients:
 
-                    self._opt_step()
-                    self._sched_step()
-                    self._opt_zero()
+                    self._step_all_opts()
+                    self._step_all_scheds()
+                    self._zero_all_opts()
+
                     current_lr = self._current_lr_for_logging()
                     
                     # PURELY FOR LOGGING PURPOSES
@@ -1277,14 +1235,24 @@ class RLAMultiHeadOmniClassifierAccelerateTrainer:
         # --- Build per-module optimizers (no stepping during test; required so load_state can map) ---
         base_lr = self.global_config.get("BASE_LR", self.lr * 0.25)
         rla_lr  = self.global_config.get("RLA_LR",  self.lr * 5.0)
-
         bundles = self.prepare_params_for_training(base_lr=base_lr, rla_lr=rla_lr)
-        optimizer = self._build_single_optimizer(bundles)
-        # Any positive total_updates is fine for rekeying in test()
-        total_updates = max(1, self.epochs * len(train_dataloader))
-        scheduler = self._build_single_scheduler(optimizer, total_updates)
-        self._accelerate_prepare_opt_sched(optimizer, scheduler)
 
+        opts_in_order, opt_names = self._build_per_module_optimizers(bundles)   # e.g., ["base","video","audio"]
+        # Optional schedulers (harmless in test; needed if checkpoints contain them)
+        sch_in_order = []
+        if self.use_scheduler and len(opts_in_order) > 0:
+            total_updates = max(1, self.epochs * len(train_dataloader))  # any positive int is fine for rekeying
+            sch_in_order = [
+                get_scheduler(
+                    self.scheduler_type,
+                    o,
+                    num_warmup_steps=self.warmup_steps,
+                    num_training_steps=total_updates
+                ) for o in opts_in_order
+            ]
+
+        # --- Phase 2: prepare ONLY the optimizers/schedulers ---
+        self.prepared_opts, self.prepared_scheds = self._accelerate_prepare_opts_scheds(opts_in_order, sch_in_order)
 
         # --- Load (model + optimizer(s) + scheduler(s) + RNG) ---
         _ = self.load_checkpoint_unified(
