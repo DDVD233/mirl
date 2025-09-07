@@ -45,7 +45,7 @@ export TORCH_USE_CUDA_DSA=1
 accelerate launch --config_file configs/accelerate_config_qwen.yaml train_rla_multi_head.py \
   --mode train \
   --training_strategy lora \
-  --train_batch_size 1 \
+  --train_batch_size 2 \
   --val_batch_size 2 \
   --test_batch_size 2 \
   --lr 1e-4 \
@@ -59,8 +59,8 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml train_rla_mu
   --label_map_path "/home/keaneong/human-behavior/verl/multi_task_classification/unified_feat_meld_label_map.json" \
   --save_every_n_epochs 1 \
   --save_every_n_steps 99999999 \
-  --save_checkpoint_dir "/scratch/keane/human_behaviour/full_joint_rla" \
-  --validation_result_dir "/scratch/keane/human_behaviour/full_joint_rla/validation_results" \
+  --save_checkpoint_dir "/scratch/keane/human_behaviour/new_full_joint_rla" \
+  --validation_result_dir "/scratch/keane/human_behaviour/new_full_joint_rla/validation_results" \
   --validate_every_n_epochs 1 \
   --validate_every_n_steps 999999 \
   --early_stopping_patience 99999 \

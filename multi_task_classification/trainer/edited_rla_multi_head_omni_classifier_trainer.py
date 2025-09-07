@@ -136,6 +136,15 @@ class RLAMultiHeadOmniClassifierAccelerateTrainer:
         
         # Initialize training start time
         self.start_time = time.time()
+
+        # --- RLA hot-swap bookkeeping ---
+        # self.rla_ckpt_dir = self.global_config.get("RLA_CKPT_DIR", "rla_ckpts")
+        self.rla_ckpt_dir = os.path.join(self.checkpoint_dir, "rla_ckpts")
+        os.makedirs(self.rla_ckpt_dir, exist_ok=True)
+        self._active_rla_dataset = None
+        self._video_init_state = None
+        self._audio_init_state = None
+
         
     def _init_wandb(self):
         """Initialize wandb logging via wandb_utils."""
@@ -561,6 +570,61 @@ class RLAMultiHeadOmniClassifierAccelerateTrainer:
 
     def _current_lr_for_logging(self):
         return (self.prepared_opts[0].param_groups[0]["lr"] if self.prepared_opts else self.lr)
+    
+        # ---- RLA hot-swap helpers ----
+    def _rla_ckpt_path(self, dataset_key: str, kind: str) -> str:
+        # kind in {"video","audio"}
+        return os.path.join(self.rla_ckpt_dir, f"{dataset_key}.{kind}.pt")
+
+    def _batch_dataset_key(self, batch) -> str:
+        ds = batch.get("dataset", None)
+        if ds is None:
+            raise KeyError("Batch missing 'dataset' for RLA hot-swap.")
+        if isinstance(ds, (list, tuple)):
+            first = ds[0].decode("utf-8") if isinstance(ds[0], bytes) else ds[0]
+            if not all(((d.decode("utf-8") if isinstance(d, bytes) else d) == first) for d in ds):
+                # Keep it simple and safe: require homogeneous batches by dataset
+                raise ValueError("Mixed-dataset batch encountered; group batches by dataset for RLA hot-swap.")
+            return first
+        return ds.decode("utf-8") if isinstance(ds, bytes) else ds
+
+    def _broadcast_module(self, module: torch.nn.Module):
+        # Rank-0 has correct params; broadcast to all ranks so every process matches
+        self.accelerator.wait_for_everyone()
+        with torch.no_grad():
+            for p in module.parameters():
+                self.accelerator.broadcast(p.data, src=0)
+            for b in module.buffers():
+                self.accelerator.broadcast(b.data, src=0)
+
+    def _save_active_rla(self, dataset_key: str):
+        if self.accelerator.is_main_process:
+            if self.video_adapter is not None:
+                torch.save(self.video_adapter.state_dict(), self._rla_ckpt_path(dataset_key, "video"))
+            if self.audio_adapter is not None:
+                torch.save(self.audio_adapter.state_dict(), self._rla_ckpt_path(dataset_key, "audio"))
+        self.accelerator.wait_for_everyone()
+
+    def _load_rla_for_dataset(self, dataset_key: str, *, train_mode: bool):
+        # Rank-0 loads/reset; then broadcast to others
+        if self.accelerator.is_main_process:
+            if self.video_adapter is not None:
+                vp = self._rla_ckpt_path(dataset_key, "video")
+                sd = torch.load(vp, map_location="cpu") if os.path.exists(vp) else self._video_init_state
+                self.video_adapter.load_state_dict(sd, strict=True)
+            if self.audio_adapter is not None:
+                ap = self._rla_ckpt_path(dataset_key, "audio")
+                sd = torch.load(ap, map_location="cpu") if os.path.exists(ap) else self._audio_init_state
+                self.audio_adapter.load_state_dict(sd, strict=True)
+        # sync to all ranks
+        if self.video_adapter is not None:
+            self._broadcast_module(self.video_adapter)
+            self.video_adapter.train(train_mode)
+        if self.audio_adapter is not None:
+            self._broadcast_module(self.audio_adapter)
+            self.audio_adapter.train(train_mode)
+        self._active_rla_dataset = dataset_key
+
 
     def validate(self, val_dataloader, split_name="validation", current_step=None):
         """Validate the model on the given dataloader."""
@@ -760,6 +824,13 @@ class RLAMultiHeadOmniClassifierAccelerateTrainer:
                 audio_conf_init_gain=float(self.global_config.get("RLA_AUDIO_CONF_INIT_GAIN", 3.0)),
                 audio_alpha_init=float(self.global_config.get("RLA_AUDIO_ALPHA_INIT", 1.0)),
             )
+        
+        # Cache initial (reset) states for each adapter
+        if self.video_adapter is not None and self._video_init_state is None:
+            self._video_init_state = {k: v.detach().cpu().clone() for k, v in self.video_adapter.state_dict().items()}
+        if self.audio_adapter is not None and self._audio_init_state is None:
+            self._audio_init_state = {k: v.detach().cpu().clone() for k, v in self.audio_adapter.state_dict().items()}
+
         criterion = CrossEntropyLoss()
         # ---- Compute update-steps-aware schedule sizes ----
         total_updates = self.epochs * len(train_dataloader)
@@ -892,6 +963,15 @@ class RLAMultiHeadOmniClassifierAccelerateTrainer:
                     raise KeyError("Batch missing 'dataset' needed for domain routing.")
                 # batch['dataset'] is typically a list/tuple length B
                 domain_ids = self._datasets_to_domain_ids(batch['dataset'], device=input_ids.device)
+
+                # Ensure the correct tiny adapter weights are loaded for this batch's dataset
+                ds_key = self._batch_dataset_key(batch)
+                if (self.rla_stage in {"residual_only", "joint"}) and (self.use_rla_video or self.use_rla_audio):
+                    if self._active_rla_dataset is None:
+                        self._load_rla_for_dataset(ds_key, train_mode=True)
+                    elif ds_key != self._active_rla_dataset:
+                        self._save_active_rla(self._active_rla_dataset)
+                        self._load_rla_for_dataset(ds_key, train_mode=True)
 
                 # Each should be of shape (B, D_feat)
                 if ("audio_feats" in batch) and (batch["audio_feats"] is not None) \
@@ -1108,6 +1188,10 @@ class RLAMultiHeadOmniClassifierAccelerateTrainer:
             # Calculate training metrics
             avg_train_loss = total_loss / max(1, total)
             train_acc = correct / max(1, total)
+
+            if (self.rla_stage in {"residual_only","joint"}) and (self.use_rla_video or self.use_rla_audio) and (self._active_rla_dataset is not None):
+                self._save_active_rla(self._active_rla_dataset)
+
             
             if self.accelerator.is_main_process:
                 print(f"Epoch {epoch+1}/{self.epochs} - Train Loss: {avg_train_loss:.4f} - Train Acc: {train_acc:.4f}")
