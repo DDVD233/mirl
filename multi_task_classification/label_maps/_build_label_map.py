@@ -12,17 +12,17 @@ from collections import defaultdict
 # ------------------
 # Hardcoded paths SCRATCH
 # ------------------
-INPUT_JSONLS = [
-    "/scratch/keane/human_behaviour/human_behaviour_data/feat_meld_train.jsonl"
-]
-OUTPUT_JSON = "/home/keaneong/human-behavior/verl/multi_task_classification/feat_meld_label_map.json"
+# INPUT_JSONLS = [
+#     "/scratch/keane/human_behaviour/human_behaviour_data/feat_meld_train.jsonl"
+# ]
+# OUTPUT_JSON = "/home/keaneong/human-behavior/verl/multi_task_classification/feat_meld_label_map.json"
 
 
 # Hardcoded paths LOCAL
-# INPUT_JSONLS = [
-#     "/Users/keane/Desktop/research/human-behavior/data/unified_scheme/unified_scheme_splitmmpsy_binarymmpsy_no_vptd_chalearn_lmvd_esconv.jsonl"
-# ]
-# OUTPUT_JSON = "/Users/keane/Desktop/research/human-behavior/data/unified_scheme/label_maps/v2_non_unified_scheme_splitmmpsy_binarymmpsy_no_vptd_chalearn_lmvd_esconv.json"
+INPUT_JSONLS = [
+    "/Users/keane/Desktop/research/human-behavior/data/new/final/w_feats_v5_unified_scheme_splitmmpsy_binarymmpsy_no_vptd_chalearn_lmvd_esconv.jsonl"
+]
+OUTPUT_JSON = "/Users/keane/Desktop/research/human-behavior/data/unified_scheme/label_maps/label_map_w_feats_v5_unified_scheme_splitmmpsy_binarymmpsy_no_vptd_chalearn_lmvd_esconv.json"
 
 
 # ------------------------------------
