@@ -40,7 +40,7 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml train_concat
     --label_map_path "/home/keaneong/human-behavior/verl/multi_task_classification/unified_label_map_w_feats_v5_unified_scheme_splitmmpsy_binarymmpsy_no_vptd_chalearn_lmvd_esconv.json" \
     --save_every_n_epochs 1 \
     --save_every_n_steps 5000 \
-    --load_checkpoint_path "/scratch/keane/human_behaviour/cat_v5_multi_head_lora_training/step_20000" \
+    --load_checkpoint_path "/scratch/keane/human_behaviour/cat_v5_multi_head_lora_training" \
     --save_checkpoint_dir "/scratch/keane/human_behaviour/cat_v5_multi_head_lora_training" \
     --validation_result_dir "/scratch/keane/human_behaviour/cat_v5_multi_head_lora_training/validation_results" \
     --validate_every_n_epochs 1 \
