@@ -2,8 +2,8 @@ set -x
 
 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
-    data.train_files=/scratch/keane/human_behaviour/human_behaviour_data/v5_train.jsonl \
-    data.val_files=/scratch/keane/human_behaviour/human_behaviour_data/v5_test.jsonl \
+    data.train_files=/home/dvdai/multimodal/human_behaviour_data/v5_train.jsonl \
+    data.val_files=/home/dvdai/multimodal/human_behaviour_data/v5_test.jsonl \
     data.train_batch_size=512 \
     data.val_batch_size=128 \
     data.max_prompt_length=4096 \
@@ -58,6 +58,7 @@ python3 -m verl.trainer.main_ppo \
     trainer.nnodes=1 \
     trainer.save_freq=-1 \
     trainer.val_before_train=True \
+    trainer.validation_data_dir=/home/dvdai/multimodal/outputs \
     trainer.val_only=False \
     trainer.test_freq=2 \
     trainer.total_epochs=10
