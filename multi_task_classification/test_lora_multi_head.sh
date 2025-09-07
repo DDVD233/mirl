@@ -6,7 +6,7 @@
 echo "Starting head_only training..."
 
 # Set CUDA_VISIBLE_DEVICES to use GPUs 2 and 3
-export CUDA_VISIBLE_DEVICES="2,3"
+export CUDA_VISIBLE_DEVICES="0,1"
 echo "Using GPUs: $CUDA_VISIBLE_DEVICES"
 
 # Set environment variables for better performance
@@ -46,10 +46,11 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml train_multi_
     --val_file "/scratch/keane/human_behaviour/human_behaviour_data/v5_val.jsonl" \
     --test_file "/scratch/keane/human_behaviour/human_behaviour_data/v5_test.jsonl" \
     --label_map_path "/home/keaneong/human-behavior/verl/multi_task_classification/unified_label_map_w_feats_v5_unified_scheme_splitmmpsy_binarymmpsy_no_vptd_chalearn_lmvd_esconv.json" \
+    --load_checkpoint_path "/scratch/keane/human_behaviour/v5_multi_head_lora_training/step_20000" \
     --save_every_n_epochs 999999 \
     --save_every_n_steps 999999 \
     --save_checkpoint_dir "/scratch/keane/human_behaviour/v5_multi_head_lora_training" \
-    --validation_result_dir "/scratch/keane/human_behaviour/v5_multi_head_lora_training/validation_results" \
+    --validation_result_dir "/scratch/keane/human_behaviour/v5_multi_head_lora_training/test_results" \
     --validate_every_n_epochs 1 \
     --validate_every_n_steps 15000 \
     --early_stopping_patience 99999999 \
