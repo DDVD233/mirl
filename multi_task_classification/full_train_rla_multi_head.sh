@@ -19,8 +19,7 @@ export CUDA_LAUNCH_BLOCKING=1
 export TORCH_USE_CUDA_DSA=1
 
 # Temp directory for filtered JSONLs
-TMP_DIR="./jsonl_temps"
-mkdir -p "$TMP_DIR"
+TMP_DIR="/scratch/keane/human_behaviour/human_behaviour_data/"
 
 # ==== helper: filter a JSONL by dataset ====
 filter_jsonl() {
@@ -93,8 +92,8 @@ fi
 for DS in $ALL_DS; do
   echo "-----------------------------------------------"
   echo "Dataset: $DS"
-  TRAIN_OUT="$TMP_DIR/train_${DS}.jsonl"
-  VAL_OUT="$TMP_DIR/test_${DS}.jsonl"
+  TRAIN_OUT="$TMP_DIR/rla_fulltemp_train_${DS}.jsonl"
+  VAL_OUT="$TMP_DIR/rla_fulltemp_test_${DS}.jsonl"
 
   filter_jsonl "$TRAIN_JSONL" "$DS" "$TRAIN_OUT"
   filter_jsonl "$VAL_JSONL"   "$DS" "$VAL_OUT"
@@ -116,7 +115,7 @@ for DS in $ALL_DS; do
   echo "  val_file:   $VAL_OUT    ($VAL_LINES lines)"
   echo "  save_dir:   $SAVE_DIR"
 
-      # --train_file "$TRAIN_OUT" \
+      
 
   accelerate launch --config_file "$ACCEL_CFG" "$SCRIPT" \
     --mode train \
@@ -130,7 +129,7 @@ for DS in $ALL_DS; do
     --base_lr 0 \
     --rla_lr 5e-4 \
     --epochs 2 \
-    --train_file "/scratch/keane/human_behaviour/human_behaviour_data/rla_ptsd_train_w_feats.jsonl" \
+    --train_file "$TRAIN_OUT" \
     --val_file "$VAL_OUT" \
     --test_file "$VAL_OUT" \
     --label_map_path "/home/keaneong/human-behavior/verl/multi_task_classification/unified_label_map_w_feats_v5_unified_scheme_splitmmpsy_binarymmpsy_no_vptd_chalearn_lmvd_esconv.json" \
