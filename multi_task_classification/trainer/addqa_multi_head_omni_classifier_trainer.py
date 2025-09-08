@@ -540,6 +540,14 @@ class MultiHeadOmniClassifierAccelerateTrainer:
 
                 # --- split batch into QA vs CLS subsets based on dataset name ---
                 qa_rows, cls_rows = self._split_qa_cls_indices(batch['dataset'])
+                                                                         
+                device = input_ids.device
+                                                                         
+                # MOVE INDICES TO THE SAME DEVICE AS input_ids
+                if qa_rows is not None:
+                    qa_rows = qa_rows.to(device)
+                if cls_rows is not None:
+                    cls_rows = cls_rows.to(device)
 
                 B = input_ids.size(0)
                 domain_ids = torch.zeros(B, dtype=torch.long, device=input_ids.device)  # harmless default for QA rows
