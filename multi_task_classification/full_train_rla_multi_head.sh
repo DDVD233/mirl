@@ -142,7 +142,7 @@ for DS in $ALL_DS; do
     --validate_every_n_steps 999999 \
     --early_stopping_patience 99999 \
     --project "${PROJECT_NAME}" \
-    --gradient_accumulation_steps 4 \
+    --gradient_accumulation_steps 8 \
     --rla_stage residual_only \
     --d_video_feat 3318 \
     --d_audio_feat 6373 \
