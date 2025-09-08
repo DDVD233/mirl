@@ -499,11 +499,11 @@ class ConcatMultiHeadOmniClassifierAccelerateTrainer:
             cur_loader = train_dataloader_resume if (epoch == start_epoch and train_dataloader_resume is not None) else train_dataloader
 
             # Robustly find the underlying sampler to call set_epoch(epoch) if it exists
-            sampler = getattr(cur_loader, "sampler", None)
-            if sampler is None and hasattr(cur_loader, "batch_sampler"):
-                sampler = getattr(cur_loader.batch_sampler, "sampler", None)
-            if hasattr(sampler, "set_epoch"):
-                sampler.set_epoch(epoch)
+            # sampler = getattr(cur_loader, "sampler", None)
+            # if sampler is None and hasattr(cur_loader, "batch_sampler"):
+            #     sampler = getattr(cur_loader.batch_sampler, "sampler", None)
+            # if hasattr(sampler, "set_epoch"):
+            #     sampler.set_epoch(epoch)
 
             total_loss = 0.0
             correct = 0

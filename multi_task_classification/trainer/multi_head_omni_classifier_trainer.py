@@ -485,11 +485,11 @@ class MultiHeadOmniClassifierAccelerateTrainer:
             cur_loader = skipped_dataloader if is_resumed_epoch else train_dataloader
 
             # Robustly find the underlying sampler to call set_epoch(epoch) if it exists
-            sampler = getattr(cur_loader, "sampler", None)
-            if sampler is None and hasattr(cur_loader, "batch_sampler"):
-                sampler = getattr(cur_loader.batch_sampler, "sampler", None)
-            if hasattr(sampler, "set_epoch"):
-                sampler.set_epoch(epoch)
+            # sampler = getattr(cur_loader, "sampler", None)
+            # if sampler is None and hasattr(cur_loader, "batch_sampler"):
+            #     sampler = getattr(cur_loader.batch_sampler, "sampler", None)
+            # if hasattr(sampler, "set_epoch"):
+            #     sampler.set_epoch(epoch)
 
             total_loss = 0.0
             correct = 0
@@ -663,7 +663,7 @@ class MultiHeadOmniClassifierAccelerateTrainer:
                         )
             # End of epoch
             skipped_dataloader = None  # Only use the resumed loader for one epoch
-            
+
             # Calculate training metrics
             avg_train_loss = total_loss / max(1, total)
             train_acc = correct / max(1, total)
