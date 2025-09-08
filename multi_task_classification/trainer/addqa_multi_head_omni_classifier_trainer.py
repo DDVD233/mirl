@@ -224,7 +224,8 @@ class MultiHeadOmniClassifierAccelerateTrainer:
             config=self.config,
             processor=self.processor,
             label_key=self.label_key,
-            label_map=self.label_map
+            label_map=self.label_map,
+            qa_datasets=self.qa_datasets,
         )
         return DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, collate_fn=collate_fn,
                           num_workers=num_workers, pin_memory=True, persistent_workers=num_workers > 0)

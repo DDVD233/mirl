@@ -67,7 +67,7 @@ def load_feat_or_none(path, kind: str, logfile: str = "/home/keaneong/human-beha
 
 
 class AddQAOmniClassifierDataset(RLHFDataset):
-    def __init__(self, *args, label_key='answer', label_map=None, dataset_key='dataset', **kwargs):
+    def __init__(self, *args, label_key='answer', label_map=None, dataset_key='dataset', qa_datasets=None, **kwargs):
         super().__init__(*args, **kwargs)
         self.label_key = label_key 
         self.label_map = label_map  # Optional: dict mapping raw label to class index
@@ -128,7 +128,7 @@ class AddQAOmniClassifierDataset(RLHFDataset):
         row_dict["labels"] = torch.tensor(label, dtype=torch.long)
         # make explicit for collate: non-QA rows have no lm_labels
         row_dict.setdefault("lm_labels", "")
-        
+
         return row_dict
     
 class SkipBatchSampler(torch.utils.data.Sampler):
