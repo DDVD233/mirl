@@ -88,7 +88,6 @@ class ConcatMultiHeadOmniClassifierAccelerateTrainer:
             log_with="wandb" if use_wandb else None,
             project_dir=save_checkpoint_dir if use_wandb else None,
         )
-        self.accelerator.even_batches = False
         
         # Set seed for reproducibility
         # This makes sure that the dataloader shuffling is preserved, 
@@ -462,25 +461,25 @@ class ConcatMultiHeadOmniClassifierAccelerateTrainer:
 
         # 3) OPTIONAL resumed loader (only used for the first resumed epoch)
         train_dataloader_resume = None
-        # If the base offset is > 0, then we need to reinitialize the dataloader to skip to the correct batch idx
-        if start_batch_offset > 0:
-            # Reuse the *same* dataset and the *same* batch_sampler (which encodes shuffle order)
-            orig_bs = getattr(train_dataloader, "batch_sampler", None)
-            if orig_bs is None:
-                raise RuntimeError("Expected train_dataloader to have a batch_sampler when shuffle=True.")
-            resume_bs = SkipBatchSampler(orig_bs, skip_batches=start_batch_offset)
-            train_dataloader_resume = DataLoader(
-                train_dataloader.dataset,
-                batch_sampler=resume_bs,
-                num_workers=getattr(train_dataloader, "num_workers", 0),
-                pin_memory=getattr(train_dataloader, "pin_memory", True),
-                collate_fn=getattr(train_dataloader, "collate_fn", None),
-                persistent_workers=getattr(train_dataloader, "persistent_workers", False),
-            )
+        # # If the base offset is > 0, then we need to reinitialize the dataloader to skip to the correct batch idx
+        # if start_batch_offset > 0:
+        #     # Reuse the *same* dataset and the *same* batch_sampler (which encodes shuffle order)
+        #     orig_bs = getattr(train_dataloader, "batch_sampler", None)
+        #     if orig_bs is None:
+        #         raise RuntimeError("Expected train_dataloader to have a batch_sampler when shuffle=True.")
+        #     resume_bs = SkipBatchSampler(orig_bs, skip_batches=start_batch_offset)
+        #     train_dataloader_resume = DataLoader(
+        #         train_dataloader.dataset,
+        #         batch_sampler=resume_bs,
+        #         num_workers=getattr(train_dataloader, "num_workers", 0),
+        #         pin_memory=getattr(train_dataloader, "pin_memory", True),
+        #         collate_fn=getattr(train_dataloader, "collate_fn", None),
+        #         persistent_workers=getattr(train_dataloader, "persistent_workers", False),
+        #     )
             
-        # after building train_dataloader_resume
-        if train_dataloader_resume is not None:
-            train_dataloader_resume = self.accelerator.prepare(train_dataloader_resume)
+        # # after building train_dataloader_resume
+        # if train_dataloader_resume is not None:
+        #     train_dataloader_resume = self.accelerator.prepare(train_dataloader_resume)
 
 
         # Get configuration values

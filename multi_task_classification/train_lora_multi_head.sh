@@ -26,7 +26,7 @@ export TORCH_USE_CUDA_DSA=1
 # Launch training with accelerate for head_only strategy
     # --load_checkpoint_path "/scratch/keane/human_behaviour/v5_multi_head_lora_training/step_20000" \
 
-echo "Launching head_only training with Accelerate..."
+echo "Launching multi head training with Accelerate..."
 accelerate launch --config_file configs/accelerate_config_qwen.yaml train_multi_head.py \
     --mode train \
     --training_strategy lora \
