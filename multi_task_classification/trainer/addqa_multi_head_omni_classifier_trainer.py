@@ -641,7 +641,7 @@ class MultiHeadOmniClassifierAccelerateTrainer:
                         lm_out = self.model(
                             input_ids=qa_input_ids,
                             attention_mask=qa_attn,
-                            labels=lm_labels_q,
+                            lm_labels=lm_labels_q,
                         )
                         qa_loss = lm_out.loss
 
