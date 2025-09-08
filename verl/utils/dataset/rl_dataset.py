@@ -168,6 +168,7 @@ class RLHFDataset(Dataset):
     def _load_format_prompt(self) -> Optional[Template]:
         """Load format prompt from file if specified."""
         if self.format_prompt_path:
+            print("Loading format prompt from:", self.format_prompt_path)
             with open(self.format_prompt_path, 'r', encoding='utf-8') as f:
                 template_content = f.read()
             return Template(template_content)
