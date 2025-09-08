@@ -69,7 +69,7 @@ class ConcatMultiHeadOmniClassifier(nn.Module):
             **from_pretrained_kwargs
         }
         self.backbone = Qwen2_5OmniThinkerForConditionalGeneration.from_pretrained(
-            backbone_name, **model_kwargs
+            backbone_name, attn_implementation="flash_attention_2", **model_kwargs
         )
         self.device_map = device_map
 

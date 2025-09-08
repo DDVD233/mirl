@@ -64,8 +64,8 @@ class MultiHeadOmniClassifier(nn.Module):
         self.backbone = Qwen2_5OmniThinkerForConditionalGeneration.from_pretrained(
             backbone_name, attn_implementation="flash_attention_2", **model_kwargs
         )
-        self.backbone.config.use_cache = False
-        self.backbone.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
+        # self.backbone.config.use_cache = False
+        # self.backbone.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
 
         self.device_map = device_map
 
