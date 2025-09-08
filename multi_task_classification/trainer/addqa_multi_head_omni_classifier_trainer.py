@@ -45,12 +45,6 @@ class MultiHeadOmniClassifierAccelerateTrainer:
             raise ValueError("Tokenizer needs an eos_token_id for QA SFT.")
         if self.tokenizer.pad_token_id is None:
             self.tokenizer.pad_token_id = self.tokenizer.eos_token_id  # common default
-
-        # (optional but nice) make generate() stop naturally
-        self.model.generation_config.eos_token_id = self.tokenizer.eos_token_id
-        self.model.generation_config.pad_token_id = self.tokenizer.pad_token_id
-
-
         self.config = config # basically the config for the dataset
         self.batch_size = batch_size
         self.val_batch_size = val_batch_size
@@ -60,6 +54,11 @@ class MultiHeadOmniClassifierAccelerateTrainer:
         self.lr = lr
         self.epochs = epochs
         self.model = model
+        
+        # (optional but nice) make generate() stop naturally
+        self.model.generation_config.eos_token_id = self.tokenizer.eos_token_id
+        self.model.generation_config.pad_token_id = self.tokenizer.pad_token_id
+
         self.label_key = config.get("label_key", "answer")
         # Store global configuration for access to constants
         self.global_config = global_config or {}
@@ -645,7 +644,7 @@ class MultiHeadOmniClassifierAccelerateTrainer:
                             labels=lm_labels_q,
                         )
                         qa_loss = lm_out.loss
-                        
+
                     total_loss_this_step = cls_loss + self.qa_loss_weight * qa_loss
 
                     # Accelerate handles gradient accumulation automatically
