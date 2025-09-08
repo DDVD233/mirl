@@ -17,7 +17,7 @@ from math import ceil
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
 # Local imports
-from mt_dataset.omni_classifier_dataset import OmniClassifierDataset, SkipBatchSampler
+from mt_dataset.addqa_omni_classifier_dataset import AddQAOmniClassifierDataset, SkipBatchSampler
 from verl.utils.dataset.rl_dataset import collate_fn
 from utils.wandb_utils import init_wandb, log_metrics, finish
 from utils.logger import log_batch_training_metrics, log_validation_results, log_epoch_training_metrics
@@ -50,8 +50,9 @@ class MultiHeadOmniClassifierAccelerateTrainer:
         self.epochs = epochs
         self.model = model
         self.label_key = config.get("label_key", "answer")
+        self.qa_datasets = set(self.global_config.get('QA_DATASETS', ['intentqa', 'mimeqa', 'siq2']))  # e.g. {"mmlu_qa","ptsd_qa","finance_qa"}
+        self.qa_loss_weight = float(self.global_config.get('QA_LOSS_WEIGHT', 1.0))
 
-        
         # Store global configuration for access to constants
         self.global_config = global_config or {}
         
@@ -131,7 +132,10 @@ class MultiHeadOmniClassifierAccelerateTrainer:
             "mixed_precision": "fp16",
             "use_scheduler": self.use_scheduler,
             "scheduler_type": self.scheduler_type if self.use_scheduler else None,
-            "warmup_steps": self.warmup_steps if self.use_scheduler else None
+            "warmup_steps": self.warmup_steps if self.use_scheduler else None,
+            "qa_datasets": sorted(list(self.qa_datasets)),
+            "qa_loss_weight": self.qa_loss_weight,
+
         }
         init_wandb(
             project=self.global_config.get('WANDB_PROJECT', ''),
@@ -177,9 +181,44 @@ class MultiHeadOmniClassifierAccelerateTrainer:
 
         # store the tensors for the domain ids
         return torch.tensor(ids, dtype=torch.long, device=device)
+    
+    def _split_qa_cls_indices(self, dataset_names):
+        qa_idx, cls_idx = [], []
+        for i, ds in enumerate(dataset_names):
+            if isinstance(ds, bytes):
+                ds = ds.decode("utf-8", errors="ignore")
+            ds = str(ds).lower()
+            (qa_idx if ds in self.qa_datasets else cls_idx).append(i)
+        qa = torch.tensor(qa_idx, dtype=torch.long) if qa_idx else None
+        cl = torch.tensor(cls_idx, dtype=torch.long) if cls_idx else None
+        return qa, cl
+    
+    def _build_lm_labels_subset(self, batch, qa_rows, seq_len, device):
+        """
+        Returns lm_labels_q: [Bq, T] aligned to qa_rows subset.
+        Right-aligns tokenized raw answers; -100 elsewhere.
+        """
+        import numpy as np
+        if qa_rows is None or qa_rows.numel() == 0:
+            return None
+        Bq = qa_rows.numel()
+        lm_labels_q = torch.full((Bq, seq_len), -100, dtype=torch.long, device=device)
+        for j, idx in enumerate(qa_rows.tolist()):
+            ans = batch['lm_labels'][idx]
+            if isinstance(ans, np.generic):
+                ans = ans.item()
+            if isinstance(ans, bytes):
+                ans = ans.decode('utf-8', errors='ignore')
+            ans = "" if ans is None else str(ans)
+            tok = self.tokenizer.encode(ans, add_special_tokens=False)
+            if tok:
+                t = torch.tensor(tok[-seq_len:], dtype=torch.long, device=device)
+                lm_labels_q[j, -t.numel():] = t
+        return lm_labels_q
 
+    
     def get_dataloader(self, data_files, batch_size, num_workers=0, shuffle=True):
-        dataset = OmniClassifierDataset(
+        dataset = AddQAOmniClassifierDataset(
             data_files=data_files,
             tokenizer=self.tokenizer,
             config=self.config,
@@ -495,7 +534,20 @@ class MultiHeadOmniClassifierAccelerateTrainer:
                 if 'dataset' not in batch:
                     raise KeyError("Batch missing 'dataset' needed for domain routing.")
                 # batch['dataset'] is typically a list/tuple length B
-                domain_ids = self._datasets_to_domain_ids(batch['dataset'], device=input_ids.device)
+                # # TODO: Double check whether this datasets_to_domain_ids still work with QA sets
+                # domain_ids = self._datasets_to_domain_ids(batch['dataset'], device=input_ids.device)
+
+                # --- split batch into QA vs CLS subsets based on dataset name ---
+                qa_rows, cls_rows = self._split_qa_cls_indices(batch['dataset'])
+
+                B = input_ids.size(0)
+                domain_ids = torch.zeros(B, dtype=torch.long, device=input_ids.device)  # harmless default for QA rows
+                
+                if cls_rows is not None and cls_rows.numel() > 0:
+                    # only build the domain ids for the CLS rows
+                    ds_cls = [batch['dataset'][i] for i in cls_rows.tolist()]
+                    domain_ids_cls = self._datasets_to_domain_ids(ds_cls, device=input_ids.device)
+                    domain_ids = domain_ids.index_copy(0, cls_rows.to(domain_ids.device), domain_ids_cls)
 
                 # labels sanity
                 if labels.dim() != 1:
@@ -506,18 +558,40 @@ class MultiHeadOmniClassifierAccelerateTrainer:
                         raise ValueError(f"Unexpected labels shape {labels.shape} (expected [B] or [B, C])")
                 
                 with self.accelerator.accumulate(self.model):
-                    logits = self.model(input_ids, attention_mask=attention_mask, domain_ids=domain_ids)
+                                        
+                    cls_loss = torch.tensor(0.0, device=input_ids.device)
+                    preds_cls = None
+                    if cls_rows is not None and cls_rows.numel() > 0:
+                        logits_cls = self.model(
+                            input_ids.index_select(0, cls_rows),
+                            attention_mask=attention_mask.index_select(0, cls_rows) if attention_mask is not None else None,
+                            domain_ids=self._datasets_to_domain_ids([batch['dataset'][i] for i in cls_rows.tolist()], device=input_ids.device)
+                        )
+                        labels_cls = labels.index_select(0, cls_rows)
+                        cls_loss = criterion(logits_cls, labels_cls)
+                        preds_cls = logits_cls.argmax(dim=1)
 
-                    if not torch.isfinite(logits).all():
-                        raise FloatingPointError("Non-finite logits encountered")
+                    qa_loss = torch.tensor(0.0, device=input_ids.device)
+                    has_qa = qa_rows is not None and qa_rows.numel() > 0 and ('lm_labels' in batch)
 
-                    loss = criterion(logits, labels)
+                    if has_qa:
+                        lm_labels_full = self._build_lm_labels_full(
+                            batch=batch,
+                            qa_rows=qa_rows,
+                            seq_len=input_ids.size(1),
+                            device=input_ids.device
+                        )
+                        lm_out = self.model.backbone(
+                            input_ids=input_ids.index_select(0, qa_rows),
+                            attention_mask=attention_mask.index_select(0, qa_rows) if attention_mask is not None else None,
+                            labels=lm_labels_full,
+                        )
+                        qa_loss = lm_out.loss
 
-                    if not torch.isfinite(loss):
-                        raise FloatingPointError("Non-finite loss encountered")
+                    total_loss_this_step = cls_loss + self.qa_loss_weight * qa_loss
 
                     # Accelerate handles gradient accumulation automatically
-                    self.accelerator.backward(loss)
+                    self.accelerator.backward(total_loss_this_step)
 
                     # NOTE: This if condition is not necessary as the accelerator 
                     # already syncs before stepping
@@ -541,24 +615,23 @@ class MultiHeadOmniClassifierAccelerateTrainer:
                     else:
                         current_lr = self.lr
                         
+                
                 with torch.no_grad():
-                    # Accumulate metrics for effective batch
-                    effective_batch_loss += loss.item() * input_ids.size(0)
-                    preds = logits.argmax(dim=1)
-                    
-                    # Gather accuracy metrics from all processes
-                    gathered_preds = self.accelerator.gather_for_metrics(preds)
-                    gathered_labels = self.accelerator.gather_for_metrics(labels)
-                    
-                    # Only compute global accuracy on main process
-                    if self.accelerator.is_main_process:
-                        effective_batch_correct += (gathered_preds == gathered_labels).sum().item()
-                        effective_batch_total += gathered_labels.size(0)
-                    # Also accumulate epoch-level metrics
-                    total_loss += loss.item() * input_ids.size(0)
-                    if self.accelerator.is_main_process:
-                        correct += (gathered_preds == gathered_labels).sum().item()
-                        total += gathered_labels.size(0)
+                    # ---- metrics only on CLS rows ----
+                    if preds_cls is not None:
+                        gathered_preds = self.accelerator.gather_for_metrics(preds_cls)
+                        gathered_labels = self.accelerator.gather_for_metrics(labels.index_select(0, cls_rows))
+
+                        if self.accelerator.is_main_process:
+                            effective_batch_correct += (gathered_preds == gathered_labels).sum().item()
+                            effective_batch_total += gathered_labels.size(0)
+                            correct += (gathered_preds == gathered_labels).sum().item()
+                            total += gathered_labels.size(0)
+
+                    # Accumulate epoch/effective losses using the combined loss
+                    bs = input_ids.size(0)
+                    total_loss += total_loss_this_step.item() * bs
+                    effective_batch_loss += total_loss_this_step.item() * bs
 
                     # Check if this completes an effective batch (gradient update)
                     # An effective batch consists of gradient_accumulation_steps individual batches
