@@ -118,6 +118,7 @@ for DS in $ALL_DS; do
 
   accelerate launch --config_file "$ACCEL_CFG" "$SCRIPT" \
     --mode train \
+    --rla_resume_diff_training_stage \
     --training_strategy lora \
     --train_batch_size 2 \
     --val_batch_size 2 \
