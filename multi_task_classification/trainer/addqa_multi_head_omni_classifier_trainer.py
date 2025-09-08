@@ -646,6 +646,9 @@ class MultiHeadOmniClassifierAccelerateTrainer:
                     # An effective batch consists of gradient_accumulation_steps individual batches
        
                     # Log training metrics for the effective batch
+                    if effective_batch_total == 0:
+                        effective_batch_total = 1  # to avoid div-by-zero in accuracy
+                        
                     log_batch_training_metrics(
                         epoch=epoch,
                         batch_idx=batch_idx,
