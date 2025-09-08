@@ -612,12 +612,6 @@ class RLAMultiHeadOmniClassifierAccelerateTrainer:
                         norm=self.global_config.get("RLA_AUDIO_NORM", "l2"),
                         target_dim=self.d_audio_feat, 
                     )
-                    if pooled_audio_feats is None:
-                        audio_feats_path = batch.get("ext_audio_feats_path", None) or batch.get("ext_audio_feats", None) 
-                        log_failed_path(audio_feats_path, 
-                                        kind="audio", 
-                                        logfile = "/home/keaneong/human-behavior/verl/multi_task_classification/failed_ext_paths_log/corrupted_feats.txt")
-
 
                 else:
                     pooled_audio_feats = None
@@ -645,12 +639,7 @@ class RLAMultiHeadOmniClassifierAccelerateTrainer:
                         target_dim=self.d_video_feat
                     )
 
-                    if pooled_video_feats is None:
-                        video_feats_path = batch.get("ext_video_feats_path", None) or batch.get("ext_video_feats", None) 
-                        log_failed_path(video_feats_path, 
-                                        kind="video", 
-                                        logfile = "/home/keaneong/human-behavior/verl/multi_task_classification/failed_ext_paths_log/corrupted_feats.txt")
-            
+                    # TODO: ideally we should log the failed paths, but nevermind for now
                 else:
                     pooled_video_feats = None
 
