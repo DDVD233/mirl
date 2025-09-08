@@ -159,12 +159,20 @@ class MultiHeadOmniClassifier(nn.Module):
 
         # ----- QA LM path (call through wrapped top-level module) -----
         if lm_labels is not None and domain_ids is None:
-            return self.backbone(
+            if lm_labels == "dummy":
+                return self.backbone(
                 input_ids=input_ids,
                 attention_mask=attention_mask,
-                labels=lm_labels,
+                labels=None,
                 **kwargs
             )
+            else:
+                return self.backbone(
+                    input_ids=input_ids,
+                    attention_mask=attention_mask,
+                    labels=lm_labels,
+                    **kwargs
+                )
 
         if domain_ids is None:
             raise ValueError("domain_ids must be provided: a per-sample domain id is required for multi-head routing.")

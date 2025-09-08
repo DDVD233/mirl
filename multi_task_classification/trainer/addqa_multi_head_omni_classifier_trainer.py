@@ -658,7 +658,7 @@ class MultiHeadOmniClassifierAccelerateTrainer:
                         # same “no-op” trick
                         dummy_ids = input_ids[:1]
                         _ = self.model(input_ids=dummy_ids, attention_mask=attention_mask[:1] if attention_mask is not None else None,
-                                    lm_labels=None)
+                                    lm_labels="dummy")
                         qa_loss = torch.zeros([], device=input_ids.device)
 
 
