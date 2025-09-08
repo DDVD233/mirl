@@ -44,7 +44,7 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml train_multi_
     --save_checkpoint_dir "/scratch/keane/human_behaviour/v5_multi_head_lora_training" \
     --validation_result_dir "/scratch/keane/human_behaviour/v5_multi_head_lora_training/validation_results" \
     --validate_every_n_epochs 1 \
-    --validate_every_n_steps 999999999 \
+    --validate_every_n_steps 2 \
     --early_stopping_patience 99999999 \
     --project "v5_omni-classifier-multi-head-lora" \
     --gradient_accumulation_steps 128 \
