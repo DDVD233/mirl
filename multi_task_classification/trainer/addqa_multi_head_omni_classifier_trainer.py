@@ -535,9 +535,7 @@ class MultiHeadOmniClassifierAccelerateTrainer:
                 if 'dataset' not in batch:
                     raise KeyError("Batch missing 'dataset' needed for domain routing.")
                 # batch['dataset'] is typically a list/tuple length B
-                # # TODO: Double check whether this datasets_to_domain_ids still work with QA sets
-                # domain_ids = self._datasets_to_domain_ids(batch['dataset'], device=input_ids.device)
-
+              
                 # --- split batch into QA vs CLS subsets based on dataset name ---
                 qa_rows, cls_rows = self._split_qa_cls_indices(batch['dataset'])
                                                                          
@@ -583,6 +581,7 @@ class MultiHeadOmniClassifierAccelerateTrainer:
                     qa_loss = torch.tensor(0.0, device=input_ids.device)
                     has_qa = qa_rows is not None and qa_rows.numel() > 0 and ('lm_labels' in batch)
 
+                    lm_out = None
                     if has_qa:
                         lm_labels_q = self._build_lm_labels_subset(
                             batch=batch, qa_rows=qa_rows, seq_len=input_ids.size(1), device=device
@@ -636,6 +635,34 @@ class MultiHeadOmniClassifierAccelerateTrainer:
                             effective_batch_total += gathered_labels.size(0)
                             correct += (gathered_preds == gathered_labels).sum().item()
                             total += gathered_labels.size(0)
+
+                    if lm_out is not None:
+                        # 1) Get token-level predictions (greedy) for the QA rows
+                        pred_text_ids = lm_out.logits.argmax(dim=-1)  # [B,T]
+
+                        # 2) Only evaluate/print tokens where labels are active (labels != -100)
+                        active = (lm_labels_q != -100)
+                        # For labels: make them decodable
+                        text_labels_for_decode = lm_labels_q.masked_fill(lm_labels_q == -100,
+                                                                self.tokenizer.pad_token_id)
+
+                        # Optional: mask predictions to the same active positions
+                        # (keeps inactive tokens as pad for clean decoding)
+                        pred_text_ids_masked = torch.where(active, pred_text_ids, self.tokenizer.pad_token_id)
+
+                        # 3) Gather across processes for consistent printing/metrics
+                        gathered_text_pred = self.accelerator.gather_for_metrics(pred_text_ids_masked)
+                        gathered_text_labels  = self.accelerator.gather_for_metrics(text_labels_for_decode)
+
+                        # 4) Decode to strings
+                        pred_text = self.tokenizer.batch_decode(gathered_text_pred, skip_special_tokens=True)
+                        gold_text = self.tokenizer.batch_decode(gathered_text_labels,  skip_special_tokens=True)
+
+                        if self.accelerator.is_main_process and len(pred_text):
+                            # show a couple of samples
+                            for i in range(min(2, len(pred_text))):
+                                print(f"[QA pred] {pred_text[i]}")
+                                print(f"[QA gold] {gold_text[i]}")
 
                     # Accumulate epoch/effective losses using the combined loss
                     bs = input_ids.size(0)
