@@ -460,27 +460,13 @@ class ConcatMultiHeadOmniClassifierAccelerateTrainer:
         )
 
         # 3) OPTIONAL resumed loader (only used for the first resumed epoch)
-        train_dataloader_resume = None
-        # # If the base offset is > 0, then we need to reinitialize the dataloader to skip to the correct batch idx
-        # if start_batch_offset > 0:
-        #     # Reuse the *same* dataset and the *same* batch_sampler (which encodes shuffle order)
-        #     orig_bs = getattr(train_dataloader, "batch_sampler", None)
-        #     if orig_bs is None:
-        #         raise RuntimeError("Expected train_dataloader to have a batch_sampler when shuffle=True.")
-        #     resume_bs = SkipBatchSampler(orig_bs, skip_batches=start_batch_offset)
-        #     train_dataloader_resume = DataLoader(
-        #         train_dataloader.dataset,
-        #         batch_sampler=resume_bs,
-        #         num_workers=getattr(train_dataloader, "num_workers", 0),
-        #         pin_memory=getattr(train_dataloader, "pin_memory", True),
-        #         collate_fn=getattr(train_dataloader, "collate_fn", None),
-        #         persistent_workers=getattr(train_dataloader, "persistent_workers", False),
-        #     )
-            
-        # # after building train_dataloader_resume
-        # if train_dataloader_resume is not None:
-        #     train_dataloader_resume = self.accelerator.prepare(train_dataloader_resume)
-
+        skipped_dataloader = None
+        
+        if start_batch_offset > 0:
+            skipped_dataloader = self.accelerator.skip_first_batches(
+                train_dataloader, start_batch_offset
+            )
+        
 
         # Get configuration values
         validate_every_n_epochs = self.global_config.get('VALIDATE_EVERY_N_EPOCHS', None)
@@ -496,7 +482,8 @@ class ConcatMultiHeadOmniClassifierAccelerateTrainer:
             self.model.train()
 
             # Use the resume loader only for the first (partial) resumed epoch
-            cur_loader = train_dataloader_resume if (epoch == start_epoch and train_dataloader_resume is not None) else train_dataloader
+            is_resumed_epoch = (epoch == start_epoch and skipped_dataloader is not None)
+            cur_loader = skipped_dataloader if is_resumed_epoch else train_dataloader
 
             # Robustly find the underlying sampler to call set_epoch(epoch) if it exists
             # sampler = getattr(cur_loader, "sampler", None)
@@ -517,7 +504,7 @@ class ConcatMultiHeadOmniClassifierAccelerateTrainer:
 
             # Adjust step math so logs/checkpoints reflect true global position
             # So essentially if we are resuming mid checkpoint, then we need to use this base_offset
-            base_offset = start_batch_offset if (epoch == start_epoch and train_dataloader_resume is not None) else 0
+            base_offset = start_batch_offset if is_resumed_epoch else 0
 
             for batch_idx, batch in tqdm(enumerate(cur_loader), desc="Training", total=len(cur_loader), disable=not self.accelerator.is_main_process):
                 # Set model to training mode (needed because validation sets it to eval mode)
@@ -697,6 +684,9 @@ class ConcatMultiHeadOmniClassifierAccelerateTrainer:
                             training_strategy=self.global_config.get("TRAINING_STRATEGY"),
                             base_ckpt_dir=self.checkpoint_dir,
                         )
+
+            # End of epoch
+            skipped_dataloader = None  # only use the resumed loader for one epoch
 
             # Calculate training metrics
             avg_train_loss = total_loss / max(1, total)
