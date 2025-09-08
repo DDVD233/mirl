@@ -571,7 +571,7 @@ class MultiHeadOmniClassifierAccelerateTrainer:
                     cls_loss = torch.tensor(0.0, device=input_ids.device)
                     preds_cls = None
                     if cls_rows is not None and cls_rows.numel() > 0:
-                        logits_cls = self.model.clf_forward(
+                        logits_cls = self.model(
                             input_ids.index_select(0, cls_rows),
                             attention_mask=attention_mask.index_select(0, cls_rows) if attention_mask is not None else None,
                             domain_ids=self._datasets_to_domain_ids([batch['dataset'][i] for i in cls_rows.tolist()], device=input_ids.device)
@@ -590,10 +590,10 @@ class MultiHeadOmniClassifierAccelerateTrainer:
                         qa_attn = attention_mask.index_select(0, qa_rows) if attention_mask is not None else None
 
                         # *** key change: call via top-level model wrapper, NOT submodule ***
-                        lm_out = self.model.lm_forward(
+                        lm_out = self.model(
                             input_ids=input_ids.index_select(0, qa_rows),
                             attention_mask=qa_attn,
-                            labels=lm_labels_q,
+                            lm_labels=lm_labels_q,
                         )
                         qa_loss = lm_out.loss
 

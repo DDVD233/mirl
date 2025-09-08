@@ -143,25 +143,7 @@ class MultiHeadOmniClassifier(nn.Module):
 
     # ---------- forward ----------
 
-    # --- decoder path: keep wrappers intact by calling via self.model ---
-    def lm_forward(self, input_ids, attention_mask=None, labels=None, **kwargs):
-        """
-        Thin passthrough to the backbone's LM head. Call this via the TOP-LEVEL model,
-        e.g., self.model.lm_forward(...), not self.model.backbone(...).
-        """
-        return self.backbone(input_ids=input_ids,
-                            attention_mask=attention_mask,
-                            labels=labels,
-                            **kwargs)
-
-    # (optional) explicit classifier entrypoint that just aliases forward
-    def clf_forward(self, input_ids, attention_mask=None, domain_ids=None, **kwargs):
-        return self.forward(input_ids=input_ids,
-                            attention_mask=attention_mask,
-                            domain_ids=domain_ids,
-                            **kwargs)
-
-    def forward(self, input_ids, attention_mask=None, domain_ids=None, **kwargs):
+    def forward(self, input_ids, attention_mask=None, domain_ids=None, lm_labels=None, **kwargs):
         """
         Args:
           input_ids: [B, T]
@@ -171,6 +153,15 @@ class MultiHeadOmniClassifier(nn.Module):
         Returns:
           logits_all: [B, global_num_classes]  (21-wide), masked with NEG_INF for irrelevant classes.
         """
+
+        # ----- QA LM path (call through wrapped top-level module) -----
+        if lm_labels is not None and domain_ids is None:
+            return self.backbone(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                labels=labels,
+                **kwargs
+            )
 
         if domain_ids is None:
             raise ValueError("domain_ids must be provided: a per-sample domain id is required for multi-head routing.")
