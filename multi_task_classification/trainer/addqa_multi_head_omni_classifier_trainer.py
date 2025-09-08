@@ -50,11 +50,11 @@ class MultiHeadOmniClassifierAccelerateTrainer:
         self.epochs = epochs
         self.model = model
         self.label_key = config.get("label_key", "answer")
+        # Store global configuration for access to constants
+        self.global_config = global_config or {}
         self.qa_datasets = set(self.global_config.get('QA_DATASETS', ['intentqa', 'mimeqa', 'siq2']))  # e.g. {"mmlu_qa","ptsd_qa","finance_qa"}
         self.qa_loss_weight = float(self.global_config.get('QA_LOSS_WEIGHT', 1.0))
 
-        # Store global configuration for access to constants
-        self.global_config = global_config or {}
         
         # Use the label map from global config
         self.full_label_scheme = self.global_config.get('FULL_LABEL_SCHEME', None)
