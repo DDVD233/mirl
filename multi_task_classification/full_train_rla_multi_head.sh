@@ -94,7 +94,7 @@ for DS in $ALL_DS; do
   echo "-----------------------------------------------"
   echo "Dataset: $DS"
   TRAIN_OUT="$TMP_DIR/train_${DS}.jsonl"
-  VAL_OUT="$TMP_DIR/val_${DS}.jsonl"
+  VAL_OUT="$TMP_DIR/test_${DS}.jsonl"
 
   filter_jsonl "$TRAIN_JSONL" "$DS" "$TRAIN_OUT"
   filter_jsonl "$VAL_JSONL"   "$DS" "$VAL_OUT"
