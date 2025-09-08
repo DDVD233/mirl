@@ -41,12 +41,12 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml train_multi_
     --label_map_path "/home/keaneong/human-behavior/verl/multi_task_classification/unified_label_map_w_feats_v5_unified_scheme_splitmmpsy_binarymmpsy_no_vptd_chalearn_lmvd_esconv.json" \
     --save_every_n_epochs 1 \
     --save_every_n_steps 5000 \
-    --save_checkpoint_dir "/scratch/keane/human_behaviour/2_v5_multi_head_lora_training" \
-    --validation_result_dir "/scratch/keane/human_behaviour/2_v5_multi_head_lora_training/validation_results" \
+    --save_checkpoint_dir "/scratch/keane/human_behaviour/v5_multi_head_lora_training" \
+    --validation_result_dir "/scratch/keane/human_behaviour/v5_multi_head_lora_training/validation_results" \
     --validate_every_n_epochs 1 \
     --validate_every_n_steps 9999999 \
     --early_stopping_patience 99999999 \
-    --project "2_v5_omni-classifier-multi-head-lora" \
+    --project "v5_omni-classifier-multi-head-lora" \
     --gradient_accumulation_steps 128 \
 
 echo "Lora Multi Head training completed!"
