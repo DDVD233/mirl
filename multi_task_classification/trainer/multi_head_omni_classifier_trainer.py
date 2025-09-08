@@ -440,9 +440,9 @@ class MultiHeadOmniClassifierAccelerateTrainer:
         )
 
         # 3) OPTIONAL resumed loader (only used for the first resumed epoch)
-        train_dataloader_resume = None
+        skipped_dataloader = None
         if start_batch_offset > 0:
-            train_dataloader_resume = self.accelerator.skip_first_batches(
+            skipped_dataloader = self.accelerator.skip_first_batches(
                 train_dataloader, start_batch_offset
             )
 
@@ -481,8 +481,8 @@ class MultiHeadOmniClassifierAccelerateTrainer:
             self.model.train()
 
             # Use the resume loader only for the first (partial) resumed epoch
-            is_resumed_epoch = (epoch == start_epoch and train_dataloader_resume is not None)
-            cur_loader = train_dataloader_resume if is_resumed_epoch else train_dataloader
+            is_resumed_epoch = (epoch == start_epoch and skipped_dataloader is not None)
+            cur_loader = skipped_dataloader if is_resumed_epoch else train_dataloader
 
             # Robustly find the underlying sampler to call set_epoch(epoch) if it exists
             sampler = getattr(cur_loader, "sampler", None)
@@ -503,7 +503,7 @@ class MultiHeadOmniClassifierAccelerateTrainer:
 
             # Adjust step math so logs/checkpoints reflect true global position
             # So essentially if we are resuming mid checkpoint, then we need to use this base_offset
-            base_offset = start_batch_offset if (epoch == start_epoch and train_dataloader_resume is not None) else 0
+            base_offset = start_batch_offset if is_resumed_epoch else 0
 
             for batch_idx, batch in tqdm(enumerate(cur_loader), desc="Training", total=len(cur_loader), disable=not self.accelerator.is_main_process):
                 # Set model to training mode (needed because validation sets it to eval mode)
@@ -661,7 +661,9 @@ class MultiHeadOmniClassifierAccelerateTrainer:
                             training_strategy=self.global_config.get("TRAINING_STRATEGY"),
                             base_ckpt_dir=self.checkpoint_dir,
                         )
-
+            # End of epoch
+            skipped_dataloader = None  # Only use the resumed loader for one epoch
+            
             # Calculate training metrics
             avg_train_loss = total_loss / max(1, total)
             train_acc = correct / max(1, total)
