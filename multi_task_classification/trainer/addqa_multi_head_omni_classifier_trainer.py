@@ -26,7 +26,7 @@ from evaluate.detailed_multi_task_evaluation import evaluate_predictions
 
 # Accelerate imports
 from accelerate import Accelerator
-from accelerate.utils import set_seed
+from accelerate.utils import set_seed, DistributedDataParallelKwargs, InitProcessGroupKwargs
 from accelerate.logging import get_logger
 
 logger = get_logger(__name__)
@@ -92,11 +92,14 @@ class MultiHeadOmniClassifierAccelerateTrainer:
 
         # Initialize Accelerate
         use_wandb = self.global_config.get('USE_WANDB', False)
+        ddp = DistributedDataParallelKwargs(find_unused_parameters=True)
+
         self.accelerator = Accelerator(
             gradient_accumulation_steps=gradient_accumulation_steps,
             mixed_precision='fp16',  # Use fp16 for better memory efficiency
             log_with="wandb" if use_wandb else None,
             project_dir=save_checkpoint_dir if use_wandb else None,
+            kwargs_handlers=[ddp]
         )
         
         # Set seed for reproducibility
@@ -630,6 +633,13 @@ class MultiHeadOmniClassifierAccelerateTrainer:
                         cls_loss = criterion(logits_cls, labels_cls)
                         preds_cls = logits_cls.argmax(dim=1)
 
+                    else:
+                        # tiny dummy forward to keep FSDP/ZeRO graph/collectives aligned
+                        dummy_ids = input_ids[:1]
+                        _ = self.model(dummy_ids, attention_mask=attention_mask[:1] if attention_mask is not None else None,
+                                    domain_ids=self._datasets_to_domain_ids([batch['dataset'][0]], device=input_ids.device))
+                        cls_loss = torch.zeros([], device=input_ids.device)
+
                     qa_loss = torch.tensor(0.0, device=input_ids.device)
                     has_qa = qa_rows is not None and qa_rows.numel() > 0 and ('lm_labels' in batch)
 
@@ -644,6 +654,13 @@ class MultiHeadOmniClassifierAccelerateTrainer:
                             lm_labels=lm_labels_q,
                         )
                         qa_loss = lm_out.loss
+                    else:
+                        # same “no-op” trick
+                        dummy_ids = input_ids[:1]
+                        _ = self.model(input_ids=dummy_ids, attention_mask=attention_mask[:1] if attention_mask is not None else None,
+                                    lm_labels=None)
+                        qa_loss = torch.zeros([], device=input_ids.device)
+
 
                     total_loss_this_step = cls_loss + self.qa_loss_weight * qa_loss
 
