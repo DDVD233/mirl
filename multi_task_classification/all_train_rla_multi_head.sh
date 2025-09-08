@@ -49,7 +49,7 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml train_rla_mu
   --val_batch_size 2 \
   --test_batch_size 2 \
   --lr 1e-4 \
-  --hard_gamma 0.0 \
+  --hard_gamma 5.0 \
   --base_lr 1e-4 \
   --rla_lr  5e-5 \
   --epochs 10 \
