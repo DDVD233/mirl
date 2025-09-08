@@ -142,6 +142,25 @@ class MultiHeadOmniClassifier(nn.Module):
                 head.to(device=dev, dtype=dt)
 
     # ---------- forward ----------
+
+    # --- decoder path: keep wrappers intact by calling via self.model ---
+    def lm_forward(self, input_ids, attention_mask=None, labels=None, **kwargs):
+        """
+        Thin passthrough to the backbone's LM head. Call this via the TOP-LEVEL model,
+        e.g., self.model.lm_forward(...), not self.model.backbone(...).
+        """
+        return self.backbone(input_ids=input_ids,
+                            attention_mask=attention_mask,
+                            labels=labels,
+                            **kwargs)
+
+    # (optional) explicit classifier entrypoint that just aliases forward
+    def clf_forward(self, input_ids, attention_mask=None, domain_ids=None, **kwargs):
+        return self.forward(input_ids=input_ids,
+                            attention_mask=attention_mask,
+                            domain_ids=domain_ids,
+                            **kwargs)
+
     def forward(self, input_ids, attention_mask=None, domain_ids=None, **kwargs):
         """
         Args:

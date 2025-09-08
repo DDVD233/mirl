@@ -571,7 +571,7 @@ class MultiHeadOmniClassifierAccelerateTrainer:
                     cls_loss = torch.tensor(0.0, device=input_ids.device)
                     preds_cls = None
                     if cls_rows is not None and cls_rows.numel() > 0:
-                        logits_cls = self.model(
+                        logits_cls = self.model.clf_forward(
                             input_ids.index_select(0, cls_rows),
                             attention_mask=attention_mask.index_select(0, cls_rows) if attention_mask is not None else None,
                             domain_ids=self._datasets_to_domain_ids([batch['dataset'][i] for i in cls_rows.tolist()], device=input_ids.device)
@@ -584,16 +584,16 @@ class MultiHeadOmniClassifierAccelerateTrainer:
                     has_qa = qa_rows is not None and qa_rows.numel() > 0 and ('lm_labels' in batch)
 
                     if has_qa:
-                        lm_labels_full = self._build_lm_labels_subset(
-                            batch=batch,
-                            qa_rows=qa_rows,
-                            seq_len=input_ids.size(1),
-                            device=input_ids.device
+                        lm_labels_q = self._build_lm_labels_subset(
+                            batch=batch, qa_rows=qa_rows, seq_len=input_ids.size(1), device=device
                         )
-                        lm_out = self.model.backbone(
+                        qa_attn = attention_mask.index_select(0, qa_rows) if attention_mask is not None else None
+
+                        # *** key change: call via top-level model wrapper, NOT submodule ***
+                        lm_out = self.model.lm_forward(
                             input_ids=input_ids.index_select(0, qa_rows),
-                            attention_mask=attention_mask.index_select(0, qa_rows) if attention_mask is not None else None,
-                            labels=lm_labels_full,
+                            attention_mask=qa_attn,
+                            labels=lm_labels_q,
                         )
                         qa_loss = lm_out.loss
 
