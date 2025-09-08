@@ -576,7 +576,7 @@ class MultiHeadOmniClassifierAccelerateTrainer:
                     has_qa = qa_rows is not None and qa_rows.numel() > 0 and ('lm_labels' in batch)
 
                     if has_qa:
-                        lm_labels_full = self._build_lm_labels_full(
+                        lm_labels_full = self._build_lm_labels_subset(
                             batch=batch,
                             qa_rows=qa_rows,
                             seq_len=input_ids.size(1),
