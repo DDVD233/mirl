@@ -116,6 +116,8 @@ for DS in $ALL_DS; do
   echo "  val_file:   $VAL_OUT    ($VAL_LINES lines)"
   echo "  save_dir:   $SAVE_DIR"
 
+      # --train_file "$TRAIN_OUT" \
+
   accelerate launch --config_file "$ACCEL_CFG" "$SCRIPT" \
     --mode train \
     --rla_resume_diff_training_stage \
@@ -128,7 +130,7 @@ for DS in $ALL_DS; do
     --base_lr 0 \
     --rla_lr 5e-4 \
     --epochs 2 \
-    --train_file "$TRAIN_OUT" \
+    --train_file "/scratch/keane/human_behaviour/human_behaviour_data/rla_ptsd_train_w_feats.jsonl" \
     --val_file "$VAL_OUT" \
     --test_file "$VAL_OUT" \
     --label_map_path "/home/keaneong/human-behavior/verl/multi_task_classification/unified_label_map_w_feats_v5_unified_scheme_splitmmpsy_binarymmpsy_no_vptd_chalearn_lmvd_esconv.json" \
