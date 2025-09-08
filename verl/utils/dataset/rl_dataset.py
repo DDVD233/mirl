@@ -320,9 +320,12 @@ class RLHFDataset(Dataset):
                 content = new_message["content"]
                 
                 # Apply format prompt to the entire content first if template is loaded
-                # TODO: Please remember to toggle this back on when you do verl
                 if self.format_prompt:
+                    raise Exception("Formatting Prompt")
                     content = self.format_prompt.render(content=content)
+
+                raise Exception("Not Formatting Prompt")
+            
 
                 image_count = len(example.get(self.image_key, []))
                 video_count = len(example.get(self.video_key, []))
