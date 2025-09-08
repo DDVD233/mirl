@@ -68,7 +68,7 @@ from examples.reward_function.hb_evaluation import compute_metrics_by_data_sourc
 
 WorkerType = type[Worker]
 
-debug_file = "/home/keaneong/human-behavior/verl/examples/grpo_trainer/debug_log.txt"
+debug_file = "examples/grpo_trainer/debug_log.txt"
 
 
 def _flatten(d, parent_key=""):
