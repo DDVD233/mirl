@@ -129,28 +129,20 @@ def safe_process_file(smile_instance, file_path: str, max_retries: int = 2):
 
 def extract_opensmile_features(
     file_path: Path,
-    feature_set: str = 'ComParE_2016',
-    feature_level: str = 'functionals'
 ) -> Dict[str, Union[torch.Tensor, str, int]]:
     """Extract OpenSMILE features from an audio or video file.
     
     Args:
         file_path: Path to audio/video file
-        feature_set: OpenSMILE feature set to use
-        feature_level: Feature level ('functionals' or 'lld' for low-level descriptors)
     
     Returns:
         Dictionary containing:
         - 'features': tensor of shape (num_windows, num_features) for lld or (1, num_features) for functionals
         - 'feature_names': list of feature names
         - 'file_path': original file path
-        - 'feature_set': feature set used
-        - 'feature_level': feature level used
     """
     
     debug_print(f"Extracting features from: {file_path}")
-    debug_print(f"Feature set: {feature_set}, Level: {feature_level}")
-    actual_feature_set = None
 
     smile = opensmile.Smile()
     
@@ -192,8 +184,6 @@ def extract_opensmile_features(
         'features': torch.tensor(features_array, dtype=torch.float32),
         'feature_names': feature_names,
         'file_path': str(file_path),
-        'feature_set': actual_feature_set,  # Use the actual feature set that worked
-        'feature_level': feature_level,
         'num_windows': features_array.shape[0],
         'num_features': features_array.shape[1]
     }
@@ -205,15 +195,11 @@ def extract_opensmile_features(
 
 def process_files_in_directory(
     base_dir: Path,
-    feature_set: str = 'ComParE_2016',
-    feature_level: str = 'functionals'
 ):
     """Process all audio/video files in directory and subdirectories, saving features to opensmile folder.
     
     Args:
         base_dir: Base directory to search for files
-        feature_set: OpenSMILE feature set to use
-        feature_level: Feature level to extract
     """
     
     if not base_dir.exists():
@@ -243,8 +229,6 @@ def process_files_in_directory(
         return
     
     print(f"Found {len(supported_files)} file(s) to process")
-    print(f"Using feature set: {feature_set}")
-    print(f"Using feature level: {feature_level}")
     print(f"Features will be saved to: {opensmile_dir}\n")
     
     processed_count = 0
@@ -296,9 +280,7 @@ def process_files_in_directory(
                 
                 # Extract features
                 features = extract_opensmile_features(
-                    file_path,
-                    feature_set=feature_set,
-                    feature_level=feature_level
+                    file_path
                 )
                 
                 # Save features as PyTorch file
@@ -353,8 +335,6 @@ def load_and_inspect_features(pt_file_path: Path):
             print(f"  {key}: {value}")
     
     print(f"\nOriginal file: {features['file_path']}")
-    print(f"Feature set: {features['feature_set']}")
-    print(f"Feature level: {features['feature_level']}")
     print(f"Number of windows: {features['num_windows']}")
     print(f"Number of features: {features['num_features']}")
     
@@ -370,45 +350,12 @@ def load_and_inspect_features(pt_file_path: Path):
     return features
 
 
-def list_available_feature_sets():
-    """List all available OpenSMILE feature sets."""
-    
-    print("Available OpenSMILE feature sets:")
-    print("=" * 50)
-    
-    # Common feature sets with descriptions
-    feature_sets = {
-        'ComParE_2016': 'ComParE 2016 feature set (6373 features)',
-        'GeMAPSv01b': 'Geneva Minimalistic Acoustic Parameter Set (62 features)',
-        'eGeMAPSv02': 'Extended Geneva Minimalistic Acoustic Parameter Set (88 features)',
-        'emobase': 'Emotion recognition baseline set (988 features)',
-        'IS09_emotion': 'INTERSPEECH 2009 Emotion Challenge (384 features)',
-        'IS10_paraling': 'INTERSPEECH 2010 Paralinguistic Challenge (1582 features)',
-        'IS11_speaker_state': 'INTERSPEECH 2011 Speaker State Challenge (4368 features)',
-        'IS12_speaker_trait': 'INTERSPEECH 2012 Speaker Trait Challenge (6125 features)',
-        'IS13_ComParE': 'INTERSPEECH 2013 ComParE Challenge (6373 features)',
-    }
-    
-    for name, description in feature_sets.items():
-        print(f"  {name:20s} - {description}")
-    
-    print("\nFeature levels:")
-    print("  functionals - Statistical functionals over time (default)")
-    print("  lld         - Low-level descriptors (frame-by-frame features)")
-
-
 def check_opensmile_installation():
     """Check if OpenSMILE is properly installed and working."""
     print("Checking OpenSMILE installation...")
     try:
         import opensmile
         print(f"OpenSMILE version: {opensmile.__version__ if hasattr(opensmile, '__version__') else 'Unknown'}")
-        
-        # Check available feature sets
-        if hasattr(opensmile, 'FeatureSet'):
-            print("Available feature sets:")
-            for fs in opensmile.FeatureSet:
-                print(f"  - {fs}")
         
         # Try to create a basic instance
         test_sets = ['emobase', 'eGeMAPSv02', 'GeMAPSv01b']
@@ -449,8 +396,6 @@ def test_single_file(file_path: Path, feature_set: str = 'eGeMAPSv02'):
     try:
         features = extract_opensmile_features(
             file_path,
-            feature_set=feature_set,
-            feature_level='functionals'
         )
         
         print(f"\nSuccess! Extracted features:")
@@ -473,35 +418,14 @@ def main():
     )
     parser.add_argument("directory", help="Base directory to search for audio/video files")
     parser.add_argument(
-        "--feature-set", 
-        default="ComParE_2016",
-        help="OpenSMILE feature set to use (default: ComParE_2016)"
-    )
-    parser.add_argument(
-        "--feature-level",
-        default="functionals",
-        choices=["functionals", "lld"],
-        help="Feature level to extract (default: functionals)"
-    )
-    parser.add_argument(
         "--inspect", 
         action="store_true", 
         help="Inspect existing .pt files instead of processing"
     )
     parser.add_argument(
-        "--list-features",
-        action="store_true",
-        help="List available feature sets and exit"
-    )
-    parser.add_argument(
         "--debug",
         action="store_true",
         help="Enable debug mode with verbose output"
-    )
-    parser.add_argument(
-        "--test-file",
-        type=str,
-        help="Test processing a single file for debugging"
     )
     parser.add_argument(
         "--check-install",
@@ -523,19 +447,6 @@ def main():
             print("\nOpenSMILE installation has issues. Please reinstall:")
             print("  pip uninstall opensmile")
             print("  pip install opensmile")
-        return
-    
-    if args.list_features:
-        list_available_feature_sets()
-        return
-    
-    # Test single file mode
-    if args.test_file:
-        test_file = Path(args.test_file)
-        if not test_file.exists():
-            print(f"Error: Test file does not exist: {test_file}")
-            return
-        test_single_file(test_file, args.feature_set)
         return
     
     base_dir = Path(args.directory)
@@ -568,9 +479,7 @@ def main():
     else:
         # Process mode: extract features from files
         process_files_in_directory(
-            base_dir,
-            feature_set=args.feature_set,
-            feature_level=args.feature_level
+            base_dir
         )
 
 
