@@ -41,7 +41,7 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml addqa_train_
     --save_checkpoint_dir "/scratch/keane/human_behaviour/debug_addqa_multi_task_lora_training" \
     --validation_result_dir "/scratch/keane/human_behaviour/debug_addqa_multi_task_lora_training/validation_results" \
     --validate_every_n_epochs 1 \
-    --validate_every_n_steps 20 \
+    --validate_every_n_steps 9999 \
     --early_stopping_patience 99999 \
     --project "debug-addqa-omni-classifier-multi-task-lora" \
     --gradient_accumulation_steps 4 \
