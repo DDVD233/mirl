@@ -177,6 +177,7 @@ class MultiHeadOmniClassifier(nn.Module):
         )
         h = out.hidden_states[-2]  # [B,T,H]
 
+        # TODO: Double check what this effect has in the context of omni
         if attention_mask is not None:
             pooled = (h * attention_mask.unsqueeze(-1)).sum(1) / attention_mask.sum(1, keepdim=True)
         else:

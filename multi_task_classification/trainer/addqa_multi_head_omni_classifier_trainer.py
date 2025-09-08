@@ -56,8 +56,8 @@ class MultiHeadOmniClassifierAccelerateTrainer:
         self.model = model
         
         # (optional but nice) make generate() stop naturally
-        self.model.generation_config.eos_token_id = self.tokenizer.eos_token_id
-        self.model.generation_config.pad_token_id = self.tokenizer.pad_token_id
+        self.model.backbone.generation_config.eos_token_id = self.tokenizer.eos_token_id
+        self.model.backbone.generation_config.pad_token_id = self.tokenizer.pad_token_id
 
         self.label_key = config.get("label_key", "answer")
         # Store global configuration for access to constants
