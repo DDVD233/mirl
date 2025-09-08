@@ -40,6 +40,17 @@ class MultiHeadOmniClassifierAccelerateTrainer:
         self.test_data_files = test_data_files
         self.tokenizer = tokenizer
         self.processor = processor
+        # EOS / PAD sanity (needed for both training & generation)
+        if self.tokenizer.eos_token_id is None:
+            raise ValueError("Tokenizer needs an eos_token_id for QA SFT.")
+        if self.tokenizer.pad_token_id is None:
+            self.tokenizer.pad_token_id = self.tokenizer.eos_token_id  # common default
+
+        # (optional but nice) make generate() stop naturally
+        self.model.generation_config.eos_token_id = self.tokenizer.eos_token_id
+        self.model.generation_config.pad_token_id = self.tokenizer.pad_token_id
+
+
         self.config = config # basically the config for the dataset
         self.batch_size = batch_size
         self.val_batch_size = val_batch_size
@@ -193,28 +204,70 @@ class MultiHeadOmniClassifierAccelerateTrainer:
         cl = torch.tensor(cls_idx, dtype=torch.long) if cls_idx else None
         return qa, cl
     
-    def _build_lm_labels_subset(self, batch, qa_rows, seq_len, device):
+    def _build_tf_inputs_and_labels(self, batch, qa_rows, seq_len, device):
         """
-        Returns lm_labels_q: [Bq, T] aligned to qa_rows subset.
-        Right-aligns tokenized raw answers; -100 elsewhere.
+        Returns:
+        qa_input_ids: [Bq, T]  = prompt + answer(+EOS), padded/truncated to T
+        qa_attn:      [Bq, T]  = 1 on real tokens, 0 on pads
+        lm_labels_q:  [Bq, T]  = -100 on prompt/pads, answer(+EOS) tokens elsewhere
         """
         import numpy as np
         if qa_rows is None or qa_rows.numel() == 0:
-            return None
+            return None, None, None
+
+        ids_all = batch["input_ids"]
+        attn_all = batch.get("attention_mask", None)
+
         Bq = qa_rows.numel()
-        lm_labels_q = torch.full((Bq, seq_len), -100, dtype=torch.long, device=device)
+        T  = seq_len
+        pad_id = self.tokenizer.pad_token_id
+        eos_id = self.tokenizer.eos_token_id
+
+        qa_input_ids = torch.full((Bq, T), pad_id, dtype=torch.long, device=device)
+        qa_attn      = torch.zeros((Bq, T), dtype=torch.long, device=device)
+        lm_labels_q  = torch.full((Bq, T), -100,  dtype=torch.long, device=device)
+
         for j, idx in enumerate(qa_rows.tolist()):
-            ans = batch['lm_labels'][idx]
+            # --- prompt slice ---
+            prompt_ids = ids_all[idx]                          # [T]
+            if attn_all is not None:
+                prompt_len = int(attn_all[idx].sum().item())   # count non-pad
+            else:
+                # fallback: count until first pad
+                prompt_len = (prompt_ids != pad_id).sum().item()
+
+            prompt_len = min(prompt_len, T)
+            # copy prompt first
+            qa_input_ids[j, :prompt_len] = prompt_ids[:prompt_len]
+            qa_attn[j, :prompt_len] = 1
+
+            # --- tokenize answer (+EOS) ---
+            ans = batch["lm_labels"][idx]
             if isinstance(ans, np.generic):
                 ans = ans.item()
             if isinstance(ans, bytes):
-                ans = ans.decode('utf-8', errors='ignore')
+                ans = ans.decode("utf-8", errors="ignore")
             ans = "" if ans is None else str(ans)
-            tok = self.tokenizer.encode(ans, add_special_tokens=False)
-            if tok:
-                t = torch.tensor(tok[-seq_len:], dtype=torch.long, device=device)
-                lm_labels_q[j, -t.numel():] = t
-        return lm_labels_q
+
+            ans_tok = self.tokenizer.encode(ans, add_special_tokens=False)
+            if len(ans_tok) == 0 or ans_tok[-1] != eos_id:
+                ans_tok = (ans_tok + [eos_id])
+
+            # space left after prompt
+            rem = T - prompt_len
+            if rem > 0:
+                ans_tok = ans_tok[:rem]
+                qa_input_ids[j, prompt_len:prompt_len+len(ans_tok)] = torch.tensor(ans_tok, device=device)
+                qa_attn[j,      prompt_len:prompt_len+len(ans_tok)] = 1
+
+                # labels: -100 on prompt, copy answer(+EOS)
+                lm_labels_q[j,  prompt_len:prompt_len+len(ans_tok)] = qa_input_ids[j, prompt_len:prompt_len+len(ans_tok)]
+
+        # sanity: no loss on pads
+        if attn_all is not None:
+            assert not (((lm_labels_q != -100) & (qa_attn == 0)).any()), "Loss on pads detected."
+
+        return qa_input_ids, qa_attn, lm_labels_q
 
     
     def get_dataloader(self, data_files, batch_size, num_workers=0, shuffle=True):
@@ -583,19 +636,16 @@ class MultiHeadOmniClassifierAccelerateTrainer:
 
                     lm_out = None
                     if has_qa:
-                        lm_labels_q = self._build_lm_labels_subset(
+                        qa_input_ids, qa_attn, lm_labels_q = self._build_tf_inputs_and_labels(
                             batch=batch, qa_rows=qa_rows, seq_len=input_ids.size(1), device=device
                         )
-                        qa_attn = attention_mask.index_select(0, qa_rows) if attention_mask is not None else None
-
-                        # *** key change: call via top-level model wrapper, NOT submodule ***
                         lm_out = self.model(
-                            input_ids=input_ids.index_select(0, qa_rows),
+                            input_ids=qa_input_ids,
                             attention_mask=qa_attn,
-                            lm_labels=lm_labels_q,
+                            labels=lm_labels_q,
                         )
                         qa_loss = lm_out.loss
-
+                        
                     total_loss_this_step = cls_loss + self.qa_loss_weight * qa_loss
 
                     # Accelerate handles gradient accumulation automatically
