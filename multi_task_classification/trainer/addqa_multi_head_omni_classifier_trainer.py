@@ -493,6 +493,8 @@ class MultiHeadOmniClassifierAccelerateTrainer:
                 input_ids = batch['input_ids']
                 labels = batch['labels']
                 attention_mask = batch.get('attention_mask', None)
+                lm_labels = batch['lm_labels']
+                dataset = batch["dataset"]
 
                 # retrieve the batch and domain_ids for all the batch
                 if 'dataset' not in batch:
@@ -558,26 +560,17 @@ class MultiHeadOmniClassifierAccelerateTrainer:
                     g_prompts  = self.accelerator.gather_for_metrics(qa_input_ids)          # [N_total, T]  (optional; only if you want full sequences)
 
                     raise Exception(g_cont_ids)
+                
                     # 3) Also gather metadata (strings) using gather_object
                     #    Build per-row lists on each rank first
-                    gold_texts_local, ds_texts_local = [], []
-                    for row in qa_rows.tolist():
-                        gold = batch.get('lm_labels', None)
-                        if gold is not None:
-                            gold = gold[row]
-                            if isinstance(gold, (bytes, bytearray)):
-                                gold = gold.decode("utf-8", errors="ignore")
-                            gold_texts_local.append("" if gold is None else str(gold))
-                        else:
-                            gold_texts_local.append("")
+                    qa_lm_labels = lm_labels.index_select(0, qa_rows)
+                    qa_datasets = dataset.index_select(0, qa_rows)
 
-                        ds = batch['dataset'][row]
-                        ds_texts_local.append(ds.decode("utf-8", errors="ignore") if isinstance(ds, (bytes, bytearray)) else str(ds))
+                    # collect them all
+                    gathered_lm_labels = self.accelerator.gather_for_metrics(qa_lm_labels)  # [N_total]
+                    gathered_datasets  = self.accelerator.gather_for_metrics(qa_datasets)   #
 
-                    g_gold_lists = self.accelerator.gather_for_metrics(gold_texts_local)  # list[list[str]] from all ranks
-                    g_ds_lists   = self.accelerator.gather_for_metrics(ds_texts_local)    # list[list[str]] from all ranks
-
-                    # raise Exception(g_gold_lists)
+                    raise Exception(gathered_lm_labels)
                 
                     # 4) Decode ONLY on main process (after gathering)
                     if self.accelerator.is_main_process:
