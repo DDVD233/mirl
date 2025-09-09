@@ -671,8 +671,8 @@ class MultiHeadOmniClassifierAccelerateTrainer:
                     #     lm_output = model_output["lm_output"]
 
 
-                    total_loss = cls_loss + self.qa_loss_weight * qa_loss
-                    self.accelerator.backward(total_loss)
+                    total_loss_this_step = cls_loss + self.qa_loss_weight * qa_loss
+                    self.accelerator.backward(total_loss_this_step)
 
                     optimizer.step()
                     
