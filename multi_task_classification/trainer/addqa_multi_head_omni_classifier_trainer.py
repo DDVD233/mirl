@@ -582,7 +582,7 @@ class MultiHeadOmniClassifierAccelerateTrainer:
                         all_gold_texts.extend(gathered_lm_labels)
                         all_qa_datasets.extend(gathered_datasets)
 
-                        # raise Exception("All predicted text", all_pred_texts)
+                        raise Exception("All predicted text", all_pred_texts)
 
         # Calculate average loss
         avg_loss = total_loss / max(1, len(all_labels)) if self.accelerator.is_main_process else 0.0
