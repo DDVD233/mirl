@@ -304,23 +304,25 @@ class MultiHeadOmniClassifier(nn.Module):
         if hasattr(backbone.config, "use_cache"):
             backbone.config.use_cache = True
 
-        # choose the right sharding context
-        ds_plugin = getattr(accelerator.state, "deepspeed_plugin", None)
-        if ds_plugin is not None:
-            import deepspeed
-            # materialize full params during generate (ZeRO-3 safe)
-            with deepspeed.zero.GatheredParameters(backbone.parameters(), modifier_rank=None):
-                return backbone.generate(input_ids=input_ids, attention_mask=attention_mask, **gen_cfg)
-
-        # FSDP path (if wrapped by FSDP)
-        try:
-            from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
-            if isinstance(core, FSDP) or any(isinstance(m, FSDP) for m in core.modules()):
-                with FSDP.summon_full_params(backbone, writeback=False, recurse=True):
-                    return backbone.generate(input_ids=input_ids, attention_mask=attention_mask, **gen_cfg)
-        except Exception:
-            pass  # not FSDP, fall through
-
         # plain DDP/single-GPU
         with FSDP.summon_full_params(emb, writeback=False, recurse=True):
             return backbone.generate(input_ids=input_ids, attention_mask=attention_mask, **gen_cfg)
+    
+
+        # # choose the right sharding context
+        # ds_plugin = getattr(accelerator.state, "deepspeed_plugin", None)
+        # if ds_plugin is not None:
+        #     import deepspeed
+        #     # materialize full params during generate (ZeRO-3 safe)
+        #     with deepspeed.zero.GatheredParameters(backbone.parameters(), modifier_rank=None):
+        #         return backbone.generate(input_ids=input_ids, attention_mask=attention_mask, **gen_cfg)
+
+        # # FSDP path (if wrapped by FSDP)
+        # try:
+        #     from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
+        #     if isinstance(core, FSDP) or any(isinstance(m, FSDP) for m in core.modules()):
+        #         with FSDP.summon_full_params(backbone, writeback=False, recurse=True):
+        #             return backbone.generate(input_ids=input_ids, attention_mask=attention_mask, **gen_cfg)
+        # except Exception:
+        #     pass  # not FSDP, fall through
+
