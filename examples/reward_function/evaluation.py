@@ -253,9 +253,6 @@ def parent(predictions: List[str], ground_truths: List[str], demographics: List[
         print(f"std of accuracy for parent = {std_acc:.4f}")
 
     if len(f1_values) >= 2:
-        f1_diff = max(f1_values) - min(f1_values)
-        results["f1_diff"] = f1_diff
-        print(f"F1 max diff for parent = {f1_diff:.4f}")
         f1_std = statistics.stdev(f1_values)
         results["f1_std"] = f1_std
         print(f"std of f1 for parent = {f1_std:.4f}")

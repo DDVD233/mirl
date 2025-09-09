@@ -344,6 +344,21 @@ class FSDPVLLMShardingManager(BaseShardingManager):
 
         patch_vllm_moe_model_weight_loader(model)
         device = get_device_id()  # used when fsdp2 set cpu_offload_policy
+        
+        # Special handling for Qwen2_5OmniThinkerForConditionalGeneration
+        # This vLLM model doesn't have a 'model.' attribute, so we need to remove the prefix
+        model_class_name = model.__class__.__name__
+        if model_class_name == "Qwen2_5OmniThinkerForConditionalGeneration":
+            # Remove 'model.' prefix from parameter names for this specific model
+            updated_params = {name.replace("model.", "language_model.model.") if name.startswith("model.") else name: param
+                            for name, param in updated_params.items()}
+            updated_params = {
+                name.replace("lm_head.", "language_model.lm_head.") if name.startswith("lm_head.") else name: param
+                for name, param in updated_params.items()}
+            updated_params = {
+                name.replace("logits_processor.", "language_model.logits_processor.") if name.startswith("logits_processor.") else name: param
+                for name, param in updated_params.items()}
+
         loaded_params = model.load_weights(
             (
                 (name, param.to(device, non_blocking=True).full_tensor() if isinstance(param, DTensor) else param)

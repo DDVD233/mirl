@@ -34,7 +34,7 @@ import torch
 import ujson
 import wandb
 from omegaconf import OmegaConf, open_dict
-from torch.utils.data import Dataset, Sampler
+from torch.utils.data import Dataset, Sampler, BatchSampler, SequentialSampler
 from torchdata.stateful_dataloader import StatefulDataLoader
 from tqdm import tqdm
 
@@ -63,6 +63,23 @@ from verl.utils.seqlen_balancing import get_seqlen_balanced_partitions, log_seql
 from verl.utils.torch_functional import masked_mean
 from verl.utils.tracking import ValidationGenerationsLogger
 from examples.reward_function.evaluation import compute_metrics_by_data_source
+
+WorkerType = type[Worker]
+
+debug_file = "/home/keaneong/human-behavior/verl/examples/grpo_trainer/debug_log.txt"
+
+class Role(Enum):
+    """
+    To create more roles dynamically, you can subclass Role and add new members
+    """
+
+    Actor = 0
+    Rollout = 1
+    ActorRollout = 2
+    Critic = 3
+    RefPolicy = 4
+    RewardModel = 5
+    ActorRolloutRef = 6
 
 
 @dataclass
@@ -327,6 +344,7 @@ class RayPPOTrainer:
         val_dataset: Optional[Dataset] = None,
         collate_fn=None,
         train_sampler: Optional[Sampler] = None,
+        val_sampler: Optional[Sampler] = None,
         device_name=None,
     ):
         """
@@ -402,7 +420,11 @@ class RayPPOTrainer:
         self.train_dataset, self.val_dataset = train_dataset, val_dataset
 
         if train_sampler is None:
-            train_sampler = create_rl_sampler(self.config.data, self.train_dataset)
+            train_sampler = create_rl_sampler(self.config.data, self.train_dataset, split="train")
+        
+        if val_sampler is None:
+            val_sampler = create_rl_sampler(self.config.data, self.val_dataset, split="val")
+            
         if collate_fn is None:
             from verl.utils.dataset.rl_dataset import collate_fn as default_collate_fn
 
@@ -410,16 +432,41 @@ class RayPPOTrainer:
 
         num_workers = self.config.data["dataloader_num_workers"]
 
-        self.train_dataloader = StatefulDataLoader(
-            dataset=self.train_dataset,
-            batch_size=self.config.data.get("gen_batch_size", self.config.data.train_batch_size),
-            num_workers=num_workers,
-            drop_last=True,
-            collate_fn=collate_fn,
-            sampler=train_sampler,
-        )
 
-        val_batch_size = self.config.data.val_batch_size  # Prefer config value if set
+        if isinstance(train_sampler, BatchSampler):
+            self.train_dataloader = StatefulDataLoader(
+                dataset=self.train_dataset,
+                batch_sampler=train_sampler,
+                num_workers=num_workers,
+                collate_fn=collate_fn,
+            )
+        else:
+            # Else if it is not a batch sampler, we can specify the batch size directly
+            self.train_dataloader = StatefulDataLoader(
+                dataset=self.train_dataset,
+                batch_size=self.config.data.get("gen_batch_size", self.config.data.train_batch_size),
+                num_workers=num_workers,
+                # shuffle=False,
+                drop_last=True,
+                collate_fn=collate_fn,
+                sampler=train_sampler,
+            )
+        if isinstance(val_sampler, BatchSampler):
+            # BatchSampler path: DO NOT pass batch_size/shuffle/drop_last
+            self.val_dataloader = StatefulDataLoader(
+                dataset=self.val_dataset,
+                batch_sampler=val_sampler,
+                num_workers=num_workers,
+                collate_fn=collate_fn,
+            )
+        else:
+            # Plain Sampler path: compute val_batch_size (None -> len(dataset))
+            # This plain sampler path, if you trace the instance of val_sampler,
+            # should be that of a sequential sampler. Break if it is not.
+            if not isinstance(val_sampler, SequentialSampler):
+                raise ValueError("Validation sampler is not a SequentialSampler")
+
+        val_batch_size = self.config.data.val_batch_size
         if val_batch_size is None:
             val_batch_size = len(self.val_dataset)
 
@@ -839,6 +886,8 @@ class RayPPOTrainer:
             )
 
     def _save_checkpoint(self):
+
+        ## TO SAVE CHECKPOINT
         from verl.utils.fs import local_mkdir_safe
 
         # path: given_path + `/global_step_{global_steps}` + `/actor`
@@ -1045,8 +1094,23 @@ class RayPPOTrainer:
         )
         next_step_profile = False
 
+
         for epoch in range(self.config.trainer.total_epochs):
-            for batch_dict in self.train_dataloader:
+            # i = 0
+            for batch_idx, batch_dict in enumerate(self.train_dataloader):
+                #--- DEBUG: log batch content into debug_file ---
+
+
+                if debug_file is not None:
+                    with open(debug_file, "a", encoding="utf-8") as f:
+                        log_entry = {
+                            "epoch": int(epoch),
+                            "batch_idx": int(batch_idx),
+                            "modality_signatures": batch_dict.get("modality_signatures", []),
+                            "prompts": batch_dict.get("debug_prompts", []),
+                        }
+                        f.write(json.dumps(log_entry, ensure_ascii=False, default=lambda o: o.tolist() if isinstance(o, np.ndarray) else str(o)) + "\n")
+                
                 metrics = {}
                 timing_raw = {}
 
@@ -1072,10 +1136,15 @@ class RayPPOTrainer:
 
                 is_last_step = self.global_steps >= self.total_training_steps
 
+                # TODO: double check the gen_batch
+                # print(f"gen_batch", gen_batch)
+                # i += 1
+
                 with marked_timer("step", timing_raw):
                     # generate a batch
                     with marked_timer("gen", timing_raw, color="red"):
                         if not self.async_rollout_mode:
+                            # TODO: Fix the audio generation for this
                             gen_batch_output = self.actor_rollout_wg.generate_sequences(gen_batch)
                         else:
                             gen_batch_output = self.async_rollout_manager.generate_sequences(gen_batch)

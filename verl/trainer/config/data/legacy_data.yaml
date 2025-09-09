@@ -77,6 +77,21 @@ image_key: images
 # The field in the multi-modal dataset where the video is located.
 video_key: videos
 
+# The field in the multi-modal dataset where the audio is located. Default is 'audios'.
+audio_key: audios
+
+# Comma-separated list of modalities to process. Default is 'images,videos'.
+# Available modalities: images, videos, audios
+# Example: 'images,videos,audios' to enable all modalities
+modalities: images,videos
+
+train_modality_batching:
+    enabled: false
+    drop_last: false
+val_modality_batching:
+    enabled: false
+    drop_last: false
+
 # If the remote tokenizer has a Python file, this flag determines whether to allow using it.
 trust_remote_code: False
 
