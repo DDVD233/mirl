@@ -306,7 +306,7 @@ class MultiHeadOmniClassifier(nn.Module):
             backbone.config.use_cache = True
 
         # plain DDP/single-GPU
-        with FSDP.summon_full_params(emb, writeback=False, recurse=True):
+        with FSDP.summon_full_params(backbone, writeback=False, recurse=True):
             return backbone.generate(input_ids=input_ids, attention_mask=attention_mask, **gen_cfg)
     
 
