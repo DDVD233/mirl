@@ -398,66 +398,159 @@ class MultiHeadOmniClassifierAccelerateTrainer:
     
         return start_epoch, start_batch_offset, global_step, meta, ckpt_dir
     
+    # @torch.no_grad()
+    # def _greedy_decode_no_generate(self, qa_input_ids, qa_attn, max_new_tokens=64):
+    #     """
+    #     Manual greedy decoding using the same forward pass (no .generate, no teacher forcing).
+    #     - qa_input_ids: [Bq, T] prompt tokens
+    #     - qa_attn:      [Bq, T] or None
+    #     Returns:
+    #     cont_ids:  [Bq, L] newly generated token ids (L <= max_new_tokens)
+    #     """
+    #     # Work on copies to avoid mutating caller tensors
+    #     input_ids = qa_input_ids.clone()
+    #     attn      = qa_attn.clone() if qa_attn is not None else None
+
+    #     device = input_ids.device
+    #     Bq     = input_ids.size(0)
+
+    #     # EOS / PAD
+    #     eos_id = self.tokenizer.eos_token_id
+    #     pad_id = self.tokenizer.pad_token_id if self.tokenizer.pad_token_id is not None else eos_id
+
+    #     finished = torch.zeros(Bq, dtype=torch.bool, device=device)
+    #     generated = []
+
+    #     for _ in range(max_new_tokens):
+    #         # Domain sentinel = -1 for QA (no head routing)
+    #         # It should already be handled in the original domain_ids in the main loop, but just to be sure
+    #         domain_ids_q = torch.full((Bq,), -1, dtype=torch.long, device=device)
+            
+    #         out = self.model(
+    #             input_ids=input_ids,
+    #             attention_mask=attn,
+    #             domain_ids=domain_ids_q,
+    #             lm_labels=None
+    #         )
+        
+    #         # Same forward path; take LM logits from last position
+    #         next_logits = out["lm_output"].logits[:, -1, :]        # [Bq, V]
+    #         next_tokens = next_logits.argmax(dim=-1)               # [Bq]
+
+    #         # If sequence already finished, keep emitting PAD to keep shape consistent
+    #         next_tokens = torch.where(finished, torch.full_like(next_tokens, pad_id), next_tokens)
+
+    #         generated.append(next_tokens.unsqueeze(1))             # accumulate [Bq, 1]
+
+    #         # Append to input_ids (+ update attn if present)
+    #         input_ids = torch.cat([input_ids, next_tokens.unsqueeze(1)], dim=1)
+    #         if attn is not None:
+    #             one = torch.ones((Bq, 1), dtype=attn.dtype, device=device)
+    #             attn = torch.cat([attn, one], dim=1)
+
+    #         # Early stop if all hit EOS
+    #         finished = finished | (next_tokens == eos_id)
+    #         if torch.all(finished):
+    #             break
+
+    #     if not generated:
+    #         # no tokens generated (edge-case max_new_tokens=0)
+    #         return torch.empty((Bq, 0), dtype=input_ids.dtype, device=device)
+
+    #     return torch.cat(generated, dim=1)  # [Bq, L]
+    
     @torch.no_grad()
     def _greedy_decode_no_generate(self, qa_input_ids, qa_attn, max_new_tokens=64):
         """
-        Manual greedy decoding using the same forward pass (no .generate, no teacher forcing).
-        - qa_input_ids: [Bq, T] prompt tokens
-        - qa_attn:      [Bq, T] or None
-        Returns:
-        cont_ids:  [Bq, L] newly generated token ids (L <= max_new_tokens)
+        Greedy decode WITHOUT .generate, using past_key_values for speed.
+        - Keeps your behavior (no context-window cap).
+        - Uses KV cache + disables grad ckpt during decode for stability/speed.
+        Returns: cont_ids [B, L<=max_new_tokens]
         """
-        # Work on copies to avoid mutating caller tensors
-        input_ids = qa_input_ids.clone()
-        attn      = qa_attn.clone() if qa_attn is not None else None
+        device = qa_input_ids.device
+        B, _ = qa_input_ids.shape
 
-        device = input_ids.device
-        Bq     = input_ids.size(0)
-
-        # EOS / PAD
         eos_id = self.tokenizer.eos_token_id
         pad_id = self.tokenizer.pad_token_id if self.tokenizer.pad_token_id is not None else eos_id
 
-        finished = torch.zeros(Bq, dtype=torch.bool, device=device)
-        generated = []
+        # --- turn on cache & temporarily disable gradient checkpointing
+        # safer to call methods on unwrapped model, but config edits are fine either way
+        bb = self.accelerator.unwrap_model(self.model).backbone if hasattr(self, "accelerator") else self.model.backbone
+        prev_use_cache = getattr(bb.config, "use_cache", False)
+        was_ckpt = getattr(bb, "is_gradient_checkpointing", False)
 
-        for _ in range(max_new_tokens):
-            # Domain sentinel = -1 for QA (no head routing)
-            # It should already be handled in the original domain_ids in the main loop, but just to be sure
-            domain_ids_q = torch.full((Bq,), -1, dtype=torch.long, device=device)
-            
+        if hasattr(bb.config, "use_cache"):
+            bb.config.use_cache = True
+        if was_ckpt and hasattr(bb, "gradient_checkpointing_disable"):
+            bb.gradient_checkpointing_disable()
+
+        try:
+            generated = []
+            finished = torch.zeros(B, dtype=torch.bool, device=device)
+
+            # ---- 1) Build KV cache with full prompt
+            domain_ids_q = torch.full((B,), -1, dtype=torch.long, device=device)  # sentinel: no head routing
             out = self.model(
-                input_ids=input_ids,
-                attention_mask=attn,
+                input_ids=qa_input_ids,
+                attention_mask=qa_attn,
                 domain_ids=domain_ids_q,
-                lm_labels=None
+                lm_labels=None,
             )
-        
-            # Same forward path; take LM logits from last position
-            next_logits = out["lm_output"].logits[:, -1, :]        # [Bq, V]
-            next_tokens = next_logits.argmax(dim=-1)               # [Bq]
+            lm_out = out["lm_output"]
+            logits = lm_out.logits  # [B, T, V]
 
-            # If sequence already finished, keep emitting PAD to keep shape consistent
-            next_tokens = torch.where(finished, torch.full_like(next_tokens, pad_id), next_tokens)
+            past = getattr(lm_out, "past_key_values", None)
+            if past is None:
+                past = getattr(out, "past_key_values", None)
 
-            generated.append(next_tokens.unsqueeze(1))             # accumulate [Bq, 1]
+            next_tokens = logits[:, -1, :].argmax(dim=-1)    # [B]
+            generated.append(next_tokens.unsqueeze(1))
+            finished |= (next_tokens == eos_id)
 
-            # Append to input_ids (+ update attn if present)
-            input_ids = torch.cat([input_ids, next_tokens.unsqueeze(1)], dim=1)
-            if attn is not None:
-                one = torch.ones((Bq, 1), dtype=attn.dtype, device=device)
-                attn = torch.cat([attn, one], dim=1)
+            input_ids_step = next_tokens.unsqueeze(1)        # [B,1]
+            attn_step = None                                  # with past, not needed
 
-            # Early stop if all hit EOS
-            finished = finished | (next_tokens == eos_id)
-            if torch.all(finished):
-                break
+            # ---- 2) Token-by-token with KV cache
+            for _ in range(max_new_tokens - 1):
+                if torch.all(finished):
+                    break
 
-        if not generated:
-            # no tokens generated (edge-case max_new_tokens=0)
-            return torch.empty((Bq, 0), dtype=input_ids.dtype, device=device)
+                out = self.model(
+                    input_ids=input_ids_step,
+                    attention_mask=attn_step,
+                    domain_ids=domain_ids_q,
+                    lm_labels=None,
+                    past_key_values=past if past is not None else None,
+                )
+                lm_out = out["lm_output"]
+                logits = lm_out.logits  # [B, 1, V]
 
-        return torch.cat(generated, dim=1)  # [Bq, L]
+                new_past = getattr(lm_out, "past_key_values", None)
+                if new_past is None:
+                    new_past = getattr(out, "past_key_values", None)
+                if new_past is not None:
+                    past = new_past
+
+                next_tokens = logits[:, -1, :].argmax(dim=-1)         # [B]
+                next_tokens = torch.where(finished, torch.full_like(next_tokens, pad_id), next_tokens)
+
+                generated.append(next_tokens.unsqueeze(1))
+                finished |= (next_tokens == eos_id)
+                input_ids_step = next_tokens.unsqueeze(1)
+
+            if not generated:
+                return torch.empty((B, 0), dtype=qa_input_ids.dtype, device=device)
+            return torch.cat(generated, dim=1)  # [B, L]
+
+        finally:
+            # ---- restore model flags
+            if hasattr(bb.config, "use_cache"):
+                bb.config.use_cache = prev_use_cache
+            if was_ckpt and hasattr(bb, "gradient_checkpointing_enable"):
+                try:
+                    bb.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
+                except TypeError:
+                    bb.gradient_checkpointing_enable()
 
 
     def validate(self, val_dataloader, split_name="validation", current_step=None):
