@@ -557,6 +557,7 @@ class MultiHeadOmniClassifierAccelerateTrainer:
                     g_cont_ids = self.accelerator.gather_for_metrics(cont_ids_local)        # [N_total, L]
                     g_prompts  = self.accelerator.gather_for_metrics(qa_input_ids)          # [N_total, T]  (optional; only if you want full sequences)
 
+                    raise Exception(g_cont_ids)
                     # 3) Also gather metadata (strings) using gather_object
                     #    Build per-row lists on each rank first
                     gold_texts_local, ds_texts_local = [], []
@@ -576,7 +577,8 @@ class MultiHeadOmniClassifierAccelerateTrainer:
                     g_gold_lists = self.accelerator.gather_for_metrics(gold_texts_local)  # list[list[str]] from all ranks
                     g_ds_lists   = self.accelerator.gather_for_metrics(ds_texts_local)    # list[list[str]] from all ranks
 
-                    raise Exception(g_gold_lists)
+                    # raise Exception(g_gold_lists)
+                
                     # 4) Decode ONLY on main process (after gathering)
                     if self.accelerator.is_main_process:
                         # Option A: decode only continuation
