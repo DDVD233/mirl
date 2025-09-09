@@ -188,18 +188,35 @@ class BaseModelMerger(ABC):
             self.hf_model_config_path, trust_remote_code=self.config.trust_remote_code
         )
 
-    def get_transformers_auto_model_class(self):
-        if "ForTokenClassification" in self.model_config.architectures[0]:
-            return AutoModelForTokenClassification
-        elif "Qwen2.5-Omni" in self.hf_model_config_path:
-            from transformers import Qwen2_5OmniThinkerForConditionalGeneration
-            return Qwen2_5OmniThinkerForConditionalGeneration
-        elif "ForCausalLM" in self.model_config.architectures[0]:
-            return AutoModelForCausalLM
-        elif "ForConditionalGeneration" in self.model_config.architectures[0]:
-            return AutoModelForVision2Seq
+    def get_transformers_auto_model_class(self): 
+        has_remote_code = hasattr(self.model_config, "auto_map") and any(
+            self.model_config.architectures[0] in val for val in self.model_config.auto_map.values()
+        )
+        if has_remote_code:
+            auto_class = next(
+                k for k, v in self.model_config.auto_map.items() if self.model_config.architectures[0] in v
+            )
+            match auto_class:
+                case "AutoModelForCausalLM":
+                    return AutoModelForCausalLM
+                case "AutoModelForTokenClassification":
+                    return AutoModelForTokenClassification
+                case "AutoModelForVision2Seq":
+                    return AutoModelForVision2Seq
+                case _:
+                    raise NotImplementedError(f"Unknown auto class {auto_class}")
+        else:
+            if "ForTokenClassification" in self.model_config.architectures[0]:
+                return AutoModelForTokenClassification
+            elif "Qwen2.5-Omni" in self.hf_model_config_path:
+                from transformers import Qwen2_5OmniThinkerForConditionalGeneration
+                return Qwen2_5OmniThinkerForConditionalGeneration
+            elif "ForCausalLM" in self.model_config.architectures[0]:
+                return AutoModelForCausalLM
+            elif "ForConditionalGeneration" in self.model_config.architectures[0]:
+                return AutoModelForVision2Seq
 
-        raise NotImplementedError(f"Unknown architecture {self.model_config.architectures}")
+            raise NotImplementedError(f"Unknown architecture {self.model_config.architectures}")
 
     def patch_model_generation_config(self, model):
         """

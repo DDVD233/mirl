@@ -43,6 +43,7 @@ PolicyLossFn = Callable[
         torch.Tensor,  # response_mask
         str,  # loss_agg_mode
         Optional[DictConfig | AlgoConfig],  # config
+        torch.Tensor | None,  # rollout_log_probs
     ],
     tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor],
 ]
@@ -104,6 +105,7 @@ class AdvantageEstimator(str, Enum):
     GRPO_PASSK = "grpo_passk"
     GPG = "gpg"
     DRPO = "drpo"
+    FAIR_GRPO = "fair_grpo"
 
 
 ADV_ESTIMATOR_REGISTRY: dict[str, Any] = {}
@@ -377,7 +379,7 @@ def _cluster_info_question(vectors: List[np.ndarray]) -> Tuple[float, np.ndarray
         return 0.0, np.empty(0, int), np.empty(0), np.empty((0, 0))
 
     X = np.stack(vectors, axis=0)            # (Q,R) – R inferred from data
-    k_opt = _select_k_elbow(X, k_max=20)
+    k_opt = _select_k_elbow(X, k_max=3)
     km    = KMeans(n_clusters=k_opt, n_init="auto", random_state=0).fit(X)
 
     centroids   = km.cluster_centers_        # (k,R)
@@ -403,7 +405,7 @@ def compute_drpo_outcome_advantage(
     token_level_rewards: torch.Tensor,      # (B,L)
     response_mask:      torch.Tensor,       # (B,L)
     index:              np.ndarray[str],         # (B,) question ids
-    domain_info: np.ndarray,  # (B,) domain ids
+    domain_info: np.ndarray[str],  # (B,) domain names
     epsilon: float = EPS_DEFAULT,
 ):
     """DRPO with question‑level clustering."""
@@ -412,6 +414,7 @@ def compute_drpo_outcome_advantage(
 
     # 1) raw rollout‑level rewards -------------------------------------- #
     raw_scores = token_level_rewards.sum(dim=-1)                          # (B,)
+    print(f"[DRPO] B={B} L={L} raw_scores={raw_scores}")
 
     # 2) collect rollouts per question for this mini‑batch -------------- #
     q2rollouts: Dict[str, List[float]] = defaultdict(list)
@@ -480,14 +483,30 @@ def compute_drpo_outcome_advantage(
 
         factor = T_d * math.sqrt(N_c) * mu_c
         scaling_factors.append(factor)
-        scores[i] = scores[i] / factor
+        scaled_score = scores[i] / factor
+        if not math.isnan(scaled_score) and not math.isinf(scaled_score):
+            scores[i] = scaled_score
+        else:
+            print(f"[DRPO] {qid} score={scaled_score:.3f}, factor={factor:.3f}, nan/inf detected! ")
+
 
     # divide scores by std of scores
     scores_std = torch.std(scores)
+    print("Scores std:", scores_std.item())
     scores = scores / (scores_std + epsilon)
 
     # Debug report -------------------------------------------------------- #
     print("--------------Hierarchical scaling report--------------")
+    
+    # Print cache statistics
+    print("Global cache statistics:")
+    total_questions = global_running_stats["q_count"]
+    print(f"  Total questions across all domains: {total_questions}")
+    for dom, dstat in domain_qstats.items():
+        if dstat["count"] > 0:
+            print(f"  Domain '{dom}': {dstat['count']} questions")
+    
+    # Print batch scaling factors
     dom2scale: Dict[Any, List[torch.Tensor]] = defaultdict(list)
     for i in range(B):
         dom2scale[domain_info[i]].append(scores[i] / (before_scale_score[i] + epsilon))
@@ -498,6 +517,202 @@ def compute_drpo_outcome_advantage(
     # Print global reward mean
     print(f"[HDRPO] global reward mean = {torch.mean(scores):.3f}")
 
+    returns = scores.unsqueeze(-1) * response_mask
+    return returns, returns
+
+
+# --------------------------------------------------------------------------- #
+#  FairGRPO Global Statistics                                                #
+# --------------------------------------------------------------------------- #
+# Per-domain demographic statistics
+#   domain_demo_stats[dom][demo] = {
+#       "vectors": List[np.ndarray],  # shape = (Q, R) for each question
+#       "q_ids": List[str],           # question ids in same order
+#       "count": int,                 # #questions accumulated so far
+#   }
+domain_demo_stats: Dict[Any, Dict[str, Dict[str, Any]]] = defaultdict(
+    lambda: defaultdict(lambda: {"vectors": [], "q_ids": [], "count": 0})
+)
+
+# Per-domain UNK statistics (for clustering)
+#   domain_unk_stats[dom] = {
+#       "vectors": List[np.ndarray],  # shape = (Q, R) for each question
+#       "q_ids": List[str],           # question ids in same order
+#       "count": int,                 # #questions accumulated so far
+#   }
+domain_unk_stats: Dict[Any, Dict[str, Any]] = defaultdict(
+    lambda: {"vectors": [], "q_ids": [], "count": 0}
+)
+
+# --------------------------------------------------------------------------- #
+
+@register_adv_est(AdvantageEstimator.FAIR_GRPO)
+def compute_fair_grpo_outcome_advantage(
+    token_level_rewards: torch.Tensor,      # (B,L)
+    response_mask:      torch.Tensor,       # (B,L)
+    index:              np.ndarray[str],    # (B,) question ids
+    domain_info: np.ndarray[str],           # (B,) domain names
+    demo_info: np.ndarray[str],             # (B,) demographic information
+    epsilon: float = EPS_DEFAULT,
+):
+    """Fair GRPO with domain and demographic scaling."""
+    
+    B, L = token_level_rewards.shape
+    
+    # 1) raw rollout-level rewards -------------------------------------- #
+    raw_scores = token_level_rewards.sum(dim=-1)  # (B,)
+    print(f"[FairGRPO] B={B} L={L} raw_scores={raw_scores}")
+    
+    # 2) collect rollouts per question for this mini-batch -------------- #
+    q2rollouts: Dict[str, List[float]] = defaultdict(list)
+    q2domain: Dict[str, Any] = {}
+    q2demo: Dict[str, str] = {}
+    for i in range(B):
+        qid: str = index[i]
+        q2rollouts[qid].append(raw_scores[i].item())
+        q2domain[qid] = domain_info[i]
+        q2demo[qid] = demo_info[i]
+    
+    # ensure consistent rollout count ----------------------------------- #
+    rollout_lens = {len(v) for v in q2rollouts.values()}
+    assert len(rollout_lens) == 1, "Inconsistent rollout counts per question in batch!"
+    
+    # build vector per question ----------------------------------------- #
+    q_vectors = {qid: np.asarray(v, dtype=np.float32) for qid, v in q2rollouts.items()}
+    
+    # 3) update global per-domain demographic history ------------------- #
+    for qid, vec in q_vectors.items():
+        dom = q2domain[qid]
+        demo = q2demo[qid]
+        
+        if demo == "UNK":
+            dstat = domain_unk_stats[dom]
+            dstat["vectors"].append(vec)
+            dstat["q_ids"].append(qid)
+            dstat["count"] += 1
+        else:
+            dstat = domain_demo_stats[dom][demo]
+            dstat["vectors"].append(vec)
+            dstat["q_ids"].append(qid)
+            dstat["count"] += 1
+    
+    # 4) GRPO normalization (within-question) --------------------------- #
+    scores = raw_scores.clone()
+    id2mean = {qid: torch.mean(torch.tensor(v)) for qid, v in q2rollouts.items()}
+    id2std = {qid: torch.std(torch.tensor(v)) for qid, v in q2rollouts.items()}
+    for i in range(B):
+        qid: str = index[i]
+        scores[i] = (scores[i] - id2mean[qid]) / (id2std[qid] + epsilon)
+    before_scale_score = scores.clone()
+    
+    # 5) Domain-wise clustering for UNK demographics -------------------- #
+    domain_unk_cluster_cache: Dict[Any, Dict[str, Any]] = {}
+    for dom, dstat in domain_unk_stats.items():
+        if dstat["count"] > 0:
+            mu_d, assign, counts, centroids = _cluster_info_question(dstat["vectors"])
+            domain_unk_cluster_cache[dom] = {
+                "mu_d": mu_d,
+                "assign": assign,
+                "counts": counts,
+                "centroids": centroids,
+                "q_ids": dstat["q_ids"],
+            }
+    
+    # 6) Apply two-level scaling ---------------------------------------- #
+    scaling_factors: List[float] = []
+    for i in range(B):
+        qid: str = index[i]
+        dom = q2domain[qid]
+        demo = q2demo[qid]
+        
+        # Domain-level statistics (total count and mean across all groups)
+        N_d = 0.0
+        all_dom_rewards = []
+        
+        # Add explicit demographic groups
+        for demo_key, dstat in domain_demo_stats[dom].items():
+            N_d += dstat["count"]
+            for vec in dstat["vectors"]:
+                all_dom_rewards.extend(vec.tolist())
+        
+        # Add UNK groups
+        unk_dstat = domain_unk_stats[dom]
+        N_d += unk_dstat["count"]
+        for vec in unk_dstat["vectors"]:
+            all_dom_rewards.extend(vec.tolist())
+        
+        mu_d = float(np.mean(all_dom_rewards)) if all_dom_rewards else epsilon
+        T_d = max(math.sqrt(N_d) * mu_d, epsilon)
+        
+        # Demographic-level statistics within domain
+        if demo == "UNK":
+            cache = domain_unk_cluster_cache.get(dom)
+            if cache:
+                q_idx = cache["q_ids"].index(qid)
+                cluster_idx = cache["assign"][q_idx]
+                N_g = float(cache["counts"][cluster_idx])
+                mu_g = float(cache["centroids"][cluster_idx].mean())
+            else:
+                N_g = 1.0
+                mu_g = raw_scores[i].item()
+        else:
+            dstat = domain_demo_stats[dom][demo]
+            N_g = float(dstat["count"])
+            all_rewards = []
+            for vec in dstat["vectors"]:
+                all_rewards.extend(vec.tolist())
+            mu_g = float(np.mean(all_rewards)) if all_rewards else raw_scores[i].item()
+        
+        # Two-level scaling factor
+        factor = T_d * math.sqrt(N_g) * mu_g
+        scaling_factors.append(factor)
+        scaled_score = scores[i] / factor
+        if not math.isnan(scaled_score) and not math.isinf(scaled_score):
+            scores[i] = scaled_score
+        else:
+            print(f"[FairGRPO] {qid} score={scaled_score:.3f}, factor={factor:.3f}, nan/inf detected!")
+    
+    # divide scores by std of scores
+    scores_std = torch.std(scores)
+    print("Scores std:", scores_std.item())
+    scores = scores / (scores_std + epsilon)
+    
+    # Debug report ------------------------------------------------------- #
+    print("--------------Fair GRPO scaling report--------------")
+    
+    # Print cache statistics
+    print("Global cache statistics:")
+    for dom in sorted(set(domain_info)):
+        # Count for explicit demographic groups
+        demo_counts = {}
+        for demo, dstat in domain_demo_stats[dom].items():
+            demo_counts[demo] = dstat["count"]
+        
+        # Count for UNK groups
+        unk_count = domain_unk_stats[dom]["count"]
+        
+        # Total for domain
+        total_dom = sum(demo_counts.values()) + unk_count
+        
+        print(f"  Domain '{dom}':")
+        print(f"    Total questions: {total_dom}")
+        if demo_counts:
+            print(f"    Explicit demographics: {demo_counts}")
+        if unk_count > 0:
+            print(f"    UNK count: {unk_count}")
+    
+    # Print batch scaling factors
+    dom_demo_scale: Dict[Tuple[Any, str], List[torch.Tensor]] = defaultdict(list)
+    for i in range(B):
+        key = (domain_info[i], demo_info[i])
+        dom_demo_scale[key].append(scores[i] / (before_scale_score[i] + epsilon))
+    for (dom, demo), lst in dom_demo_scale.items():
+        avg_sf = torch.mean(torch.stack(lst)).item()
+        print(f"[FairGRPO] domain={dom:<15} demo={demo:<10} | mean scale={avg_sf:6.3f}")
+    
+    # Print global reward mean
+    print(f"[FairGRPO] global reward mean = {torch.mean(scores):.3f}")
+    
     returns = scores.unsqueeze(-1) * response_mask
     return returns, returns
 
@@ -998,6 +1213,7 @@ def compute_policy_loss_vanilla(
     response_mask: torch.Tensor,
     loss_agg_mode: str = "token-mean",
     config: Optional[DictConfig | AlgoConfig] = None,
+    rollout_log_probs: torch.Tensor | None = None,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     """
     Compute the clipped policy objective and related metrics for PPO.
@@ -1016,6 +1232,10 @@ def compute_policy_loss_vanilla(
             Mask indicating which tokens to include in the loss, shape (batch_size, response_length).
         loss_agg_mode (str, optional):
             Aggregation mode for `agg_loss`. Defaults to "token-mean".
+        config: `(verl.trainer.config.ActorConfig)`:
+            config for the actor.
+        rollout_log_probs: `(torch.Tensor)`:
+            log probabilities of actions under the rollout policy, shape (batch_size, response_length).
     """
 
     assert config is not None
@@ -1062,6 +1282,13 @@ def compute_policy_loss_vanilla(
     )
 
     pg_losses = torch.where(advantages < 0, clip_pg_losses2, clip_pg_losses1)
+
+    if config.tis_imp_ratio_cap > 0 and rollout_log_probs is not None:
+        # Apply truncated importance sampling -> https://fengyao.notion.site/off-policy-rl
+        tis_imp_ratio = torch.exp(old_log_prob - rollout_log_probs)
+        tis_imp_ratio = torch.clamp(tis_imp_ratio, max=config.tis_imp_ratio_cap)
+        pg_losses = pg_losses * tis_imp_ratio
+
     pg_loss = agg_loss(loss_mat=pg_losses, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
 
     return pg_loss, pg_clipfrac, ppo_kl, pg_clipfrac_lower
@@ -1075,6 +1302,7 @@ def compute_policy_loss_gspo(
     response_mask: torch.Tensor,
     loss_agg_mode: str = "seq-mean-token-mean",
     config: Optional[DictConfig | ActorConfig] = None,
+    rollout_log_probs: torch.Tensor | None = None,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     """
     Compute the clipped policy objective and related metrics for GSPO.
@@ -1133,7 +1361,15 @@ def compute_policy_loss_gspo(
 
 
 @register_policy_loss("gpg")
-def compute_policy_loss_gpg(old_log_prob, log_prob, advantages, response_mask, loss_agg_mode="token-mean", config=None):
+def compute_policy_loss_gpg(
+    old_log_prob: torch.Tensor,
+    log_prob: torch.Tensor,
+    advantages: torch.Tensor,
+    response_mask: torch.Tensor,
+    loss_agg_mode: str = "token-mean",
+    config: Optional[DictConfig | AlgoConfig] = None,
+    rollout_log_probs: torch.Tensor | None = None,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     """Adapted from
     https://github.com/AMAP-ML/GPG/blob/main/VisualThinker-R1-Zero/src/open-r1-multimodal/src/open_r1/trainer/grpo_trainer.py#L495
     Args:
@@ -1161,6 +1397,7 @@ def compute_policy_loss_clip_cov(
     response_mask: torch.Tensor,
     loss_agg_mode: str = "token-mean",
     config: Optional[DictConfig | AlgoConfig] = None,
+    rollout_log_probs: torch.Tensor | None = None,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     """
     Compute the clipped policy objective and related metrics for Clip-Cov.
@@ -1255,6 +1492,7 @@ def compute_policy_loss_kl_cov(
     response_mask: torch.Tensor,
     loss_agg_mode: str = "token-mean",
     config: Optional[DictConfig | AlgoConfig] = None,
+    rollout_log_probs: torch.Tensor | None = None,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     """
     Compute the clipped policy objective and related metrics for Clip-Cov.
@@ -1326,6 +1564,7 @@ def compute_policy_loss_geo_mean(
     response_mask: torch.Tensor,
     loss_agg_mode: str = "token-mean",
     config: Optional[DictConfig | AlgoConfig] = None,
+    rollout_log_probs: torch.Tensor | None = None,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     """
     Compute the clipped policy objective and related metrics for GMPO.
@@ -1448,6 +1687,32 @@ def compute_value_loss(
 
 
 def kl_penalty(logprob: torch.FloatTensor, ref_logprob: torch.FloatTensor, kl_penalty) -> torch.FloatTensor:
+    """Compute KL divergence given logprob and ref_logprob. Optionally using straight through to bind k2 on other
+    kl penalty compute method for unbiased KL gradient estimation.
+    See more description in http://joschu.net/blog/kl-approx.html
+
+    Args:
+        logprob:
+        ref_logprob:
+
+    Returns:
+        kl_estimate
+    """
+    forward_score = kl_penalty_forward(logprob, ref_logprob, kl_penalty)
+    if not kl_penalty.endswith("+") or kl_penalty in ("mse", "k2"):
+        return forward_score
+
+    """
+    The expectation of k1 and k3 estimator is the expectaed value of KL, but the expected gradient of k1 and k3
+    estimator is not the expectaed gradient of KL. On the other hand k2 estimator gives right gradient estimator, 
+    so we use a straight through trick here if the kl_penalty method ends with '+', .e.g., k3+. 
+    """
+    backward_score = 0.5 * (logprob - ref_logprob).square()
+
+    return backward_score - backward_score.detach() + forward_score.detach()
+
+
+def kl_penalty_forward(logprob: torch.FloatTensor, ref_logprob: torch.FloatTensor, kl_penalty) -> torch.FloatTensor:
     """Compute KL divergence given logprob and ref_logprob.
     Copied from https://github.com/huggingface/trl/blob/main/trl/trainer/ppo_trainer.py#L1104
     See more description in http://joschu.net/blog/kl-approx.html
@@ -1457,7 +1722,7 @@ def kl_penalty(logprob: torch.FloatTensor, ref_logprob: torch.FloatTensor, kl_pe
         ref_logprob:
 
     Returns:
-
+        kl_estimate
     """
     if kl_penalty in ("kl", "k1"):
         return logprob - ref_logprob

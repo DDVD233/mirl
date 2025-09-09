@@ -84,21 +84,9 @@ def process_video(
 
     Set debug=True for per-call diagnostics to help track OOM spikes.
     """
-    start_t = time.perf_counter()
-
-    # Normalize string input → dict
     if isinstance(video, str):
-        # Your current defaults (tiny visual budget)
-        # video = {"type": "video", "video": video,
-        #          "min_pixels": 32768, "max_pixels": 32768, "nframes": 2}
-
-    # Moderate budget
-        video = {"type": "video", "video": video,
-                "min_pixels": 49152, "max_pixels": 262144, "nframes": 4}
-        
-    # Most expensive budget
-    #     video = {"type": "video", "video": video, "min_pixels": 65536, "max_pixels": 524288,
-    #              "nframes": 4}
+        video = {"type": "video", "video": video, "min_pixels": 65536, "max_pixels": 524288,
+                 "nframes": 4}
 
     if not isinstance(video, dict) or "video" not in video:
         raise NotImplementedError("Video format must be dict with key 'video'.")
@@ -184,49 +172,6 @@ def process_video(
             print(f"[process_video][warn] large visual token count: ~{vtok_total}. Consider lowering pixels/frames.")
 
     return frames
-
-
-# def process_video(
-#     video: dict,
-#     nframes: Optional[int] = None,
-#     fps: Optional[float] = None,
-#     fps_min_frames: Optional[int] = None,
-#     fps_max_frames: Optional[int] = None,
-# ) -> torch.Tensor:
-#     """Converts a video dict into a [n_frames, 3, H, W] tensor
-
-#     Add video sample FPS in a future MR
-#     """
-#     if isinstance(video, str):
-#         # This is the original form
-#         # video = {"type": "video", "video": video, "min_pixels": 65536, "max_pixels": 524288,
-#         #          "nframes": 4}
-#         video = {"type": "video", "video": video, "min_pixels": 32768, "max_pixels": 32768,
-#             "nframes": 2}
-
-#     if not isinstance(video, dict) or "video" not in video:
-#         raise NotImplementedError(VIDEO_FORMAT_HELP)
-#     assert nframes is None or fps is None, "Can't use both `nframes` or `fps`"
-
-#     # Shallow copy... since we might want to add some keys
-#     video = dict(video)
-
-#     contains_sampling_rules = "nframes" in video or "fps" in video
-#     if not contains_sampling_rules:
-#         if nframes is not None:
-#             video["nframes"] = nframes
-#         elif fps is not None:
-#             video["fps"] = fps
-#             if fps_min_frames is not None:
-#                 video["min_frames"] = fps_min_frames
-#             if fps_max_frames is not None:
-#                 video["max_frames"] = fps_max_frames
-#     try:
-#         return fetch_video(video)
-#     except Exception as e:
-#         print(e)
-#         dummy_video = torch.zeros((1, 3, 224, 224), dtype=torch.uint8)
-#         return dummy_video
 
 
 def process_multi_modal_inputs_for_minicpmo(input_ids, attention_mask, position_ids, cu_seqlens, multi_modal_inputs):
