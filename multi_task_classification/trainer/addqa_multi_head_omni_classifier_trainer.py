@@ -485,8 +485,28 @@ class MultiHeadOmniClassifierAccelerateTrainer:
                     qa_input_ids = input_ids.index_select(0, qa_rows)
                     qa_attn      = attention_mask.index_select(0, qa_rows) if attention_mask is not None else None
                     
+                      # 1) Unwrap the model for non-forward ops (important for ZeRO3/FSDP)
+                    core = self.accelerator.unwrap_model(self.model)  # -> your MultiHeadOmniClassifier
+                    backbone = core.backbone                           # -> HF Causal LM (possibly PEFT-wrapped)
+
+                    # 2) Ensure ids/masks are sane & on the same device as backbone
+                    dev = next(backbone.parameters()).device
+                    qa_input_ids = qa_input_ids.contiguous().long().to(dev)
+                    if qa_attn is not None:
+                        qa_attn = qa_attn.contiguous().long().to(dev)
+
+                    # 3) Enable cache for faster, safe generation (eval-time)
+                    if hasattr(backbone.config, "use_cache"):
+                        backbone.config.use_cache = True
+
                     gen_cfg = self.gen_cfg
-                    gen = self.model.backbone.generate(
+                    # gen = self.model.backbone.generate(
+                    #     input_ids=qa_input_ids,
+                    #     attention_mask=qa_attn,
+                    #     **gen_cfg
+                    # )
+
+                     gen = backbone.generate(
                         input_ids=qa_input_ids,
                         attention_mask=qa_attn,
                         **gen_cfg
