@@ -500,17 +500,19 @@ class MultiHeadOmniClassifierAccelerateTrainer:
                         backbone.config.use_cache = True
 
                     gen_cfg = self.gen_cfg
-                    # gen = self.model.backbone.generate(
+                    
+                    gen = self.model.generate_qa(
+                        accelerator=self.accelerator,
+                        input_ids=qa_input_ids,
+                        attention_mask=qa_attn,
+                        gen_cfg=self.gen_cfg,  # your deterministic config
+                    )
+
+                    # gen = backbone.generate(
                     #     input_ids=qa_input_ids,
                     #     attention_mask=qa_attn,
                     #     **gen_cfg
                     # )
-
-                    gen = backbone.generate(
-                        input_ids=qa_input_ids,
-                        attention_mask=qa_attn,
-                        **gen_cfg
-                    )
 
                     # figure prompt lengths to slice continuation only
                     if qa_attn is not None:

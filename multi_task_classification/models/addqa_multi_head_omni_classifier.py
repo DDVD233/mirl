@@ -167,15 +167,6 @@ class MultiHeadOmniClassifier(nn.Module):
             **kwargs
         )
 
-        generated_text = self.backbone.generate(
-            input_ids=input_ids,
-            attention_mask=attention_mask,
-            labels=lm_labels,                 # None or [-100]-masked full-batch labels
-            output_hidden_states=True,
-            **kwargs
-        )
-        print(generated_text)
-
         lm_loss = getattr(out, "loss", None)
 
         h = out.hidden_states[-2]  # [B,T,H]
@@ -279,3 +270,55 @@ class MultiHeadOmniClassifier(nn.Module):
         
         print(f"Backbonetrainable params: {trainable_params:,} || all params: {all_param:,} || trainable%: {100 * trainable_params / all_param:.2f}%")
         return trainable_params, all_param
+    
+    @torch.no_grad()
+    def generate_qa(
+        self,
+        accelerator,
+        input_ids: torch.Tensor,
+        attention_mask: Optional[torch.Tensor] = None,
+        gen_cfg: Optional[Dict[str, Any]] = None,
+    ) -> torch.Tensor:
+        """
+        Safe generation under Accelerate + ZeRO-3/FSDP.
+        Returns full sequences [prompt | continuation] per row.
+        """
+        core = accelerator.unwrap_model(self)          # unwrapped MultiHeadOmniClassifier
+        backbone = core.backbone                       # HF CausalLM (possibly PEFT-wrapped)
+
+        # devices/dtypes
+        dev = next(backbone.parameters()).device
+        input_ids = input_ids.contiguous().long().to(dev)
+        if attention_mask is not None:
+            attention_mask = attention_mask.contiguous().long().to(dev)
+
+        # deterministic eval defaults unless passed in
+        if gen_cfg is None:
+            gen_cfg = {
+                "max_new_tokens": 64, "do_sample": False,
+                "temperature": 0.0, "top_p": 1.0, "num_beams": 1,
+                "eos_token_id": getattr(backbone.config, "eos_token_id", None),
+                "pad_token_id": getattr(backbone.config, "pad_token_id", None),
+            }
+        if hasattr(backbone.config, "use_cache"):
+            backbone.config.use_cache = True
+
+        # choose the right sharding context
+        ds_plugin = getattr(accelerator.state, "deepspeed_plugin", None)
+        if ds_plugin is not None:
+            import deepspeed
+            # materialize full params during generate (ZeRO-3 safe)
+            with deepspeed.zero.GatheredParameters(backbone.parameters(), modifier_rank=None):
+                return backbone.generate(input_ids=input_ids, attention_mask=attention_mask, **gen_cfg)
+
+        # FSDP path (if wrapped by FSDP)
+        try:
+            from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
+            if isinstance(core, FSDP) or any(isinstance(m, FSDP) for m in core.modules()):
+                with FSDP.summon_full_params(backbone, writeback=False, recurse=True):
+                    return backbone.generate(input_ids=input_ids, attention_mask=attention_mask, **gen_cfg)
+        except Exception:
+            pass  # not FSDP, fall through
+
+        # plain DDP/single-GPU
+        return backbone.generate(input_ids=input_ids, attention_mask=attention_mask, **gen_cfg)
