@@ -463,7 +463,6 @@ class MultiHeadOmniClassifierAccelerateTrainer:
             if torch.all(finished):
                 break
 
-            print(generated)
 
         if not generated:
             # no tokens generated (edge-case max_new_tokens=0)
@@ -552,7 +551,7 @@ class MultiHeadOmniClassifierAccelerateTrainer:
                     # decode L tokens greedily using the SAME forward pass (labels=None, domain_ids=-1)
                     L = getattr(self, "val_max_new_tokens", 64)
                     cont_ids = self._greedy_decode_no_generate(qa_input_ids, qa_attn, max_new_tokens=L)  # [Bq, L]
-
+                    raise Exception(cont_ids)
                     # Build full sequences for decoding (prompt + continuation)
                     full_ids = torch.cat([qa_input_ids, cont_ids], dim=1)  # [Bq, T+L]
 
