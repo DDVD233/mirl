@@ -654,7 +654,8 @@ class MultiHeadOmniClassifierAccelerateTrainer:
             core = self.model
 
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        core.to(device).eval()
+        # core.to(device).eval()
+        core.eval()
 
         # generation safety
         if getattr(self.tokenizer, "pad_token_id", None) is None:
@@ -689,7 +690,7 @@ class MultiHeadOmniClassifierAccelerateTrainer:
             repetition_penalty=getattr(self, "val_rep_penalty", 1.0),
         )
 
-        for batch in tqdm(val_dataloader, desc="Validating", disable=not is_main_process()):
+        for batch in tqdm(val_dataloader, desc="Validating"):
             if 'input_ids' not in batch or 'labels' not in batch or 'dataset' not in batch:
                 raise KeyError(f"Batch missing keys. Got: {list(batch.keys())}")
 
@@ -804,8 +805,8 @@ class MultiHeadOmniClassifierAccelerateTrainer:
         print(f"[VAL (off-accel)] CLS N={n_cls}  avg_loss={avg_cls_loss:.4f}")
         print(f"[QA] Saved {len(qa_records)} records to: {qa_path}")
 
-        if ddp_is_initialized():
-            dist.barrier()
+        # if ddp_is_initialized():
+        #     dist.barrier()
 
         # Return basics for your logger
         return {
