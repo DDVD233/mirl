@@ -582,8 +582,6 @@ class MultiHeadOmniClassifierAccelerateTrainer:
                         all_gold_texts.extend(gathered_lm_labels)
                         all_qa_datasets.extend(gathered_datasets)
 
-                        raise Exception("All predicted text", all_pred_texts)
-
         # Calculate average loss
         avg_loss = total_loss / max(1, len(all_labels)) if self.accelerator.is_main_process else 0.0
 
@@ -603,250 +601,43 @@ class MultiHeadOmniClassifierAccelerateTrainer:
         
         # Use the new evaluation module (only on main process)
         if self.accelerator.is_main_process:
-            evaluation_results = evaluate_predictions(
-                predictions=all_predictions,
-                ground_truths=all_labels,
-                datasets=all_datasets if all_datasets else None,
-                split_name=split_name,
-                save_path=self.validation_result_dir,
-                global_steps=current_step,
-                label_map_path=self.label_map_path
-            )
-            
-            # Extract aggregate metrics (aligned with multi_task_evaluation)
-            aggregate_metrics = evaluation_results["aggregate_metrics"]
-            accuracy = aggregate_metrics.get("micro_accuracy", 0.0)
-            f1 = aggregate_metrics.get("micro_f1", 0.0)
-            precision = aggregate_metrics.get("micro_precision", 0.0)
-            recall = aggregate_metrics.get("micro_recall", 0.0)
-            
-            print(f"{split_name.capitalize()} - Loss: {avg_loss:.4f} - Acc: {accuracy:.4f} - F1: {f1:.4f}")
-            print(f"  Macro F1: {aggregate_metrics.get('macro_f1', 0.0):.4f} - Weighted F1: {aggregate_metrics.get('weighted_f1', 0.0):.4f}")
-            
-            return {
-                'loss': avg_loss,
-                'accuracy': accuracy,
-                'precision': precision,
-                'recall': recall,
-                'f1': f1,
-                'predictions': all_predictions,
-                'labels': all_labels,
-                'evaluation_results': evaluation_results,
-                'aggregate_metrics': aggregate_metrics
-            }
+            if all_predictions and all_labels:
+                evaluation_results = evaluate_predictions(
+                    predictions=all_predictions,
+                    ground_truths=all_labels,
+                    datasets=all_datasets if all_datasets else None,
+                    split_name=split_name,
+                    save_path=self.validation_result_dir,
+                    global_steps=current_step,
+                    label_map_path=self.label_map_path
+                )
+                
+                # Extract aggregate metrics (aligned with multi_task_evaluation)
+                aggregate_metrics = evaluation_results["aggregate_metrics"]
+                accuracy = aggregate_metrics.get("micro_accuracy", 0.0)
+                f1 = aggregate_metrics.get("micro_f1", 0.0)
+                precision = aggregate_metrics.get("micro_precision", 0.0)
+                recall = aggregate_metrics.get("micro_recall", 0.0)
+                
+                print(f"{split_name.capitalize()} - Loss: {avg_loss:.4f} - Acc: {accuracy:.4f} - F1: {f1:.4f}")
+                print(f"  Macro F1: {aggregate_metrics.get('macro_f1', 0.0):.4f} - Weighted F1: {aggregate_metrics.get('weighted_f1', 0.0):.4f}")
+                
+                return {
+                    'loss': avg_loss,
+                    'accuracy': accuracy,
+                    'precision': precision,
+                    'recall': recall,
+                    'f1': f1,
+                    'predictions': all_predictions,
+                    'labels': all_labels,
+                    'evaluation_results': evaluation_results,
+                    'aggregate_metrics': aggregate_metrics
+                }
+            else:
+                return None
             
         else:
             return None
-
-    # @torch.no_grad()
-    # def validate_off_accelerate_with_generate(self, val_dataloader, split_name="validation", current_step=None):
-    #     """
-    #     Fully off-Accelerate validation:
-    #     - Only rank 0 runs it (others idle).
-    #     - CLS via wrapper forward.
-    #     - QA via HF backbone.generate (no teacher forcing).
-    #     """
-    #     # Unwrap if model is wrapped; otherwise use directly
-    #     try:
-    #         core = self.accelerator.unwrap_model(self.model)
-    #     except Exception:
-    #         core = self.model
-
-    #     def infer_input_device(backbone):
-    #         devmap = getattr(backbone, "hf_device_map", None)
-    #         if devmap:
-    #             # prefer an embeddings key; else first device in map
-    #             for k, v in devmap.items():
-    #                 if any(s in k.lower() for s in ["embed", "wte", "tok"]):
-    #                     return torch.device(v)
-    #             return torch.device(next(iter(devmap.values())))
-    #         return next(backbone.parameters()).device
-
-    #     # inp_dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    #     # core.to(inp_dev).eval()
-
-    #     inp_dev = infer_input_device(core.backbone)
-    #     core.eval()
-
-    #     # generation safety
-    #     if getattr(self.tokenizer, "pad_token_id", None) is None:
-    #         self.tokenizer.pad_token_id = self.tokenizer.eos_token_id
-    #     if hasattr(core.backbone.config, "use_cache"):
-    #         core.backbone.config.use_cache = True
-
-    #     # # Only rank 0 validates to avoid re-implementing all-reduce/all-gather for strings
-    #     # if not is_main_process():
-    #     #     if ddp_is_initialized():
-    #     #         dist.barrier()
-    #     #     return None
-
-    #     criterion = CrossEntropyLoss()
-    #     num_classes = self.global_config.get('NUM_CLASSES', 0)
-
-    #     total_cls_loss, n_cls = 0.0, 0
-    #     all_predictions, all_labels, all_datasets = [], [], []
-
-    #     all_pred_texts, all_gold_texts, all_qa_datasets = [], [], []
-
-
-    #     # Generation config (tweak via self.* attributes)
-    #     gen_cfg = dict(
-    #         max_new_tokens=getattr(self, "val_max_new_tokens", 64),
-    #         do_sample=getattr(self, "val_do_sample", False),
-    #         temperature=getattr(self, "val_temperature", 1.0),
-    #         top_p=getattr(self, "val_top_p", 1.0),
-    #         top_k=getattr(self, "val_top_k", 0),
-    #         num_beams=getattr(self, "val_num_beams", 1),
-    #         pad_token_id=self.tokenizer.pad_token_id,
-    #         eos_token_id=self.tokenizer.eos_token_id,
-    #         repetition_penalty=getattr(self, "val_rep_penalty", 1.0),
-    #     )
-
-    #     prompts = ["Hello", "Test"]  # minimal and safe
-    #     test_batch = self.tokenizer(prompts, return_tensors="pt", padding=True)
-    #     qa_input_ids = test_batch["input_ids"].to(inp_dev)         # [2, T]
-    #     qa_attn      = test_batch["attention_mask"].to(inp_dev)    # [2, T] (int/bool both are fine)
-
-
-    #     gen_out = core.backbone.generate(
-    #             input_ids=qa_input_ids,
-    #             attention_mask=qa_attn,
-    #             **gen_cfg
-    #         )  # [Bq, T+L]
-        
-    #     raise Exception("Printing the generated output", gen_out)
-
-    #     for batch in tqdm(val_dataloader, desc="Validating"):
-    #         if 'input_ids' not in batch or 'labels' not in batch or 'dataset' not in batch:
-    #             raise KeyError(f"Batch missing keys. Got: {list(batch.keys())}")
-
-    #         # move to device
-    #         input_ids = batch['input_ids'].to(device)           # [B, T]
-    #         labels    = batch['labels'].to(device)
-    #         attention_mask = batch.get('attention_mask', None)
-    #         if attention_mask is not None:
-    #             attention_mask = attention_mask.to(device)
-
-    #         # labels shape for CLS
-    #         if labels.dim() != 1:
-    #             if labels.dim() == 2 and num_classes and labels.size(1) == num_classes:
-    #                 labels = labels.argmax(dim=1)
-    #             else:
-    #                 raise ValueError(f"Unexpected labels shape {labels.shape}")
-
-    #         # split QA vs CLS
-    #         qa_rows, cls_rows = self._split_qa_cls_indices(batch['dataset'])
-    #         if qa_rows is not None:  qa_rows = qa_rows.to(device)
-    #         if cls_rows is not None: cls_rows = cls_rows.to(device)
-
-    #         # ===== Classification via wrapper forward =====
-    #         if cls_rows is not None and cls_rows.numel() > 0:
-    #             ds_cls = [batch['dataset'][i] for i in cls_rows.tolist()]
-    #             domain_ids_cls = self._datasets_to_domain_ids(ds_cls, device=device)
-
-    #             out = core(
-    #                 input_ids=input_ids.index_select(0, cls_rows),
-    #                 attention_mask=(attention_mask.index_select(0, cls_rows) if attention_mask is not None else None),
-    #                 domain_ids=domain_ids_cls,
-    #                 lm_labels=None
-    #             )
-    #             cls_logits = out["cls_logits"]
-    #             labels_cls = labels.index_select(0, cls_rows)
-
-    #             loss = criterion(cls_logits, labels_cls)
-    #             total_cls_loss += loss.item() * labels_cls.size(0)
-    #             n_cls += labels_cls.size(0)
-
-    #             preds = cls_logits.argmax(dim=1)
-    #             all_predictions.extend(preds.detach().cpu().tolist())
-    #             all_labels.extend(labels_cls.detach().cpu().tolist())
-    #             all_datasets.extend([
-    #                 (d.decode("utf-8") if isinstance(d, (bytes, bytearray)) else str(d)) for d in ds_cls
-    #             ])
-
-    #         # ===== QA via backbone.generate (no TF) =====
-    #         has_qa = (qa_rows is not None and qa_rows.numel() > 0)
-    #         if has_qa:
-    #             qa_input_ids = input_ids.index_select(0, qa_rows)
-    #             qa_attn      = attention_mask.index_select(0, qa_rows) if attention_mask is not None else None
-
-    #             # prompts = ["Hello", "Test"]  # minimal and safe
-    #             # batch = self.tokenizer(prompts, return_tensors="pt", padding=True)
-    #             # qa_input_ids = batch["input_ids"].to(inp_dev)         # [2, T]
-    #             # qa_attn      = batch["attention_mask"].to(inp_dev)    # [2, T] (int/bool both are fine)
-
-
-    #             gen_out = core.backbone.generate(
-    #                 input_ids=qa_input_ids,
-    #                 attention_mask=qa_attn,
-    #                 **gen_cfg
-    #             )  # [Bq, T+L]
-
-    #             raise Exception("Printing the generated output", gen_out)
-
-    #             # slice continuation only
-    #             if qa_attn is not None:
-    #                 prompt_lens = qa_attn.sum(dim=1)  # [Bq]
-    #             else:
-    #                 pad_id = self.tokenizer.pad_token_id
-    #                 prompt_lens = (qa_input_ids != pad_id).sum(dim=1)
-
-    #             cont_rows = []
-    #             for j in range(gen_out.size(0)):
-    #                 start = int(prompt_lens[j].item())
-    #                 cont_rows.append(gen_out[j, start:])
-    #             # pad to same length for batch decode
-    #             cont_ids = torch.nn.utils.rnn.pad_sequence(
-    #                 cont_rows, batch_first=True, padding_value=self.tokenizer.pad_token_id
-    #             )
-
-    #             pred_texts_local = self.tokenizer.batch_decode(cont_ids, skip_special_tokens=True)
-
-    #             # gold strings (if your batch stores gold text per QA row)
-    #             gold_texts_local, ds_texts_local = [], []
-    #             for row in qa_rows.tolist():
-    #                 g = batch.get('lm_labels', None)
-    #                 if g is not None:
-    #                     g = g[row]
-    #                     if isinstance(g, (bytes, bytearray)): g = g.decode("utf-8", "ignore")
-    #                     gold_texts_local.append("" if g is None else str(g))
-    #                 else:
-    #                     gold_texts_local.append("")
-    #                 ds = batch['dataset'][row]
-    #                 ds_texts_local.append(ds.decode("utf-8", "ignore") if isinstance(ds, (bytes, bytearray)) else str(ds))
-
-    #             all_pred_texts.extend(pred_texts_local)
-    #             all_gold_texts.extend(gold_texts_local)
-    #             all_qa_datasets.extend(ds_texts_local)
-
-    #     # ===== Save/report (rank 0) =====
-    #     avg_cls_loss = (total_cls_loss / max(1, n_cls)) if n_cls else 0.0
-
-    #     out_dir = self.validation_result_dir or "."
-    #     os.makedirs(out_dir, exist_ok=True)
-    #     step_tag = str(current_step) if current_step is not None else "final"
-    #     qa_path = os.path.join(out_dir, f"{split_name}_qa_preds_step_{step_tag}.json")
-
-    #     qa_records = [
-    #         {"dataset": d, "pred": p, "gold": g}
-    #         for d, p, g in zip(all_qa_datasets, all_pred_texts, all_gold_texts)
-    #     ]
-    #     with open(qa_path, "w", encoding="utf-8") as f:
-    #         json.dump(qa_records, f, ensure_ascii=False, indent=2)
-
-    #     print(f"[VAL (off-accel)] CLS N={n_cls}  avg_loss={avg_cls_loss:.4f}")
-    #     print(f"[QA] Saved {len(qa_records)} records to: {qa_path}")
-
-    #     # if ddp_is_initialized():
-    #     #     dist.barrier()
-
-    #     # Return basics for your logger
-    #     return {
-    #         "loss": avg_cls_loss,
-    #         "predictions": all_predictions,
-    #         "labels": all_labels,
-    #         "qa_json_path": qa_path,
-    #     }
 
 
     def train(self):
