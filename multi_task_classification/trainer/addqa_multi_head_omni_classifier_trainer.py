@@ -408,241 +408,417 @@ class MultiHeadOmniClassifierAccelerateTrainer:
     
         return start_epoch, start_batch_offset, global_step, meta, ckpt_dir
     
+    # @torch.no_grad()
+    # def _greedy_decode_no_generate(self, qa_input_ids, qa_attn, max_new_tokens=64):
+    #     """
+    #     Manual greedy decoding using the same forward pass (no .generate, no teacher forcing).
+    #     - qa_input_ids: [Bq, T] prompt tokens
+    #     - qa_attn:      [Bq, T] or None
+    #     Returns:
+    #     cont_ids:  [Bq, L] newly generated token ids (L <= max_new_tokens)
+    #     """
+    #     # Work on copies to avoid mutating caller tensors
+    #     input_ids = qa_input_ids.clone()
+    #     attn      = qa_attn.clone() if qa_attn is not None else None
+
+    #     device = input_ids.device
+    #     Bq     = input_ids.size(0)
+
+    #     # EOS / PAD
+    #     eos_id = self.tokenizer.eos_token_id
+    #     pad_id = self.tokenizer.pad_token_id if self.tokenizer.pad_token_id is not None else eos_id
+
+    #     finished = torch.zeros(Bq, dtype=torch.bool, device=device)
+    #     generated = []
+
+    #     for _ in range(max_new_tokens):
+    #         # Domain sentinel = -1 for QA (no head routing)
+    #         domain_ids_q = torch.full((Bq,), -1, dtype=torch.long, device=device)
+
+    #         out = self.model(
+    #             input_ids=input_ids,
+    #             attention_mask=attn,
+    #             domain_ids=domain_ids_q,
+    #             lm_labels=None
+    #         )
+    #         # Same forward path; take LM logits from last position
+    #         next_logits = out["lm_output"].logits[:, -1, :]        # [Bq, V]
+    #         next_tokens = next_logits.argmax(dim=-1)               # [Bq]
+
+    #         # If sequence already finished, keep emitting PAD to keep shape consistent
+    #         next_tokens = torch.where(finished, torch.full_like(next_tokens, pad_id), next_tokens)
+
+    #         generated.append(next_tokens.unsqueeze(1))             # accumulate [Bq, 1]
+
+    #         # Append to input_ids (+ update attn if present)
+    #         input_ids = torch.cat([input_ids, next_tokens.unsqueeze(1)], dim=1)
+    #         if attn is not None:
+    #             one = torch.ones((Bq, 1), dtype=attn.dtype, device=device)
+    #             attn = torch.cat([attn, one], dim=1)
+
+    #         # Early stop if all hit EOS
+    #         finished = finished | (next_tokens == eos_id)
+    #         if torch.all(finished):
+    #             break
+
+    #     if not generated:
+    #         # no tokens generated (edge-case max_new_tokens=0)
+    #         return torch.empty((Bq, 0), dtype=input_ids.dtype, device=device)
+
+    #     return torch.cat(generated, dim=1)  # [Bq, L]
+
+
+    # def validate(self, val_dataloader, split_name="validation", current_step=None):
+    #     """Validate the model on the given dataloader."""
+    #     self.model.eval()
+    #     total_loss = 0.0
+    #     all_predictions = []
+    #     all_labels = []
+    #     all_datasets = []
+    #     criterion = CrossEntropyLoss()
+    #     num_classes = self.global_config.get('NUM_CLASSES', 0)
+
+    #     all_pred_texts = []
+    #     all_gold_texts = []
+    #     all_qa_datasets = []
+
+    #     with torch.no_grad():
+    #         for batch in tqdm(val_dataloader, desc="Validating", total=len(val_dataloader), disable=not self.accelerator.is_main_process):
+    #             if 'input_ids' not in batch or 'labels' not in batch:
+    #                 raise KeyError(f"Batch missing required keys. Got: {list(batch.keys())}")
+
+    #             input_ids = batch['input_ids']
+    #             labels = batch['labels']
+    #             attention_mask = batch.get('attention_mask', None)
+
+    #             # retrieve the batch and domain_ids for all the batch
+    #             if 'dataset' not in batch:
+    #                 raise KeyError("Batch missing 'dataset' needed for domain routing.")
+    #             # batch['dataset'] is typically a list/tuple length B
+    #             # domain_ids = self._datasets_to_domain_ids(batch['dataset'], device=input_ids.device)
+
+    #             # Handle labels shape
+    #             if labels.dim() != 1:
+    #                 if labels.dim() == 2 and labels.size(1) == num_classes:
+    #                     labels = labels.argmax(dim=1)
+    #                 else:
+    #                     raise ValueError(f"Unexpected labels shape {labels.shape}")
+                    
+    #                 # Split batch into QA vs CLS by dataset name
+    #             qa_rows, cls_rows = self._split_qa_cls_indices(batch['dataset'])
+    #             device = input_ids.device
+    #             if qa_rows is not None:  qa_rows = qa_rows.to(device)
+    #             if cls_rows is not None: cls_rows = cls_rows.to(device)
+
+    #             # ---- Classification pass (unchanged) ----
+    #             if cls_rows is not None and cls_rows.numel() > 0:
+    #                 ds_cls = [ (ds.decode("utf-8") if isinstance(ds, bytes) else str(ds))
+    #                         for ds in (batch['dataset'][i] for i in cls_rows.tolist()) ]
+    #                 domain_ids_cls = self._datasets_to_domain_ids(ds_cls, device=device)
+
+    #                 out = self.model(
+    #                     input_ids.index_select(0, cls_rows),
+    #                     attention_mask=attention_mask.index_select(0, cls_rows) if attention_mask is not None else None,
+    #                     domain_ids=domain_ids_cls,
+    #                     lm_labels=None
+    #                 )
+    #                 cls_logits = out["cls_logits"]
+    #                 labels_cls = labels.index_select(0, cls_rows)
+
+    #                 loss = criterion(cls_logits, labels_cls)
+    #                 total_cls_loss += loss.item() * labels_cls.size(0)
+    #                 n_cls_samples += labels_cls.size(0)
+
+    #                 preds = cls_logits.argmax(dim=1)
+    #                 gathered_preds  = self.accelerator.gather_for_metrics(preds)
+    #                 gathered_labels = self.accelerator.gather_for_metrics(labels_cls)
+
+    #                 if self.accelerator.is_main_process:
+    #                     all_predictions.extend(gathered_preds.cpu().tolist())
+    #                     all_labels.extend(gathered_labels.cpu().tolist())
+    #                     all_datasets.extend(ds_cls)
+
+    #             # ---- QA: free generation, collect (dataset, pred, gold) ----
+    #             has_qa = (qa_rows is not None and qa_rows.numel() > 0)
+
+    #             if has_qa:
+    #                 qa_input_ids = input_ids.index_select(0, qa_rows)
+    #                 qa_attn      = attention_mask.index_select(0, qa_rows) if attention_mask is not None else None
+
+    #                 # decode L tokens greedily using the SAME forward pass (labels=None, domain_ids=-1)
+    #                 L = getattr(self, "val_max_new_tokens", 64)
+    #                 cont_ids = self._greedy_decode_no_generate(qa_input_ids, qa_attn, max_new_tokens=L)  # [Bq, L]
+
+    #                 # Build full sequences for decoding (prompt + continuation)
+    #                 full_ids = torch.cat([qa_input_ids, cont_ids], dim=1)  # [Bq, T+L]
+
+    #                 # (Optional) strip prompt for "pred only" strings, or decode full for context
+    #                 pred_only = True
+    #                 if pred_only:
+    #                     pred_texts_local = self.tokenizer.batch_decode(cont_ids, skip_special_tokens=True)
+    #                 else:
+    #                     pred_texts_local = self.tokenizer.batch_decode(full_ids, skip_special_tokens=True)
+
+    #                 # Gold text is whatever your dataloader stored (string per QA row)
+    #                 gold_texts_local, ds_texts_local = [], []
+    #                 for row in qa_rows.tolist():
+    #                     gold = batch.get('lm_labels', None)
+    #                     if gold is not None:
+    #                         gold = gold[row]
+    #                         if isinstance(gold, (bytes, bytearray)):
+    #                             gold = gold.decode("utf-8", errors="ignore")
+    #                         gold_texts_local.append("" if gold is None else str(gold))
+    #                     else:
+    #                         gold_texts_local.append("")
+
+    #                     ds = batch['dataset'][row]
+    #                     ds_texts_local.append(ds.decode("utf-8", errors="ignore") if isinstance(ds, (bytes, bytearray)) else str(ds))
+
+
+    #                 # --- just like classifier: gather_for_metrics on OBJECTS (strings) ---
+    #                 g_pred_texts = self.accelerator.gather_for_metrics(pred_texts_local)
+    #                 g_gold_texts = self.accelerator.gather_for_metrics(gold_texts_local)
+    #                 g_ds_texts   = self.accelerator.gather_for_metrics(ds_texts_local)
+
+    #                 if self.accelerator.is_main_process:
+    #                     all_pred_texts.extend(g_pred_texts)
+    #                     all_gold_texts.extend(g_gold_texts)
+    #                     all_qa_datasets.extend(g_ds_texts)
+
+    #     # Calculate average loss
+    #     avg_loss = total_loss / max(1, len(all_labels)) if self.accelerator.is_main_process else 0.0
+
+    #     if self.accelerator.is_main_process:
+    #         out_dir = self.validation_result_dir or "."
+    #         os.makedirs(out_dir, exist_ok=True)
+    #         step_tag = str(current_step) if current_step is not None else "final"
+    #         out_path = os.path.join(out_dir, f"{split_name}_qa_preds_step_{step_tag}.json")
+
+    #         qa_records = [
+    #             {"dataset": d, "pred": p, "gold": g}
+    #             for d, p, g in zip(all_qa_datasets, all_pred_texts, all_gold_texts)
+    #         ]
+    #         with open(out_path, "w", encoding="utf-8") as f:
+    #             json.dump(qa_records, f, ensure_ascii=False, indent=2)
+    #         print(f"[QA] Saved {len(qa_records)} records to: {out_path}")
+        
+    #     # Use the new evaluation module (only on main process)
+    #     if self.accelerator.is_main_process:
+    #         evaluation_results = evaluate_predictions(
+    #             predictions=all_predictions,
+    #             ground_truths=all_labels,
+    #             datasets=all_datasets if all_datasets else None,
+    #             split_name=split_name,
+    #             save_path=self.validation_result_dir,
+    #             global_steps=current_step,
+    #             label_map_path=self.label_map_path
+    #         )
+            
+    #         # Extract aggregate metrics (aligned with multi_task_evaluation)
+    #         aggregate_metrics = evaluation_results["aggregate_metrics"]
+    #         accuracy = aggregate_metrics.get("micro_accuracy", 0.0)
+    #         f1 = aggregate_metrics.get("micro_f1", 0.0)
+    #         precision = aggregate_metrics.get("micro_precision", 0.0)
+    #         recall = aggregate_metrics.get("micro_recall", 0.0)
+            
+    #         print(f"{split_name.capitalize()} - Loss: {avg_loss:.4f} - Acc: {accuracy:.4f} - F1: {f1:.4f}")
+    #         print(f"  Macro F1: {aggregate_metrics.get('macro_f1', 0.0):.4f} - Weighted F1: {aggregate_metrics.get('weighted_f1', 0.0):.4f}")
+            
+    #         return {
+    #             'loss': avg_loss,
+    #             'accuracy': accuracy,
+    #             'precision': precision,
+    #             'recall': recall,
+    #             'f1': f1,
+    #             'predictions': all_predictions,
+    #             'labels': all_labels,
+    #             'evaluation_results': evaluation_results,
+    #             'aggregate_metrics': aggregate_metrics
+    #         }
+            
+    #     else:
+    #         return None
+
     @torch.no_grad()
-    def _greedy_decode_no_generate(self, qa_input_ids, qa_attn, max_new_tokens=64):
+    def validate_off_accelerate_with_generate(self, val_dataloader, split_name="validation", current_step=None):
         """
-        Manual greedy decoding using the same forward pass (no .generate, no teacher forcing).
-        - qa_input_ids: [Bq, T] prompt tokens
-        - qa_attn:      [Bq, T] or None
-        Returns:
-        cont_ids:  [Bq, L] newly generated token ids (L <= max_new_tokens)
+        Fully off-Accelerate validation:
+        - Only rank 0 runs it (others idle).
+        - CLS via wrapper forward.
+        - QA via HF backbone.generate (no teacher forcing).
         """
-        # Work on copies to avoid mutating caller tensors
-        input_ids = qa_input_ids.clone()
-        attn      = qa_attn.clone() if qa_attn is not None else None
+        # Unwrap if model is wrapped; otherwise use directly
+        try:
+            core = self.accelerator.unwrap_model(self.model)
+        except Exception:
+            core = self.model
 
-        device = input_ids.device
-        Bq     = input_ids.size(0)
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        core.to(device).eval()
 
-        # EOS / PAD
-        eos_id = self.tokenizer.eos_token_id
-        pad_id = self.tokenizer.pad_token_id if self.tokenizer.pad_token_id is not None else eos_id
+        # generation safety
+        if getattr(self.tokenizer, "pad_token_id", None) is None:
+            self.tokenizer.pad_token_id = self.tokenizer.eos_token_id
+        if hasattr(core.backbone.config, "use_cache"):
+            core.backbone.config.use_cache = True
 
-        finished = torch.zeros(Bq, dtype=torch.bool, device=device)
-        generated = []
+        # Only rank 0 validates to avoid re-implementing all-reduce/all-gather for strings
+        if not is_main_process():
+            if ddp_is_initialized():
+                dist.barrier()
+            return None
 
-        for _ in range(max_new_tokens):
-            # Domain sentinel = -1 for QA (no head routing)
-            domain_ids_q = torch.full((Bq,), -1, dtype=torch.long, device=device)
-
-            out = self.model(
-                input_ids=input_ids,
-                attention_mask=attn,
-                domain_ids=domain_ids_q,
-                lm_labels=None
-            )
-            # Same forward path; take LM logits from last position
-            next_logits = out["lm_output"].logits[:, -1, :]        # [Bq, V]
-            next_tokens = next_logits.argmax(dim=-1)               # [Bq]
-
-            # If sequence already finished, keep emitting PAD to keep shape consistent
-            next_tokens = torch.where(finished, torch.full_like(next_tokens, pad_id), next_tokens)
-
-            generated.append(next_tokens.unsqueeze(1))             # accumulate [Bq, 1]
-
-            # Append to input_ids (+ update attn if present)
-            input_ids = torch.cat([input_ids, next_tokens.unsqueeze(1)], dim=1)
-            if attn is not None:
-                one = torch.ones((Bq, 1), dtype=attn.dtype, device=device)
-                attn = torch.cat([attn, one], dim=1)
-
-            # Early stop if all hit EOS
-            finished = finished | (next_tokens == eos_id)
-            if torch.all(finished):
-                break
-
-        if not generated:
-            # no tokens generated (edge-case max_new_tokens=0)
-            return torch.empty((Bq, 0), dtype=input_ids.dtype, device=device)
-
-        return torch.cat(generated, dim=1)  # [Bq, L]
-
-
-    def validate(self, val_dataloader, split_name="validation", current_step=None):
-        """Validate the model on the given dataloader."""
-        self.model.eval()
-        total_loss = 0.0
-        all_predictions = []
-        all_labels = []
-        all_datasets = []
         criterion = CrossEntropyLoss()
         num_classes = self.global_config.get('NUM_CLASSES', 0)
 
-        all_pred_texts = []
-        all_gold_texts = []
-        all_qa_datasets = []
+        total_cls_loss, n_cls = 0.0, 0
+        all_predictions, all_labels, all_datasets = [], [], []
 
-        with torch.no_grad():
-            for batch in tqdm(val_dataloader, desc="Validating", total=len(val_dataloader), disable=not self.accelerator.is_main_process):
-                if 'input_ids' not in batch or 'labels' not in batch:
-                    raise KeyError(f"Batch missing required keys. Got: {list(batch.keys())}")
+        all_pred_texts, all_gold_texts, all_qa_datasets = [], [], []
 
-                input_ids = batch['input_ids']
-                labels = batch['labels']
-                attention_mask = batch.get('attention_mask', None)
+        # Generation config (tweak via self.* attributes)
+        gen_cfg = dict(
+            max_new_tokens=getattr(self, "val_max_new_tokens", 64),
+            do_sample=getattr(self, "val_do_sample", False),
+            temperature=getattr(self, "val_temperature", 1.0),
+            top_p=getattr(self, "val_top_p", 1.0),
+            top_k=getattr(self, "val_top_k", 0),
+            num_beams=getattr(self, "val_num_beams", 1),
+            pad_token_id=self.tokenizer.pad_token_id,
+            eos_token_id=self.tokenizer.eos_token_id,
+            repetition_penalty=getattr(self, "val_rep_penalty", 1.0),
+        )
 
-                # retrieve the batch and domain_ids for all the batch
-                if 'dataset' not in batch:
-                    raise KeyError("Batch missing 'dataset' needed for domain routing.")
-                # batch['dataset'] is typically a list/tuple length B
-                # domain_ids = self._datasets_to_domain_ids(batch['dataset'], device=input_ids.device)
+        for batch in tqdm(val_dataloader, desc="Validating", disable=not is_main_process()):
+            if 'input_ids' not in batch or 'labels' not in batch or 'dataset' not in batch:
+                raise KeyError(f"Batch missing keys. Got: {list(batch.keys())}")
 
-                # Handle labels shape
-                if labels.dim() != 1:
-                    if labels.dim() == 2 and labels.size(1) == num_classes:
-                        labels = labels.argmax(dim=1)
+            # move to device
+            input_ids = batch['input_ids'].to(device)           # [B, T]
+            labels    = batch['labels'].to(device)
+            attention_mask = batch.get('attention_mask', None)
+            if attention_mask is not None:
+                attention_mask = attention_mask.to(device)
+
+            # labels shape for CLS
+            if labels.dim() != 1:
+                if labels.dim() == 2 and num_classes and labels.size(1) == num_classes:
+                    labels = labels.argmax(dim=1)
+                else:
+                    raise ValueError(f"Unexpected labels shape {labels.shape}")
+
+            # split QA vs CLS
+            qa_rows, cls_rows = self._split_qa_cls_indices(batch['dataset'])
+            if qa_rows is not None:  qa_rows = qa_rows.to(device)
+            if cls_rows is not None: cls_rows = cls_rows.to(device)
+
+            # ===== Classification via wrapper forward =====
+            if cls_rows is not None and cls_rows.numel() > 0:
+                ds_cls = [batch['dataset'][i] for i in cls_rows.tolist()]
+                domain_ids_cls = self._datasets_to_domain_ids(ds_cls, device=device)
+
+                out = core(
+                    input_ids=input_ids.index_select(0, cls_rows),
+                    attention_mask=(attention_mask.index_select(0, cls_rows) if attention_mask is not None else None),
+                    domain_ids=domain_ids_cls,
+                    lm_labels=None
+                )
+                cls_logits = out["cls_logits"]
+                labels_cls = labels.index_select(0, cls_rows)
+
+                loss = criterion(cls_logits, labels_cls)
+                total_cls_loss += loss.item() * labels_cls.size(0)
+                n_cls += labels_cls.size(0)
+
+                preds = cls_logits.argmax(dim=1)
+                all_predictions.extend(preds.detach().cpu().tolist())
+                all_labels.extend(labels_cls.detach().cpu().tolist())
+                all_datasets.extend([
+                    (d.decode("utf-8") if isinstance(d, (bytes, bytearray)) else str(d)) for d in ds_cls
+                ])
+
+            # ===== QA via backbone.generate (no TF) =====
+            has_qa = (qa_rows is not None and qa_rows.numel() > 0)
+            if has_qa:
+                qa_input_ids = input_ids.index_select(0, qa_rows)
+                qa_attn      = attention_mask.index_select(0, qa_rows) if attention_mask is not None else None
+
+                gen_out = core.backbone.generate(
+                    input_ids=qa_input_ids,
+                    attention_mask=qa_attn,
+                    **gen_cfg
+                )  # [Bq, T+L]
+
+                raise Exception("Printing the generated output", gen_out)
+
+                # slice continuation only
+                if qa_attn is not None:
+                    prompt_lens = qa_attn.sum(dim=1)  # [Bq]
+                else:
+                    pad_id = self.tokenizer.pad_token_id
+                    prompt_lens = (qa_input_ids != pad_id).sum(dim=1)
+
+                cont_rows = []
+                for j in range(gen_out.size(0)):
+                    start = int(prompt_lens[j].item())
+                    cont_rows.append(gen_out[j, start:])
+                # pad to same length for batch decode
+                cont_ids = torch.nn.utils.rnn.pad_sequence(
+                    cont_rows, batch_first=True, padding_value=self.tokenizer.pad_token_id
+                )
+
+                pred_texts_local = self.tokenizer.batch_decode(cont_ids, skip_special_tokens=True)
+
+                # gold strings (if your batch stores gold text per QA row)
+                gold_texts_local, ds_texts_local = [], []
+                for row in qa_rows.tolist():
+                    g = batch.get('lm_labels', None)
+                    if g is not None:
+                        g = g[row]
+                        if isinstance(g, (bytes, bytearray)): g = g.decode("utf-8", "ignore")
+                        gold_texts_local.append("" if g is None else str(g))
                     else:
-                        raise ValueError(f"Unexpected labels shape {labels.shape}")
-                    
-                    # Split batch into QA vs CLS by dataset name
-                qa_rows, cls_rows = self._split_qa_cls_indices(batch['dataset'])
-                device = input_ids.device
-                if qa_rows is not None:  qa_rows = qa_rows.to(device)
-                if cls_rows is not None: cls_rows = cls_rows.to(device)
+                        gold_texts_local.append("")
+                    ds = batch['dataset'][row]
+                    ds_texts_local.append(ds.decode("utf-8", "ignore") if isinstance(ds, (bytes, bytearray)) else str(ds))
 
-                # ---- Classification pass (unchanged) ----
-                if cls_rows is not None and cls_rows.numel() > 0:
-                    ds_cls = [ (ds.decode("utf-8") if isinstance(ds, bytes) else str(ds))
-                            for ds in (batch['dataset'][i] for i in cls_rows.tolist()) ]
-                    domain_ids_cls = self._datasets_to_domain_ids(ds_cls, device=device)
+                all_pred_texts.extend(pred_texts_local)
+                all_gold_texts.extend(gold_texts_local)
+                all_qa_datasets.extend(ds_texts_local)
 
-                    out = self.model(
-                        input_ids.index_select(0, cls_rows),
-                        attention_mask=attention_mask.index_select(0, cls_rows) if attention_mask is not None else None,
-                        domain_ids=domain_ids_cls,
-                        lm_labels=None
-                    )
-                    cls_logits = out["cls_logits"]
-                    labels_cls = labels.index_select(0, cls_rows)
+        # ===== Save/report (rank 0) =====
+        avg_cls_loss = (total_cls_loss / max(1, n_cls)) if n_cls else 0.0
 
-                    loss = criterion(cls_logits, labels_cls)
-                    total_cls_loss += loss.item() * labels_cls.size(0)
-                    n_cls_samples += labels_cls.size(0)
+        out_dir = self.validation_result_dir or "."
+        os.makedirs(out_dir, exist_ok=True)
+        step_tag = str(current_step) if current_step is not None else "final"
+        qa_path = os.path.join(out_dir, f"{split_name}_qa_preds_step_{step_tag}.json")
 
-                    preds = cls_logits.argmax(dim=1)
-                    gathered_preds  = self.accelerator.gather_for_metrics(preds)
-                    gathered_labels = self.accelerator.gather_for_metrics(labels_cls)
+        qa_records = [
+            {"dataset": d, "pred": p, "gold": g}
+            for d, p, g in zip(all_qa_datasets, all_pred_texts, all_gold_texts)
+        ]
+        with open(qa_path, "w", encoding="utf-8") as f:
+            json.dump(qa_records, f, ensure_ascii=False, indent=2)
 
-                    if self.accelerator.is_main_process:
-                        all_predictions.extend(gathered_preds.cpu().tolist())
-                        all_labels.extend(gathered_labels.cpu().tolist())
-                        all_datasets.extend(ds_cls)
+        print(f"[VAL (off-accel)] CLS N={n_cls}  avg_loss={avg_cls_loss:.4f}")
+        print(f"[QA] Saved {len(qa_records)} records to: {qa_path}")
 
-                # ---- QA: free generation, collect (dataset, pred, gold) ----
-                has_qa = (qa_rows is not None and qa_rows.numel() > 0)
+        if ddp_is_initialized():
+            dist.barrier()
 
-                if has_qa:
-                    qa_input_ids = input_ids.index_select(0, qa_rows)
-                    qa_attn      = attention_mask.index_select(0, qa_rows) if attention_mask is not None else None
-
-                    # decode L tokens greedily using the SAME forward pass (labels=None, domain_ids=-1)
-                    L = getattr(self, "val_max_new_tokens", 64)
-                    cont_ids = self._greedy_decode_no_generate(qa_input_ids, qa_attn, max_new_tokens=L)  # [Bq, L]
-
-                    # Build full sequences for decoding (prompt + continuation)
-                    full_ids = torch.cat([qa_input_ids, cont_ids], dim=1)  # [Bq, T+L]
-
-                    # (Optional) strip prompt for "pred only" strings, or decode full for context
-                    pred_only = True
-                    if pred_only:
-                        pred_texts_local = self.tokenizer.batch_decode(cont_ids, skip_special_tokens=True)
-                    else:
-                        pred_texts_local = self.tokenizer.batch_decode(full_ids, skip_special_tokens=True)
-
-                    # Gold text is whatever your dataloader stored (string per QA row)
-                    gold_texts_local, ds_texts_local = [], []
-                    for row in qa_rows.tolist():
-                        gold = batch.get('lm_labels', None)
-                        if gold is not None:
-                            gold = gold[row]
-                            if isinstance(gold, (bytes, bytearray)):
-                                gold = gold.decode("utf-8", errors="ignore")
-                            gold_texts_local.append("" if gold is None else str(gold))
-                        else:
-                            gold_texts_local.append("")
-
-                        ds = batch['dataset'][row]
-                        ds_texts_local.append(ds.decode("utf-8", errors="ignore") if isinstance(ds, (bytes, bytearray)) else str(ds))
-
-
-                    # --- just like classifier: gather_for_metrics on OBJECTS (strings) ---
-                    g_pred_texts = self.accelerator.gather_for_metrics(pred_texts_local)
-                    g_gold_texts = self.accelerator.gather_for_metrics(gold_texts_local)
-                    g_ds_texts   = self.accelerator.gather_for_metrics(ds_texts_local)
-
-                    if self.accelerator.is_main_process:
-                        all_pred_texts.extend(g_pred_texts)
-                        all_gold_texts.extend(g_gold_texts)
-                        all_qa_datasets.extend(g_ds_texts)
-
-        # Calculate average loss
-        avg_loss = total_loss / max(1, len(all_labels)) if self.accelerator.is_main_process else 0.0
-
-        if self.accelerator.is_main_process:
-            out_dir = self.validation_result_dir or "."
-            os.makedirs(out_dir, exist_ok=True)
-            step_tag = str(current_step) if current_step is not None else "final"
-            out_path = os.path.join(out_dir, f"{split_name}_qa_preds_step_{step_tag}.json")
-
-            qa_records = [
-                {"dataset": d, "pred": p, "gold": g}
-                for d, p, g in zip(all_qa_datasets, all_pred_texts, all_gold_texts)
-            ]
-            with open(out_path, "w", encoding="utf-8") as f:
-                json.dump(qa_records, f, ensure_ascii=False, indent=2)
-            print(f"[QA] Saved {len(qa_records)} records to: {out_path}")
-        
-        # Use the new evaluation module (only on main process)
-        if self.accelerator.is_main_process:
-            evaluation_results = evaluate_predictions(
-                predictions=all_predictions,
-                ground_truths=all_labels,
-                datasets=all_datasets if all_datasets else None,
-                split_name=split_name,
-                save_path=self.validation_result_dir,
-                global_steps=current_step,
-                label_map_path=self.label_map_path
-            )
-            
-            # Extract aggregate metrics (aligned with multi_task_evaluation)
-            aggregate_metrics = evaluation_results["aggregate_metrics"]
-            accuracy = aggregate_metrics.get("micro_accuracy", 0.0)
-            f1 = aggregate_metrics.get("micro_f1", 0.0)
-            precision = aggregate_metrics.get("micro_precision", 0.0)
-            recall = aggregate_metrics.get("micro_recall", 0.0)
-            
-            print(f"{split_name.capitalize()} - Loss: {avg_loss:.4f} - Acc: {accuracy:.4f} - F1: {f1:.4f}")
-            print(f"  Macro F1: {aggregate_metrics.get('macro_f1', 0.0):.4f} - Weighted F1: {aggregate_metrics.get('weighted_f1', 0.0):.4f}")
-            
-            return {
-                'loss': avg_loss,
-                'accuracy': accuracy,
-                'precision': precision,
-                'recall': recall,
-                'f1': f1,
-                'predictions': all_predictions,
-                'labels': all_labels,
-                'evaluation_results': evaluation_results,
-                'aggregate_metrics': aggregate_metrics
-            }
-            
-        else:
-            return None
+        # Return basics for your logger
+        return {
+            "loss": avg_cls_loss,
+            "predictions": all_predictions,
+            "labels": all_labels,
+            "qa_json_path": qa_path,
+        }
 
 
     def train(self):
         train_dataloader = self.get_dataloader(self.data_files, self.batch_size, num_workers=self.num_workers, shuffle=True)
-        val_dataloader = self.get_dataloader(self.val_data_files, self.val_batch_size, num_workers=self.num_workers, shuffle=False)
+        val_dataloader_raw = self.get_dataloader(self.val_data_files, self.val_batch_size, num_workers=self.num_workers, shuffle=False)
         
         optimizer = Adam(self.model.parameters(), lr=self.lr)
         criterion = CrossEntropyLoss()
@@ -666,14 +842,14 @@ class MultiHeadOmniClassifierAccelerateTrainer:
 
         # Prepare everything with Accelerate
         if scheduler is not None:
-            self.model, optimizer, train_dataloader, val_dataloader, scheduler = self.accelerator.prepare(
-                self.model, optimizer, train_dataloader, val_dataloader, scheduler
+            self.model, optimizer, train_dataloader, scheduler = self.accelerator.prepare(
+                self.model, optimizer, train_dataloader, scheduler
             )
             # Register the scheduler for checkpointing
             self.accelerator.register_for_checkpointing(scheduler)
         else:
-            self.model, optimizer, train_dataloader, val_dataloader = self.accelerator.prepare(
-                self.model, optimizer, train_dataloader, val_dataloader
+            self.model, optimizer, train_dataloader = self.accelerator.prepare(
+                self.model, optimizer, train_dataloader
             )
 
         start_epoch, start_batch_offset, _, _, _ = self.load_checkpoint_unified(
@@ -928,8 +1104,9 @@ class MultiHeadOmniClassifierAccelerateTrainer:
                     # Step-based validation (if configured)
                     if validate_every_n_steps is not None and current_step % validate_every_n_steps == 0:
                         print(f"\n[STEP {current_step}] Running step-based validation...")
-                        val_results = self.validate(val_dataloader, "validation", current_step=current_step)
-                        
+                        # val_results = self.validate(val_dataloader, "validation", current_step=current_step)
+                        val_results = validate_off_accelerate_with_generate(self, val_dataloader_raw, "validation", current_step)
+
                         if self.accelerator.is_main_process and val_results is not None:
                             # Check if this is the best model (using micro F1 as primary metric)
                             val_f1 = val_results['f1']
