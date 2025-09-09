@@ -662,11 +662,11 @@ class MultiHeadOmniClassifierAccelerateTrainer:
         if hasattr(core.backbone.config, "use_cache"):
             core.backbone.config.use_cache = True
 
-        # Only rank 0 validates to avoid re-implementing all-reduce/all-gather for strings
-        if not is_main_process():
-            if ddp_is_initialized():
-                dist.barrier()
-            return None
+        # # Only rank 0 validates to avoid re-implementing all-reduce/all-gather for strings
+        # if not is_main_process():
+        #     if ddp_is_initialized():
+        #         dist.barrier()
+        #     return None
 
         criterion = CrossEntropyLoss()
         num_classes = self.global_config.get('NUM_CLASSES', 0)
