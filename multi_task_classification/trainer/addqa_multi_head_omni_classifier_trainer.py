@@ -407,6 +407,65 @@ class MultiHeadOmniClassifierAccelerateTrainer:
         accelerator.print(f"[load] resumed {ckpt_dir} → epoch={start_epoch}, step={global_step}, offset={start_batch_offset}")
     
         return start_epoch, start_batch_offset, global_step, meta, ckpt_dir
+    
+    @torch.no_grad()
+    def _greedy_decode_no_generate(self, qa_input_ids, qa_attn, max_new_tokens=64):
+        """
+        Manual greedy decoding using the same forward pass (no .generate, no teacher forcing).
+        - qa_input_ids: [Bq, T] prompt tokens
+        - qa_attn:      [Bq, T] or None
+        Returns:
+        cont_ids:  [Bq, L] newly generated token ids (L <= max_new_tokens)
+        """
+        # Work on copies to avoid mutating caller tensors
+        input_ids = qa_input_ids.clone()
+        attn      = qa_attn.clone() if qa_attn is not None else None
+
+        device = input_ids.device
+        Bq     = input_ids.size(0)
+
+        # EOS / PAD
+        eos_id = self.tokenizer.eos_token_id
+        pad_id = self.tokenizer.pad_token_id if self.tokenizer.pad_token_id is not None else eos_id
+
+        finished = torch.zeros(Bq, dtype=torch.bool, device=device)
+        generated = []
+
+        for _ in range(max_new_tokens):
+            # Domain sentinel = -1 for QA (no head routing)
+            domain_ids_q = torch.full((Bq,), -1, dtype=torch.long, device=device)
+
+            out = self.model(
+                input_ids=input_ids,
+                attention_mask=attn,
+                domain_ids=domain_ids_q,
+                lm_labels=None
+            )
+            # Same forward path; take LM logits from last position
+            next_logits = out["lm_output"].logits[:, -1, :]        # [Bq, V]
+            next_tokens = next_logits.argmax(dim=-1)               # [Bq]
+
+            # If sequence already finished, keep emitting PAD to keep shape consistent
+            next_tokens = torch.where(finished, torch.full_like(next_tokens, pad_id), next_tokens)
+
+            generated.append(next_tokens.unsqueeze(1))             # accumulate [Bq, 1]
+
+            # Append to input_ids (+ update attn if present)
+            input_ids = torch.cat([input_ids, next_tokens.unsqueeze(1)], dim=1)
+            if attn is not None:
+                one = torch.ones((Bq, 1), dtype=attn.dtype, device=device)
+                attn = torch.cat([attn, one], dim=1)
+
+            # Early stop if all hit EOS
+            finished = finished | (next_tokens == eos_id)
+            if torch.all(finished):
+                break
+
+        if not generated:
+            # no tokens generated (edge-case max_new_tokens=0)
+            return torch.empty((Bq, 0), dtype=input_ids.dtype, device=device)
+
+        return torch.cat(generated, dim=1)  # [Bq, L]
 
 
     def validate(self, val_dataloader, split_name="validation", current_step=None):
@@ -480,66 +539,41 @@ class MultiHeadOmniClassifierAccelerateTrainer:
                         all_datasets.extend(ds_cls)
 
                 # ---- QA: free generation, collect (dataset, pred, gold) ----
-                has_qa = (qa_rows is not None and qa_rows.numel() > 0 and ('lm_labels' in batch))
+                has_qa = (qa_rows is not None and qa_rows.numel() > 0)
+
                 if has_qa:
                     qa_input_ids = input_ids.index_select(0, qa_rows)
                     qa_attn      = attention_mask.index_select(0, qa_rows) if attention_mask is not None else None
-                    
-                      # 1) Unwrap the model for non-forward ops (important for ZeRO3/FSDP)
-                    core = self.accelerator.unwrap_model(self.model)  # -> your MultiHeadOmniClassifier
-                    backbone = core.backbone                           # -> HF Causal LM (possibly PEFT-wrapped)
 
-                    # 2) Ensure ids/masks are sane & on the same device as backbone
-                    dev = next(backbone.parameters()).device
-                    qa_input_ids = qa_input_ids.contiguous().long().to(dev)
-                    if qa_attn is not None:
-                        qa_attn = qa_attn.contiguous().long().to(dev)
+                    # decode L tokens greedily using the SAME forward pass (labels=None, domain_ids=-1)
+                    L = getattr(self, "val_max_new_tokens", 64)
+                    cont_ids = self._greedy_decode_no_generate(qa_input_ids, qa_attn, max_new_tokens=L)  # [Bq, L]
 
-                    # 3) Enable cache for faster, safe generation (eval-time)
-                    if hasattr(backbone.config, "use_cache"):
-                        backbone.config.use_cache = True
+                    # Build full sequences for decoding (prompt + continuation)
+                    full_ids = torch.cat([qa_input_ids, cont_ids], dim=1)  # [Bq, T+L]
 
-                    gen_cfg = self.gen_cfg
-                    
-                    gen = self.model.generate_qa(
-                        accelerator=self.accelerator,
-                        input_ids=qa_input_ids,
-                        attention_mask=qa_attn,
-                        gen_cfg=self.gen_cfg,  # your deterministic config
-                    )
-
-                    # gen = backbone.generate(
-                    #     input_ids=qa_input_ids,
-                    #     attention_mask=qa_attn,
-                    #     **gen_cfg
-                    # )
-
-                    # figure prompt lengths to slice continuation only
-                    if qa_attn is not None:
-                        prompt_lens = qa_attn.sum(dim=1)  # [Bq]
+                    # (Optional) strip prompt for "pred only" strings, or decode full for context
+                    pred_only = True
+                    if pred_only:
+                        pred_texts_local = self.tokenizer.batch_decode(cont_ids, skip_special_tokens=True)
                     else:
-                        pad_id = self.tokenizer.pad_token_id
-                        prompt_lens = (qa_input_ids != pad_id).sum(dim=1)
+                        pred_texts_local = self.tokenizer.batch_decode(full_ids, skip_special_tokens=True)
 
-                    # local lists of strings
-                    pred_texts_local, gold_texts_local, ds_texts_local = [], [], []
-
-                    for j, row in enumerate(qa_rows.tolist()):
-                        start = int(prompt_lens[j].item())
-                        cont_ids = gen[j, start:]
-                        pred_text = self.tokenizer.decode(cont_ids, skip_special_tokens=True)
-
-                        gold = batch['lm_labels'][row]
-                        if isinstance(gold, (bytes, bytearray)):
-                            gold = gold.decode("utf-8", errors="ignore")
-                        gold_text = "" if gold is None else str(gold)
+                    # Gold text is whatever your dataloader stored (string per QA row)
+                    gold_texts_local, ds_texts_local = [], []
+                    for row in qa_rows.tolist():
+                        gold = batch.get('lm_labels', None)
+                        if gold is not None:
+                            gold = gold[row]
+                            if isinstance(gold, (bytes, bytearray)):
+                                gold = gold.decode("utf-8", errors="ignore")
+                            gold_texts_local.append("" if gold is None else str(gold))
+                        else:
+                            gold_texts_local.append("")
 
                         ds = batch['dataset'][row]
-                        ds_text = ds.decode("utf-8", errors="ignore") if isinstance(ds, (bytes, bytearray)) else str(ds)
+                        ds_texts_local.append(ds.decode("utf-8", errors="ignore") if isinstance(ds, (bytes, bytearray)) else str(ds))
 
-                        pred_texts_local.append(pred_text)
-                        gold_texts_local.append(gold_text)
-                        ds_texts_local.append(ds_text)
 
                     # --- just like classifier: gather_for_metrics on OBJECTS (strings) ---
                     g_pred_texts = self.accelerator.gather_for_metrics(pred_texts_local)

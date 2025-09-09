@@ -273,41 +273,41 @@ class MultiHeadOmniClassifier(nn.Module):
         print(f"Backbonetrainable params: {trainable_params:,} || all params: {all_param:,} || trainable%: {100 * trainable_params / all_param:.2f}%")
         return trainable_params, all_param
     
-    @torch.no_grad()
-    def generate_qa(
-        self,
-        accelerator,
-        input_ids: torch.Tensor,
-        attention_mask: Optional[torch.Tensor] = None,
-        gen_cfg: Optional[Dict[str, Any]] = None,
-    ) -> torch.Tensor:
-        """
-        Safe generation under Accelerate + ZeRO-3/FSDP.
-        Returns full sequences [prompt | continuation] per row.
-        """
-        backbone = accelerator.unwrap_model(self.backbone)          # unwrapped MultiHeadOmniClassifier
-        # backbone = core.backbone                       # HF CausalLM (possibly PEFT-wrapped)
+    # @torch.no_grad()
+    # def generate_qa(
+    #     self,
+    #     accelerator,
+    #     input_ids: torch.Tensor,
+    #     attention_mask: Optional[torch.Tensor] = None,
+    #     gen_cfg: Optional[Dict[str, Any]] = None,
+    # ) -> torch.Tensor:
+    #     """
+    #     Safe generation under Accelerate + ZeRO-3/FSDP.
+    #     Returns full sequences [prompt | continuation] per row.
+    #     """
+    #     backbone = accelerator.unwrap_model(self.backbone)          # unwrapped MultiHeadOmniClassifier
+    #     # backbone = core.backbone                       # HF CausalLM (possibly PEFT-wrapped)
 
-        # devices/dtypes
-        dev = next(backbone.parameters()).device
-        input_ids = input_ids.contiguous().long().to(dev)
-        if attention_mask is not None:
-            attention_mask = attention_mask.contiguous().long().to(dev)
+    #     # devices/dtypes
+    #     dev = next(backbone.parameters()).device
+    #     input_ids = input_ids.contiguous().long().to(dev)
+    #     if attention_mask is not None:
+    #         attention_mask = attention_mask.contiguous().long().to(dev)
 
-        # deterministic eval defaults unless passed in
-        if gen_cfg is None:
-            gen_cfg = {
-                "max_new_tokens": 64, "do_sample": False,
-                "temperature": 0.0, "top_p": 1.0, "num_beams": 1,
-                "eos_token_id": getattr(backbone.config, "eos_token_id", None),
-                "pad_token_id": getattr(backbone.config, "pad_token_id", None),
-            }
-        if hasattr(backbone.config, "use_cache"):
-            backbone.config.use_cache = True
+    #     # deterministic eval defaults unless passed in
+    #     if gen_cfg is None:
+    #         gen_cfg = {
+    #             "max_new_tokens": 64, "do_sample": False,
+    #             "temperature": 0.0, "top_p": 1.0, "num_beams": 1,
+    #             "eos_token_id": getattr(backbone.config, "eos_token_id", None),
+    #             "pad_token_id": getattr(backbone.config, "pad_token_id", None),
+    #         }
+    #     if hasattr(backbone.config, "use_cache"):
+    #         backbone.config.use_cache = True
 
-        # plain DDP/single-GPU
-        with FSDP.summon_full_params(backbone, writeback=False, recurse=True):
-            return backbone.generate(input_ids=input_ids, attention_mask=attention_mask, **gen_cfg)
+    #     # plain DDP/single-GPU
+    #     with FSDP.summon_full_params(backbone, writeback=False, recurse=True):
+    #         return backbone.generate(input_ids=input_ids, attention_mask=attention_mask, **gen_cfg)
     
 
         # # choose the right sharding context
