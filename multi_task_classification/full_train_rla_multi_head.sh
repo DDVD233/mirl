@@ -11,7 +11,7 @@ ACCEL_CFG="configs/accelerate_config_qwen.yaml"
 SCRIPT="train_rla_multi_head.py"
 
 BASE_SAVE_DIR="/scratch/keane/human_behaviour/new_full_joint_rla"
-PROJECT_NAME="full-rla-omni-classifier-multi-head-lora"
+PROJECT_NAME="step495000-full-rla-omni-classifier-multi-head-lora"
 
 # Exclude specific datasets (exact string match). Example:
 # EXCLUDE_DATASETS=("VPTD" "ChaLearn" "lmvd")
