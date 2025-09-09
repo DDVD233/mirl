@@ -66,7 +66,7 @@ class MultiHeadOmniClassifierAccelerateTrainer:
         self.qa_loss_weight = float(self.global_config.get('QA_LOSS_WEIGHT', 1.0))
 
         # Deterministic generation for evaluation
-        self.max_val_qa_tokens = 10
+        self.max_val_qa_tokens = 20
         
         # Use the label map from global config
         self.full_label_scheme = self.global_config.get('FULL_LABEL_SCHEME', None)
