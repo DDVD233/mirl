@@ -47,16 +47,16 @@ Then, follow these steps to set up the environment and install the necessary dep
    uv pip install vllm --torch-backend=auto
    ```
 
-3. **Install requirements**
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-4. **Install Flash Attention**
+3. **Install Flash Attention**
    ```bash
    git clone https://github.com/Dao-AILab/flash-attention
    cd flash-attention
    MAX_JOBS=16 python setup.py install
+   ```
+
+4. **Install requirements**
+   ```bash
+   pip install -r requirements.txt
    ```
    
 5. (Optional) Configure WandB for experiment tracking
