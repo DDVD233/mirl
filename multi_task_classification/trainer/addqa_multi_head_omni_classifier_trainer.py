@@ -517,7 +517,7 @@ class MultiHeadOmniClassifierAccelerateTrainer:
 
                 # ---- Classification pass (unchanged) ----
                 if cls_rows is not None and cls_rows.numel() > 0:
-                    # TODO: Be careful of iteration within a batched loop
+                    # TODO: TO REMOVE: Iteration within a batched loop
                     ds_cls = [ (ds.decode("utf-8") if isinstance(ds, bytes) else str(ds))
                             for ds in (batch['dataset'][i] for i in cls_rows.tolist()) ]
                     domain_ids_cls = self._datasets_to_domain_ids(ds_cls, device=device)
@@ -577,7 +577,8 @@ class MultiHeadOmniClassifierAccelerateTrainer:
                         all_gold_texts.extend(gathered_lm_labels)
                         all_qa_datasets.extend(gathered_datasets)
 
-                        Exception("All predicted text", all_pred_texts)
+                        raise Exception("All predicted text", all_pred_texts)
+
         # Calculate average loss
         avg_loss = total_loss / max(1, len(all_labels)) if self.accelerator.is_main_process else 0.0
 
