@@ -284,8 +284,8 @@ class MultiHeadOmniClassifier(nn.Module):
         Safe generation under Accelerate + ZeRO-3/FSDP.
         Returns full sequences [prompt | continuation] per row.
         """
-        core = accelerator.unwrap_model(self)          # unwrapped MultiHeadOmniClassifier
-        backbone = core.backbone                       # HF CausalLM (possibly PEFT-wrapped)
+        backbone = accelerator.unwrap_model(self.backbone)          # unwrapped MultiHeadOmniClassifier
+        # backbone = core.backbone                       # HF CausalLM (possibly PEFT-wrapped)
 
         # devices/dtypes
         dev = next(backbone.parameters()).device
