@@ -173,7 +173,7 @@ class MultiHeadOmniClassifier(nn.Module):
 
         h = out.hidden_states[-2]  # [B,T,H]
 
-        # TODO: Double check what this effect has in the context of omni
+        # TODO: Double check what this effect has in the context of omni and masking multi modal inputs
         if attention_mask is not None:
             pooled = (h * attention_mask.unsqueeze(-1)).sum(1) / attention_mask.sum(1, keepdim=True)
         else:
@@ -190,16 +190,13 @@ class MultiHeadOmniClassifier(nn.Module):
         logits_all = torch.full((B, self.global_num_classes),
                                 neg_inf, device=device, dtype=dtype)
 
-        # if domain_ids is None:
-        #     # If caller truly has no domains, just return LM path output.
-        #     return {"cls_logits": logits_all, "lm_loss": lm_loss}
 
 
         # compute per-domain logits and scatter into global slots
         domain_ids = domain_ids.to(device)
     
         unique_domains = domain_ids.unique(sorted=True).tolist()
-        
+
         for d in unique_domains:
             # iterate over the unique domains
             # get the rows for the current domain

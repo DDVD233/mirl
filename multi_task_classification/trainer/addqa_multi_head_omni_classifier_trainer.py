@@ -66,20 +66,7 @@ class MultiHeadOmniClassifierAccelerateTrainer:
         self.qa_loss_weight = float(self.global_config.get('QA_LOSS_WEIGHT', 1.0))
 
         # Deterministic generation for evaluation
-        self.gen_cfg = {
-            "max_new_tokens": int(self.global_config.get("GEN_MAX_NEW_TOKENS", 64)),
-            "do_sample": False,                 # <-- no sampling
-            "temperature": 0.0,                 # ignored when do_sample=False, but keep 0.0 for clarity
-            "top_p": 1.0,                       # ignored when do_sample=False
-            "num_beams": 1,                     # greedy; set to >1 for deterministic beam search
-            "eos_token_id": self.tokenizer.eos_token_id,
-            "pad_token_id": self.tokenizer.pad_token_id,
-            # Optional quality guards (use sparingly; can change outputs):
-            # "no_repeat_ngram_size": 0,        # e.g., 2 to discourage repeats; keep 0 for pure eval
-            # "length_penalty": 1.0,            # useful if you bump num_beams
-            # "min_new_tokens": 0,
-        }
-
+        self.max_val_qa_tokens = 64
         
         # Use the label map from global config
         self.full_label_scheme = self.global_config.get('FULL_LABEL_SCHEME', None)
@@ -557,9 +544,9 @@ class MultiHeadOmniClassifierAccelerateTrainer:
                     qa_attn      = attention_mask.index_select(0, qa_rows) if attention_mask is not None else None
 
                     # 1) Greedy decode continuation IDs ONLY (no .generate()), fixed L tokens
-                    L = getattr(self, "val_max_new_tokens", 10)
+                    
                     # Your helper should return a [Bq, L] LongTensor, pad with tokenizer.pad_token_id if needed
-                    cont_ids_local = self._greedy_decode_no_generate(qa_input_ids, qa_attn, max_new_tokens=L)  # [Bq, L]
+                    cont_ids_local = self._greedy_decode_no_generate(qa_input_ids, qa_attn, max_new_tokens=self.max_val_qa_tokens)  # [Bq, L]
 
                     # 2) Gather IDs across processes (tensors only)
                     g_cont_ids = self.accelerator.gather_for_metrics(cont_ids_local)        # [N_total, L]
@@ -743,6 +730,7 @@ class MultiHeadOmniClassifierAccelerateTrainer:
                 if 'dataset' not in batch:
                     raise KeyError("Batch missing 'dataset' needed for domain routing.")
                 # batch['dataset'] is typically a list/tuple length B
+                domain_ids = self._datasets_to_domain_ids(batch['dataset'], device=input_ids.device)
 
                 # labels sanity
                 if labels.dim() != 1:
@@ -767,13 +755,13 @@ class MultiHeadOmniClassifierAccelerateTrainer:
                 device = input_ids.device
 
                 # ---- domain ids: sentinel -1 for QA-only rows ----
-                domain_ids_full = torch.full((B,), -1, dtype=torch.long, device=device)
+                # domain_ids_full = torch.full((B,), -1, dtype=torch.long, device=device)
                 
-                if cls_rows is not None and cls_rows.numel() > 0:
-                    # TODO: This may be causing your hang issues; the iterable list
-                    ds_cls = [batch['dataset'][i] for i in cls_rows.tolist()]
-                    domain_ids_cls = self._datasets_to_domain_ids(ds_cls, device=device)
-                    domain_ids_full.index_copy_(0, cls_rows, domain_ids_cls)
+                # if cls_rows is not None and cls_rows.numel() > 0:
+                #     # TODO: This may be causing your hang issues; the iterable list
+                #     ds_cls = [batch['dataset'][i] for i in cls_rows.tolist()]
+                #     domain_ids_cls = self._datasets_to_domain_ids(ds_cls, device=device)
+                #     domain_ids_full.index_copy_(0, cls_rows, domain_ids_cls)
 
                 # ---- start from the classification view of the batch ----
                 input_ids_full = input_ids
@@ -805,13 +793,14 @@ class MultiHeadOmniClassifierAccelerateTrainer:
                     model_output = self.model(
                         input_ids=input_ids_full,
                         attention_mask=attn_full,
-                        domain_ids=domain_ids_full,   # -1 means "no head" (QA-only row)
+                        domain_ids=domain_ids,   # -1 means "no head" (QA-only row; and this will automatically be handled)
                         lm_labels=lm_labels_full      # None or masked by -100
                     )
                     # Classification loss only on cls_rows
                     cls_loss = torch.zeros([], device=device)
                     preds_cls = None
                     if cls_rows is not None and cls_rows.numel() > 0:
+                        # only do cls_loss over the cls_rows
                         labels_cls = labels.index_select(0, cls_rows)
                         cls_logits = model_output["cls_logits"].index_select(0, cls_rows)
                         cls_loss   = criterion(cls_logits, labels_cls)
@@ -820,12 +809,11 @@ class MultiHeadOmniClassifierAccelerateTrainer:
                     # LM loss is computed internally only for QA rows (thanks to -100 mask)
                     qa_loss = model_output["lm_loss"] if has_qa else torch.zeros([], device=device)
                     lm_output = None
-
                     if has_qa:
                         lm_output = model_output["lm_output"]
 
-
                     total_loss_this_step = cls_loss + self.qa_loss_weight * qa_loss
+
                     self.accelerator.backward(total_loss_this_step)
 
                     optimizer.step()
