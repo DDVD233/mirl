@@ -4,6 +4,7 @@ import torch.nn as nn
 from transformers import Qwen2_5OmniThinkerForConditionalGeneration
 from peft import LoraConfig, get_peft_model, TaskType
 from typing import Optional, Dict, Any
+from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 
 NEG_INF = -1e9  # safe mask for "irrelevant" classes
 
