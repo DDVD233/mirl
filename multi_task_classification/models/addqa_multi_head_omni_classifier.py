@@ -166,6 +166,16 @@ class MultiHeadOmniClassifier(nn.Module):
             output_hidden_states=True,
             **kwargs
         )
+
+        generated_text = self.backbone.generate(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            labels=lm_labels,                 # None or [-100]-masked full-batch labels
+            output_hidden_states=True,
+            **kwargs
+        )
+        print(generated_text)
+
         lm_loss = getattr(out, "loss", None)
 
         h = out.hidden_states[-2]  # [B,T,H]
