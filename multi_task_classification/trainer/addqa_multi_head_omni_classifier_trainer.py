@@ -494,7 +494,7 @@ class MultiHeadOmniClassifierAccelerateTrainer:
                 labels = batch['labels']
                 attention_mask = batch.get('attention_mask', None)
                 lm_labels = batch['lm_labels']
-                dataset = batch["dataset"]
+                datasets = batch["dataset"]
 
                 # retrieve the batch and domain_ids for all the batch
                 if 'dataset' not in batch:
@@ -559,16 +559,14 @@ class MultiHeadOmniClassifierAccelerateTrainer:
                     g_cont_ids = self.accelerator.gather_for_metrics(cont_ids_local)        # [N_total, L]
                     g_prompts  = self.accelerator.gather_for_metrics(qa_input_ids)          # [N_total, T]  (optional; only if you want full sequences)
 
-                    raise Exception(g_cont_ids)
-                
                     # 3) Also gather metadata (strings) using gather_object
                     #    Build per-row lists on each rank first
-                    qa_lm_labels = lm_labels.index_select(0, qa_rows)
-                    qa_datasets = dataset.index_select(0, qa_rows)
+                    # qa_lm_labels = lm_labels.index_select(0, qa_rows)
+                    # qa_datasets = dataset.index_select(0, qa_rows)
 
                     # collect them all
-                    gathered_lm_labels = self.accelerator.gather_for_metrics(qa_lm_labels)  # [N_total]
-                    gathered_datasets  = self.accelerator.gather_for_metrics(qa_datasets)   #
+                    gathered_lm_labels = self.accelerator.gather_for_metrics(lm_labels)  # [N_total]
+                    gathered_datasets  = self.accelerator.gather_for_metrics(datasets)   #
 
                     raise Exception(gathered_lm_labels)
                 
