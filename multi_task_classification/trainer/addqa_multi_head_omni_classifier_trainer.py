@@ -203,9 +203,12 @@ class MultiHeadOmniClassifierAccelerateTrainer:
         for ds in dataset_names:
             if isinstance(ds, bytes):  # sometimes collate/gather returns bytes
                 ds = ds.decode("utf-8")
-            if ds not in self.dataset_to_domain_id:
+            if ds in self.qa_datasets:
+                ids.append(-1)
+            elif ds not in self.dataset_to_domain_id:
                 raise KeyError(f"Dataset '{ds}' not in label_map.meta.dataset_domain")
-            ids.append(self.dataset_to_domain_id[ds])
+            else:
+                ids.append(self.dataset_to_domain_id[ds])
 
         # store the tensors for the domain ids
         return torch.tensor(ids, dtype=torch.long, device=device)
@@ -433,8 +436,8 @@ class MultiHeadOmniClassifierAccelerateTrainer:
 
         for _ in range(max_new_tokens):
             # Domain sentinel = -1 for QA (no head routing)
+            # It should already be handled in the original domain_ids in the main loop, but just to be sure
             domain_ids_q = torch.full((Bq,), -1, dtype=torch.long, device=device)
-            
             
             out = self.model(
                 input_ids=input_ids,
@@ -462,7 +465,6 @@ class MultiHeadOmniClassifierAccelerateTrainer:
             finished = finished | (next_tokens == eos_id)
             if torch.all(finished):
                 break
-
 
         if not generated:
             # no tokens generated (edge-case max_new_tokens=0)
@@ -496,6 +498,8 @@ class MultiHeadOmniClassifierAccelerateTrainer:
                 lm_labels = batch['lm_labels']
                 datasets = batch["dataset"]
 
+                domain_ids = self._datasets_to_domain_ids(batch['dataset'], device=input_ids.device)
+
                 # retrieve the batch and domain_ids for all the batch
                 if 'dataset' not in batch:
                     raise KeyError("Batch missing 'dataset' needed for domain routing.")
@@ -512,22 +516,23 @@ class MultiHeadOmniClassifierAccelerateTrainer:
                     # Split batch into QA vs CLS by dataset name
                 qa_rows, cls_rows = self._split_qa_cls_indices(batch['dataset'])
                 device = input_ids.device
-                if qa_rows is not None:  qa_rows = qa_rows.to(device)
-                if cls_rows is not None: cls_rows = cls_rows.to(device)
+
+                if qa_rows is not None:  
+                    qa_rows = qa_rows.to(device)
+                
+                if cls_rows is not None: 
+                    cls_rows = cls_rows.to(device)
 
                 # ---- Classification pass (unchanged) ----
                 if cls_rows is not None and cls_rows.numel() > 0:
-                    # TODO: TO REMOVE: Iteration within a batched loop
-                    ds_cls = [ (ds.decode("utf-8") if isinstance(ds, bytes) else str(ds))
-                            for ds in (batch['dataset'][i] for i in cls_rows.tolist()) ]
-                    domain_ids_cls = self._datasets_to_domain_ids(ds_cls, device=device)
 
                     out = self.model(
                         input_ids.index_select(0, cls_rows),
                         attention_mask=attention_mask.index_select(0, cls_rows) if attention_mask is not None else None,
-                        domain_ids=domain_ids_cls,
+                        domain_ids=domain_ids,
                         lm_labels=None
                     )
+
                     cls_logits = out["cls_logits"]
                     labels_cls = labels.index_select(0, cls_rows)
 
@@ -577,7 +582,7 @@ class MultiHeadOmniClassifierAccelerateTrainer:
                         all_gold_texts.extend(gathered_lm_labels)
                         all_qa_datasets.extend(gathered_datasets)
 
-                        raise Exception("All predicted text", all_pred_texts)
+                        # raise Exception("All predicted text", all_pred_texts)
 
         # Calculate average loss
         avg_loss = total_loss / max(1, len(all_labels)) if self.accelerator.is_main_process else 0.0

@@ -199,6 +199,7 @@ class MultiHeadOmniClassifier(nn.Module):
         domain_ids = domain_ids.to(device)
     
         unique_domains = domain_ids.unique(sorted=True).tolist()
+        
         for d in unique_domains:
             # iterate over the unique domains
             # get the rows for the current domain
