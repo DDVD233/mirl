@@ -27,7 +27,7 @@ export TORCH_USE_CUDA_DSA=1
 #  --label_map_path "/home/keaneong/human-behavior/verl/multi_task_classification/v2_unified_scheme_splitmmpsy_binarymmpsy_no_vptd_chalearn_lmvd_esconv.json
 
     # --train_file "/scratch/keane/human_behaviour/human_behaviour_data/full_mimeqa.jsonl" \
-
+#    --load_checkpoint_path "/scratch/keane/human_behaviour/v5_multi_head_lora_training/step_49500" \
     #  --label_map_path "/home/keaneong/human-behavior/verl/multi_task_classification/unified_label_map_w_feats_v5_unified_scheme_splitmmpsy_binarymmpsy_no_vptd_chalearn_lmvd_esconv.json" \
 # Launch training with accelerate for head_only strategy
 echo "Launching head_only training with Accelerate..."
@@ -45,8 +45,7 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml addqa_train_
     --label_map_path "/home/keaneong/human-behavior/verl/multi_task_classification/unified_feat_meld_label_map.json" \
     --save_every_n_epochs 99999 \
     --save_every_n_steps 99999 \
-    --save_checkpoint_dir "/scratch/keane/human_behaviour/debug_addqa_multi_task_lora_training" \
-    --load_checkpoint_path "/scratch/keane/human_behaviour/v5_multi_head_lora_training/step_49500" \
+    --save_checkpoint_dir "/scratch/keane/human_behaviour/2_debug_addqa_multi_task_lora_training" \
     --validation_result_dir "/scratch/keane/human_behaviour/debug_addqa_multi_task_lora_training/validation_results" \
     --validate_every_n_epochs 1 \
     --validate_every_n_steps 9999 \
