@@ -1,9 +1,8 @@
 #!/bin/bash
 
-# Shell script for head_only training strategy
 # This script launches training with only the classification head being trained
 
-echo "Starting head_only training..."
+echo "Starting QA training..."
 
 # Set CUDA_VISIBLE_DEVICES to use GPUs 2 and 3
 export CUDA_VISIBLE_DEVICES="0,1"
@@ -17,7 +16,7 @@ export TORCH_USE_CUDA_DSA=1
     # --scheduler_type cosine \
     # --warmup_steps 25
 
-echo "Launching head_only training with Accelerate..."
+echo "Launching QA training with Accelerate..."
 accelerate launch --config_file configs/accelerate_config_qwen.yaml addqa_train_multi_head.py \
     --mode train \
     --training_strategy lora \
@@ -42,4 +41,4 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml addqa_train_
     --gradient_accumulation_steps 8 \
     --format_prompt "" \
 
-echo "Head-only training completed!"
+echo "QA training completed!"
