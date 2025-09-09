@@ -666,7 +666,7 @@ class MultiHeadOmniClassifierAccelerateTrainer:
         # inp_dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         # core.to(inp_dev).eval()
 
-        input_dev = infer_input_device(core.backbone)
+        inp_dev = infer_input_device(core.backbone)
         core.eval()
 
         # generation safety
