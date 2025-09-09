@@ -536,10 +536,10 @@ class MultiHeadOmniClassifierAccelerateTrainer:
 
         # 3) OPTIONAL resumed loader (only used for the first resumed epoch)
         skipped_dataloader = None
-        if start_batch_offset > 0:
-            skipped_dataloader = self.accelerator.skip_first_batches(
-                train_dataloader, start_batch_offset
-            )
+        # if start_batch_offset > 0:
+        #     skipped_dataloader = self.accelerator.skip_first_batches(
+        #         train_dataloader, start_batch_offset
+        #     )
 
         # Get configuration values
         validate_every_n_epochs = self.global_config.get('VALIDATE_EVERY_N_EPOCHS', None)
