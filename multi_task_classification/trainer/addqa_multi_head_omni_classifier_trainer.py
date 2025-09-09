@@ -434,7 +434,7 @@ class MultiHeadOmniClassifierAccelerateTrainer:
         for _ in range(max_new_tokens):
             # Domain sentinel = -1 for QA (no head routing)
             domain_ids_q = torch.full((Bq,), -1, dtype=torch.long, device=device)
-            raise Exception("input ids", input_ids)
+            
             
             out = self.model(
                 input_ids=input_ids,
@@ -442,6 +442,8 @@ class MultiHeadOmniClassifierAccelerateTrainer:
                 domain_ids=domain_ids_q,
                 lm_labels=None
             )
+
+            raise Exception("input ids", out)
         
             # Same forward path; take LM logits from last position
             next_logits = out["lm_output"].logits[:, -1, :]        # [Bq, V]
