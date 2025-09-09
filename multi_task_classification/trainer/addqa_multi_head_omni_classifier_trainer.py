@@ -654,8 +654,8 @@ class MultiHeadOmniClassifierAccelerateTrainer:
             core = self.model
 
         inp_dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        # core.to(device).eval()
-        core.eval()
+        core.to(inp_dev).eval()
+        # core.eval()
 
         # generation safety
         if getattr(self.tokenizer, "pad_token_id", None) is None:
