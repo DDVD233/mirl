@@ -648,22 +648,28 @@ class MultiHeadOmniClassifierAccelerateTrainer:
 
                 with self.accelerator.accumulate(self.model):
                     # ---- single forward pass ----
-                    out = self.model(
+                    model_output = self.model(
                         input_ids=input_ids_full,
                         attention_mask=attn_full,
                         domain_ids=domain_ids_full,   # -1 means "no head" (QA-only row)
                         lm_labels=lm_labels_full      # None or masked by -100
                     )
-
-                    # LM loss is computed internally only for QA rows (thanks to -100 mask)
-                    qa_loss = out["lm_loss"] if has_qa else torch.zeros([], device=device)
-
                     # Classification loss only on cls_rows
                     cls_loss = torch.zeros([], device=device)
+                    preds_cls = None
                     if cls_rows is not None and cls_rows.numel() > 0:
                         labels_cls = labels.index_select(0, cls_rows)
-                        cls_logits = out["cls_logits"].index_select(0, cls_rows)
+                        cls_logits = model_output["cls_logits"].index_select(0, cls_rows)
                         cls_loss   = criterion(cls_logits, labels_cls)
+                        preds_cls  = cls_logits.argmax(dim=1)
+
+                    # LM loss is computed internally only for QA rows (thanks to -100 mask)
+                    qa_loss = model_output["lm_loss"] if has_qa else torch.zeros([], device=device)
+                    lm_output = None
+
+                    if has_qa:
+                        lm_output = model_output["lm_output"]
+
 
                     total_loss = cls_loss + self.qa_loss_weight * qa_loss
                     self.accelerator.backward(total_loss)
@@ -686,7 +692,7 @@ class MultiHeadOmniClassifierAccelerateTrainer:
                             current_lr = None
                     else:
                         current_lr = self.lr
-                        
+            
                 
                 with torch.no_grad():
                     # ---- metrics only on CLS rows ----
@@ -700,9 +706,9 @@ class MultiHeadOmniClassifierAccelerateTrainer:
                             correct += (gathered_preds == gathered_labels).sum().item()
                             total_loss += gathered_labels.size(0)
 
-                    if lm_out is not None:
+                    if lm_output is not None:
                         # 1) Get token-level predictions (greedy) for the QA rows
-                        pred_text_ids = lm_out.logits.argmax(dim=-1)  # [B,T]
+                        pred_text_ids = lm_output.logits.argmax(dim=-1)  # [B,T]
 
                         # 2) Only evaluate/print tokens where labels are active (labels != -100)
                         active = (lm_labels_q != -100)

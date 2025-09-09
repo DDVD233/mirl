@@ -245,7 +245,7 @@ class MultiHeadOmniClassifier(nn.Module):
 
             logits_all = logits_all.index_copy(0, rows, block)           # stitch rows
         
-        return {"cls_logits": logits_all, "lm_loss": lm_loss}
+        return {"cls_logits": logits_all, "lm_loss": lm_loss, "lm_output": out}
 
     # Convenience: expose mappings
     @property
