@@ -17,8 +17,9 @@ PROJECT_NAME="full-rla-omni-classifier-multi-head-lora"
 # EXCLUDE_DATASETS=("VPTD" "ChaLearn" "lmvd")
 # exact-match, case-sensitive
 # note einterface, expw, mmpsy_anxiety, mmpsy_depression does not have data
+EXCLUDE_DATASETS=("einterface" "expw" "mmpsy_anxiety" "mmpsy_depression")
 
-EXCLUDE_DATASETS=("chsimsv2" "cremad" "einterface" "expw" "mmpsy_anxiety" "mmpsy_depression" "meld_emotion" "meld_senti")
+# EXCLUDE_DATASETS=("chsimsv2" "cremad" "einterface" "expw" "mmpsy_anxiety" "mmpsy_depression" "meld_emotion" "meld_senti")
 
 # Environment
 export CUDA_VISIBLE_DEVICES="2,3"
@@ -152,7 +153,7 @@ for DS in $ALL_DS; do
     --save_every_n_steps 9999999 \
     --save_checkpoint_dir "$SAVE_DIR" \
     --validation_result_dir "$VAL_DIR" \
-    --load_checkpoint_path "/scratch/keane/human_behaviour/v5_multi_head_lora_training/step_20000" \
+    --load_checkpoint_path "/scratch/keane/human_behaviour/v5_multi_head_lora_training/step_49500" \
     --validate_every_n_epochs 1 \
     --validate_every_n_steps 999999 \
     --early_stopping_patience 99999 \
