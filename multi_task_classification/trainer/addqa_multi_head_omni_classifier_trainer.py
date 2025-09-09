@@ -421,7 +421,7 @@ class MultiHeadOmniClassifierAccelerateTrainer:
                 if 'dataset' not in batch:
                     raise KeyError("Batch missing 'dataset' needed for domain routing.")
                 # batch['dataset'] is typically a list/tuple length B
-                domain_ids = self._datasets_to_domain_ids(batch['dataset'], device=input_ids.device)
+                # domain_ids = self._datasets_to_domain_ids(batch['dataset'], device=input_ids.device)
 
                 # Handle labels shape
                 if labels.dim() != 1:
