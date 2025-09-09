@@ -322,4 +322,5 @@ class MultiHeadOmniClassifier(nn.Module):
             pass  # not FSDP, fall through
 
         # plain DDP/single-GPU
-        return backbone.generate(input_ids=input_ids, attention_mask=attention_mask, **gen_cfg)
+        with FSDP.summon_full_params(emb, writeback=False, recurse=True):
+            return backbone.generate(input_ids=input_ids, attention_mask=attention_mask, **gen_cfg)
