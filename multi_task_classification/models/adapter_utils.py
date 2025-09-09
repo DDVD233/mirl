@@ -86,8 +86,28 @@ def maybe_build_adapters(
         )
     return video_adapter, audio_adapter
 
-def apply_adapters(
-    logits: torch.Tensor,
+# def apply_adapters(
+#     logits: torch.Tensor,
+#     domain_ids: torch.Tensor,
+#     *,
+#     video_adapter: Optional[ResidualLogitAdapter],
+#     audio_adapter: Optional[ResidualLogitAdapter],
+#     video_feats: Optional[torch.Tensor] = None,   # <<—— direct tensors
+#     audio_feats: Optional[torch.Tensor] = None,
+#     train_mode: bool,
+# ) -> torch.Tensor:
+#     """
+#     Add residuals in logit space using whatever adapters are present.
+#     If feats are None or adapter is None, logits are returned unchanged.
+#     """
+#     z = logits 
+#     if (video_adapter is not None) and (video_feats is not None):
+#         z = video_adapter(z, domain_ids, feats=video_feats, train_mode=train_mode)
+#     if (audio_adapter is not None) and (audio_feats is not None):
+#         z = audio_adapter(z, domain_ids, feats=audio_feats, train_mode=train_mode)
+#     return z
+
+def apply_adapters(    logits: torch.Tensor,
     domain_ids: torch.Tensor,
     *,
     video_adapter: Optional[ResidualLogitAdapter],
@@ -96,15 +116,22 @@ def apply_adapters(
     audio_feats: Optional[torch.Tensor] = None,
     train_mode: bool,
 ) -> torch.Tensor:
-    """
-    Add residuals in logit space using whatever adapters are present.
-    If feats are None or adapter is None, logits are returned unchanged.
-    """
-    z = logits 
-    if (video_adapter is not None) and (video_feats is not None):
+    
+    z = logits
+    B = logits.size(0)
+
+    if (video_adapter is not None 
+        and video_feats is not None 
+        and video_feats.numel() > 0 
+        and video_feats.size(0) == B):
         z = video_adapter(z, domain_ids, feats=video_feats, train_mode=train_mode)
-    if (audio_adapter is not None) and (audio_feats is not None):
+
+    if (audio_adapter is not None 
+        and audio_feats is not None 
+        and audio_feats.numel() > 0 
+        and audio_feats.size(0) == B):
         z = audio_adapter(z, domain_ids, feats=audio_feats, train_mode=train_mode)
+
     return z
 
 ### -----------------------------------------------------------------

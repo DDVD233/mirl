@@ -13,6 +13,10 @@ SCRIPT="train_rla_multi_head.py"
 BASE_SAVE_DIR="/scratch/keane/human_behaviour/new_full_joint_rla"
 PROJECT_NAME="full-rla-omni-classifier-multi-head-lora"
 
+# Exclude specific datasets (exact string match). Example:
+# EXCLUDE_DATASETS=("VPTD" "ChaLearn" "lmvd")
+EXCLUDE_DATASETS=("chsimsv2", "cremad")
+
 # Environment
 export CUDA_VISIBLE_DEVICES="2,3"
 export CUDA_LAUNCH_BLOCKING=1
@@ -21,18 +25,23 @@ export TORCH_USE_CUDA_DSA=1
 # Temp directory for filtered JSONLs
 TMP_DIR="/scratch/keane/human_behaviour/human_behaviour_data/"
 
+# ---- small helper: membership check for arrays ----
+is_excluded() {
+  local item="$1"; shift || true
+  for x in "$@"; do
+    [[ "$x" == "$item" ]] && return 0
+  done
+  return 1
+}
+
 # ==== helper: filter a JSONL by dataset ====
 filter_jsonl() {
   local in_jsonl="$1"
   local dataset="$2"
   local out_jsonl="$3"
-  # Prefer jq if available; else Python fallback
   if command -v jq >/dev/null 2>&1; then
-    # Keep only lines where .dataset == "$dataset"
-    # Also ensure the line parses as JSON to avoid junk
     jq -c "select(.dataset? == \"$dataset\")" "$in_jsonl" > "$out_jsonl" || true
   else
-    # Python fallback
     python3 - "$in_jsonl" "$dataset" "$out_jsonl" <<'PY'
 import sys, json
 inp, ds, outp = sys.argv[1], sys.argv[2], sys.argv[3]
@@ -80,7 +89,6 @@ echo "Collecting dataset names…"
 mapfile -t TRAIN_DS < <(list_datasets "$TRAIN_JSONL")
 mapfile -t VAL_DS   < <(list_datasets "$VAL_JSONL")
 
-# Join and unique
 ALL_DS=$(printf "%s\n%s\n" "${TRAIN_DS[@]}" "${VAL_DS[@]}" | sort -u)
 
 if [[ -z "$ALL_DS" ]]; then
@@ -90,6 +98,12 @@ fi
 
 # ==== main loop ====
 for DS in $ALL_DS; do
+  # Skip explicitly excluded datasets
+  if is_excluded "$DS" "${EXCLUDE_DATASETS[@]}"; then
+    echo "Skipping $DS (explicitly excluded)."
+    continue
+  fi
+
   echo "-----------------------------------------------"
   echo "Dataset: $DS"
   TRAIN_OUT="$TMP_DIR/rla_fulltemp_train_${DS}.jsonl"
@@ -115,8 +129,6 @@ for DS in $ALL_DS; do
   echo "  val_file:   $VAL_OUT    ($VAL_LINES lines)"
   echo "  save_dir:   $SAVE_DIR"
 
-      
-
   accelerate launch --config_file "$ACCEL_CFG" "$SCRIPT" \
     --mode train \
     --rla_resume_diff_training_stage \
@@ -127,8 +139,8 @@ for DS in $ALL_DS; do
     --lr 0 \
     --hard_gamma 5.0 \
     --base_lr 0 \
-    --rla_lr 5e-4 \
-    --epochs 3 \
+    --rla_lr 8e-4 \
+    --epochs 4 \
     --train_file "$TRAIN_OUT" \
     --val_file "$VAL_OUT" \
     --test_file "$VAL_OUT" \
@@ -142,7 +154,7 @@ for DS in $ALL_DS; do
     --validate_every_n_steps 999999 \
     --early_stopping_patience 99999 \
     --project "${PROJECT_NAME}" \
-    --gradient_accumulation_steps 4 \
+    --gradient_accumulation_steps 8 \
     --rla_stage residual_only \
     --d_video_feat 3318 \
     --d_audio_feat 6373 \
