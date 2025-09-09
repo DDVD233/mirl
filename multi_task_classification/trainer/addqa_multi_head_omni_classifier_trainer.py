@@ -442,8 +442,6 @@ class MultiHeadOmniClassifierAccelerateTrainer:
                 domain_ids=domain_ids_q,
                 lm_labels=None
             )
-
-            raise Exception("input ids", out)
         
             # Same forward path; take LM logits from last position
             next_logits = out["lm_output"].logits[:, -1, :]        # [Bq, V]
@@ -464,6 +462,7 @@ class MultiHeadOmniClassifierAccelerateTrainer:
             finished = finished | (next_tokens == eos_id)
             if torch.all(finished):
                 break
+            raise Exception(generated)
 
         if not generated:
             # no tokens generated (edge-case max_new_tokens=0)
