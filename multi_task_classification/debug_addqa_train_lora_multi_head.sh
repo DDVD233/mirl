@@ -22,6 +22,9 @@ export TORCH_USE_CUDA_DSA=1
     # --scheduler_type cosine \
     # --warmup_steps 25
 
+# TESTING THE MIX OF MULTI_HEAD + QA;
+# train_file "/scratch/keane/human_behaviour/human_behaviour_data/full_mimeqa.jsonl" \
+
 # Launch training with accelerate for head_only strategy
 echo "Launching head_only training with Accelerate..."
 accelerate launch --config_file configs/accelerate_config_qwen.yaml addqa_train_multi_head.py \
