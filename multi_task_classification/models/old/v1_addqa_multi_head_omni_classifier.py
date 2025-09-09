@@ -148,26 +148,41 @@ class MultiHeadOmniClassifier(nn.Module):
 
     def forward(self, input_ids, attention_mask=None, domain_ids=None, lm_labels=None, **kwargs):
         """
-        Single-pass forward for both LM (QA) and classification.
-        - Pass `lm_labels` (None or masked with -100); HF computes LM loss internally.
-        - Use `domain_ids` with sentinel -1 for QA-only rows. Only valid (>=0) rows are routed to heads.
+        Args:
+          input_ids: [B, T]
+          attention_mask: [B, T]
+          domain_ids: [B] int in {0..D-1}, selects which domain-head applies per example; 
+          # the domain-head basically tells us the domain id of each sample at each position. 
         Returns:
-            {
-            "cls_logits": [B, global_num_classes] (neg_inf for irrelevant slots/rows),
-            "lm_loss": scalar or None,
-            "hidden_states": tuple(T+1) of [B,T,H] (from backbone)
-            }
+          logits_all: [B, global_num_classes]  (21-wide), masked with NEG_INF for irrelevant classes.
         """
-        # ---- one backbone call (teacher-forcing handled via lm_labels masking) ----
-        out = self.backbone(
-            input_ids=input_ids,
-            attention_mask=attention_mask,
-            labels=lm_labels,                 # None or [-100]-masked full-batch labels
-            output_hidden_states=True,
-            **kwargs
-        )
-        lm_loss = getattr(out, "loss", None)
 
+        # ----- QA LM path (call through wrapped top-level module) -----
+        if lm_labels is not None and domain_ids is None:
+            if lm_labels == "dummy":
+                return self.backbone(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                labels=None,
+                **kwargs
+            )
+            else:
+                return self.backbone(
+                    input_ids=input_ids,
+                    attention_mask=attention_mask,
+                    labels=lm_labels,
+                    **kwargs
+                )
+
+        if domain_ids is None:
+            raise ValueError("domain_ids must be provided: a per-sample domain id is required for multi-head routing.")
+        # domain_ids is basically telling us which "batch" or sample belongs to which domain
+        # it has the same length as the batch size
+
+        out = self.backbone(
+            input_ids=input_ids, attention_mask=attention_mask,
+            output_hidden_states=True, **kwargs
+        )
         h = out.hidden_states[-2]  # [B,T,H]
 
         # TODO: Double check what this effect has in the context of omni
@@ -186,11 +201,7 @@ class MultiHeadOmniClassifier(nn.Module):
         neg_inf = torch.finfo(dtype).min / 2                     # safe huge negative in this dtype
         logits_all = torch.full((B, self.global_num_classes),
                                 neg_inf, device=device, dtype=dtype)
-
-        if domain_ids is None:
-            # If caller truly has no domains, just return LM path output.
-            return {"cls_logits": logits_all, "lm_loss": lm_loss}
-
+        # DOUBLE CHECK WHETHER THIS REQUIRES GRADIENT CALCULATION
 
         # compute per-domain logits and scatter into global slots
         domain_ids = domain_ids.to(device)
@@ -203,13 +214,6 @@ class MultiHeadOmniClassifier(nn.Module):
             # TRUE IF BELONGS TO THE CURRENT DOMAIN
             rows = (domain_ids == d).nonzero(as_tuple=True)[0]
             if rows.numel()==0:
-                continue
-
-            if d == -1:
-                # QA-only rows: explicitly write a neg_inf block so these rows are "processed"
-                block = torch.full((rows.numel(), self.global_num_classes),
-                                neg_inf, device=device, dtype=dtype)
-                logits_all.index_copy_(0, rows, block)
                 continue
 
             #obtain the global indices for the current domain
@@ -244,8 +248,8 @@ class MultiHeadOmniClassifier(nn.Module):
             block = block.scatter(1, col_index, local_logits.to(block.dtype))  # differentiable w.r.t. local
 
             logits_all = logits_all.index_copy(0, rows, block)           # stitch rows
-        
-        return {"cls_logits": logits_all, "lm_loss": lm_loss}
+
+        return logits_all
 
     # Convenience: expose mappings
     @property

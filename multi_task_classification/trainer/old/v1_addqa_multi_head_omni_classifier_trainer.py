@@ -560,7 +560,7 @@ class MultiHeadOmniClassifierAccelerateTrainer:
 
             total_loss = 0.0
             correct = 0
-            total_loss = 0
+            total = 0
             epoch_start_time = time.time()
 
             # Variables for effective batch tracking (gradient updates)
@@ -590,14 +590,6 @@ class MultiHeadOmniClassifierAccelerateTrainer:
                 if 'dataset' not in batch:
                     raise KeyError("Batch missing 'dataset' needed for domain routing.")
                 # batch['dataset'] is typically a list/tuple length B
-
-                # labels sanity
-                if labels.dim() != 1:
-                    # If your dataset sometimes emits multi-task/one-hot, squeeze or argmax here
-                    if labels.dim() == 2 and labels.size(1) == num_classes:
-                        labels = labels.argmax(dim=1)
-                    else:
-                        raise ValueError(f"Unexpected labels shape {labels.shape} (expected [B] or [B, C])")
               
                 # --- split batch into QA vs CLS subsets based on dataset name ---
                 qa_rows, cls_rows = self._split_qa_cls_indices(batch['dataset'])
@@ -610,69 +602,79 @@ class MultiHeadOmniClassifierAccelerateTrainer:
                 if cls_rows is not None:
                     cls_rows = cls_rows.to(device)
 
-                B, T = input_ids.size()
-                device = input_ids.device
-
-                # ---- domain ids: sentinel -1 for QA-only rows ----
-                domain_ids_full = torch.full((B,), -1, dtype=torch.long, device=device)
+                B = input_ids.size(0)
+                domain_ids = torch.zeros(B, dtype=torch.long, device=input_ids.device)  # harmless default for QA rows
                 
                 if cls_rows is not None and cls_rows.numel() > 0:
+                    # only build the domain ids for the CLS rows
                     ds_cls = [batch['dataset'][i] for i in cls_rows.tolist()]
-                    domain_ids_cls = self._datasets_to_domain_ids(ds_cls, device=device)
-                    domain_ids_full.index_copy_(0, cls_rows, domain_ids_cls)
+                    domain_ids_cls = self._datasets_to_domain_ids(ds_cls, device=input_ids.device)
+                    domain_ids = domain_ids.index_copy(0, cls_rows.to(domain_ids.device), domain_ids_cls)
 
-                # ---- start from the classification view of the batch ----
-                input_ids_full = input_ids
-                attn_full      = attention_mask
-
-                # ---- build masked LM labels for QA rows ----
-                lm_labels_full = None
-                has_qa = qa_rows is not None and qa_rows.numel() > 0 and ('lm_labels' in batch)
-                if has_qa:
-                    # teacher-forced per-row tensors
-                    qa_input_ids, qa_attn, lm_labels_q = self._build_tf_inputs_and_labels(
-                        batch=batch, qa_rows=qa_rows, seq_len=T, device=device
-                    )
-
-                    # (1) replace rows in input_ids / attention_mask for QA rows
-                    #     If you don't want to mutate originals, clone first:
-                    input_ids_full = input_ids.clone()
-                    attn_full      = attention_mask.clone() if attention_mask is not None else None
-                    input_ids_full.index_copy_(0, qa_rows, qa_input_ids)
-                    if attn_full is not None:
-                        attn_full.index_copy_(0, qa_rows, qa_attn)
-
-                    # (2) build full labels with -100 everywhere except QA rows
-                    lm_labels_full = torch.full((B, T), -100, dtype=torch.long, device=device)
-                    lm_labels_full.index_copy_(0, qa_rows, lm_labels_q)
-
+                # labels sanity
+                if labels.dim() != 1:
+                    # If your dataset sometimes emits multi-task/one-hot, squeeze or argmax here
+                    if labels.dim() == 2 and labels.size(1) == num_classes:
+                        labels = labels.argmax(dim=1)
+                    else:
+                        raise ValueError(f"Unexpected labels shape {labels.shape} (expected [B] or [B, C])")
+                
                 with self.accelerator.accumulate(self.model):
-                    # ---- single forward pass ----
-                    out = self.model(
-                        input_ids=input_ids_full,
-                        attention_mask=attn_full,
-                        domain_ids=domain_ids_full,   # -1 means "no head" (QA-only row)
-                        lm_labels=lm_labels_full      # None or masked by -100
-                    )
-
-                    # LM loss is computed internally only for QA rows (thanks to -100 mask)
-                    qa_loss = out["lm_loss"] if has_qa else torch.zeros([], device=device)
-
-                    # Classification loss only on cls_rows
-                    cls_loss = torch.zeros([], device=device)
+                                        
+                    cls_loss = torch.tensor(0.0, device=input_ids.device)
+                    preds_cls = None
                     if cls_rows is not None and cls_rows.numel() > 0:
+                        logits_cls = self.model(
+                            input_ids.index_select(0, cls_rows),
+                            attention_mask=attention_mask.index_select(0, cls_rows) if attention_mask is not None else None,
+                            domain_ids=self._datasets_to_domain_ids([batch['dataset'][i] for i in cls_rows.tolist()], device=input_ids.device)
+                        )
                         labels_cls = labels.index_select(0, cls_rows)
-                        cls_logits = out["cls_logits"].index_select(0, cls_rows)
-                        cls_loss   = criterion(cls_logits, labels_cls)
+                        cls_loss = criterion(logits_cls, labels_cls)
+                        preds_cls = logits_cls.argmax(dim=1)
 
-                    total_loss = cls_loss + self.qa_loss_weight * qa_loss
-                    self.accelerator.backward(total_loss)
+                    else:
+                        # tiny dummy forward to keep FSDP/ZeRO graph/collectives aligned
+                        dummy_ids = input_ids[:1]
+                        _ = self.model(dummy_ids, attention_mask=attention_mask[:1] if attention_mask is not None else None,
+                                    domain_ids=self._datasets_to_domain_ids([batch['dataset'][0]], device=input_ids.device))
+                        cls_loss = torch.zeros([], device=input_ids.device)
 
+                    qa_loss = torch.tensor(0.0, device=input_ids.device)
+                    has_qa = qa_rows is not None and qa_rows.numel() > 0 and ('lm_labels' in batch)
+
+                    lm_out = None
+                    if has_qa:
+                        qa_input_ids, qa_attn, lm_labels_q = self._build_tf_inputs_and_labels(
+                            batch=batch, qa_rows=qa_rows, seq_len=input_ids.size(1), device=device
+                        )
+                        lm_out = self.model(
+                            input_ids=qa_input_ids,
+                            attention_mask=qa_attn,
+                            lm_labels=lm_labels_q,
+                        )
+                        qa_loss = lm_out.loss
+                    else:
+                        # same “no-op” trick
+                        dummy_ids = input_ids[:1]
+                        _ = self.model(input_ids=dummy_ids, attention_mask=attention_mask[:1] if attention_mask is not None else None,
+                                    lm_labels="dummy")
+                        qa_loss = torch.zeros([], device=input_ids.device)
+
+
+                    total_loss_this_step = cls_loss + self.qa_loss_weight * qa_loss
+
+                    # Accelerate handles gradient accumulation automatically
+                    self.accelerator.backward(total_loss_this_step)
+
+                    # NOTE: This if condition is not necessary as the accelerator 
+                    # already syncs before stepping
+                    # if self.accelerator.sync_gradients:
                     optimizer.step()
-                    
-                    if scheduler is not None: 
+
+                    if scheduler is not None:
                         scheduler.step()
-                    
+
                     optimizer.zero_grad()
                     
                     # PURELY FOR LOGGING PURPOSES
@@ -698,7 +700,7 @@ class MultiHeadOmniClassifierAccelerateTrainer:
                             effective_batch_correct += (gathered_preds == gathered_labels).sum().item()
                             effective_batch_total += gathered_labels.size(0)
                             correct += (gathered_preds == gathered_labels).sum().item()
-                            total_loss += gathered_labels.size(0)
+                            total += gathered_labels.size(0)
 
                     if lm_out is not None:
                         # 1) Get token-level predictions (greedy) for the QA rows
@@ -814,8 +816,8 @@ class MultiHeadOmniClassifierAccelerateTrainer:
             skipped_dataloader = None  # Only use the resumed loader for one epoch
 
             # Calculate training metrics
-            avg_train_loss = total_loss / max(1, total_loss)
-            train_acc = correct / max(1, total_loss)
+            avg_train_loss = total_loss / max(1, total)
+            train_acc = correct / max(1, total)
             
             if self.accelerator.is_main_process:
                 print(f"Epoch {epoch+1}/{self.epochs} - Train Loss: {avg_train_loss:.4f} - Train Acc: {train_acc:.4f}")
