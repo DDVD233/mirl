@@ -1105,7 +1105,7 @@ class MultiHeadOmniClassifierAccelerateTrainer:
                     if validate_every_n_steps is not None and current_step % validate_every_n_steps == 0:
                         print(f"\n[STEP {current_step}] Running step-based validation...")
                         # val_results = self.validate(val_dataloader, "validation", current_step=current_step)
-                        val_results = self.validate_off_accelerate_with_generate(self, val_dataloader_raw, "validation", current_step)
+                        val_results = self.validate_off_accelerate_with_generate(val_dataloader_raw, "validation", current_step)
 
                         if self.accelerator.is_main_process and val_results is not None:
                             # Check if this is the best model (using micro F1 as primary metric)
