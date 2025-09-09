@@ -434,7 +434,7 @@ class MultiHeadOmniClassifierAccelerateTrainer:
         for _ in range(max_new_tokens):
             # Domain sentinel = -1 for QA (no head routing)
             domain_ids_q = torch.full((Bq,), -1, dtype=torch.long, device=device)
-            raise Excpetion("input ids", input_ids)
+            raise Exception("input ids", input_ids)
             
             out = self.model(
                 input_ids=input_ids,
