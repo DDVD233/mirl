@@ -549,7 +549,7 @@ class MultiHeadOmniClassifierAccelerateTrainer:
                     qa_attn      = attention_mask.index_select(0, qa_rows) if attention_mask is not None else None
 
                     # 1) Greedy decode continuation IDs ONLY (no .generate()), fixed L tokens
-                    L = getattr(self, "val_max_new_tokens", 64)
+                    L = getattr(self, "val_max_new_tokens", 10)
                     # Your helper should return a [Bq, L] LongTensor, pad with tokenizer.pad_token_id if needed
                     cont_ids_local = self._greedy_decode_no_generate(qa_input_ids, qa_attn, max_new_tokens=L)  # [Bq, L]
 
