@@ -33,7 +33,7 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml addqa_train_
     --lr 1e-4 \
     --epochs 4 \
     --train_file "/scratch/keane/human_behaviour/human_behaviour_data/full_mimeqa.jsonl" \
-    --val_file "/scratch/keane/human_behaviour/human_behaviour_data/trial_addqa_cls_merged.jsonl" \
+    --val_file  "/scratch/keane/human_behaviour/human_behaviour_data/full_mimeqa.jsonl" \
     --test_file "/scratch/keane/human_behaviour/human_behaviour_data/full_mimeqa.jsonl" \
     --label_map_path "/home/keaneong/human-behavior/verl/multi_task_classification/unified_label_map_w_feats_v5_unified_scheme_splitmmpsy_binarymmpsy_no_vptd_chalearn_lmvd_esconv.json" \
     --save_every_n_epochs 99999 \
@@ -42,7 +42,7 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml addqa_train_
     --load_checkpoint_path "/scratch/keane/human_behaviour/v5_multi_head_lora_training/step_49500" \
     --validation_result_dir "/scratch/keane/human_behaviour/debug_addqa_multi_task_lora_training/validation_results" \
     --validate_every_n_epochs 1 \
-    --validate_every_n_steps 9999 \
+    --validate_every_n_steps 10 \
     --early_stopping_patience 99999 \
     --project "debug-addqa-omni-classifier-multi-task-lora" \
     --gradient_accumulation_steps 4 \

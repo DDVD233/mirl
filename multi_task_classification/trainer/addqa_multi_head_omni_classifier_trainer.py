@@ -404,6 +404,10 @@ class MultiHeadOmniClassifierAccelerateTrainer:
         criterion = CrossEntropyLoss()
         num_classes = self.global_config.get('NUM_CLASSES', 0)
 
+        all_pred_texts = []
+        all_gold_texts = []
+        all_qa_datasets = []
+
         with torch.no_grad():
             for batch in tqdm(val_dataloader, desc="Validating", total=len(val_dataloader), disable=not self.accelerator.is_main_process):
                 if 'input_ids' not in batch or 'labels' not in batch:
@@ -425,32 +429,106 @@ class MultiHeadOmniClassifierAccelerateTrainer:
                         labels = labels.argmax(dim=1)
                     else:
                         raise ValueError(f"Unexpected labels shape {labels.shape}")
+                    
+                    # Split batch into QA vs CLS by dataset name
+                qa_rows, cls_rows = self._split_qa_cls_indices(batch['dataset'])
+                device = input_ids.device
+                if qa_rows is not None:  qa_rows = qa_rows.to(device)
+                if cls_rows is not None: cls_rows = cls_rows.to(device)
 
-                logits = self.model(input_ids, attention_mask=attention_mask, domain_ids=domain_ids)
-                loss = criterion(logits, labels)
-                
-                total_loss += loss.item() * input_ids.size(0)
-                preds = logits.argmax(dim=1)
+                # ---- Classification pass (unchanged) ----
+                if cls_rows is not None and cls_rows.numel() > 0:
+                    ds_cls = [ (ds.decode("utf-8") if isinstance(ds, bytes) else str(ds))
+                            for ds in (batch['dataset'][i] for i in cls_rows.tolist()) ]
+                    domain_ids_cls = self._datasets_to_domain_ids(ds_cls, device=device)
 
-                gathered_preds = self.accelerator.gather_for_metrics(preds)
-                gathered_labels = self.accelerator.gather_for_metrics(labels)
+                    out = self.model(
+                        input_ids.index_select(0, cls_rows),
+                        attention_mask=attention_mask.index_select(0, cls_rows) if attention_mask is not None else None,
+                        domain_ids=domain_ids_cls,
+                        lm_labels=None
+                    )
+                    cls_logits = out["cls_logits"]
+                    labels_cls = labels.index_select(0, cls_rows)
 
-                # Gather datasets from all processes (if available)
-                gathered_datasets = None
-                if 'dataset' in batch:
-                    gathered_datasets = self.accelerator.gather_for_metrics(batch['dataset'])
-                else:
-                    # All processes must participate in gather_object, even if they don't have the data
-                    gathered_datasets = self.accelerator.gather_for_metrics(None)
-                
-                # Only process on main process
-                if self.accelerator.is_main_process:
-                    all_predictions.extend(gathered_preds.cpu().numpy())
-                    all_labels.extend(gathered_labels.cpu().numpy())
-                    all_datasets.extend(gathered_datasets)
+                    loss = criterion(cls_logits, labels_cls)
+                    total_cls_loss += loss.item() * labels_cls.size(0)
+                    n_cls_samples += labels_cls.size(0)
+
+                    preds = cls_logits.argmax(dim=1)
+                    gathered_preds  = self.accelerator.gather_for_metrics(preds)
+                    gathered_labels = self.accelerator.gather_for_metrics(labels_cls)
+
+                    if self.accelerator.is_main_process:
+                        all_predictions.extend(gathered_preds.cpu().tolist())
+                        all_labels.extend(gathered_labels.cpu().tolist())
+                        all_datasets.extend(ds_cls)
+
+                # ---- QA: free generation, collect (dataset, pred, gold) ----
+                has_qa = (qa_rows is not None and qa_rows.numel() > 0 and ('lm_labels' in batch))
+                if has_qa:
+                    qa_input_ids = input_ids.index_select(0, qa_rows)
+                    qa_attn      = attention_mask.index_select(0, qa_rows) if attention_mask is not None else None
+
+                    gen = self.model.backbone.generate(
+                        input_ids=qa_input_ids,
+                        attention_mask=qa_attn,
+                        **gen_cfg
+                    )
+
+                    # figure prompt lengths to slice continuation only
+                    if qa_attn is not None:
+                        prompt_lens = qa_attn.sum(dim=1)  # [Bq]
+                    else:
+                        pad_id = self.tokenizer.pad_token_id
+                        prompt_lens = (qa_input_ids != pad_id).sum(dim=1)
+
+                    # local lists of strings
+                    pred_texts_local, gold_texts_local, ds_texts_local = [], [], []
+
+                    for j, row in enumerate(qa_rows.tolist()):
+                        start = int(prompt_lens[j].item())
+                        cont_ids = gen[j, start:]
+                        pred_text = self.tokenizer.decode(cont_ids, skip_special_tokens=True)
+
+                        gold = batch['lm_labels'][row]
+                        if isinstance(gold, (bytes, bytearray)):
+                            gold = gold.decode("utf-8", errors="ignore")
+                        gold_text = "" if gold is None else str(gold)
+
+                        ds = batch['dataset'][row]
+                        ds_text = ds.decode("utf-8", errors="ignore") if isinstance(ds, (bytes, bytearray)) else str(ds)
+
+                        pred_texts_local.append(pred_text)
+                        gold_texts_local.append(gold_text)
+                        ds_texts_local.append(ds_text)
+
+                    # --- just like classifier: gather_for_metrics on OBJECTS (strings) ---
+                    g_pred_texts = self.accelerator.gather_for_metrics(pred_texts_local)
+                    g_gold_texts = self.accelerator.gather_for_metrics(gold_texts_local)
+                    g_ds_texts   = self.accelerator.gather_for_metrics(ds_texts_local)
+
+                    if self.accelerator.is_main_process:
+                        all_pred_texts.extend(g_pred_texts)
+                        all_gold_texts.extend(g_gold_texts)
+                        all_qa_datasets.extend(g_ds_texts)
 
         # Calculate average loss
         avg_loss = total_loss / max(1, len(all_labels)) if self.accelerator.is_main_process else 0.0
+
+        if self.accelerator.is_main_process:
+            out_dir = self.validation_result_dir or "."
+            os.makedirs(out_dir, exist_ok=True)
+            step_tag = str(current_step) if current_step is not None else "final"
+            out_path = os.path.join(out_dir, f"{split_name}_qa_preds_step_{step_tag}.json")
+
+            qa_records = [
+                {"dataset": d, "pred": p, "gold": g}
+                for d, p, g in zip(all_qa_datasets, all_pred_texts, all_gold_texts)
+            ]
+            with open(out_path, "w", encoding="utf-8") as f:
+                json.dump(qa_records, f, ensure_ascii=False, indent=2)
+            print(f"[QA] Saved {len(qa_records)} records to: {out_path}")
         
         # Use the new evaluation module (only on main process)
         if self.accelerator.is_main_process:
@@ -535,6 +613,7 @@ class MultiHeadOmniClassifierAccelerateTrainer:
         )
 
         # 3) OPTIONAL resumed loader (only used for the first resumed epoch)
+        # Not required for now, as we always resume full epochs
         skipped_dataloader = None
         start_epoch = 0
         start_batch_offset = 0
