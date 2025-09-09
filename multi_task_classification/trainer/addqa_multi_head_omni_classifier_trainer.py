@@ -506,7 +506,7 @@ class MultiHeadOmniClassifierAccelerateTrainer:
                     #     **gen_cfg
                     # )
 
-                     gen = backbone.generate(
+                    gen = backbone.generate(
                         input_ids=qa_input_ids,
                         attention_mask=qa_attn,
                         **gen_cfg
