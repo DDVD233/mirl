@@ -653,9 +653,21 @@ class MultiHeadOmniClassifierAccelerateTrainer:
         except Exception:
             core = self.model
 
-        inp_dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        core.to(inp_dev).eval()
-        # core.eval()
+        def infer_input_device(backbone):
+            devmap = getattr(backbone, "hf_device_map", None)
+            if devmap:
+                # prefer an embeddings key; else first device in map
+                for k, v in devmap.items():
+                    if any(s in k.lower() for s in ["embed", "wte", "tok"]):
+                        return torch.device(v)
+                return torch.device(next(iter(devmap.values())))
+            return next(backbone.parameters()).device
+
+        # inp_dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        # core.to(inp_dev).eval()
+
+        input_dev = infer_input_device(core.backbone)
+        core.eval()
 
         # generation safety
         if getattr(self.tokenizer, "pad_token_id", None) is None:
