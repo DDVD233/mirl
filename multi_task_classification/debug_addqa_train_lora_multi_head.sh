@@ -33,7 +33,7 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml addqa_train_
     --lr 1e-4 \
     --epochs 4 \
     --train_file "/scratch/keane/human_behaviour/human_behaviour_data/full_mimeqa.jsonl" \
-    --val_file  "/scratch/keane/human_behaviour/human_behaviour_data/full_mimeqa.jsonl" \
+    --val_file  "/scratch/keane/human_behaviour/human_behaviour_data/test_mimeqa.jsonl" \
     --test_file "/scratch/keane/human_behaviour/human_behaviour_data/full_mimeqa.jsonl" \
     --label_map_path "/home/keaneong/human-behavior/verl/multi_task_classification/unified_label_map_w_feats_v5_unified_scheme_splitmmpsy_binarymmpsy_no_vptd_chalearn_lmvd_esconv.json" \
     --save_every_n_epochs 99999 \
