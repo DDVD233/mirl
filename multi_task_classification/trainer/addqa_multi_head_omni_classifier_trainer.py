@@ -517,6 +517,7 @@ class MultiHeadOmniClassifierAccelerateTrainer:
 
                 # ---- Classification pass (unchanged) ----
                 if cls_rows is not None and cls_rows.numel() > 0:
+                    # TODO: Be careful of iteration within a batched loop
                     ds_cls = [ (ds.decode("utf-8") if isinstance(ds, bytes) else str(ds))
                             for ds in (batch['dataset'][i] for i in cls_rows.tolist()) ]
                     domain_ids_cls = self._datasets_to_domain_ids(ds_cls, device=device)
@@ -559,16 +560,9 @@ class MultiHeadOmniClassifierAccelerateTrainer:
                     g_cont_ids = self.accelerator.gather_for_metrics(cont_ids_local)        # [N_total, L]
                     g_prompts  = self.accelerator.gather_for_metrics(qa_input_ids)          # [N_total, T]  (optional; only if you want full sequences)
 
-                    # 3) Also gather metadata (strings) using gather_object
-                    #    Build per-row lists on each rank first
-                    # qa_lm_labels = lm_labels.index_select(0, qa_rows)
-                    # qa_datasets = dataset.index_select(0, qa_rows)
-
                     # collect them all
                     gathered_lm_labels = self.accelerator.gather_for_metrics(lm_labels)  # [N_total]
                     gathered_datasets  = self.accelerator.gather_for_metrics(datasets)   #
-
-                    raise Exception(gathered_lm_labels)
                 
                     # 4) Decode ONLY on main process (after gathering)
                     if self.accelerator.is_main_process:
@@ -579,13 +573,11 @@ class MultiHeadOmniClassifierAccelerateTrainer:
                         # full_ids = torch.cat([g_prompts, g_cont_ids], dim=1)
                         # pred_texts = self.tokenizer.batch_decode(full_ids, skip_special_tokens=True)
 
-                        # Flatten gathered object lists
-                        gold_texts = [x for chunk in g_gold_lists for x in chunk]
-                        ds_texts   = [x for chunk in g_ds_lists   for x in chunk]
-
                         all_pred_texts.extend(pred_texts)
-                        all_gold_texts.extend(gold_texts)
-                        all_qa_datasets.extend(ds_texts)
+                        all_gold_texts.extend(gathered_lm_labels)
+                        all_qa_datasets.extend(gathered_datasets)
+
+                        Exception("All predicted text", all_pred_texts)
         # Calculate average loss
         avg_loss = total_loss / max(1, len(all_labels)) if self.accelerator.is_main_process else 0.0
 
@@ -981,6 +973,7 @@ class MultiHeadOmniClassifierAccelerateTrainer:
                 domain_ids_full = torch.full((B,), -1, dtype=torch.long, device=device)
                 
                 if cls_rows is not None and cls_rows.numel() > 0:
+                    # TODO: This may be causing your hang issues; the iterable list
                     ds_cls = [batch['dataset'][i] for i in cls_rows.tolist()]
                     domain_ids_cls = self._datasets_to_domain_ids(ds_cls, device=device)
                     domain_ids_full.index_copy_(0, cls_rows, domain_ids_cls)
