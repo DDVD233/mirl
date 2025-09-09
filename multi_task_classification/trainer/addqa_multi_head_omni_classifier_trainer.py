@@ -677,6 +677,7 @@ class MultiHeadOmniClassifierAccelerateTrainer:
 
         all_pred_texts, all_gold_texts, all_qa_datasets = [], [], []
 
+
         # Generation config (tweak via self.* attributes)
         gen_cfg = dict(
             max_new_tokens=getattr(self, "val_max_new_tokens", 64),
@@ -689,6 +690,20 @@ class MultiHeadOmniClassifierAccelerateTrainer:
             eos_token_id=self.tokenizer.eos_token_id,
             repetition_penalty=getattr(self, "val_rep_penalty", 1.0),
         )
+
+        prompts = ["Hello", "Test"]  # minimal and safe
+        test_batch = self.tokenizer(prompts, return_tensors="pt", padding=True)
+        qa_input_ids = test_batch["input_ids"].to(inp_dev)         # [2, T]
+        qa_attn      = test_batch["attention_mask"].to(inp_dev)    # [2, T] (int/bool both are fine)
+
+
+        gen_out = core.backbone.generate(
+                input_ids=qa_input_ids,
+                attention_mask=qa_attn,
+                **gen_cfg
+            )  # [Bq, T+L]
+        
+        raise Exception("Printing the generated output", gen_out)
 
         for batch in tqdm(val_dataloader, desc="Validating"):
             if 'input_ids' not in batch or 'labels' not in batch or 'dataset' not in batch:
@@ -743,6 +758,12 @@ class MultiHeadOmniClassifierAccelerateTrainer:
             if has_qa:
                 qa_input_ids = input_ids.index_select(0, qa_rows)
                 qa_attn      = attention_mask.index_select(0, qa_rows) if attention_mask is not None else None
+
+                # prompts = ["Hello", "Test"]  # minimal and safe
+                # batch = self.tokenizer(prompts, return_tensors="pt", padding=True)
+                # qa_input_ids = batch["input_ids"].to(inp_dev)         # [2, T]
+                # qa_attn      = batch["attention_mask"].to(inp_dev)    # [2, T] (int/bool both are fine)
+
 
                 gen_out = core.backbone.generate(
                     input_ids=qa_input_ids,
