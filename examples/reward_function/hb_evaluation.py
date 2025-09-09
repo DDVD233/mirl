@@ -48,8 +48,8 @@ def compute_metrics_by_data_source(
             predictions_int.append(label_to_index[pred_lower])
         else:
             # If not found in mapping, try to handle as a raw string
-            # Default to 0 if completely unrecognizable
-            predictions_int.append(0)
+            # Default to -2 if completely unrecognizable
+            predictions_int.append(-2)
     
     # Convert string ground truths to integers
     ground_truths_int = []
@@ -63,8 +63,9 @@ def compute_metrics_by_data_source(
             if gt_clean in label_to_index:
                 ground_truths_int.append(label_to_index[gt_clean])
             else:
-                # Default to 0 if unrecognizable
-                ground_truths_int.append(0)
+                # Default to -1 if unrecognizable
+                print("Warning: Ground truth label not found in mapping:", gt)
+                ground_truths_int.append(-1)
     
     # Call the new evaluate_predictions function
     results = evaluate_predictions(
