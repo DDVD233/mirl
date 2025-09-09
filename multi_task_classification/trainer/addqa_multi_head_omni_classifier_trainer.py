@@ -65,6 +65,21 @@ class MultiHeadOmniClassifierAccelerateTrainer:
         self.qa_datasets = set(self.global_config.get('QA_DATASETS', ['intentqa', 'mimeqa', 'siq2']))  # e.g. {"mmlu_qa","ptsd_qa","finance_qa"}
         self.qa_loss_weight = float(self.global_config.get('QA_LOSS_WEIGHT', 1.0))
 
+        # Deterministic generation for evaluation
+        self.gen_cfg = {
+            "max_new_tokens": int(self.global_config.get("GEN_MAX_NEW_TOKENS", 64)),
+            "do_sample": False,                 # <-- no sampling
+            "temperature": 0.0,                 # ignored when do_sample=False, but keep 0.0 for clarity
+            "top_p": 1.0,                       # ignored when do_sample=False
+            "num_beams": 1,                     # greedy; set to >1 for deterministic beam search
+            "eos_token_id": self.tokenizer.eos_token_id,
+            "pad_token_id": self.tokenizer.pad_token_id,
+            # Optional quality guards (use sparingly; can change outputs):
+            # "no_repeat_ngram_size": 0,        # e.g., 2 to discourage repeats; keep 0 for pure eval
+            # "length_penalty": 1.0,            # useful if you bump num_beams
+            # "min_new_tokens": 0,
+        }
+
         
         # Use the label map from global config
         self.full_label_scheme = self.global_config.get('FULL_LABEL_SCHEME', None)
@@ -469,7 +484,8 @@ class MultiHeadOmniClassifierAccelerateTrainer:
                 if has_qa:
                     qa_input_ids = input_ids.index_select(0, qa_rows)
                     qa_attn      = attention_mask.index_select(0, qa_rows) if attention_mask is not None else None
-
+                    
+                    gen_cfg = self.gen_cfg
                     gen = self.model.backbone.generate(
                         input_ids=qa_input_ids,
                         attention_mask=qa_attn,
