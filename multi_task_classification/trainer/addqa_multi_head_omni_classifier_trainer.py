@@ -665,10 +665,10 @@ class MultiHeadOmniClassifierAccelerateTrainer:
 
                     # LM loss is computed internally only for QA rows (thanks to -100 mask)
                     qa_loss = model_output["lm_loss"] if has_qa else torch.zeros([], device=device)
-                    lm_output = None
+                    # lm_output = None
 
-                    if has_qa:
-                        lm_output = model_output["lm_output"]
+                    # if has_qa:
+                    #     lm_output = model_output["lm_output"]
 
 
                     total_loss = cls_loss + self.qa_loss_weight * qa_loss
@@ -706,33 +706,33 @@ class MultiHeadOmniClassifierAccelerateTrainer:
                             correct += (gathered_preds == gathered_labels).sum().item()
                             total_loss += gathered_labels.size(0)
 
-                    if lm_output is not None:
-                        # 1) Get token-level predictions (greedy) for the QA rows
-                        pred_text_ids = lm_output.logits.argmax(dim=-1)  # [B,T]
+                    # if lm_output is not None:
+                    #     # 1) Get token-level predictions (greedy) for the QA rows
+                    #     pred_text_ids = lm_output.logits.argmax(dim=-1)  # [B,T]
 
-                        # 2) Only evaluate/print tokens where labels are active (labels != -100)
-                        active = (lm_labels_q != -100)
-                        # For labels: make them decodable
-                        text_labels_for_decode = lm_labels_q.masked_fill(lm_labels_q == -100,
-                                                                self.tokenizer.pad_token_id)
+                    #     # 2) Only evaluate/print tokens where labels are active (labels != -100)
+                    #     active = (lm_labels_q != -100)
+                    #     # For labels: make them decodable
+                    #     text_labels_for_decode = lm_labels_q.masked_fill(lm_labels_q == -100,
+                    #                                             self.tokenizer.pad_token_id)
 
-                        # Optional: mask predictions to the same active positions
-                        # (keeps inactive tokens as pad for clean decoding)
-                        pred_text_ids_masked = torch.where(active, pred_text_ids, self.tokenizer.pad_token_id)
+                    #     # Optional: mask predictions to the same active positions
+                    #     # (keeps inactive tokens as pad for clean decoding)
+                    #     pred_text_ids_masked = torch.where(active, pred_text_ids, self.tokenizer.pad_token_id)
 
-                        # 3) Gather across processes for consistent printing/metrics
-                        gathered_text_pred = self.accelerator.gather_for_metrics(pred_text_ids_masked)
-                        gathered_text_labels  = self.accelerator.gather_for_metrics(text_labels_for_decode)
+                    #     # 3) Gather across processes for consistent printing/metrics
+                    #     gathered_text_pred = self.accelerator.gather_for_metrics(pred_text_ids_masked)
+                    #     gathered_text_labels  = self.accelerator.gather_for_metrics(text_labels_for_decode)
 
-                        # 4) Decode to strings
-                        pred_text = self.tokenizer.batch_decode(gathered_text_pred, skip_special_tokens=True)
-                        gold_text = self.tokenizer.batch_decode(gathered_text_labels,  skip_special_tokens=True)
+                    #     # 4) Decode to strings
+                    #     pred_text = self.tokenizer.batch_decode(gathered_text_pred, skip_special_tokens=True)
+                    #     gold_text = self.tokenizer.batch_decode(gathered_text_labels,  skip_special_tokens=True)
 
-                        if self.accelerator.is_main_process and len(pred_text):
-                            # show a couple of samples
-                            for i in range(min(2, len(pred_text))):
-                                print(f"[QA pred] {pred_text[i]}")
-                                print(f"[QA gold] {gold_text[i]}")
+                    #     if self.accelerator.is_main_process and len(pred_text):
+                    #         # show a couple of samples
+                    #         for i in range(min(2, len(pred_text))):
+                    #             print(f"[QA pred] {pred_text[i]}")
+                    #             print(f"[QA gold] {gold_text[i]}")
 
                     # Accumulate epoch/effective losses using the combined loss
                     bs = input_ids.size(0)
