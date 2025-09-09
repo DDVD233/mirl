@@ -462,7 +462,8 @@ class MultiHeadOmniClassifierAccelerateTrainer:
             finished = finished | (next_tokens == eos_id)
             if torch.all(finished):
                 break
-            raise Exception(generated)
+
+            print(generated)
 
         if not generated:
             # no tokens generated (edge-case max_new_tokens=0)
