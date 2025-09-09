@@ -15,7 +15,8 @@ PROJECT_NAME="full-rla-omni-classifier-multi-head-lora"
 
 # Exclude specific datasets (exact string match). Example:
 # EXCLUDE_DATASETS=("VPTD" "ChaLearn" "lmvd")
-EXCLUDE_DATASETS=("chsimsv2", "cremad")
+# exact-match, case-sensitive
+EXCLUDE_DATASETS=("chsimsv2" "cremad")
 
 # Environment
 export CUDA_VISIBLE_DEVICES="2,3"
