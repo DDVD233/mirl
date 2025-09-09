@@ -23,8 +23,8 @@ export TORCH_USE_CUDA_DSA=1
     # --warmup_steps 25
 
 # TESTING THE MIX OF MULTI_HEAD + QA;
-# train_file "/scratch/keane/human_behaviour/human_behaviour_data/full_mimeqa.jsonl" \
 
+    # --train_file "/scratch/keane/human_behaviour/human_behaviour_data/full_mimeqa.jsonl" \
 # Launch training with accelerate for head_only strategy
 echo "Launching head_only training with Accelerate..."
 accelerate launch --config_file configs/accelerate_config_qwen.yaml addqa_train_multi_head.py \
@@ -35,7 +35,7 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml addqa_train_
     --test_batch_size 2 \
     --lr 1e-4 \
     --epochs 4 \
-    --train_file "/scratch/keane/human_behaviour/human_behaviour_data/full_mimeqa.jsonl" \
+    --train_file "/scratch/keane/human_behaviour/human_behaviour_data/trial_addqa_cls_merged.jsonl" \
     --val_file  "/scratch/keane/human_behaviour/human_behaviour_data/test_mimeqa.jsonl" \
     --test_file "/scratch/keane/human_behaviour/human_behaviour_data/full_mimeqa.jsonl" \
     --label_map_path "/home/keaneong/human-behavior/verl/multi_task_classification/unified_label_map_w_feats_v5_unified_scheme_splitmmpsy_binarymmpsy_no_vptd_chalearn_lmvd_esconv.json" \
