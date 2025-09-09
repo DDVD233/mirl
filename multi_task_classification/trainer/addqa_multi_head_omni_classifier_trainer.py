@@ -653,7 +653,7 @@ class MultiHeadOmniClassifierAccelerateTrainer:
         except Exception:
             core = self.model
 
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        inp_dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         # core.to(device).eval()
         core.eval()
 
