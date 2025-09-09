@@ -190,9 +190,9 @@ class MultiHeadOmniClassifier(nn.Module):
         logits_all = torch.full((B, self.global_num_classes),
                                 neg_inf, device=device, dtype=dtype)
 
-        if domain_ids is None:
-            # If caller truly has no domains, just return LM path output.
-            return {"cls_logits": logits_all, "lm_loss": lm_loss}
+        # if domain_ids is None:
+        #     # If caller truly has no domains, just return LM path output.
+        #     return {"cls_logits": logits_all, "lm_loss": lm_loss}
 
 
         # compute per-domain logits and scatter into global slots
