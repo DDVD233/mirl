@@ -541,28 +541,24 @@ class MultiHeadOmniClassifierAccelerateTrainer:
                         all_labels.extend(gathered_labels.cpu().tolist())
                         all_datasets.extend(ds_cls)
 
-                # ---- QA: free generation, collect (dataset, pred, gold) ----
-                has_qa = (qa_rows is not None and qa_rows.numel() > 0)
 
+                # ---- QA: free generation, gather cont_ids then decode on main ----
+                has_qa = (qa_rows is not None and qa_rows.numel() > 0)
                 if has_qa:
                     qa_input_ids = input_ids.index_select(0, qa_rows)
                     qa_attn      = attention_mask.index_select(0, qa_rows) if attention_mask is not None else None
 
-                    # decode L tokens greedily using the SAME forward pass (labels=None, domain_ids=-1)
+                    # 1) Greedy decode continuation IDs ONLY (no .generate()), fixed L tokens
                     L = getattr(self, "val_max_new_tokens", 64)
-                    cont_ids = self._greedy_decode_no_generate(qa_input_ids, qa_attn, max_new_tokens=L)  # [Bq, L]
-                    raise Exception(cont_ids)
-                    # Build full sequences for decoding (prompt + continuation)
-                    full_ids = torch.cat([qa_input_ids, cont_ids], dim=1)  # [Bq, T+L]
+                    # Your helper should return a [Bq, L] LongTensor, pad with tokenizer.pad_token_id if needed
+                    cont_ids_local = self._greedy_decode_no_generate(qa_input_ids, qa_attn, max_new_tokens=L)  # [Bq, L]
 
-                    # (Optional) strip prompt for "pred only" strings, or decode full for context
-                    pred_only = True
-                    if pred_only:
-                        pred_texts_local = self.tokenizer.batch_decode(cont_ids, skip_special_tokens=True)
-                    else:
-                        pred_texts_local = self.tokenizer.batch_decode(full_ids, skip_special_tokens=True)
+                    # 2) Gather IDs across processes (tensors only)
+                    g_cont_ids = self.accelerator.gather_for_metrics(cont_ids_local)        # [N_total, L]
+                    g_prompts  = self.accelerator.gather_for_metrics(qa_input_ids)          # [N_total, T]  (optional; only if you want full sequences)
 
-                    # Gold text is whatever your dataloader stored (string per QA row)
+                    # 3) Also gather metadata (strings) using gather_object
+                    #    Build per-row lists on each rank first
                     gold_texts_local, ds_texts_local = [], []
                     for row in qa_rows.tolist():
                         gold = batch.get('lm_labels', None)
@@ -577,17 +573,26 @@ class MultiHeadOmniClassifierAccelerateTrainer:
                         ds = batch['dataset'][row]
                         ds_texts_local.append(ds.decode("utf-8", errors="ignore") if isinstance(ds, (bytes, bytearray)) else str(ds))
 
+                    g_gold_lists = self.accelerator.gather_for_metrics(gold_texts_local)  # list[list[str]] from all ranks
+                    g_ds_lists   = self.accelerator.gather_for_metrics(ds_texts_local)    # list[list[str]] from all ranks
 
-                    # --- just like classifier: gather_for_metrics on OBJECTS (strings) ---
-                    g_pred_texts = self.accelerator.gather_for_metrics(pred_texts_local)
-                    g_gold_texts = self.accelerator.gather_for_metrics(gold_texts_local)
-                    g_ds_texts   = self.accelerator.gather_for_metrics(ds_texts_local)
-
+                    raise Exception(g_gold_lists)
+                    # 4) Decode ONLY on main process (after gathering)
                     if self.accelerator.is_main_process:
-                        all_pred_texts.extend(g_pred_texts)
-                        all_gold_texts.extend(g_gold_texts)
-                        all_qa_datasets.extend(g_ds_texts)
+                        # Option A: decode only continuation
+                        pred_texts = self.tokenizer.batch_decode(g_cont_ids, skip_special_tokens=True)
 
+                        # Option B (optional): decode full sequences (prompt + continuation)
+                        # full_ids = torch.cat([g_prompts, g_cont_ids], dim=1)
+                        # pred_texts = self.tokenizer.batch_decode(full_ids, skip_special_tokens=True)
+
+                        # Flatten gathered object lists
+                        gold_texts = [x for chunk in g_gold_lists for x in chunk]
+                        ds_texts   = [x for chunk in g_ds_lists   for x in chunk]
+
+                        all_pred_texts.extend(pred_texts)
+                        all_gold_texts.extend(gold_texts)
+                        all_qa_datasets.extend(ds_texts)
         # Calculate average loss
         avg_loss = total_loss / max(1, len(all_labels)) if self.accelerator.is_main_process else 0.0
 
