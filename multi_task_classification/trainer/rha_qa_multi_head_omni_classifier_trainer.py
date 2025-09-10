@@ -1108,6 +1108,7 @@ class QARHAMultiHeadOmniClassifierAccelerateTrainer:
                         audio_pooled_rha=pooled_after_audio,    # precedence over video if both passed
                     )
                     qa_loss = out["lm_loss"]
+                    lm_output = out["lm_output"]
 
                     # total_loss_this_step = cls_loss + self.qa_loss_weight * qa_loss
                     loss =self.qa_loss_weight * qa_loss
