@@ -653,21 +653,30 @@ class RHAMultiHeadOmniClassifierAccelerateTrainer:
                         labels = labels.argmax(dim=1)
                     else:
                         raise ValueError(f"Unexpected labels shape {labels.shape}")
+                    
+                # NEW (RHA-style; mirrors train)
+                prelim_logits, pooled = self.model(
+                    input_ids=input_ids,
+                    attention_mask=attention_mask,
+                    domain_ids=domain_ids,
+                )
 
-                logits = self.model(input_ids, attention_mask=attention_mask, domain_ids=domain_ids)
+                if (self.rla_stage in {"residual_only","joint"}) and (self.use_rla_video or self.use_rla_audio):
+                    pooled = apply_hidden_adapters(
+                        h_base=pooled,
+                        domain_ids=domain_ids,
+                        prelim_global_logits=prelim_logits,   # used for conf slicing
+                        video_hidden_adapter=self.video_adapter,
+                        audio_hidden_adapter=self.audio_adapter,
+                        video_feats=pooled_video_feats,
+                        audio_feats=pooled_audio_feats,
+                        train_mode=False,
+                    )
 
-                if (self.rla_stage in {"residual_only", "joint"}) and (self.use_rla_video or self.use_rla_audio):
-                        # apply the adapters to the logits
-                        # to get new logits
-                        logits = apply_adapters(
-                                logits,
-                                domain_ids,
-                                video_adapter=self.video_adapter,
-                                audio_adapter=self.audio_adapter,
-                                video_feats=pooled_video_feats,
-                                audio_feats=pooled_audio_feats,
-                                train_mode=False,
-                        )
+                logits, _ = self.model(
+                    domain_ids=domain_ids,
+                    pooled=pooled,   # <- post-fusion pooled
+                )
 
                 loss = criterion(logits, labels)
                 
@@ -1217,15 +1226,21 @@ class RHAMultiHeadOmniClassifierAccelerateTrainer:
         train_dataloader = self.get_dataloader(self.data_files, self.batch_size, num_workers=self.num_workers, shuffle=True)
         test_dataloader  = self.get_dataloader(self.test_data_files, self.test_batch_size, num_workers=self.num_workers, shuffle=False)
 
-        # 2) Build adapters exactly as in training
-        self.video_adapter, self.audio_adapter = maybe_build_adapters(
+        H = getattr(self.model, "hidden_size", None)
+        if H is None:
+            raise RuntimeError("Model must expose .hidden_size for RHA out_dim")
+
+        # Building adapters if required;
+        # NOTE: INITALISED FOR HIDDEN ADAPETRS, but reusing the video_adapter/ audio_adapter functionality
+        self.video_adapter, self.audio_adapter = maybe_build_hidden_adapters(
                 domain_id_to_global_indices=self.domain_id_to_global_indices,
-                use_rla_video=self.use_rla_video,
-                use_rla_audio=self.use_rla_audio,
-                rla_hidden_video=self.rla_hidden_video,
-                rla_hidden_audio=self.rla_hidden_audio,
+                use_rha_video=self.use_rla_video,
+                use_rha_audio=self.use_rla_audio,
+                rha_hidden_video=self.rla_hidden_video,
+                rha_hidden_audio=self.rla_hidden_audio,
                 p_moddrop_video=self.rla_pv,
                 p_moddrop_audio=self.rla_pa,
+                out_dim_hidden=H,
                 d_video_feat=self.d_video_feat,
                 d_audio_feat=self.d_audio_feat,
                 # per-modality adapter knobs
