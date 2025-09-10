@@ -25,7 +25,7 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml addqa_train_
     --test_batch_size 2 \
     --lr 1e-4 \
     --epochs 4 \
-    --train_file "/scratch/keane/human_behaviour/human_behaviour_data/qa_train.jsonl" \
+    --train_file "/scratch/keane/human_behaviour/human_behaviour_data/0.01_qa_train.jsonl" \
     --val_file  "/scratch/keane/human_behaviour/human_behaviour_data/qa_test.jsonl" \
     --test_file "/scratch/keane/human_behaviour/human_behaviour_data/qa_test.jsonl" \
     --label_map_path "/home/keaneong/human-behavior/verl/multi_task_classification/unified_label_map_w_feats_v5_unified_scheme_splitmmpsy_binarymmpsy_no_vptd_chalearn_lmvd_esconv.json" \
