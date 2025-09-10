@@ -6,6 +6,7 @@ import torch.nn.functional as F
 from typing import Dict, Literal
 import torch
 from .residual_logit_adapter import ResidualLogitAdapter
+from .residual_hidden_adapter import ResidualHiddenAdapter  # NEW
 import os
 
 ERROR_LOG_FILE = "/home/keaneong/human-behavior/verl/multi_task_classification/failed_ext_paths_log/adapter_utils_errors.txt"
@@ -24,6 +25,9 @@ def log_problem(where: str, detail: str, extra: dict | None = None) -> None:
     except Exception as e:
         # Last-resort safeguard: print a warning but don't crash training
         print(f"[WARN] Failed to log problem: {e} ({where}: {detail})")
+
+
+## FOR THE LOGIT ADAPTER ##
 
 def maybe_build_adapters(
     *,
@@ -85,27 +89,6 @@ def maybe_build_adapters(
             alpha_init=audio_alpha_init,
         )
     return video_adapter, audio_adapter
-
-# def apply_adapters(
-#     logits: torch.Tensor,
-#     domain_ids: torch.Tensor,
-#     *,
-#     video_adapter: Optional[ResidualLogitAdapter],
-#     audio_adapter: Optional[ResidualLogitAdapter],
-#     video_feats: Optional[torch.Tensor] = None,   # <<—— direct tensors
-#     audio_feats: Optional[torch.Tensor] = None,
-#     train_mode: bool,
-# ) -> torch.Tensor:
-#     """
-#     Add residuals in logit space using whatever adapters are present.
-#     If feats are None or adapter is None, logits are returned unchanged.
-#     """
-#     z = logits 
-#     if (video_adapter is not None) and (video_feats is not None):
-#         z = video_adapter(z, domain_ids, feats=video_feats, train_mode=train_mode)
-#     if (audio_adapter is not None) and (audio_feats is not None):
-#         z = audio_adapter(z, domain_ids, feats=audio_feats, train_mode=train_mode)
-#     return z
 
 def apply_adapters(    logits: torch.Tensor,
     domain_ids: torch.Tensor,
