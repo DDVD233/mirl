@@ -554,12 +554,13 @@ class MultiHeadOmniClassifierAccelerateTrainer:
                                                                  max_new_tokens=self.max_val_qa_tokens)  # [Bq, L]
                 
 
-
+                raise Exception(cont_ids_local)
+            
                 # 2) Gather IDs across processes (tensors only)
                 g_cont_ids = self.accelerator.gather_for_metrics(cont_ids_local)        # [N_total, L]
                 g_prompts  = self.accelerator.gather_for_metrics(qa_input_ids)          # [N_total, T]  (optional; only if you want full sequences)
 
-                raise Exception(g_cont_ids)
+                
                 # collect them all
                 gathered_lm_labels = self.accelerator.gather_for_metrics(lm_labels)  # [N_total]
                 gathered_datasets  = self.accelerator.gather_for_metrics(datasets)   #
