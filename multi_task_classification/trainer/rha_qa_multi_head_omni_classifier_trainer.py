@@ -18,7 +18,7 @@ import torch.nn.functional as F   # (already imported above)
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
 # Local imports
-from mt_dataset.omni_classifier_dataset import OmniClassifierDataset, log_failed_path
+from mt_dataset.addqa_omni_classifier_dataset import AddQAOmniClassifierDataset, log_failed_path
 from verl.utils.dataset.rl_dataset import collate_fn
 from utils.wandb_utils import init_wandb, log_metrics, finish
 from utils.logger import log_batch_training_metrics, log_validation_results, log_epoch_training_metrics
@@ -60,6 +60,15 @@ class QARHAMultiHeadOmniClassifierAccelerateTrainer:
 
         # Store global configuration for access to constants
         self.global_config = global_config or {}
+
+        # QA DATASETS
+        self.qa_datasets = set(self.global_config.get('QA_DATASETS', ['intentqa', 'mimeqa', 'siq2']))  # e.g. {"mmlu_qa","ptsd_qa","finance_qa"}
+        self.qa_loss_weight = float(self.global_config.get('QA_LOSS_WEIGHT', 1.0))
+
+        # Deterministic generation for evaluation
+        self.max_val_qa_tokens = 30
+        print(f"WARNING: Using max_val_qa_tokens={self.max_val_qa_tokens} for validation/test generation.")
+        
         
         # Use the label map from global config
         self.full_label_scheme = self.global_config.get('FULL_LABEL_SCHEME', None)
@@ -266,12 +275,78 @@ class QARHAMultiHeadOmniClassifierAccelerateTrainer:
         for ds in dataset_names:
             if isinstance(ds, bytes):  # sometimes collate/gather returns bytes
                 ds = ds.decode("utf-8")
-            if ds not in self.dataset_to_domain_id:
+            if ds in self.qa_datasets:
+                ids.append(-1)
+            elif ds not in self.dataset_to_domain_id:
                 raise KeyError(f"Dataset '{ds}' not in label_map.meta.dataset_domain")
-            ids.append(self.dataset_to_domain_id[ds])
+            else:
+                ids.append(self.dataset_to_domain_id[ds])
+    
 
-        # store the tensors for the domain ids
-        return torch.tensor(ids, dtype=torch.long, device=device)
+    def _build_tf_inputs_and_labels(self, batch, qa_rows, seq_len, device):
+        """
+        Returns:
+        qa_input_ids: [Bq, T]  = prompt + answer(+EOS), padded/truncated to T
+        qa_attn:      [Bq, T]  = 1 on real tokens, 0 on pads
+        lm_labels_q:  [Bq, T]  = -100 on prompt/pads, answer(+EOS) tokens elsewhere
+        """
+        import numpy as np
+        if qa_rows is None or qa_rows.numel() == 0:
+            return None, None, None
+
+        ids_all = batch["input_ids"]
+        attn_all = batch.get("attention_mask", None)
+
+        Bq = qa_rows.numel()
+        T  = seq_len
+        pad_id = self.tokenizer.pad_token_id
+        eos_id = self.tokenizer.eos_token_id
+
+        qa_input_ids = torch.full((Bq, T), pad_id, dtype=torch.long, device=device)
+        qa_attn      = torch.zeros((Bq, T), dtype=torch.long, device=device)
+        lm_labels_q  = torch.full((Bq, T), -100,  dtype=torch.long, device=device)
+
+        for j, idx in enumerate(qa_rows.tolist()):
+            # --- prompt slice ---
+            prompt_ids = ids_all[idx]                          # [T]
+            if attn_all is not None:
+                prompt_len = int(attn_all[idx].sum().item())   # count non-pad
+            else:
+                # fallback: count until first pad
+                prompt_len = (prompt_ids != pad_id).sum().item()
+
+            prompt_len = min(prompt_len, T)
+            # copy prompt first
+            qa_input_ids[j, :prompt_len] = prompt_ids[:prompt_len]
+            qa_attn[j, :prompt_len] = 1
+
+            # --- tokenize answer (+EOS) ---
+            ans = batch["lm_labels"][idx]
+            if isinstance(ans, np.generic):
+                ans = ans.item()
+            if isinstance(ans, bytes):
+                ans = ans.decode("utf-8", errors="ignore")
+            ans = "" if ans is None else str(ans)
+
+            ans_tok = self.tokenizer.encode(ans, add_special_tokens=False)
+            if len(ans_tok) == 0 or ans_tok[-1] != eos_id:
+                ans_tok = (ans_tok + [eos_id])
+
+            # space left after prompt
+            rem = T - prompt_len
+            if rem > 0:
+                ans_tok = ans_tok[:rem]
+                qa_input_ids[j, prompt_len:prompt_len+len(ans_tok)] = torch.tensor(ans_tok, device=device)
+                qa_attn[j,      prompt_len:prompt_len+len(ans_tok)] = 1
+
+                # labels: -100 on prompt, copy answer(+EOS)
+                lm_labels_q[j,  prompt_len:prompt_len+len(ans_tok)] = qa_input_ids[j, prompt_len:prompt_len+len(ans_tok)]
+
+        # sanity: no loss on pads
+        if attn_all is not None:
+            assert not (((lm_labels_q != -100) & (qa_attn == 0)).any()), "Loss on pads detected."
+
+        return qa_input_ids, qa_attn, lm_labels_q
     
     def _current_model_order(self):
         order = ["base"]
@@ -282,13 +357,14 @@ class QARHAMultiHeadOmniClassifierAccelerateTrainer:
         return order
 
     def get_dataloader(self, data_files, batch_size, num_workers=0, shuffle=True):
-        dataset = OmniClassifierDataset(
+        dataset = AddQAOmniClassifierDataset(
             data_files=data_files,
             tokenizer=self.tokenizer,
             config=self.config,
             processor=self.processor,
             label_key=self.label_key,
-            label_map=self.label_map
+            label_map=self.label_map,
+            qa_datasets=self.qa_datasets,
         )
         return DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, collate_fn=collate_fn,
                           num_workers=num_workers, pin_memory=True, persistent_workers=num_workers > 0)
