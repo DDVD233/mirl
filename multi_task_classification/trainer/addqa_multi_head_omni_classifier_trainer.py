@@ -12,7 +12,7 @@ from math import floor
 from pathlib import Path
 from transformers import get_scheduler
 from math import ceil
-from accelerate.utils import broadcast
+
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
@@ -729,64 +729,47 @@ class MultiHeadOmniClassifierAccelerateTrainer:
 
             # ---- (optional) keep input embeddings frozen even if tied to lm_head ----
 
-            # 0) Get handles on every rank
-            get_out = getattr(self.model.backbone, "get_output_embeddings", None)
-            get_in  = getattr(self.model.backbone, "get_input_embeddings",  None)
-            out_emb = get_out() if callable(get_out) else None
-            in_emb  = get_in()  if callable(get_in)  else None
+            try:
+                tied = getattr(self.model.backbone.config, "tie_word_embeddings", False)
 
-            # 1) Make a single decision on rank 0: "are they tied?"
-            if self.accelerator.is_main_process:
-                # Safe check on rank 0 only (works whether wrapped or not)
-                tied_flag = 0
-                if (out_emb is not None) and (in_emb is not None):
-                    try:
-                        # "Same storage" => tied. Under wrappers, this still works on rank 0
-                        tied_flag = int(out_emb.weight.data_ptr() == in_emb.weight.data_ptr())
-                    except Exception:
-                        tied_flag = 0  # fall back to "assume untied"
-            else:
-                tied_flag = 0
-
-            # 2) Broadcast the single source of truth to all ranks
-            tied_tensor = torch.tensor([tied_flag], device=self.accelerator.device)
-            tied_tensor = broadcast(tied_tensor)  # from rank 0 to everyone
-            tied_flag   = int(tied_tensor.item())
-
-            # 3) If tied, UN-TIE identically on all ranks
-            if tied_flag == 1:
-                # reflect in config (optional)
-                if hasattr(self.model.backbone.config, "tie_word_embeddings"):
+                if tied:
+                    # Untie so lm_head updates don’t drag input embeddings
                     self.model.backbone.config.tie_word_embeddings = False
 
-                # clone lm_head weights so it no longer shares storage
-                with torch.no_grad():
-                    out_emb.weight = torch.nn.Parameter(out_emb.weight.detach().clone())
+                    get_out = getattr(self.model.backbone, "get_output_embeddings", None)
+                    get_in  = getattr(self.model.backbone, "get_input_embeddings", None)
+                    if callable(get_out) and callable(get_in):
+                        out_emb = get_out()
+                        in_emb  = get_in()
+                        if out_emb is not None and in_emb is not None:
+                            # If they still share storage, clone lm_head weights
+                            if out_emb.weight.data_ptr() == in_emb.weight.data_ptr():
+                                out_emb.weight = torch.nn.Parameter(out_emb.weight.detach().clone())
+                            # Keep input embeddings frozen
+                            for p in in_emb.parameters():
+                                p.requires_grad = False
+                    # Re-assert lm_head is trainable
+                    for p in self.model.backbone.lm_head.parameters():
+                        p.requires_grad = True
+                
 
-                # now freeze input embeddings, train only lm_head
-                for p in in_emb.parameters():  p.requires_grad = False
-                for p in out_emb.parameters(): p.requires_grad = True
-
-                self.accelerator.wait_for_everyone()
-
-                # ensure identical values everywhere (rank 0 is source of truth)
-                with torch.no_grad():
-                    out_emb.weight.data = broadcast(out_emb.weight.data)
-
-            else:
-                # If untied already, just enforce your freeze/train policy
-                if in_emb is not None:
-                    for p in in_emb.parameters():  p.requires_grad = False
-                if out_emb is not None:
-                    for p in out_emb.parameters(): p.requires_grad = True
+            except Exception:
+                # If untie isn’t supported, embeddings will co-update with lm_head (FYI)
+                pass
 
             self.accelerator.wait_for_everyone()
-
-            # (Optional) sanity prints — consistent across ranks now
-            same_after = int(out_emb.weight.data_ptr() == in_emb.weight.data_ptr()) if (out_emb and in_emb) else -1
-            self.accelerator.print(f"[rank {self.accelerator.process_index}] tied_after={same_after} "
-                    f"| embed_trainable={any(p.requires_grad for p in in_emb.parameters()) if in_emb else None} "
-                    f"| lm_head_trainable={any(p.requires_grad for p in out_emb.parameters()) if out_emb else None}")
+            
+            if in_emb is not None and out_emb is not None:
+                same_storage = out_emb.weight.data_ptr() == in_emb.weight.data_ptr()
+                print("lm_head and embed_tokens share storage and are tied:", same_storage)
+                
+                # also confirm grad behavior you want
+                print("embed_tokens requires_grad:",
+                    any(p.requires_grad for p in in_emb.parameters()))
+                print("lm_head requires_grad:",
+                    any(p.requires_grad for p in out_emb.parameters()))
+                
+            raise Exception("same storage", same_storage)
 
             # ---- rebuild optimizer/scheduler ONLY over trainables ----
             def trainables(m):
