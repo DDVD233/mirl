@@ -58,7 +58,7 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml train_rha_mu
   --train_file "/scratch/keane/human_behaviour/human_behaviour_data/rla_ptsd_train_w_feats.jsonl" \
   --val_file   "/scratch/keane/human_behaviour/human_behaviour_data/rla_ptsd_test_w_feats.jsonl" \
   --test_file  "/scratch/keane/human_behaviour/human_behaviour_data/rla_ptsd_test_w_feats.jsonl" \
-  --label_map_path "/home/keaneong/human-behavior/verl/multi_task_classification/v2_unified_scheme_splitmmpsy_binarymmpsy_no_vptd_chalearn_lmvd_esconv.json" \
+  --label_map_path "/home/keaneong/human-behavior/verl/multi_task_classification/unified_label_map_w_feats_v5_unified_scheme_splitmmpsy_binarymmpsy_no_vptd_chalearn_lmvd_esconv.json" \
   --save_every_n_epochs 1 \
   --save_every_n_steps 9999999 \
   --save_checkpoint_dir "/scratch/keane/human_behaviour/debug_rha" \
