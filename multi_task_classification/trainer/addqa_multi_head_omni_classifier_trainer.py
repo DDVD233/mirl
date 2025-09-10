@@ -729,6 +729,9 @@ class MultiHeadOmniClassifierAccelerateTrainer:
 
             # ---- (optional) keep input embeddings frozen even if tied to lm_head ----
             try:
+                cfg_flag = getattr(model.backbone.config, "tie_word_embeddings", None)
+                print("config.tie_word_embeddings =", cfg_flag)
+
                 tied = getattr(self.model.backbone.config, "tie_word_embeddings", False)
                 if tied:
                     # Untie so lm_head updates don’t drag input embeddings
