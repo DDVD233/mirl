@@ -62,7 +62,8 @@ class ResidualHiddenAdapter(nn.Module):
             if rows.numel() == 0: continue
             cols = torch.as_tensor(self.domain_id_to_global_indices[d], device=device, dtype=torch.long)
             local = global_logits.index_select(0, rows).index_select(1, cols)  # [B_d, K_d]
-            out[rows] = get_conf_from_local_logits(local)
+            c = get_conf_from_local_logits(local.float()).to(global_logits.dtype)
+            out[rows] = c
         return out
 
     def forward(
