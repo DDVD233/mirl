@@ -63,7 +63,7 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml train_qa_rha
   --save_every_n_steps 9999999 \
   --save_checkpoint_dir "/scratch/keane/human_behaviour/debug_qa_rha" \
   --validation_result_dir "/scratch/keane/human_behaviour/debug_qa_rha/validation_results" \
-  --load_checkpoint_path "/scratch/keane/human_behaviour/v5_multi_head_lora_training/step_49500" \
+  --load_checkpoint_path "/scratch/keane/human_behaviour/2_qa_multi_task_model/step_4500" \
   --validate_every_n_epochs 1 \
   --validate_every_n_steps 999999 \
   --early_stopping_patience 99999 \
