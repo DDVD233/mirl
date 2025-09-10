@@ -728,7 +728,7 @@ class MultiHeadOmniClassifierAccelerateTrainer:
             #     print("⚠️ Could not locate .model.layers in backbone (check module structure).")
 
             # ---- (optional) keep input embeddings frozen even if tied to lm_head ----
-            cfg_flag = getattr(model.backbone.config, "tie_word_embeddings", None)
+            cfg_flag = getattr(self.model.backbone.config, "tie_word_embeddings", None)
             print("config.tie_word_embeddings =", cfg_flag)
             raise Exception(cfg_flag)
 
