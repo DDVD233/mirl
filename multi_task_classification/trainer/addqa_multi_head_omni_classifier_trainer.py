@@ -768,8 +768,7 @@ class MultiHeadOmniClassifierAccelerateTrainer:
                     any(p.requires_grad for p in in_emb.parameters()))
                 print("lm_head requires_grad:",
                     any(p.requires_grad for p in out_emb.parameters()))
-                
-            raise Exception("same storage", same_storage)
+            
 
             # ---- rebuild optimizer/scheduler ONLY over trainables ----
             def trainables(m):
