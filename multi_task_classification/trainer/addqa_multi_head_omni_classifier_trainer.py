@@ -731,6 +731,7 @@ class MultiHeadOmniClassifierAccelerateTrainer:
             try:
                 cfg_flag = getattr(model.backbone.config, "tie_word_embeddings", None)
                 print("config.tie_word_embeddings =", cfg_flag)
+                raise Exception(cfg_flag)
 
                 tied = getattr(self.model.backbone.config, "tie_word_embeddings", False)
                 if tied:
