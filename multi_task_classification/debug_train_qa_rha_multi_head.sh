@@ -65,7 +65,7 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml train_qa_rha
   --validation_result_dir "/scratch/keane/human_behaviour/debug_qa_rha/validation_results" \
   --load_checkpoint_path "/scratch/keane/human_behaviour/2_qa_multi_task_model/step_4500" \
   --validate_every_n_epochs 1 \
-  --validate_every_n_steps 999999 \
+  --validate_every_n_steps 1 \
   --early_stopping_patience 99999 \
   --project "debug-qa-rha-omni-classifier-multi-head-lora" \
   --gradient_accumulation_steps 4 \

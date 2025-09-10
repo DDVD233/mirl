@@ -19,7 +19,7 @@ export TORCH_USE_CUDA_DSA=1
 echo "Launching QA training with Accelerate..."
 accelerate launch --config_file configs/accelerate_config_qwen.yaml addqa_train_multi_head.py \
     --mode train \
-    --training_strategy lora \
+    --training_strategy head_only \
     --train_batch_size 2 \
     --val_batch_size 2 \
     --test_batch_size 2 \
@@ -29,7 +29,7 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml addqa_train_
     --val_file  "/scratch/keane/human_behaviour/human_behaviour_data/qa_test.jsonl" \
     --test_file "/scratch/keane/human_behaviour/human_behaviour_data/qa_test.jsonl" \
     --label_map_path "/home/keaneong/human-behavior/verl/multi_task_classification/unified_label_map_w_feats_v5_unified_scheme_splitmmpsy_binarymmpsy_no_vptd_chalearn_lmvd_esconv.json" \
-    --load_checkpoint_path "/scratch/keane/human_behaviour/2_qa_multi_task_model/step_4500" \
+    --load_checkpoint_path "/scratch/keane/human_behaviour/v5_multi_head_lora_training/step_49500" \
     --save_every_n_epochs 1 \
     --save_every_n_steps 9999999 \
     --save_checkpoint_dir "/scratch/keane/human_behaviour/2_qa_multi_task_model" \
