@@ -451,9 +451,9 @@ class MultiHeadOmniClassifierAccelerateTrainer:
 
             # Early stop if all hit EOS
             # NOTE : WARNING YOU NEED TO MAKE SURE ALL THE GENERATED SEQUENCES ARE AT SAME LENGTH
-            finished = finished | (next_tokens == eos_id)
-            if torch.all(finished):
-                break
+            # finished = finished | (next_tokens == eos_id)
+            # if torch.all(finished):
+            #     break
 
         # if not generated:
         #     # no tokens generated (edge-case max_new_tokens=0)
@@ -556,9 +556,9 @@ class MultiHeadOmniClassifierAccelerateTrainer:
 
 
                 # 2) pad ACROSS PROCESSES on the length dim BEFORE any gather
-                cont_ids_local = self.accelerator.pad_across_processes(
-                    cont_ids_local, dim=1, pad_index=self.tokenizer.pad_token_id
-                )
+                # cont_ids_local = self.accelerator.pad_across_processes(
+                #     cont_ids_local, dim=1, pad_index=self.tokenizer.pad_token_id
+                # )
 
                 # 2) Gather IDs across processes (tensors only)
                 g_cont_ids = self.accelerator.gather_for_metrics(cont_ids_local)        # [N_total, L]
