@@ -3,7 +3,7 @@ from typing import List, Optional
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from residual_logit_adapter import get_conf_from_local_logits
+from .residual_logit_adapter import get_conf_from_local_logits
 
 class ResidualHiddenAdapter(nn.Module):
     """
