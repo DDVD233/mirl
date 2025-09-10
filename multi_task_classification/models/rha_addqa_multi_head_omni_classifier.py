@@ -147,105 +147,114 @@ class MultiHeadOmniClassifier(nn.Module):
                 head.to(device=dev, dtype=dt)
 
     # ---------- forward ----------
-
-    def forward(self, input_ids, attention_mask=None, domain_ids=None, lm_labels=None, **kwargs):
+    def forward(
+        self,
+        input_ids,
+        attention_mask=None,
+        domain_ids=None,
+        lm_labels=None,
+        *,
+        # NEW: pooled overrides coming from trainer (after adapters)
+        video_pooled_rha: torch.Tensor | None = None,   # [B,H] or None
+        audio_pooled_rha: torch.Tensor | None = None,   # [B,H] or None
+        **kwargs
+    ):
         """
         Single-pass forward for both LM (QA) and classification.
-        - Pass `lm_labels` (None or masked with -100); HF computes LM loss internally.
-        - Use `domain_ids` with sentinel -1 for QA-only rows. Only valid (>=0) rows are routed to heads.
+        - Adapters are *not* called here. Trainer computes them and passes the
+        already-fused pooled vectors via `video_pooled_rha` / `audio_pooled_rha`.
+        If both are provided, we assume audio was applied after video and pick audio.
+        - For QA rows (domain_ids == -1), classification logits are neg_inf.
         Returns:
             {
-            "cls_logits": [B, global_num_classes] (neg_inf for irrelevant slots/rows),
+            "cls_logits": [B, C_global],
             "lm_loss": scalar or None,
-            "hidden_states": tuple(T+1) of [B,T,H] (from backbone)
+            "lm_output": HF output object with `logits` replaced by RHA-injected logits
             }
         """
-        # ---- one backbone call (teacher-forcing handled via lm_labels masking) ----
+        if domain_ids is None:
+            raise ValueError("domain_ids must be provided")
+
+        # 1) Backbone once (no labels here; we compute CE after injection)
         out = self.backbone(
             input_ids=input_ids,
             attention_mask=attention_mask,
-            labels=lm_labels,                 # None or [-100]-masked full-batch labels
             output_hidden_states=True,
-            **kwargs
+            use_cache=False,
+            **kwargs,
         )
 
-        lm_loss = getattr(out, "loss", None)
+        hidden_states = out.hidden_states
+        h_last   = hidden_states[-1]   # [B,T,H] final token states pre-lm
+        h_penult = hidden_states[-2]   # [B,T,H] penultimate, for pooling
 
-        h = out.hidden_states[-2]  # [B,T,H]
-
-        # TODO: Double check what this effect has in the context of omni and masking multi modal inputs
+        # 2) pooled_base from penultimate layer
         if attention_mask is not None:
-            pooled = (h * attention_mask.unsqueeze(-1)).sum(1) / attention_mask.sum(1, keepdim=True)
+            pooled_base = (h_penult * attention_mask.unsqueeze(-1)).sum(1) / attention_mask.sum(1, keepdim=True)
         else:
-            pooled = h.mean(dim=1)  # [B,H]
+            pooled_base = h_penult.mean(dim=1)  # [B,H]
 
-        B = pooled.size(0)
-        device, dtype = pooled.device, pooled.dtype
-
-        # init masked logits; by default the logits are negative first in order to be ignored by the softmax
-        # logits_all = torch.full((B, self.global_num_classes), NEG_INF, device=device, dtype=dtype)
-
-         # Use dtype-aware NEG_INF
-        neg_inf = torch.finfo(dtype).min / 2                     # safe huge negative in this dtype
-        logits_all = torch.full((B, self.global_num_classes),
-                                neg_inf, device=device, dtype=dtype)
-
-
-
-        # compute per-domain logits and scatter into global slots
+        B, H = pooled_base.size()
+        device, dtype = pooled_base.device, pooled_base.dtype
         domain_ids = domain_ids.to(device)
-    
-        unique_domains = domain_ids.unique(sorted=True).tolist()
 
-        for d in unique_domains:
-            # iterate over the unique domains
-            # get the rows for the current domain
-            # essentially is a boolean rows of the samples that belong to the current domain
-            # TRUE IF BELONGS TO THE CURRENT DOMAIN
-            rows = (domain_ids == d).nonzero(as_tuple=True)[0]
-            if rows.numel()==0:
-                continue
+        # 3) Choose effective pooled (already RHA’d) coming from the trainer
+        #    precedence: audio_pooled_rha (if provided) > video_pooled_rha > pooled_base
+        pooled_eff = pooled_base
+        if video_pooled_rha is not None:
+            pooled_eff = video_pooled_rha.to(dtype)
+        if audio_pooled_rha is not None:
+            pooled_eff = audio_pooled_rha.to(dtype)
 
-            if d == -1:
-                # QA-only rows: explicitly write a neg_inf block so these rows are "processed"
-                block = torch.full((rows.numel(), self.global_num_classes),
-                                neg_inf, device=device, dtype=dtype)
-                logits_all.index_copy_(0, rows, block)
-                continue
+        # 4) Inject Δ into every token representation before LM head
+        delta      = (pooled_eff - pooled_base).to(h_last.dtype)  # [B,H]
+        h_last_mod = h_last + delta.unsqueeze(1)                  # [B,T,H]
 
-            #obtain the global indices for the current domain
-            # i.e. sentiment is only [0, 6]
-            global_slots = self.domain_id_to_global_indices[d]  # list[int]
+        # 5) LM logits (+ teacher-forced loss) from modified token states
+        maybe_model = getattr(self.backbone, "model", None)
+        if maybe_model is not None and hasattr(maybe_model, "norm"):
+            h_for_lm = maybe_model.norm(h_last_mod)   # e.g., Llama final RMSNorm
+        else:
+            h_for_lm = h_last_mod
 
-            # obtain the tensor of the global slots
-            cols = torch.as_tensor(
-                global_slots,
-                device=pooled.device, dtype=torch.long
+        lm_head = getattr(self.backbone, "lm_head", None)
+        if lm_head is None:
+            raise RuntimeError("Backbone has no lm_head; cannot compute LM logits after RHA injection.")
+        lm_logits = lm_head(h_for_lm)  # [B,T,V]
+        
+        # Teacher forcing loop!
+        lm_loss = None
+        if lm_labels is not None:
+            shift_logits = lm_logits[:, :-1, :].contiguous()
+            shift_labels = lm_labels[:, 1:].contiguous()
+            lm_loss = F.cross_entropy(
+                shift_logits.view(-1, shift_logits.size(-1)),
+                shift_labels.view(-1),
+                ignore_index=-100,
             )
 
-            # select the head for the current domain based on d
-            head = self.heads[d]
+        # 6) Classification logits from pooled_eff
+        neg_inf = torch.finfo(dtype).min / 2
+        logits_all = torch.full((B, self.global_num_classes), neg_inf, device=device, dtype=dtype)
 
-            # select the embedding of the samples related to the specific current domain d
-            # feed into the head to get the logits for the current domain
-            local_logits = head(pooled.index_select(0, rows))  # [B_d, K_d]; B_d number of samples in this domain; K_d is number of classes in this domain
-
-            # basically where the mask is true, we replace the logits with the global logits
-            # logits_all is a big tensor of [B, global_num_classes (i.e. 21)], each with -1e9, where B is the batch size
-            # logits_all[mask] has a shape of [B_d, 21]
-            # mask is which samples belong to domain d;
-            # we only prepend to the "global slots" (which refers to the global indices for the current domain),
-            # the current local logits.
-            # logits_all[mask][:, global_slots] = local_logits
-
-            local_logits = local_logits.to(logits_all.dtype)     # <— key line
-
-            block = torch.full((rows.numel(), self.global_num_classes), neg_inf, device=pooled.device, dtype=pooled.dtype)
+        for d in domain_ids.unique(sorted=True).tolist():
+            rows = (domain_ids == d).nonzero(as_tuple=True)[0]
+            if rows.numel() == 0:
+                continue
+            if d == -1:
+                # QA rows: keep neg_inf everywhere
+                continue
+            cols = torch.as_tensor(self.domain_id_to_global_indices[d], device=device, dtype=torch.long)
+            local_logits = self.heads[d](pooled_eff.index_select(0, rows)).to(dtype)  # [B_d, K_d]
+            block = torch.full((rows.numel(), self.global_num_classes), neg_inf, device=device, dtype=dtype)
             col_index = cols.unsqueeze(0).expand(rows.numel(), cols.numel())
-            block = block.scatter(1, col_index, local_logits.to(block.dtype))  # differentiable w.r.t. local
+            block = block.scatter(1, col_index, local_logits)
+            logits_all = logits_all.index_copy(0, rows, block)
 
-            logits_all = logits_all.index_copy(0, rows, block)           # stitch rows
-        
+        # 7) Preserve your return protocol: overwrite HF out logits/loss
+        out.logits = lm_logits
+        out.loss   = lm_loss
+
         return {"cls_logits": logits_all, "lm_loss": lm_loss, "lm_output": out}
 
     # Convenience: expose mappings
