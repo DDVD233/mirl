@@ -141,22 +141,8 @@ class MultiHeadOmniClassifier(nn.Module):
             dt  = next(self.backbone.parameters()).dtype
             for head in self.heads:
                 head.to(device=dev, dtype=dt)
-
-    # FORWARD (ENCODING ONLY)
-    def encode(self, input_ids, attention_mask=None, **kwargs):
-        out = self.backbone(
-            input_ids=input_ids, attention_mask=attention_mask,
-            output_hidden_states=True, **kwargs
-        )
-        h = out.hidden_states[-2]  # [B,T,H]
-        if attention_mask is not None:
-            pooled = (h * attention_mask.unsqueeze(-1)).sum(1) / attention_mask.sum(1, keepdim=True)
-        else:
-            pooled = h.mean(dim=1)
-        return pooled  # [B,H]
     
-        # --- NEW: heads pass that scatters per-domain into global logits ---
-    def heads_forward(self, pooled: torch.Tensor, domain_ids: torch.Tensor) -> torch.Tensor:
+    def _heads_from_pooled(self, pooled: torch.Tensor, domain_ids: torch.Tensor) -> torch.Tensor:
         B = pooled.size(0)
         device, dtype = pooled.device, pooled.dtype
         neg_inf = torch.finfo(dtype).min / 2
@@ -165,7 +151,7 @@ class MultiHeadOmniClassifier(nn.Module):
         domain_ids = domain_ids.to(device)
         for d in domain_ids.unique(sorted=True).tolist():
             rows = (domain_ids == d).nonzero(as_tuple=True)[0]
-            if rows.numel() == 0: 
+            if rows.numel() == 0:
                 continue
             cols_list = self.domain_id_to_global_indices[d]
             cols = torch.as_tensor(cols_list, device=device, dtype=torch.long)
@@ -177,12 +163,38 @@ class MultiHeadOmniClassifier(nn.Module):
             logits_all = logits_all.index_copy(0, rows, block)
         return logits_all
     
-    def forward(self, input_ids, attention_mask=None, domain_ids=None, **kwargs):
+    def forward(
+        self,
+        input_ids=None,
+        attention_mask=None,
+        domain_ids=None,
+        *,
+        pooled: torch.Tensor | None = None,   # <- allow trainer to pass pre-fused pooled
+        **kwargs
+    ):
+        """
+        - If `pooled` is None: compute pooled from backbone.
+        - If `pooled` is given: skip backbone and only run heads.
+        - If `return_pooled` is True: also return the pooled tensor.
+        """
         if domain_ids is None:
             raise ValueError("domain_ids must be provided")
-        pooled = self.encode(input_ids, attention_mask=attention_mask, **kwargs)   # [B,H]
-        return self.heads_forward(pooled, domain_ids)                               # [B,Cg]
-    
+
+        if pooled is None:
+            out = self.backbone(
+                input_ids=input_ids, attention_mask=attention_mask,
+                output_hidden_states=True, **kwargs
+            )
+            h = out.hidden_states[-2]  # [B,T,H]
+            if attention_mask is not None:
+                pooled = (h * attention_mask.unsqueeze(-1)).sum(1) / attention_mask.sum(1, keepdim=True)
+            else:
+                pooled = h.mean(dim=1)  # [B,H]
+
+        logits = self._heads_from_pooled(pooled, domain_ids)
+
+        return logits, pooled
+
     # Convenience: expose mappings
     @property
     def dataset_to_domain_id(self):

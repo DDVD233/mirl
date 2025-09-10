@@ -956,11 +956,11 @@ class RHAMultiHeadOmniClassifierAccelerateTrainer:
                     # 1) pooled hidden once
                     # logits = self.model(input_ids, attention_mask=attention_mask, domain_ids=domain_ids)
                     
-                    pooled = self.model.encode(input_ids, attention_mask=attention_mask)  # [B,H]
-                    raise Exception("check here")
-
-                    # 2) prelim logits (for RHA confidence)
-                    prelim_logits = self.model.heads_forward(pooled, domain_ids)          # [B,Cg]
+                    prelim_logits, pooled = self.model(
+                            input_ids=input_ids,
+                            attention_mask=attention_mask,
+                            domain_ids=domain_ids,
+                        )
 
                     # 3) hidden fusion (RHA) if enabled
                     if (self.rla_stage in {"residual_only","joint"}) and (self.use_rha_video or self.use_rha_audio):
@@ -976,7 +976,10 @@ class RHAMultiHeadOmniClassifierAccelerateTrainer:
                         )
 
                     # 4) final logits after hidden fusion
-                    logits = self.model.heads_forward(pooled, domain_ids)
+                    logits, _ = self.model(
+                        domain_ids=domain_ids,
+                        pooled=pooled,              # <- use pre-fused pooled
+                    )
                     
                     # NOTE: WEIGHING OF HARD EXAMPLES 
                     # TODO: ARE THE LOGITS/ CONFIDENCE IMPACTED BY OUR NEGATIVE INFINITY MASKING?
