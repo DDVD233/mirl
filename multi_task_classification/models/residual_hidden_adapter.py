@@ -56,8 +56,14 @@ class ResidualHiddenAdapter(nn.Module):
         B = global_logits.size(0)
         device = global_logits.device
         out = torch.zeros(B, 3, device=device, dtype=global_logits.dtype)
+        
+        # check if none (for QA)
+        if (global_logits is None) or ((domain_ids == -1).all()):
+            return out
+        
         unique = domain_ids.unique(sorted=True).tolist()
         for d in unique:
+            if d == -1: continue  # skip no-domain samples
             rows = (domain_ids == d).nonzero(as_tuple=True)[0]
             if rows.numel() == 0: continue
             cols = torch.as_tensor(self.domain_id_to_global_indices[d], device=device, dtype=torch.long)
