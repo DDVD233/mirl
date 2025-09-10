@@ -17,7 +17,7 @@ PROJECT_NAME="step495000-full-rla-omni-classifier-multi-head-lora"
 # EXCLUDE_DATASETS=("VPTD" "ChaLearn" "lmvd")
 # exact-match, case-sensitive
 # note einterface, expw, mmpsy_anxiety, mmpsy_depression does not have data
-EXCLUDE_DATASETS=("einterface" "expw" "mmpsy_anxiety" "mmpsy_depression", "meld_emotion" "cremad" "chsimsv2")
+EXCLUDE_DATASETS=("einterface" "expw" "mmpsy_anxiety" "mmpsy_depression", "meld_emotion" "cremad" "chsimsv2" "meld_senti")
 
 # EXCLUDE_DATASETS=("chsimsv2" "cremad" "einterface" "expw" "mmpsy_anxiety" "mmpsy_depression" "meld_emotion" "meld_senti")
 
