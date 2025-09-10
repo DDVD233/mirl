@@ -19,7 +19,7 @@ export TORCH_USE_CUDA_DSA=1
 echo "Launching QA training with Accelerate..."
 accelerate launch --config_file configs/accelerate_config_qwen.yaml addqa_train_multi_head.py \
     --mode train \
-    --training_strategy head_only \
+    --training_strategy lora \
     --train_batch_size 2 \
     --val_batch_size 2 \
     --test_batch_size 2 \

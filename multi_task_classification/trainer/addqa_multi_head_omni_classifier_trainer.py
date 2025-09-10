@@ -645,7 +645,7 @@ class MultiHeadOmniClassifierAccelerateTrainer:
                                              num_workers=self.num_workers, 
                                              shuffle=False)
         
-        optimizer = Adam(self.model.parameters(), lr=self.lr)
+        # optimizer = Adam(self.model.parameters(), lr=self.lr)
         criterion = CrossEntropyLoss()
 
         # ---- Compute update-steps-aware schedule sizes ----
@@ -665,25 +665,93 @@ class MultiHeadOmniClassifierAccelerateTrainer:
             scheduler = None
             print("[INFO] Scheduler disabled - using constant learning rate")
 
-        # Prepare everything with Accelerate
-        if scheduler is not None:
-            self.model, optimizer, train_dataloader, val_dataloader, scheduler = self.accelerator.prepare(
-                self.model, optimizer, train_dataloader, val_dataloader, scheduler
-            )
-            # Register the scheduler for checkpointing
-            self.accelerator.register_for_checkpointing(scheduler)
-        else:
-            self.model, optimizer, train_dataloader, val_dataloader = self.accelerator.prepare(
-                self.model, optimizer, train_dataloader, val_dataloader
+        # # Prepare everything with Accelerate
+        # if scheduler is not None:
+        #     self.model, optimizer, train_dataloader, val_dataloader, scheduler = self.accelerator.prepare(
+        #         self.model, optimizer, train_dataloader, val_dataloader, scheduler
+        #     )
+        #     # Register the scheduler for checkpointing
+        #     self.accelerator.register_for_checkpointing(scheduler)
+        # else:
+        #     self.model, optimizer, train_dataloader, val_dataloader = self.accelerator.prepare(
+        #         self.model, optimizer, train_dataloader, val_dataloader
+        #     )
+
+        # start_epoch, start_batch_offset, _, _, _ = self.load_checkpoint_unified(
+        #     accelerator=self.accelerator,
+        #     model=self.model,
+        #     base_ckpt_dir=self.checkpoint_dir,
+        #     explicit_dir=self.load_checkpoint_path or None,
+        #     expect_training_strategy=self.global_config.get("TRAINING_STRATEGY"),
+        # )
+        self.rla_resume_diff_training_stage = True
+        if self.rla_resume_diff_training_stage:
+            # Prepare first so checkpoint shards line up with the wrapped model
+            train_dataloader, val_dataloader, self.model = self.accelerator.prepare(
+                train_dataloader, val_dataloader, self.model
             )
 
-        start_epoch, start_batch_offset, _, _, _ = self.load_checkpoint_unified(
-            accelerator=self.accelerator,
-            model=self.model,
-            base_ckpt_dir=self.checkpoint_dir,
-            explicit_dir=self.load_checkpoint_path or None,
-            expect_training_strategy=self.global_config.get("TRAINING_STRATEGY"),
-        )
+            # Load model/RNG only (new training stage, so no optimizer/scheduler restore)
+            start_epoch, start_batch_offset, _, _, _ = self.load_checkpoint_unified(
+                accelerator=self.accelerator,
+                model=self.model,
+                base_ckpt_dir=self.checkpoint_dir,
+                explicit_dir=self.load_checkpoint_path or None,
+                expect_training_strategy=self.global_config.get("TRAINING_STRATEGY"),
+                rla_resume_diff_cfg=True,
+            )
+
+            # ---- freeze everything ----
+            for p in self.model.parameters():
+                p.requires_grad = False
+
+            # Explicitly freeze classifier heads too
+            if hasattr(self.model, "heads"):
+                for head in self.model.heads:
+                    for p in head.parameters():
+                        p.requires_grad = False
+
+            # ---- unfreeze only LM head ----
+            assert hasattr(self.model.backbone, "lm_head"), "Expected backbone.lm_head"
+            for p in self.model.backbone.lm_head.parameters():
+                p.requires_grad = True
+
+            # ---- (optional) keep input embeddings frozen even if tied to lm_head ----
+            try:
+                tied = getattr(self.model.backbone.config, "tie_word_embeddings", False)
+                if tied:
+                    # Untie so lm_head updates don’t drag input embeddings
+                    self.model.backbone.config.tie_word_embeddings = False
+                    get_out = getattr(self.model.backbone, "get_output_embeddings", None)
+                    get_in  = getattr(self.model.backbone, "get_input_embeddings", None)
+                    if callable(get_out) and callable(get_in):
+                        out_emb = get_out()
+                        in_emb  = get_in()
+                        if out_emb is not None and in_emb is not None:
+                            # If they still share storage, clone lm_head weights
+                            if out_emb.weight.data_ptr() == in_emb.weight.data_ptr():
+                                out_emb.weight = torch.nn.Parameter(out_emb.weight.detach().clone())
+                            # Keep input embeddings frozen
+                            for p in in_emb.parameters():
+                                p.requires_grad = False
+                    # Re-assert lm_head is trainable
+                    for p in self.model.backbone.lm_head.parameters():
+                        p.requires_grad = True
+            except Exception:
+                # If untie isn’t supported, embeddings will co-update with lm_head (FYI)
+                pass
+
+            # ---- rebuild optimizer/scheduler ONLY over trainables ----
+            def trainables(m):
+                for p in m.parameters():
+                    if p.requires_grad:
+                        yield p
+
+            optimizer = Adam(trainables(self.model), lr=self.lr)
+
+
+            # prepare the optimizer
+            optimizer = self.accelerator.prepare(optimizer)
 
         # 3) OPTIONAL resumed loader (only used for the first resumed epoch)
         # Not required for now, as we always resume full epochs
