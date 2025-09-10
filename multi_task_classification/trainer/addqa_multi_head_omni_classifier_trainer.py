@@ -637,7 +637,11 @@ class MultiHeadOmniClassifierAccelerateTrainer:
 
     def train(self):
         train_dataloader = self.get_dataloader(self.data_files, self.batch_size, num_workers=self.num_workers, shuffle=True)
-        val_dataloader = self.get_dataloader(self.val_data_files, self.val_batch_size, num_workers=self.num_workers, shuffle=False)
+        val_dataloader = self.get_dataloader(self.val_data_files, 
+                                             self.val_batch_size, 
+                                             num_workers=self.num_workers, 
+                                             shuffle=False,
+                                             drop_last=True)
         
         optimizer = Adam(self.model.parameters(), lr=self.lr)
         criterion = CrossEntropyLoss()
