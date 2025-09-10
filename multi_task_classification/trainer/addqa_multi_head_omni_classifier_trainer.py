@@ -278,7 +278,7 @@ class MultiHeadOmniClassifierAccelerateTrainer:
         return qa_input_ids, qa_attn, lm_labels_q
 
     
-    def get_dataloader(self, data_files, batch_size, num_workers=0, shuffle=True, drop_last=False):
+    def get_dataloader(self, data_files, batch_size, num_workers=0, shuffle=True):
         dataset = AddQAOmniClassifierDataset(
             data_files=data_files,
             tokenizer=self.tokenizer,
@@ -289,7 +289,7 @@ class MultiHeadOmniClassifierAccelerateTrainer:
             qa_datasets=self.qa_datasets,
         )
         return DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, collate_fn=collate_fn,
-                          num_workers=num_workers, pin_memory=True, persistent_workers=num_workers > 0, drop_last=drop_last)
+                          num_workers=num_workers, pin_memory=True, persistent_workers=num_workers > 0)
 
 
     def _latest_checkpoint_dir(self,base_dir: str):
@@ -553,13 +553,13 @@ class MultiHeadOmniClassifierAccelerateTrainer:
                                                                  qa_attn, 
                                                                  max_new_tokens=self.max_val_qa_tokens)  # [Bq, L]
                 
-                # raise Exception(cont_ids_local)
 
 
                 # 2) Gather IDs across processes (tensors only)
                 g_cont_ids = self.accelerator.gather_for_metrics(cont_ids_local)        # [N_total, L]
                 g_prompts  = self.accelerator.gather_for_metrics(qa_input_ids)          # [N_total, T]  (optional; only if you want full sequences)
 
+                raise Exception(g_cont_ids)
                 # collect them all
                 gathered_lm_labels = self.accelerator.gather_for_metrics(lm_labels)  # [N_total]
                 gathered_datasets  = self.accelerator.gather_for_metrics(datasets)   #
