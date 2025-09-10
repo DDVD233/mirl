@@ -145,7 +145,7 @@ for DS in $ALL_DS; do
     --hard_gamma 5.0 \
     --base_lr 0 \
     --rla_lr 8e-4 \
-    --epochs 4 \
+    --epochs 3 \
     --train_file "$TRAIN_OUT" \
     --val_file "$VAL_OUT" \
     --test_file "$VAL_OUT" \
