@@ -548,6 +548,7 @@ class MultiHeadOmniClassifierAccelerateTrainer:
                 qa_input_ids = input_ids
                 qa_attn = attention_mask
 
+
                     # Your helper should return a [Bq, L] LongTensor, pad with tokenizer.pad_token_id if needed
                 cont_ids_local = self._greedy_decode_no_generate(qa_input_ids, 
                                                                  qa_attn, 
@@ -934,6 +935,7 @@ class MultiHeadOmniClassifierAccelerateTrainer:
 
                     # Step-based validation (if configured)
                     if validate_every_n_steps is not None and current_step % validate_every_n_steps == 0:
+                        self.accelerator.wait_for_everyone()
                         print(f"\n[STEP {current_step}] Running step-based validation...")
                         val_results = self.validate(val_dataloader, "validation", current_step=current_step)
                         # val_results = self.validate_off_accelerate_with_generate(val_dataloader_raw, "validation", current_step)
