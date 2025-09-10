@@ -454,9 +454,9 @@ class MultiHeadOmniClassifierAccelerateTrainer:
             if torch.all(finished):
                 break
 
-        if not generated:
-            # no tokens generated (edge-case max_new_tokens=0)
-            return torch.empty((Bq, 0), dtype=input_ids.dtype, device=device)
+        # if not generated:
+        #     # no tokens generated (edge-case max_new_tokens=0)
+        #     return torch.empty((Bq, 0), dtype=input_ids.dtype, device=device)
 
         return torch.cat(generated, dim=1)  # [Bq, L]
     
