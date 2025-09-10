@@ -66,7 +66,7 @@ class MultiHeadOmniClassifierAccelerateTrainer:
         self.qa_loss_weight = float(self.global_config.get('QA_LOSS_WEIGHT', 1.0))
 
         # Deterministic generation for evaluation
-        self.max_val_qa_tokens = 20
+        self.max_val_qa_tokens = 30
         print(f"WARNING: Using max_val_qa_tokens={self.max_val_qa_tokens} for validation/test generation.")
         
         # Use the label map from global config
@@ -450,9 +450,10 @@ class MultiHeadOmniClassifierAccelerateTrainer:
                 attn = torch.cat([attn, one], dim=1)
 
             # Early stop if all hit EOS
-            # finished = finished | (next_tokens == eos_id)
-            # if torch.all(finished):
-            #     break
+            # NOTE : WARNING YOU NEED TO MAKE SURE ALL THE GENERATED SEQUENCES ARE AT SAME LENGTH
+            finished = finished | (next_tokens == eos_id)
+            if torch.all(finished):
+                break
 
         # if not generated:
         #     # no tokens generated (edge-case max_new_tokens=0)
@@ -552,15 +553,16 @@ class MultiHeadOmniClassifierAccelerateTrainer:
                 cont_ids_local = self._greedy_decode_no_generate(qa_input_ids, 
                                                                  qa_attn, 
                                                                  max_new_tokens=self.max_val_qa_tokens)  # [Bq, L]
-                
 
 
-            
+                # 2) pad ACROSS PROCESSES on the length dim BEFORE any gather
+                cont_ids_local = self.accelerator.pad_across_processes(
+                    cont_ids_local, dim=1, pad_index=self.tokenizer.pad_token_id
+                )
+
                 # 2) Gather IDs across processes (tensors only)
                 g_cont_ids = self.accelerator.gather_for_metrics(cont_ids_local)        # [N_total, L]
-                
                 g_prompts  = self.accelerator.gather_for_metrics(qa_input_ids)          # [N_total, T]  (optional; only if you want full sequences)
-
                 
                 # collect them all
                 gathered_lm_labels = self.accelerator.gather_for_metrics(lm_labels)  # [N_total]
