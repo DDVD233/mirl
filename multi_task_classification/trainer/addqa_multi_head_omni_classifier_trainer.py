@@ -535,7 +535,7 @@ class MultiHeadOmniClassifierAccelerateTrainer:
                     if self.accelerator.is_main_process:
                         all_predictions.extend(gathered_preds.cpu().tolist())
                         all_labels.extend(gathered_labels.cpu().tolist())
-                        all_datasets.extend(ds_cls)
+                        all_datasets.extend(datasets)
 
 
                 # ---- QA: free generation, gather cont_ids then decode on main ----
