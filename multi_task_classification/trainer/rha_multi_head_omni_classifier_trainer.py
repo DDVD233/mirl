@@ -963,7 +963,7 @@ class RHAMultiHeadOmniClassifierAccelerateTrainer:
                         )
 
                     # 3) hidden fusion (RHA) if enabled
-                    if (self.rla_stage in {"residual_only","joint"}) and (self.use_rha_video or self.use_rha_audio):
+                    if (self.rla_stage in {"residual_only","joint"}) and (self.use_rla_video or self.use_rla_audio):
                         pooled = apply_hidden_adapters(
                             h_base=pooled,
                             domain_ids=domain_ids,
