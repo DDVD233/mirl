@@ -42,7 +42,8 @@ class ResidualHiddenAdapter(nn.Module):
             nn.ReLU(),
             nn.Linear(hidden, out_dim),
         )
-        self.alpha = nn.Parameter(torch.tensor(float(alpha_init)))
+        self.alpha = nn.Parameter(torch.tensor([float(alpha_init)]))  # shape (1,)
+
 
     def _maybe_drop(self, feats: Optional[torch.Tensor], train_mode: bool) -> Optional[torch.Tensor]:
         if feats is None or not train_mode or self.p_moddrop <= 0:
@@ -84,5 +85,6 @@ class ResidualHiddenAdapter(nn.Module):
             c = c * self.conf_gain
 
         x = torch.cat([feats, c], dim=-1)   # [B, D_feat+3]
-        delta = self.mlp(x) * self.alpha    # [B,H]
+        delta = self.mlp(x) * self.alpha.view(1, 1)
+
         return h_base + delta
