@@ -678,7 +678,7 @@ class QARHAMultiHeadOmniClassifierAccelerateTrainer:
                     raise KeyError("Batch missing 'dataset' needed for domain routing.")
                 # batch['dataset'] is typically a list/tuple length B
                 domain_ids = self._datasets_to_domain_ids(batch['dataset'], device=input_ids.device)
-                raise Exception(domain_ids)
+            
 
 
                 # Each should be of shape (B, D_feat)
@@ -982,6 +982,7 @@ class QARHAMultiHeadOmniClassifierAccelerateTrainer:
                     raise KeyError("Batch missing 'dataset' needed for domain routing.")
                 # batch['dataset'] is typically a list/tuple length B
                 domain_ids = self._datasets_to_domain_ids(batch['dataset'], device=input_ids.device)
+                raise Exception(domain_ids)
 
                 # Each should be of shape (B, D_feat)
                 if ("audio_feats" in batch) and (batch["audio_feats"] is not None) \
