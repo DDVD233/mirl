@@ -278,7 +278,7 @@ class MultiHeadOmniClassifierAccelerateTrainer:
         return qa_input_ids, qa_attn, lm_labels_q
 
     
-    def get_dataloader(self, data_files, batch_size, num_workers=0, shuffle=True):
+    def get_dataloader(self, data_files, batch_size, num_workers=0, shuffle=True, drop_last=False):
         dataset = AddQAOmniClassifierDataset(
             data_files=data_files,
             tokenizer=self.tokenizer,
@@ -289,7 +289,7 @@ class MultiHeadOmniClassifierAccelerateTrainer:
             qa_datasets=self.qa_datasets,
         )
         return DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, collate_fn=collate_fn,
-                          num_workers=num_workers, pin_memory=True, persistent_workers=num_workers > 0)
+                          num_workers=num_workers, pin_memory=True, persistent_workers=num_workers > 0, drop_last=drop_last)
 
 
     def _latest_checkpoint_dir(self,base_dir: str):
