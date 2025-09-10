@@ -450,9 +450,9 @@ class MultiHeadOmniClassifierAccelerateTrainer:
                 attn = torch.cat([attn, one], dim=1)
 
             # Early stop if all hit EOS
-            finished = finished | (next_tokens == eos_id)
-            if torch.all(finished):
-                break
+            # finished = finished | (next_tokens == eos_id)
+            # if torch.all(finished):
+            #     break
 
         # if not generated:
         #     # no tokens generated (edge-case max_new_tokens=0)
