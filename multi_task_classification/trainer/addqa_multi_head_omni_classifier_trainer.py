@@ -940,7 +940,7 @@ class MultiHeadOmniClassifierAccelerateTrainer:
 
                         print(f"\n[STEP {current_step}] Running step-based validation...")
                         self.accelerator.wait_for_everyone()
-                        with self.accelerator.join_uneven_inputs():
+                        with self.accelerator.join_uneven_inputs(self.model, even_batches=False):
                             val_results = self.validate(val_dataloader, "validation", current_step=current_step)
                         # val_results = self.validate_off_accelerate_with_generate(val_dataloader_raw, "validation", current_step)
 
