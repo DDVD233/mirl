@@ -553,7 +553,7 @@ class MultiHeadOmniClassifierAccelerateTrainer:
                                                                  qa_attn, 
                                                                  max_new_tokens=self.max_val_qa_tokens)  # [Bq, L]
                 
-                raise Exception(cont_ids_local)
+                # raise Exception(cont_ids_local)
 
 
                 # 2) Gather IDs across processes (tensors only)
@@ -939,7 +939,9 @@ class MultiHeadOmniClassifierAccelerateTrainer:
                     if validate_every_n_steps is not None and current_step % validate_every_n_steps == 0:
 
                         print(f"\n[STEP {current_step}] Running step-based validation...")
-                        val_results = self.validate(val_dataloader, "validation", current_step=current_step)
+                        self.accelerator.wait_for_everyone()
+                        with self.accelerator.join_uneven_inputs():
+                            val_results = self.validate(val_dataloader, "validation", current_step=current_step)
                         # val_results = self.validate_off_accelerate_with_generate(val_dataloader_raw, "validation", current_step)
 
                         if self.accelerator.is_main_process and val_results is not None:
