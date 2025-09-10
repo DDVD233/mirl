@@ -452,8 +452,6 @@ class MultiHeadOmniClassifierAccelerateTrainer:
             # Early stop if all hit EOS
             # NOTE : WARNING YOU NEED TO MAKE SURE ALL THE GENERATED SEQUENCES ARE AT SAME LENGTH
             finished = finished | (next_tokens == eos_id)
-            # if torch.all(finished):
-            #     break
 
         # if not generated:
         #     # no tokens generated (edge-case max_new_tokens=0)
@@ -580,6 +578,7 @@ class MultiHeadOmniClassifierAccelerateTrainer:
                     all_pred_texts.extend(pred_texts)
                     all_gold_texts.extend(gathered_lm_labels)
                     all_qa_datasets.extend(gathered_datasets)
+                    print(pred_texts)
 
         # Calculate average loss
         avg_loss = total_loss / max(1, len(all_labels)) if self.accelerator.is_main_process else 0.0
