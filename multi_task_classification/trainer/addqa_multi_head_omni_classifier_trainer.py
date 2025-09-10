@@ -757,6 +757,7 @@ class MultiHeadOmniClassifierAccelerateTrainer:
                 # If untie isn’t supported, embeddings will co-update with lm_head (FYI)
                 pass
 
+            accelerator.wait_for_everyone()
             
             if in_emb is not None and out_emb is not None:
                 same_storage = out_emb.weight.data_ptr() == in_emb.weight.data_ptr()
@@ -767,6 +768,7 @@ class MultiHeadOmniClassifierAccelerateTrainer:
                     any(p.requires_grad for p in in_emb.parameters()))
                 print("lm_head requires_grad:",
                     any(p.requires_grad for p in out_emb.parameters()))
+                
             raise Exception("same storage", same_storage)
 
             # ---- rebuild optimizer/scheduler ONLY over trainables ----
