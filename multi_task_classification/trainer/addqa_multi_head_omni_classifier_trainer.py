@@ -757,7 +757,7 @@ class MultiHeadOmniClassifierAccelerateTrainer:
                 # If untie isn’t supported, embeddings will co-update with lm_head (FYI)
                 pass
 
-            accelerator.wait_for_everyone()
+            self.accelerator.wait_for_everyone()
             
             if in_emb is not None and out_emb is not None:
                 same_storage = out_emb.weight.data_ptr() == in_emb.weight.data_ptr()
