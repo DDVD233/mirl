@@ -451,7 +451,7 @@ class MultiHeadOmniClassifierAccelerateTrainer:
 
             # Early stop if all hit EOS
             # NOTE : WARNING YOU NEED TO MAKE SURE ALL THE GENERATED SEQUENCES ARE AT SAME LENGTH
-            # finished = finished | (next_tokens == eos_id)
+            finished = finished | (next_tokens == eos_id)
             # if torch.all(finished):
             #     break
 
