@@ -955,8 +955,9 @@ class RHAMultiHeadOmniClassifierAccelerateTrainer:
                 with self.accelerator.accumulate(self.model):
                     # 1) pooled hidden once
                     logits = self.model(input_ids, attention_mask=attention_mask, domain_ids=domain_ids)
-                    raise Exception("check here")
+                    
                     pooled = self.model.encode(input_ids, attention_mask=attention_mask)  # [B,H]
+                    raise Exception("check here")
 
                     # 2) prelim logits (for RHA confidence)
                     prelim_logits = self.model.heads_forward(pooled, domain_ids)          # [B,Cg]
