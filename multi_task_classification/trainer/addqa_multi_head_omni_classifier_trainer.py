@@ -732,33 +732,33 @@ class MultiHeadOmniClassifierAccelerateTrainer:
             # print("config.tie_word_embeddings =", cfg_flag)
             # raise Exception(cfg_flag)
 
-            try:
-                tied = getattr(self.model.backbone.config, "tie_word_embeddings", False)
-                if tied:
-                    # Untie so lm_head updates don’t drag input embeddings
-                    self.model.backbone.config.tie_word_embeddings = False
-                    cfg_flag = getattr(self.model.backbone.config, "tie_word_embeddings", None)
-                    print("config.tie_word_embeddings =", cfg_flag)
-                    raise Exception(cfg_flag)
+            # try:
+            tied = getattr(self.model.backbone.config, "tie_word_embeddings", False)
+            if tied:
+                # Untie so lm_head updates don’t drag input embeddings
+                self.model.backbone.config.tie_word_embeddings = False
+                cfg_flag = getattr(self.model.backbone.config, "tie_word_embeddings", None)
+                print("config.tie_word_embeddings =", cfg_flag)
+                raise Exception(cfg_flag)
 
-                    get_out = getattr(self.model.backbone, "get_output_embeddings", None)
-                    get_in  = getattr(self.model.backbone, "get_input_embeddings", None)
-                    if callable(get_out) and callable(get_in):
-                        out_emb = get_out()
-                        in_emb  = get_in()
-                        if out_emb is not None and in_emb is not None:
-                            # If they still share storage, clone lm_head weights
-                            if out_emb.weight.data_ptr() == in_emb.weight.data_ptr():
-                                out_emb.weight = torch.nn.Parameter(out_emb.weight.detach().clone())
-                            # Keep input embeddings frozen
-                            for p in in_emb.parameters():
-                                p.requires_grad = False
-                    # Re-assert lm_head is trainable
-                    for p in self.model.backbone.lm_head.parameters():
-                        p.requires_grad = True
-            except Exception:
-                # If untie isn’t supported, embeddings will co-update with lm_head (FYI)
-                pass
+                get_out = getattr(self.model.backbone, "get_output_embeddings", None)
+                get_in  = getattr(self.model.backbone, "get_input_embeddings", None)
+                if callable(get_out) and callable(get_in):
+                    out_emb = get_out()
+                    in_emb  = get_in()
+                    if out_emb is not None and in_emb is not None:
+                        # If they still share storage, clone lm_head weights
+                        if out_emb.weight.data_ptr() == in_emb.weight.data_ptr():
+                            out_emb.weight = torch.nn.Parameter(out_emb.weight.detach().clone())
+                        # Keep input embeddings frozen
+                        for p in in_emb.parameters():
+                            p.requires_grad = False
+                # Re-assert lm_head is trainable
+                for p in self.model.backbone.lm_head.parameters():
+                    p.requires_grad = True
+            # except Exception:
+            #     # If untie isn’t supported, embeddings will co-update with lm_head (FYI)
+            #     pass
 
             # ---- rebuild optimizer/scheduler ONLY over trainables ----
             def trainables(m):
