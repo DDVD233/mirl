@@ -715,6 +715,18 @@ class MultiHeadOmniClassifierAccelerateTrainer:
             for p in self.model.backbone.lm_head.parameters():
                 p.requires_grad = True
 
+            # # ---- unfreeze top-N transformer blocks ----
+            # # For Qwen2.5, the backbone usually has .model.layers (list of transformer blocks)
+            # if hasattr(self.model.backbone, "model") and hasattr(self.model.backbone.model, "layers"):
+            #     num_layers = len(self.model.backbone.model.layers)
+            #     top_n = 2
+            #     for block in self.model.backbone.model.layers[-top_n:]:
+            #         for p in block.parameters():
+            #             p.requires_grad = True
+            #     print(f"Unfroze top {top_n} transformer layers + lm_head")
+            # else:
+            #     print("⚠️ Could not locate .model.layers in backbone (check module structure).")
+
             # ---- (optional) keep input embeddings frozen even if tied to lm_head ----
             try:
                 tied = getattr(self.model.backbone.config, "tie_word_embeddings", False)
