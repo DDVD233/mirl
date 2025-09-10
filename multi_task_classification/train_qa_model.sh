@@ -39,7 +39,7 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml addqa_train_
     --validate_every_n_epochs 1 \
     --validate_every_n_steps 999999 \
     --early_stopping_patience 999999 \
-    --project "qa-omni-classifier-multi-task-lora" \
+    --project "freeze-base-qa-omni-classifier-multi-task-lora" \
     --gradient_accumulation_steps 8 \
     --format_prompt "" \
 
