@@ -736,7 +736,6 @@ class MultiHeadOmniClassifierAccelerateTrainer:
                     # Re-assert lm_head is trainable
                     for p in self.model.backbone.lm_head.parameters():
                         p.requires_grad = True
-                    raise Exception("Untied embeddings")
             except Exception:
                 # If untie isn’t supported, embeddings will co-update with lm_head (FYI)
                 pass
