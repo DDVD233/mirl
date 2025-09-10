@@ -548,13 +548,13 @@ class MultiHeadOmniClassifierAccelerateTrainer:
                 qa_input_ids = input_ids
                 qa_attn = attention_mask
 
-                raise Exception(qa_input_ids)
-
-
                 # Your helper should return a [Bq, L] LongTensor, pad with tokenizer.pad_token_id if needed
                 cont_ids_local = self._greedy_decode_no_generate(qa_input_ids, 
                                                                  qa_attn, 
                                                                  max_new_tokens=self.max_val_qa_tokens)  # [Bq, L]
+                
+                raise Exception(cont_ids_local)
+
 
                 # 2) Gather IDs across processes (tensors only)
                 g_cont_ids = self.accelerator.gather_for_metrics(cont_ids_local)        # [N_total, L]
