@@ -648,6 +648,95 @@ class QARHAMultiHeadOmniClassifierAccelerateTrainer:
 
     def _current_lr_for_logging(self):
         return (self.prepared_opts[0].param_groups[0]["lr"] if self.prepared_opts else self.lr)
+    
+    @torch.no_grad()
+    def _greedy_decode_rha_no_generate(
+        self,
+        qa_input_ids: torch.Tensor,          # [Bq, T0] prompt
+        qa_attn: torch.Tensor | None,        # [Bq, T0] or None
+        *,
+        domain_ids_q: torch.Tensor,          # [Bq] == -1 for QA
+        pooled_video_feats: torch.Tensor | None,   # [Bq, Dv] or None (already prebuilt in the loop)
+        pooled_audio_feats: torch.Tensor | None,   # [Bq, Da] or None
+        max_new_tokens: int = 64,
+    ):
+        """
+        Greedy decoding without .generate, but WITH adapter fusion every step:
+        1) forward (labels=None) -> hidden_states[-2] -> pooled_base
+        2) apply_hidden_adapters(..., train_mode=False) -> pooled_eff
+        3) forward(..., video_pooled_rha/audio_pooled_rha=pooled_eff) -> logits
+        4) take argmax at last position, append token, continue
+        Returns:
+            cont_ids: [Bq, L]
+        """
+        # Work on copies and keep everything on the same device/dtype
+        input_ids = qa_input_ids.clone()
+        attn      = qa_attn.clone() if qa_attn is not None else None
+        device    = input_ids.device
+        Bq        = input_ids.size(0)
+
+        # EOS / PAD
+        eos_id = self.tokenizer.eos_token_id
+        pad_id = self.tokenizer.pad_token_id if self.tokenizer.pad_token_id is not None else eos_id
+
+        finished  = torch.zeros(Bq, dtype=torch.bool, device=device)
+        generated = []
+
+        for _ in range(max_new_tokens):
+            # --- pass 1: get pooled_base from penultimate hidden ---
+            out0 = self.model(
+                input_ids=input_ids,
+                attention_mask=attn,
+                domain_ids=domain_ids_q,
+                lm_labels=None,               # no CE here
+            )
+            h_penult = out0["lm_output"].hidden_states[-2]  # [Bq, T, H]
+            if attn is not None:
+                pooled_base = (h_penult * attn.unsqueeze(-1)).sum(1) / (attn.sum(1, keepdim=True).clamp_min(1))
+            else:
+                pooled_base = h_penult.mean(dim=1)          # [Bq, H]
+
+            # --- fuse adapters exactly like train (train_mode=False) ---
+            pooled_eff = apply_hidden_adapters(
+                h_base=pooled_base,
+                domain_ids=domain_ids_q,                    # -1s are fine; adapters can ignore if desired
+                prelim_global_logits=None,                  # not needed during QA
+                video_hidden_adapter=self.video_adapter if self.use_rla_video else None,
+                audio_hidden_adapter=self.audio_adapter if self.use_rla_audio else None,
+                video_feats=pooled_video_feats,
+                audio_feats=pooled_audio_feats,
+                train_mode=False,
+            )
+
+            # We keep precedence consistent with forward(): audio > video > base
+            video_pooled_rha = pooled_eff if (self.use_rla_video and pooled_video_feats is not None) else None
+            audio_pooled_rha = pooled_eff if (self.use_rla_audio and pooled_audio_feats is not None) else None
+
+            # --- pass 2: Δ injection + LM logits from modified states ---
+            out = self.model(
+                input_ids=input_ids,
+                attention_mask=attn,
+                domain_ids=domain_ids_q,
+                lm_labels=None,                       # still no CE (free decoding)
+                video_pooled_rha=video_pooled_rha,
+                audio_pooled_rha=audio_pooled_rha,    # overrides video if both provided
+            )
+
+            next_logits = out["lm_output"].logits[:, -1, :]  # [Bq, V]
+            next_tokens = next_logits.argmax(dim=-1)         # [Bq]
+            next_tokens = torch.where(finished, torch.full_like(next_tokens, pad_id), next_tokens)
+            generated.append(next_tokens.unsqueeze(1))
+
+            # append token & update mask
+            input_ids = torch.cat([input_ids, next_tokens.unsqueeze(1)], dim=1)
+            if attn is not None:
+                one = torch.ones((Bq, 1), dtype=attn.dtype, device=device)
+                attn = torch.cat([attn, one], dim=1)
+
+            # stop early if all are done
+            finished = finished | (next_tokens == eos_id)
+
+        return torch.cat(generated, dim=1) if generated else torch.empty((Bq, 0), dtype=input_ids.dtype, device=device)
 
     def validate(self, val_dataloader, split_name="validation", current_step=None):
         """Validate the model on the given dataloader."""
@@ -680,9 +769,7 @@ class QARHAMultiHeadOmniClassifierAccelerateTrainer:
                     raise KeyError("Batch missing 'dataset' needed for domain routing.")
                 # batch['dataset'] is typically a list/tuple length B
                 domain_ids = self._datasets_to_domain_ids(batch['dataset'], device=input_ids.device)
-            
-
-
+        
                 # Each should be of shape (B, D_feat)
                 if ("audio_feats" in batch) and (self.rla_stage in {"residual_only", "joint"}) and self.use_rla_audio:
                     audio_feats = batch["audio_feats"]
@@ -733,51 +820,36 @@ class QARHAMultiHeadOmniClassifierAccelerateTrainer:
                     else:
                         raise ValueError(f"Unexpected labels shape {labels.shape}")
                     
-                # NEW (RHA-style; mirrors train)
-                prelim_logits, pooled = self.model(
-                    input_ids=input_ids,
-                    attention_mask=attention_mask,
-                    domain_ids=domain_ids,
+                # ---- QA greedy decode (no .generate), WITH adapters ----
+                qa_input_ids = input_ids
+                qa_attn      = attention_mask
+
+                # Domain sentinel = -1s for QA rows
+                domain_ids_q = torch.full((qa_input_ids.size(0),), -1, dtype=torch.long, device=qa_input_ids.device)
+
+                # Use the RHA-aware greedy decode
+                cont_ids_local = self._greedy_decode_rha_no_generate(
+                    qa_input_ids=qa_input_ids,
+                    qa_attn=qa_attn,
+                    domain_ids_q=domain_ids_q,
+                    pooled_video_feats=pooled_video_feats if (self.use_rla_video and pooled_video_feats is not None) else None,
+                    pooled_audio_feats=pooled_audio_feats if (self.use_rla_audio and pooled_audio_feats is not None) else None,
+                    max_new_tokens=self.max_val_qa_tokens,
                 )
 
-                if (self.rla_stage in {"residual_only","joint"}) and (self.use_rla_video or self.use_rla_audio):
-                    pooled = apply_hidden_adapters(
-                        h_base=pooled,
-                        domain_ids=domain_ids,
-                        prelim_global_logits=prelim_logits,   # used for conf slicing
-                        video_hidden_adapter=self.video_adapter,
-                        audio_hidden_adapter=self.audio_adapter,
-                        video_feats=pooled_video_feats,
-                        audio_feats=pooled_audio_feats,
-                        train_mode=False,
-                    )
+                # Gather across processes
+                g_cont_ids = self.accelerator.gather_for_metrics(cont_ids_local)
+                g_prompts  = self.accelerator.gather_for_metrics(qa_input_ids)
+                g_lm_labels = self.accelerator.gather_for_metrics(batch["lm_labels"])
+                g_datasets  = self.accelerator.gather_for_metrics(batch["dataset"])
 
-                logits, _ = self.model(
-                    domain_ids=domain_ids,
-                    pooled=pooled,   # <- post-fusion pooled
-                )
-
-                loss = criterion(logits, labels)
-                
-                total_loss += loss.item() * input_ids.size(0)
-                preds = logits.argmax(dim=1)
-
-                gathered_preds = self.accelerator.gather_for_metrics(preds)
-                gathered_labels = self.accelerator.gather_for_metrics(labels)
-
-                # Gather datasets from all processes (if available)
-                gathered_datasets = None
-                if 'dataset' in batch:
-                    gathered_datasets = self.accelerator.gather_for_metrics(batch['dataset'])
-                else:
-                    # All processes must participate in gather_object, even if they don't have the data
-                    gathered_datasets = self.accelerator.gather_for_metrics(None)
-                
-                # Only process on main process
+                # Decode on main proc
                 if self.accelerator.is_main_process:
-                    all_predictions.extend(gathered_preds.cpu().numpy())
-                    all_labels.extend(gathered_labels.cpu().numpy())
-                    all_datasets.extend(gathered_datasets)
+                    pred_texts = self.tokenizer.batch_decode(g_cont_ids, skip_special_tokens=True)
+                    all_pred_texts.extend(pred_texts)
+                    all_gold_texts.extend(g_lm_labels)   # raw gold strings from your dataset (unchanged)
+                    all_qa_datasets.extend(g_datasets)
+                    print(f"Pred: {pred_texts}")
 
         # Calculate average loss
         avg_loss = total_loss / max(1, len(all_labels)) if self.accelerator.is_main_process else 0.0
@@ -1373,6 +1445,7 @@ class QARHAMultiHeadOmniClassifierAccelerateTrainer:
 
         # Building adapters if required;
         # NOTE: INITALISED FOR HIDDEN ADAPETRS, but reusing the video_adapter/ audio_adapter functionality
+        
         self.video_adapter, self.audio_adapter = maybe_build_hidden_adapters(
                 domain_id_to_global_indices=self.domain_id_to_global_indices,
                 use_rha_video=self.use_rla_video,
