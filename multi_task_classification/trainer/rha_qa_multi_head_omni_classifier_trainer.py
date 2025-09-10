@@ -281,6 +281,8 @@ class QARHAMultiHeadOmniClassifierAccelerateTrainer:
                 raise KeyError(f"Dataset '{ds}' not in label_map.meta.dataset_domain")
             else:
                 ids.append(self.dataset_to_domain_id[ds])
+        # store the tensors for the domain ids
+        return torch.tensor(ids, dtype=torch.long, device=device)
     
 
     def _build_tf_inputs_and_labels(self, batch, qa_rows, seq_len, device):
@@ -982,7 +984,6 @@ class QARHAMultiHeadOmniClassifierAccelerateTrainer:
                     raise KeyError("Batch missing 'dataset' needed for domain routing.")
                 # batch['dataset'] is typically a list/tuple length B
                 domain_ids = self._datasets_to_domain_ids(batch['dataset'], device=input_ids.device)
-                raise Exception(domain_ids)
 
                 # Each should be of shape (B, D_feat)
                 if ("audio_feats" in batch) and (batch["audio_feats"] is not None) \
