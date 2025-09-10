@@ -34,8 +34,8 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml addqa_train_
     --load_checkpoint_path "/scratch/keane/human_behaviour/v5_multi_head_lora_training/step_49500" \
     --save_every_n_epochs 1 \
     --save_every_n_steps 9999999 \
-    --save_checkpoint_dir "/scratch/keane/human_behaviour/2_qa_multi_task_model" \
-    --validation_result_dir "/scratch/keane/human_behaviour/2_qa_multi_task_model/test_results" \
+    --save_checkpoint_dir "/scratch/keane/human_behaviour/freeze_base_qa_multi_task_model" \
+    --validation_result_dir "/scratch/keane/human_behaviour/freeze_base_qa_multi_task_model/test_results" \
     --validate_every_n_epochs 1 \
     --validate_every_n_steps 999999 \
     --early_stopping_patience 999999 \
