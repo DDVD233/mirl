@@ -73,6 +73,7 @@ class MultiHeadOmniClassifier(nn.Module):
 
         # obtain the hidden size of the backbone
         hidden_size = self._resolve_hidden_size(self.backbone)
+        self.hidden_size = hidden_size
 
         # === One head per domain ===
         self.heads = nn.ModuleList()
