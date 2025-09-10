@@ -1111,10 +1111,10 @@ class QARHAMultiHeadOmniClassifierAccelerateTrainer:
                     lm_output = out["lm_output"]
 
                     # total_loss_this_step = cls_loss + self.qa_loss_weight * qa_loss
-                    loss =self.qa_loss_weight * qa_loss
+                    total_loss_this_step = self.qa_loss_weight * qa_loss
 
                     # Accelerate handles gradient accumulation automatically
-                    self.accelerator.backward(loss)
+                    self.accelerator.backward(total_loss_this_step)
 
                     # NOTE: This if condition is not necessary as the accelerator 
                     # already syncs before stepping
