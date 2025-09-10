@@ -698,7 +698,6 @@ class MultiHeadOmniClassifierAccelerateTrainer:
                 base_ckpt_dir=self.checkpoint_dir,
                 explicit_dir=self.load_checkpoint_path or None,
                 expect_training_strategy=self.global_config.get("TRAINING_STRATEGY"),
-                rla_resume_diff_cfg=True,
             )
 
             # ---- freeze everything ----
