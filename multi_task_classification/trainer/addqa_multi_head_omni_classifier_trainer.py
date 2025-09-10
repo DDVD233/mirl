@@ -501,74 +501,78 @@ class MultiHeadOmniClassifierAccelerateTrainer:
                     else:
                         raise ValueError(f"Unexpected labels shape {labels.shape}")
                     
-                    # Split batch into QA vs CLS by dataset name
-                qa_rows, cls_rows = self._split_qa_cls_indices(batch['dataset'])
-                device = input_ids.device
+                #     # Split batch into QA vs CLS by dataset name
+                # qa_rows, cls_rows = self._split_qa_cls_indices(batch['dataset'])
+                # device = input_ids.device
 
-                if qa_rows is not None:  
-                    qa_rows = qa_rows.to(device)
+                # if qa_rows is not None:  
+                #     qa_rows = qa_rows.to(device)
                 
-                if cls_rows is not None: 
-                    cls_rows = cls_rows.to(device)
+                # if cls_rows is not None: 
+                #     cls_rows = cls_rows.to(device)
 
-                # ---- Classification pass (unchanged) ----
-                if cls_rows is not None and cls_rows.numel() > 0:
+                # # ---- Classification pass (unchanged) ----
+                # if cls_rows is not None and cls_rows.numel() > 0:
 
-                    out = self.model(
-                        input_ids.index_select(0, cls_rows),
-                        attention_mask=attention_mask.index_select(0, cls_rows) if attention_mask is not None else None,
-                        domain_ids=domain_ids,
-                        lm_labels=None
-                    )
+                #     out = self.model(
+                #         input_ids.index_select(0, cls_rows),
+                #         attention_mask=attention_mask.index_select(0, cls_rows) if attention_mask is not None else None,
+                #         domain_ids=domain_ids,
+                #         lm_labels=None
+                #     )
 
-                    cls_logits = out["cls_logits"]
-                    labels_cls = labels.index_select(0, cls_rows)
+                #     cls_logits = out["cls_logits"]
+                #     labels_cls = labels.index_select(0, cls_rows)
 
-                    loss = criterion(cls_logits, labels_cls)
-                    total_cls_loss += loss.item() * labels_cls.size(0)
-                    n_cls_samples += labels_cls.size(0)
+                #     loss = criterion(cls_logits, labels_cls)
+                #     total_cls_loss += loss.item() * labels_cls.size(0)
+                #     n_cls_samples += labels_cls.size(0)
 
-                    preds = cls_logits.argmax(dim=1)
-                    gathered_preds  = self.accelerator.gather_for_metrics(preds)
-                    gathered_labels = self.accelerator.gather_for_metrics(labels_cls)
+                #     preds = cls_logits.argmax(dim=1)
+                #     gathered_preds  = self.accelerator.gather_for_metrics(preds)
+                #     gathered_labels = self.accelerator.gather_for_metrics(labels_cls)
 
-                    if self.accelerator.is_main_process:
-                        all_predictions.extend(gathered_preds.cpu().tolist())
-                        all_labels.extend(gathered_labels.cpu().tolist())
-                        all_datasets.extend(datasets)
+                #     if self.accelerator.is_main_process:
+                #         all_predictions.extend(gathered_preds.cpu().tolist())
+                #         all_labels.extend(gathered_labels.cpu().tolist())
+                #         all_datasets.extend(datasets)
 
 
-                # ---- QA: free generation, gather cont_ids then decode on main ----
-                has_qa = (qa_rows is not None and qa_rows.numel() > 0)
-                if has_qa:
-                    qa_input_ids = input_ids.index_select(0, qa_rows)
-                    qa_attn      = attention_mask.index_select(0, qa_rows) if attention_mask is not None else None
+                # # ---- QA: free generation, gather cont_ids then decode on main ----
+                # has_qa = (qa_rows is not None and qa_rows.numel() > 0)
+                # if has_qa:
+                #     qa_input_ids = input_ids.index_select(0, qa_rows)
+                #     qa_attn      = attention_mask.index_select(0, qa_rows) if attention_mask is not None else None
 
-                    # 1) Greedy decode continuation IDs ONLY (no .generate()), fixed L tokens
-                    
+                # 1) Greedy decode continuation IDs ONLY (no .generate()), fixed L tokens
+                qa_input_ids = input_ids
+                qa_attn = attention_mask
+
                     # Your helper should return a [Bq, L] LongTensor, pad with tokenizer.pad_token_id if needed
-                    cont_ids_local = self._greedy_decode_no_generate(qa_input_ids, qa_attn, max_new_tokens=self.max_val_qa_tokens)  # [Bq, L]
+                cont_ids_local = self._greedy_decode_no_generate(qa_input_ids, 
+                                                                 qa_attn, 
+                                                                 max_new_tokens=self.max_val_qa_tokens)  # [Bq, L]
 
-                    # 2) Gather IDs across processes (tensors only)
-                    g_cont_ids = self.accelerator.gather_for_metrics(cont_ids_local)        # [N_total, L]
-                    g_prompts  = self.accelerator.gather_for_metrics(qa_input_ids)          # [N_total, T]  (optional; only if you want full sequences)
+                # 2) Gather IDs across processes (tensors only)
+                g_cont_ids = self.accelerator.gather_for_metrics(cont_ids_local)        # [N_total, L]
+                g_prompts  = self.accelerator.gather_for_metrics(qa_input_ids)          # [N_total, T]  (optional; only if you want full sequences)
 
-                    # collect them all
-                    gathered_lm_labels = self.accelerator.gather_for_metrics(lm_labels)  # [N_total]
-                    gathered_datasets  = self.accelerator.gather_for_metrics(datasets)   #
-                
-                    # 4) Decode ONLY on main process (after gathering)
-                    if self.accelerator.is_main_process:
-                        # Option A: decode only continuation
-                        pred_texts = self.tokenizer.batch_decode(g_cont_ids, skip_special_tokens=True)
+                # collect them all
+                gathered_lm_labels = self.accelerator.gather_for_metrics(lm_labels)  # [N_total]
+                gathered_datasets  = self.accelerator.gather_for_metrics(datasets)   #
+            
+                # 4) Decode ONLY on main process (after gathering)
+                if self.accelerator.is_main_process:
+                    # Option A: decode only continuation
+                    pred_texts = self.tokenizer.batch_decode(g_cont_ids, skip_special_tokens=True)
 
-                        # Option B (optional): decode full sequences (prompt + continuation)
-                        # full_ids = torch.cat([g_prompts, g_cont_ids], dim=1)
-                        # pred_texts = self.tokenizer.batch_decode(full_ids, skip_special_tokens=True)
+                    # Option B (optional): decode full sequences (prompt + continuation)
+                    # full_ids = torch.cat([g_prompts, g_cont_ids], dim=1)
+                    # pred_texts = self.tokenizer.batch_decode(full_ids, skip_special_tokens=True)
 
-                        all_pred_texts.extend(pred_texts)
-                        all_gold_texts.extend(gathered_lm_labels)
-                        all_qa_datasets.extend(gathered_datasets)
+                    all_pred_texts.extend(pred_texts)
+                    all_gold_texts.extend(gathered_lm_labels)
+                    all_qa_datasets.extend(gathered_datasets)
 
         # Calculate average loss
         avg_loss = total_loss / max(1, len(all_labels)) if self.accelerator.is_main_process else 0.0
@@ -742,15 +746,15 @@ class MultiHeadOmniClassifierAccelerateTrainer:
                         raise ValueError(f"Unexpected labels shape {labels.shape} (expected [B] or [B, C])")
               
                 # --- split batch into QA vs CLS subsets based on dataset name ---
-                qa_rows, cls_rows = self._split_qa_cls_indices(batch['dataset'])
+                # qa_rows, cls_rows = self._split_qa_cls_indices(batch['dataset'])
                                                                          
-                device = input_ids.device
+                # device = input_ids.device
                                                                          
-                # MOVE INDICES TO THE SAME DEVICE AS input_ids
-                if qa_rows is not None:
-                    qa_rows = qa_rows.to(device)
-                if cls_rows is not None:
-                    cls_rows = cls_rows.to(device)
+                # # MOVE INDICES TO THE SAME DEVICE AS input_ids
+                # if qa_rows is not None:
+                #     qa_rows = qa_rows.to(device)
+                # if cls_rows is not None:
+                #     cls_rows = cls_rows.to(device)
 
                 B, T = input_ids.size()
                 device = input_ids.device
@@ -769,25 +773,30 @@ class MultiHeadOmniClassifierAccelerateTrainer:
                 attn_full      = attention_mask
 
                 # ---- build masked LM labels for QA rows ----
+
+
                 lm_labels_full = None
-                has_qa = qa_rows is not None and qa_rows.numel() > 0 and ('lm_labels' in batch)
-                if has_qa:
-                    # teacher-forced per-row tensors
-                    qa_input_ids, qa_attn, lm_labels_q = self._build_tf_inputs_and_labels(
-                        batch=batch, qa_rows=qa_rows, seq_len=T, device=device
-                    )
+                # has_qa = qa_rows is not None and qa_rows.numel() > 0 and ('lm_labels' in batch)
+                # if has_qa:
+                
+                qa_rows = torch.arange(B, device=device)  # [0..B-1]
+                
+                # teacher-forced per-row tensors
+                qa_input_ids, qa_attn, lm_labels_q = self._build_tf_inputs_and_labels(
+                    batch=batch, qa_rows=qa_rows, seq_len=T, device=device
+                )
 
-                    # (1) replace rows in input_ids / attention_mask for QA rows
-                    #     If you don't want to mutate originals, clone first:
-                    input_ids_full = input_ids.clone()
-                    attn_full      = attention_mask.clone() if attention_mask is not None else None
-                    input_ids_full.index_copy_(0, qa_rows, qa_input_ids)
-                    if attn_full is not None:
-                        attn_full.index_copy_(0, qa_rows, qa_attn)
+                # (1) replace rows in input_ids / attention_mask for QA rows
+                #     If you don't want to mutate originals, clone first:
+                input_ids_full = input_ids.clone()
+                attn_full      = attention_mask.clone() if attention_mask is not None else None
+                input_ids_full.index_copy_(0, qa_rows, qa_input_ids)
+                if attn_full is not None:
+                    attn_full.index_copy_(0, qa_rows, qa_attn)
 
-                    # (2) build full labels with -100 everywhere except QA rows
-                    lm_labels_full = torch.full((B, T), -100, dtype=torch.long, device=device)
-                    lm_labels_full.index_copy_(0, qa_rows, lm_labels_q)
+                # (2) build full labels with -100 everywhere except QA rows
+                lm_labels_full = torch.full((B, T), -100, dtype=torch.long, device=device)
+                lm_labels_full.index_copy_(0, qa_rows, lm_labels_q)
 
                 with self.accelerator.accumulate(self.model):
                     # ---- single forward pass ----
@@ -798,22 +807,24 @@ class MultiHeadOmniClassifierAccelerateTrainer:
                         lm_labels=lm_labels_full      # None or masked by -100
                     )
                     # Classification loss only on cls_rows
-                    cls_loss = torch.zeros([], device=device)
-                    preds_cls = None
-                    if cls_rows is not None and cls_rows.numel() > 0:
-                        # only do cls_loss over the cls_rows
-                        labels_cls = labels.index_select(0, cls_rows)
-                        cls_logits = model_output["cls_logits"].index_select(0, cls_rows)
-                        cls_loss   = criterion(cls_logits, labels_cls)
-                        preds_cls  = cls_logits.argmax(dim=1)
+                    # cls_loss = torch.zeros([], device=device)
+                    # preds_cls = None
+                    # if cls_rows is not None and cls_rows.numel() > 0:
+                    #     # only do cls_loss over the cls_rows
+                    #     labels_cls = labels.index_select(0, cls_rows)
+                    #     cls_logits = model_output["cls_logits"].index_select(0, cls_rows)
+                    #     cls_loss   = criterion(cls_logits, labels_cls)
+                    #     preds_cls  = cls_logits.argmax(dim=1)
 
                     # LM loss is computed internally only for QA rows (thanks to -100 mask)
-                    qa_loss = model_output["lm_loss"] if has_qa else torch.zeros([], device=device)
-                    lm_output = None
-                    if has_qa:
-                        lm_output = model_output["lm_output"]
+                    # qa_loss = model_output["lm_loss"] if has_qa else torch.zeros([], device=device)
+                    qa_loss = model_output["lm_loss"]
+                    # lm_output = None
+                    # if has_qa:
+                    lm_output = model_output["lm_output"]
 
-                    total_loss_this_step = cls_loss + self.qa_loss_weight * qa_loss
+                    # total_loss_this_step = cls_loss + self.qa_loss_weight * qa_loss
+                    total_loss_this_step =self.qa_loss_weight * qa_loss
 
                     self.accelerator.backward(total_loss_this_step)
 
