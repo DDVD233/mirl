@@ -177,14 +177,14 @@ for DS in "${PROCESS_DS[@]}"; do
     --validate_every_n_steps 999999 \
     --early_stopping_patience 99999 \
     --project "${PROJECT_NAME}" \
-    --gradient_accumulation_steps 12 \
+    --gradient_accumulation_steps 2 \
     --rla_stage residual_only \
     --d_video_feat 3318 \
     --d_audio_feat 6373 \
-    --rla_hidden_video 256 \
+    --rla_hidden_video 512 \
     --rla_hidden_audio 256 \
-    --rla_p_moddrop_video 0.10 \
-    --rla_p_moddrop_audio 0.10 \
+    --rla_p_moddrop_video 0.20 \
+    --rla_p_moddrop_audio 0.20 \
     --rla_video_temporal meanstd \
     --rla_video_norm none \
     --rla_audio_norm l2 \
