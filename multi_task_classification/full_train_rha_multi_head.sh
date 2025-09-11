@@ -13,16 +13,12 @@ SCRIPT="train_rha_multi_head.py"
 BASE_SAVE_DIR="/scratch/keane/human_behaviour/rha_residual_only"
 PROJECT_NAME="step495000-full-rha-omni-classifier-multi-head-lora"
 
-# Exclude specific datasets (exact string match). Example:
-# EXCLUDE_DATASETS=("VPTD" "ChaLearn" "lmvd")
-# exact-match, case-sensitive
-# note einterface, expw, mmpsy_anxiety, mmpsy_depression does not have data
-# EXCLUDE_DATASETS=("einterface" "expw" "mmpsy_anxiety" "mmpsy_depression" "meld_emotion" "cremad" "chsimsv2" "meld_senti")
-# EXCLUDE_DATASETS=("einterface" "expw" "mmpsy_anxiety" "mmpsy_depression")
+# === NEW: Allowlist (exact match, case-sensitive). If non-empty, ONLY these run.
+# Example: INCLUDE_DATASETS=("mosei_senti" "meld_emotion")
+INCLUDE_DATASETS=("meld senti")
 
+# Exclude list (used only when INCLUDE_DATASETS is empty)
 EXCLUDE_DATASETS=("einterface" "expw" "mmpsy_anxiety" "mmpsy_depression" "meld_emotion" "cremad" "chsimsv2" "meld_senti" "mosei_emotion" "mmsd" "mosei_senti")
-
-# EXCLUDE_DATASETS=("chsimsv2" "cremad" "einterface" "expw" "mmpsy_anxiety" "mmpsy_depression" "meld_emotion" "meld_senti")
 
 # Environment
 export CUDA_VISIBLE_DEVICES="2,3"
@@ -32,11 +28,11 @@ export TORCH_USE_CUDA_DSA=1
 # Temp directory for filtered JSONLs
 TMP_DIR="/scratch/keane/human_behaviour/human_behaviour_data/"
 
-# ---- small helper: membership check for arrays ----
-is_excluded() {
-  local item="$1"; shift || true
+# ---- helper: membership check for arrays ----
+in_list() {
+  local needle="$1"; shift || true
   for x in "$@"; do
-    [[ "$x" == "$item" ]] && return 0
+    [[ "$x" == "$needle" ]] && return 0
   done
   return 1
 }
@@ -95,22 +91,42 @@ PY
 echo "Collecting dataset names…"
 mapfile -t TRAIN_DS < <(list_datasets "$TRAIN_JSONL")
 mapfile -t VAL_DS   < <(list_datasets "$VAL_JSONL")
+mapfile -t ALL_DS_ARR < <(printf "%s\n%s\n" "${TRAIN_DS[@]}" "${VAL_DS[@]}" | sort -u)
 
-ALL_DS=$(printf "%s\n%s\n" "${TRAIN_DS[@]}" "${VAL_DS[@]}" | sort -u)
-
-if [[ -z "$ALL_DS" ]]; then
+if ((${#ALL_DS_ARR[@]} == 0)); then
   echo "No datasets found in the provided JSONLs. Exiting."
   exit 1
 fi
 
-# ==== main loop ====
-for DS in $ALL_DS; do
-  # Skip explicitly excluded datasets
-  if is_excluded "$DS" "${EXCLUDE_DATASETS[@]}"; then
-    echo "Skipping $DS (explicitly excluded)."
-    continue
-  fi
+# ==== NEW: Decide which datasets to process ====
+PROCESS_DS=()
+if ((${#INCLUDE_DATASETS[@]} > 0)); then
+  echo "Using INCLUDE_DATASETS allowlist: ${INCLUDE_DATASETS[*]}"
+  for DS in "${INCLUDE_DATASETS[@]}"; do
+    if in_list "$DS" "${ALL_DS_ARR[@]}"; then
+      PROCESS_DS+=("$DS")
+    else
+      echo "Warning: '$DS' not present in JSONLs; skipping."
+    fi
+  done
+else
+  # Fall back to exclude list
+  for DS in "${ALL_DS_ARR[@]}"; do
+    if in_list "$DS" "${EXCLUDE_DATASETS[@]}"; then
+      echo "Skipping $DS (explicitly excluded)."
+      continue
+    fi
+    PROCESS_DS+=("$DS")
+  done
+fi
 
+if ((${#PROCESS_DS[@]} == 0)); then
+  echo "No datasets to process after applying include/exclude. Exiting."
+  exit 0
+fi
+
+# ==== main loop ====
+for DS in "${PROCESS_DS[@]}"; do
   echo "-----------------------------------------------"
   echo "Dataset: $DS"
   TRAIN_OUT="$TMP_DIR/rla_fulltemp_train_${DS}.jsonl"
@@ -144,10 +160,10 @@ for DS in $ALL_DS; do
     --val_batch_size 2 \
     --test_batch_size 2 \
     --lr 0 \
-    --hard_gamma 5.0 \
+    --hard_gamma 8.0 \
     --base_lr 0 \
-    --rla_lr 1e-3 \
-    --epochs 3 \
+    --rla_lr 1e-4 \
+    --epochs 4 \
     --train_file "$TRAIN_OUT" \
     --val_file "$VAL_OUT" \
     --test_file "$VAL_OUT" \
@@ -161,7 +177,7 @@ for DS in $ALL_DS; do
     --validate_every_n_steps 999999 \
     --early_stopping_patience 99999 \
     --project "${PROJECT_NAME}" \
-    --gradient_accumulation_steps 8 \
+    --gradient_accumulation_steps 12 \
     --rla_stage residual_only \
     --d_video_feat 3318 \
     --d_audio_feat 6373 \
@@ -173,8 +189,8 @@ for DS in $ALL_DS; do
     --rla_video_norm none \
     --rla_audio_norm l2 \
     --rla_audio_temporal none \
-    --rla_video_alpha_init 3.0 \
-    --rla_audio_alpha_init 3.0 \
+    --rla_video_alpha_init 4.0 \
+    --rla_audio_alpha_init 4.0 \
     --use_rla_video \
     --use_rla_audio \
     --rla_video_use_ln \
