@@ -75,6 +75,7 @@ class RHAMultiHeadOmniClassifierAccelerateTrainer:
         #   "base_only"      -> train base only (no adapters built/applied)
         #   "residual_only"  -> freeze base, train adapters only
         #   "joint"          -> train base and adapters together
+        #  "residual_and_head" -> freeze base, train adapters and classification heads only
         # inside __init__
         self.rla_stage  = self.global_config.get("RLA_STAGE", "base_only")
         self.rla_resume_diff_training_stage = bool(
@@ -275,9 +276,9 @@ class RHAMultiHeadOmniClassifierAccelerateTrainer:
     
     def _current_model_order(self):
         order = ["base"]
-        if self.rla_stage in {"residual_only", "joint"} and getattr(self, "video_adapter", None) is not None:
+        if self.rla_stage in {"residual_only", "joint", "residual_and_head"} and getattr(self, "video_adapter", None) is not None:
             order.append("video")
-        if self.rla_stage in {"residual_only", "joint"} and getattr(self, "audio_adapter", None) is not None:
+        if self.rla_stage in {"residual_only", "joint", "residual_and_head"} and getattr(self, "audio_adapter", None) is not None:
             order.append("audio")
         return order
 
@@ -443,6 +444,30 @@ class RHAMultiHeadOmniClassifierAccelerateTrainer:
                 aud_params = [p for p in self.audio_adapter.parameters() if p.requires_grad]
                 if aud_params:
                     bundles["audio"] = {"params": aud_params, "lr": rla_lr}
+        
+        elif self.rla_stage == "residual_and_head":
+            # train adapters only
+            print("Freezing base model, training adapters and classifier/ lm_heads only")
+            # Freeze the model backbone
+            _set_requires_grad(self.model, False)
+            # but unfreeze the classification heads
+            _set_requires_grad(self.model.heads, True)
+            _set_requires_grad(self.video_adapter, True)
+            _set_requires_grad(self.audio_adapter, True)
+
+            head_params = [p for p in self.model.heads.parameters() if p.requires_grad]
+            if head_params:
+                bundles["base"] = {"params": head_params, "lr": base_lr}
+
+            if self.video_adapter is not None:
+                vid_params = [p for p in self.video_adapter.parameters() if p.requires_grad]
+                if vid_params:
+                    bundles["video"] = {"params": vid_params, "lr": rla_lr}
+
+            if self.audio_adapter is not None:
+                aud_params = [p for p in self.audio_adapter.parameters() if p.requires_grad]
+                if aud_params:
+                    bundles["audio"] = {"params": aud_params, "lr": rla_lr}
 
         elif self.rla_stage == "joint":
             # train base + adapters (still separate optimizers per module)
@@ -487,7 +512,7 @@ class RHAMultiHeadOmniClassifierAccelerateTrainer:
         if prepare_base_model:
             modules.append(self.model)
 
-        if self.rla_stage in {"residual_only", "joint"} and prepare_adapters:
+        if self.rla_stage in {"residual_only", "joint", "residual_and_head"} and prepare_adapters:
             if getattr(self, "video_adapter", None) is not None:
                 modules.append(self.video_adapter)
             if getattr(self, "audio_adapter", None) is not None:
@@ -501,7 +526,7 @@ class RHAMultiHeadOmniClassifierAccelerateTrainer:
         if prepare_base_model:
             self.model = prepared[idx]; idx += 1
 
-        if self.rla_stage in {"residual_only", "joint"} and prepare_adapters:
+        if self.rla_stage in {"residual_only", "joint", "residual_and_head"} and prepare_adapters:
             if getattr(self, "video_adapter", None) is not None:
                 self.video_adapter = prepared[idx]; idx += 1
             if getattr(self, "audio_adapter", None) is not None:
@@ -605,7 +630,7 @@ class RHAMultiHeadOmniClassifierAccelerateTrainer:
 
 
                 # Each should be of shape (B, D_feat)
-                if ("audio_feats" in batch) and (self.rla_stage in {"residual_only", "joint"}) and self.use_rla_audio:
+                if ("audio_feats" in batch) and (self.rla_stage in {"residual_only", "joint", "residual_and_head"}) and self.use_rla_audio:
                     audio_feats = batch["audio_feats"]
 
                     # folllowing the video_feats_batch, the pooled_audio_feats should be [B, X*K*C]
@@ -620,7 +645,7 @@ class RHAMultiHeadOmniClassifierAccelerateTrainer:
                 else:
                     pooled_audio_feats = None
                 
-                if ("video_feats" in batch) and (self.rla_stage in {"residual_only", "joint"}) and self.use_rla_video:
+                if ("video_feats" in batch) and (self.rla_stage in {"residual_only", "joint", "residual_and_head"}) and self.use_rla_video:
                     # assume a torch loaded batch of video features
                     video_feats = batch["video_feats"]
                     
@@ -661,7 +686,7 @@ class RHAMultiHeadOmniClassifierAccelerateTrainer:
                     domain_ids=domain_ids,
                 )
 
-                if (self.rla_stage in {"residual_only","joint"}) and (self.use_rla_video or self.use_rla_audio):
+                if (self.rla_stage in {"residual_only","joint","residual_and_head"}) and (self.use_rla_video or self.use_rla_audio):
                     pooled = apply_hidden_adapters(
                         h_base=pooled,
                         domain_ids=domain_ids,
@@ -802,7 +827,7 @@ class RHAMultiHeadOmniClassifierAccelerateTrainer:
                 rla_resume_diff_cfg=True,
             )
             # Phase 1b: now prepare freshly built adapters as modules-only
-            if self.rla_stage in {"residual_only", "joint"}:
+            if self.rla_stage in {"residual_only", "joint", "residual_and_head"}:
                 adapters = []
                 if self.video_adapter is not None: adapters.append(self.video_adapter)
                 if self.audio_adapter is not None: adapters.append(self.audio_adapter)
@@ -908,7 +933,7 @@ class RHAMultiHeadOmniClassifierAccelerateTrainer:
 
                 # Each should be of shape (B, D_feat)
                 if ("audio_feats" in batch) and (batch["audio_feats"] is not None) \
-                    and (self.rla_stage in {"residual_only", "joint"}) and self.use_rla_audio:
+                    and (self.rla_stage in {"residual_only", "joint", "residual_and_head"}) and self.use_rla_audio:
                     
                     audio_feats = batch["audio_feats"]
 
@@ -925,7 +950,7 @@ class RHAMultiHeadOmniClassifierAccelerateTrainer:
                     pooled_audio_feats = None
                 
                 if ("video_feats" in batch) and (batch["video_feats"] is not None) \
-                    and (self.rla_stage in {"residual_only", "joint"}) and self.use_rla_video:
+                    and (self.rla_stage in {"residual_only", "joint", "residual_and_head"}) and self.use_rla_video:
 
                     # assume a torch loaded batch of video features
                     video_feats = batch["video_feats"]
@@ -972,7 +997,7 @@ class RHAMultiHeadOmniClassifierAccelerateTrainer:
                         )
 
                     # 3) hidden fusion (RHA) if enabled
-                    if (self.rla_stage in {"residual_only","joint"}) and (self.use_rla_video or self.use_rla_audio):
+                    if (self.rla_stage in {"residual_only","joint", "residual_and_head"}) and (self.use_rla_video or self.use_rla_audio):
                         pooled = apply_hidden_adapters(
                             h_base=pooled,
                             domain_ids=domain_ids,
@@ -1259,7 +1284,7 @@ class RHAMultiHeadOmniClassifierAccelerateTrainer:
             train_dataloader=train_dataloader,
             val_dataloader=test_dataloader,
             prepare_base_model=True,
-            prepare_adapters=(self.rla_stage in {"residual_only", "joint"}),
+            prepare_adapters=(self.rla_stage in {"residual_only", "joint", "residual_and_head"}),
         )
 
         # --- Build per-module optimizers (no stepping during test; required so load_state can map) ---

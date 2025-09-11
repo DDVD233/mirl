@@ -159,10 +159,10 @@ for DS in "${PROCESS_DS[@]}"; do
     --train_batch_size 2 \
     --val_batch_size 2 \
     --test_batch_size 2 \
-    --lr 0 \
-    --hard_gamma 8.0 \
-    --base_lr 0 \
-    --rla_lr 1e-4 \
+    --lr 1e-4 \
+    --hard_gamma 5.0 \
+    --base_lr 5e-4 \
+    --rla_lr 2e-4 \
     --epochs 4 \
     --train_file "$TRAIN_OUT" \
     --val_file "$VAL_OUT" \
@@ -178,7 +178,7 @@ for DS in "${PROCESS_DS[@]}"; do
     --early_stopping_patience 99999 \
     --project "${PROJECT_NAME}" \
     --gradient_accumulation_steps 2 \
-    --rla_stage residual_only \
+    --rla_stage residual_and_head \
     --d_video_feat 3318 \
     --d_audio_feat 6373 \
     --rla_hidden_video 512 \
