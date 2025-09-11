@@ -15,7 +15,7 @@ PROJECT_NAME="step495000-full-rha-omni-classifier-multi-head-lora"
 
 # === NEW: Allowlist (exact match, case-sensitive). If non-empty, ONLY these run.
 # Example: INCLUDE_DATASETS=("mosei_senti" "meld_emotion")
-INCLUDE_DATASETS=("meld senti")
+INCLUDE_DATASETS=("meld_senti")
 
 # Exclude list (used only when INCLUDE_DATASETS is empty)
 EXCLUDE_DATASETS=("einterface" "expw" "mmpsy_anxiety" "mmpsy_depression" "meld_emotion" "cremad" "chsimsv2" "meld_senti" "mosei_emotion" "mmsd" "mosei_senti")
