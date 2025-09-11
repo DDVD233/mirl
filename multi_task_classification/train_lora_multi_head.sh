@@ -48,6 +48,7 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml train_multi_
     --gradient_accumulation_steps 128 \
     --use_scheduler \
     --scheduler_type cosine \
-    --warmup_steps 50
+    --warmup_steps 50 \
+    --format_prompt "" \
 
 echo "Lora Multi Head training completed!"
