@@ -778,9 +778,8 @@ class MultiHeadOmniClassifierAccelerateTrainer:
 
             optimizer = Adam(trainables(self.model), lr=self.lr)
 
-
             # prepare the optimizer
-            optimizer = self.accelerator.prepare(optimizer)
+            optimizer, self.model = self.accelerator.prepare(optimizer, self.model)
 
         # 3) OPTIONAL resumed loader (only used for the first resumed epoch)
         # Not required for now, as we always resume full epochs
