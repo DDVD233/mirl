@@ -53,8 +53,8 @@ python3 -m verl.trainer.main_ppo \
     trainer.critic_warmup=0 \
     trainer.logger='["console","wandb"]' \
     trainer.project_name='verl_hb' \
-    trainer.experiment_name='omni_all_modalities' \
-    trainer.n_gpus_per_node=8 \
+    trainer.experiment_name='omni_all_modalities_new' \
+    trainer.n_gpus_per_node=4 \
     trainer.nnodes=1 \
     trainer.save_freq=-1 \
     trainer.val_before_train=True \

@@ -3,6 +3,7 @@ import os
 import re
 from typing import Dict, List, Set
 from examples.reward_function.detailed_multi_task_evaluation import evaluate_predictions, _build_index_to_label
+import datetime
 
 # Function to extract boxed content from model predictions
 def extract_boxed(text: str) -> str:
@@ -23,6 +24,18 @@ def compute_metrics_by_data_source(
     Compute metrics at the dataset level and a global mean across datasets.
     This is now a wrapper around the newer evaluate_predictions function.
     """
+    output_dir = "outputs"
+    os.makedirs(output_dir, exist_ok=True)
+    input_data = {
+        "predictions": predictions,
+        "ground_truths": ground_truths,
+        "datasets": datasets,
+    }
+    # name is time in yyyy-mm-dd_hh-mm-ss format
+    with open(
+            os.path.join(output_dir, f"input_data_{datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.json"), "w"
+    ) as f:
+        json.dump(input_data, f, indent=4)
     # Get the absolute path to meta.json
     script_dir = os.path.dirname(os.path.abspath(__file__))
     label_map_path = os.path.join(script_dir, "meta.json")
