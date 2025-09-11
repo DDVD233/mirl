@@ -752,11 +752,11 @@ class MultiHeadOmniClassifierAccelerateTrainer:
             for p in self.model.backbone.lm_head.parameters():
                 p.requires_grad = True
         
-
             # except Exception:
             #     # If untie isn’t supported, embeddings will co-update with lm_head (FYI)
             #     pass
 
+            # sync the execution
             self.accelerator.wait_for_everyone()
             
             if in_emb is not None and out_emb is not None:

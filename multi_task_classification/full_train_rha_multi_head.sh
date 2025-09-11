@@ -18,7 +18,9 @@ PROJECT_NAME="step495000-full-rha-omni-classifier-multi-head-lora"
 # exact-match, case-sensitive
 # note einterface, expw, mmpsy_anxiety, mmpsy_depression does not have data
 # EXCLUDE_DATASETS=("einterface" "expw" "mmpsy_anxiety" "mmpsy_depression" "meld_emotion" "cremad" "chsimsv2" "meld_senti")
-EXCLUDE_DATASETS=("einterface" "expw" "mmpsy_anxiety" "mmpsy_depression")
+# EXCLUDE_DATASETS=("einterface" "expw" "mmpsy_anxiety" "mmpsy_depression")
+
+EXCLUDE_DATASETS=("einterface" "expw" "mmpsy_anxiety" "mmpsy_depression" "meld_emotion" "cremad" "chsimsv2" "meld_senti" "mosei_emotion" "mmsd" "mosei_senti")
 
 # EXCLUDE_DATASETS=("chsimsv2" "cremad" "einterface" "expw" "mmpsy_anxiety" "mmpsy_depression" "meld_emotion" "meld_senti")
 
@@ -144,7 +146,7 @@ for DS in $ALL_DS; do
     --lr 0 \
     --hard_gamma 5.0 \
     --base_lr 0 \
-    --rla_lr 8e-4 \
+    --rla_lr 1e-3 \
     --epochs 3 \
     --train_file "$TRAIN_OUT" \
     --val_file "$VAL_OUT" \
