@@ -700,21 +700,19 @@ class MultiHeadOmniClassifierAccelerateTrainer:
                 expect_training_strategy=self.global_config.get("TRAINING_STRATEGY"),
             )
 
-            core_model = self.accelerator.unwrap_model(self.model)
-
             # ---- freeze everything ----
-            for p in core_model.parameters():
+            for p in self.model.parameters():
                 p.requires_grad = False
 
             # Explicitly freeze classifier heads too
-            if hasattr(core_model, "heads"):
-                for head in core_model.heads:
+            if hasattr(self.model, "heads"):
+                for head in self.model.heads:
                     for p in head.parameters():
                         p.requires_grad = False
 
             # ---- unfreeze only LM head ----
-            assert hasattr(core_model.backbone, "lm_head"), "Expected backbone.lm_head"
-            for p in core_model.backbone.lm_head.parameters():
+            assert hasattr(self.model.backbone, "lm_head"), "Expected backbone.lm_head"
+            for p in self.model.backbone.lm_head.parameters():
                 p.requires_grad = True
 
             # # ---- unfreeze top-N transformer blocks ----
@@ -737,22 +735,22 @@ class MultiHeadOmniClassifierAccelerateTrainer:
                 # if tied:
                     # Untie so lm_head updates don’t drag input embeddings
             # NOTE: MAKE SURE THAT YOU ARE UNTIEING EVERYTHING
-            core_model.backbone.config.tie_word_embeddings = False
+            self.model.backbone.config.tie_word_embeddings = False
 
-            get_out = getattr(core_model.backbone, "get_output_embeddings", None)
-            get_in  = getattr(core_model.backbone, "get_input_embeddings", None)
+            get_out = getattr(self.model.backbone, "get_output_embeddings", None)
+            get_in  = getattr(self.model.backbone, "get_input_embeddings", None)
             if callable(get_out) and callable(get_in):
                 out_emb = get_out()
                 in_emb  = get_in()
                 if out_emb is not None and in_emb is not None:
                     # If they still share storage, clone lm_head weights
-                    out_emb.weight = torch.nn.Parameter(out_emb.weight.detach().clone())
-                    # out_emb.weight.data = out_emb.weight.detach().clone()
+                    # out_emb.weight = torch.nn.Parameter(out_emb.weight.detach().clone())
+                    out_emb.weight.data = out_emb.weight.detach().clone()
                     # Keep input embeddings frozen
                     for p in in_emb.parameters():
                         p.requires_grad = False
             # Re-assert lm_head is trainable
-            for p in core_model.backbone.lm_head.parameters():
+            for p in self.model.backbone.lm_head.parameters():
                 p.requires_grad = True
         
             # except Exception:
@@ -779,10 +777,10 @@ class MultiHeadOmniClassifierAccelerateTrainer:
                     if p.requires_grad:
                         yield p
 
-            optimizer = Adam(trainables(core_model), lr=self.lr)
+            optimizer = Adam(trainables(self.model), lr=self.lr)
 
             # prepare the optimizer
-            optimizer, self.model = self.accelerator.prepare(optimizer, core_model)
+            optimizer = self.accelerator.prepare(optimizer)
 
         # 3) OPTIONAL resumed loader (only used for the first resumed epoch)
         # Not required for now, as we always resume full epochs
