@@ -746,7 +746,8 @@ class MultiHeadOmniClassifierAccelerateTrainer:
                 in_emb  = get_in()
                 if out_emb is not None and in_emb is not None:
                     # If they still share storage, clone lm_head weights
-                    out_emb.weight = torch.nn.Parameter(out_emb.weight.detach().clone())
+                    # out_emb.weight = torch.nn.Parameter(out_emb.weight.detach().clone())
+                    out_emb.weight.data = out_emb.weight.detach().clone()
                     # Keep input embeddings frozen
                     for p in in_emb.parameters():
                         p.requires_grad = False
