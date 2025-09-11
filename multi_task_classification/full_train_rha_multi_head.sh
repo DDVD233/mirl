@@ -15,10 +15,14 @@ PROJECT_NAME="step495000-full-rha-omni-classifier-multi-head-lora"
 
 # === NEW: Allowlist (exact match, case-sensitive). If non-empty, ONLY these run.
 # INCLUDE_DATASETS=("meld_senti")
-INCLUDE_DATASETS=("mmsd")
+INCLUDE_DATASETS=("urfunny" "ptsd_in_the_wild" "tess" "ravdess" "mosei_emotion")
+# INCLUDE_DATASETS=("mosei_senti" "meld_senti" "chsimsv2" "cremad" "meld_emotion")
+
+# COMPLETED : mmsd
 
 # Exclude list (used only when INCLUDE_DATASETS is empty)
-EXCLUDE_DATASETS=("einterface" "expw" "mmpsy_anxiety" "mmpsy_depression" "meld_emotion" "cremad" "chsimsv2" "meld_senti" "mosei_emotion" "mmsd" "mosei_senti")
+# this is the list of all datasets, the only datasets that we do not have are literally expw, einterface, mmpsy, so exclude those
+EXCLUDE_DATASETS=("einterface" "expw" "mmpsy_anxiety" "mmpsy_depression" "meld_emotion" "cremad" "chsimsv2" "meld_senti" "mosei_emotion" "mosei_senti" "ravdess" "tess" "ptsd_in_the_wild" "daicwoz" "urfunny" "mmsd")
 
 # Environment
 export CUDA_VISIBLE_DEVICES="2,3"
