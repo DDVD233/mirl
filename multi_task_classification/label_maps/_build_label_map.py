@@ -20,9 +20,9 @@ from collections import defaultdict
 
 # Hardcoded paths LOCAL
 INPUT_JSONLS = [
-    "/Users/keane/Desktop/research/human-behavior/data/new/final/w_feats_v5_unified_scheme_splitmmpsy_binarymmpsy_no_vptd_chalearn_lmvd_esconv.jsonl"
+    "/Users/keane/Desktop/research/human-behavior/data/new/final_v2/final/w_feats_v6.jsonl"
 ]
-OUTPUT_JSON = "/Users/keane/Desktop/research/human-behavior/data/unified_scheme/label_maps/label_map_w_feats_v5_unified_scheme_splitmmpsy_binarymmpsy_no_vptd_chalearn_lmvd_esconv.json"
+OUTPUT_JSON = "/Users/keane/Desktop/research/human-behavior/data/new/final_v2/final/label_map_v6.json"
 
 
 # ------------------------------------
