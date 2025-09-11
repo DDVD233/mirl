@@ -15,7 +15,10 @@ PROJECT_NAME="step495000-full-rha-omni-classifier-multi-head-lora"
 
 # === NEW: Allowlist (exact match, case-sensitive). If non-empty, ONLY these run.
 # INCLUDE_DATASETS=("meld_senti")
+# CURRENTLY TRAINING:
 # INCLUDE_DATASETS=("urfunny" "ptsd_in_the_wild" "tess" "ravdess" "mosei_emotion")
+
+# NOT TRAINING YET:
 INCLUDE_DATASETS=("mosei_senti" "meld_senti" "chsimsv2" "cremad" "meld_emotion")
 
 # COMPLETED : mmsd
