@@ -700,7 +700,7 @@ class MultiHeadOmniClassifierAccelerateTrainer:
                 expect_training_strategy=self.global_config.get("TRAINING_STRATEGY"),
             )
 
-            # ---- freeze everything ----
+            # ---- freeze everything; including lora ----
             for p in self.model.parameters():
                 p.requires_grad = False
 
