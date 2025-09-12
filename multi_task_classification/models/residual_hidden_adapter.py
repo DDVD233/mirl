@@ -53,13 +53,19 @@ class ResidualHiddenAdapter(nn.Module):
 
     def _conf_feats(self, global_logits: torch.Tensor, domain_ids: torch.Tensor) -> torch.Tensor:
         # build a [B,3] confidence vector by slicing *local* logits per sample's domain
-        B = global_logits.size(0)
-        device = global_logits.device
-        out = torch.zeros(B, 3, device=device, dtype=global_logits.dtype)
-        
         # check if none (for QA)
+
+        if global_logits is None:
+            B = domain_ids.size(0)
+        else:
+            B = global_logits.size(0)
+        
+        out = torch.zeros(B, 3, device=device, dtype=global_logits.dtype)
+
         if (global_logits is None) or ((domain_ids == -1).all()):
             return out
+
+        device = global_logits.device
         
         unique = domain_ids.unique(sorted=True).tolist()
         for d in unique:
