@@ -3,10 +3,10 @@
 # Shell script for head_only training strategy
 # This script launches training with only the classification head being trained
 
-echo "Starting head_only training..."
+echo "Starting LoRA training..."
 
 # Set CUDA_VISIBLE_DEVICES to use GPUs 2 and 3
-export CUDA_VISIBLE_DEVICES="0,1"
+export CUDA_VISIBLE_DEVICES="4,5"
 echo "Using GPUs: $CUDA_VISIBLE_DEVICES"
 
 # Set environment variables for better performance
@@ -51,5 +51,6 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml train_multi_
     --scheduler_type cosine \
     --warmup_steps 50 \
     --format_prompt "" \
+    --max_prompt_length 4096 \
 
 echo "Lora Multi Head training completed!"
