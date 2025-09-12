@@ -39,12 +39,12 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml train_multi_
     --label_map_path "/home/keaneong/human-behavior/verl/multi_task_classification/seperate_unified_label_map_v6.json" \
     --save_every_n_epochs 1 \
     --save_every_n_steps 5000 \
-    --save_checkpoint_dir "/scratch/keane/human_behaviour/v6_multi_head_lora_training" \
-    --validation_result_dir "/scratch/keane/human_behaviour/v6_multi_head_lora_training/validation_results" \
+    --save_checkpoint_dir "/scratch/keane/human_behaviour/seperate_v6_multi_head_lora_training" \
+    --validation_result_dir "/scratch/keane/human_behaviour/seperate_v6_multi_head_lora_training/validation_results" \
     --validate_every_n_epochs 1 \
     --validate_every_n_steps 9999999 \
     --early_stopping_patience 99999999 \
-    --project "v6_omni-classifier-multi-head-lora" \
+    --project "seperate_v6_omni-classifier-multi-head-lora" \
     --gradient_accumulation_steps 128 \
     --use_scheduler \
     --scheduler_type cosine \
