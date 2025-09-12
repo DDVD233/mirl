@@ -16,7 +16,7 @@ PROJECT_NAME="step495000-full-rha-omni-classifier-multi-head-lora"
 # === NEW: Allowlist (exact match, case-sensitive). If non-empty, ONLY these run.
 # INCLUDE_DATASETS=("meld_senti")
 # CURRENTLY TRAINING:
-# INCLUDE_DATASETS=("urfunny" "ptsd_in_the_wild" "tess" "ravdess" "mosei_emotion")
+# INCLUDE_DATASETS=("urfunny" "ptsd_in_the_wild" "tess" "ravdess")
 
 # NOT TRAINING YET: (missed out: ravdess)
 INCLUDE_DATASETS=("mosei_emotion" "mosei_senti" "meld_senti" "chsimsv2" "cremad" "meld_emotion")
@@ -168,8 +168,8 @@ for DS in "${PROCESS_DS[@]}"; do
     --test_batch_size 2 \
     --lr 1e-4 \
     --hard_gamma 5.0 \
-    --base_lr 5e-4 \
-    --rla_lr 2e-4 \
+    --base_lr 3e-5 \
+    --rla_lr 5e-4 \
     --epochs 4 \
     --train_file "$TRAIN_OUT" \
     --val_file "$VAL_OUT" \
@@ -184,7 +184,7 @@ for DS in "${PROCESS_DS[@]}"; do
     --validate_every_n_steps 999999 \
     --early_stopping_patience 99999 \
     --project "${PROJECT_NAME}" \
-    --gradient_accumulation_steps 2 \
+    --gradient_accumulation_steps 8 \
     --rla_stage residual_and_head \
     --d_video_feat 3318 \
     --d_audio_feat 6373 \
