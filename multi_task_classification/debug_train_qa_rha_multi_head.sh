@@ -1,6 +1,6 @@
 #!/bin/bash
 echo "Starting LORA + RHA training..."
-export CUDA_VISIBLE_DEVICES="0,1"
+export CUDA_VISIBLE_DEVICES="4,5"
 export CUDA_LAUNCH_BLOCKING=1
 export TORCH_USE_CUDA_DSA=1
 
@@ -50,10 +50,10 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml train_qa_rha
   --train_batch_size 2 \
   --val_batch_size 2 \
   --test_batch_size 2 \
-  --lr 0 \
+  --lr 1e-4 \
   --hard_gamma 5.0 \
-  --base_lr 0 \
-  --rla_lr  6e-4 \
+  --base_lr 1e-4 \
+  --rla_lr  5e-4 \
   --epochs 10 \
   --train_file "/scratch/keane/human_behaviour/human_behaviour_data/qa_train_w_feats.jsonl" \
   --val_file   "/scratch/keane/human_behaviour/human_behaviour_data/qa_test_w_feats.jsonl" \
@@ -61,15 +61,15 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml train_qa_rha
   --label_map_path "/home/keaneong/human-behavior/verl/multi_task_classification/unified_label_map_w_feats_v5_unified_scheme_splitmmpsy_binarymmpsy_no_vptd_chalearn_lmvd_esconv.json" \
   --save_every_n_epochs 1 \
   --save_every_n_steps 9999999 \
-  --save_checkpoint_dir "/scratch/keane/human_behaviour/debug_qa_rha" \
-  --validation_result_dir "/scratch/keane/human_behaviour/debug_qa_rha/validation_results" \
-  --load_checkpoint_path "/scratch/keane/human_behaviour/2_qa_multi_task_model/step_4500" \
+  --save_checkpoint_dir "/scratch/keane/human_behaviour/freeze_base_qa_rha_multi_task_model" \
+  --validation_result_dir "/scratch/keane/human_behaviour/freeze_base_qa_rha_multi_task_model/test_results" \
+  --load_checkpoint_path "/scratch/keane/human_behaviour/freeze_base_qa_multi_task_model/step_4578" \
   --validate_every_n_epochs 1 \
   --validate_every_n_steps 1 \
   --early_stopping_patience 99999 \
-  --project "debug-qa-rha-omni-classifier-multi-head-lora" \
+  --project "qa-rha-omni-classifier-multi-head-lora" \
   --gradient_accumulation_steps 4 \
-  --rla_stage residual_only \
+  --rla_stage residual_and_decoder \
   --d_video_feat 3318 \
   --d_audio_feat 6373 \
   --rla_hidden_video 256 \

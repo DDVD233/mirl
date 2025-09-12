@@ -352,9 +352,9 @@ class QARHAMultiHeadOmniClassifierAccelerateTrainer:
     
     def _current_model_order(self):
         order = ["base"]
-        if self.rla_stage in {"residual_only", "joint"} and getattr(self, "video_adapter", None) is not None:
+        if self.rla_stage in {"residual_only", "joint", "residual_and_decoder"} and getattr(self, "video_adapter", None) is not None:
             order.append("video")
-        if self.rla_stage in {"residual_only", "joint"} and getattr(self, "audio_adapter", None) is not None:
+        if self.rla_stage in {"residual_only", "joint", "residual_and_decoder"} and getattr(self, "audio_adapter", None) is not None:
             order.append("audio")
         return order
 
@@ -522,6 +522,31 @@ class QARHAMultiHeadOmniClassifierAccelerateTrainer:
                 if aud_params:
                     bundles["audio"] = {"params": aud_params, "lr": rla_lr}
 
+        elif self.rla_stage == "residual_and_decoder":
+            # train adapters only
+            print("Freezing base model, training adapters and classifier/ lm_heads only")
+            # Freeze the model backbone
+            _set_requires_grad(self.model, False)
+            # but unfreeze the lm_head
+            _set_requires_grad(self.model.backbone.lm_head, True)
+            _set_requires_grad(self.video_adapter, True)
+            _set_requires_grad(self.audio_adapter, True)
+
+            head_params = [p for p in self.model.backbone.lm_head.parameters() if p.requires_grad]
+
+            if head_params:
+                bundles["base"] = {"params": head_params, "lr": base_lr}
+
+            if self.video_adapter is not None:
+                vid_params = [p for p in self.video_adapter.parameters() if p.requires_grad]
+                if vid_params:
+                    bundles["video"] = {"params": vid_params, "lr": rla_lr}
+
+            if self.audio_adapter is not None:
+                aud_params = [p for p in self.audio_adapter.parameters() if p.requires_grad]
+                if aud_params:
+                    bundles["audio"] = {"params": aud_params, "lr": rla_lr}
+       
         elif self.rla_stage == "joint":
             # train base + adapters (still separate optimizers per module)
             print("Training both base model and adapters")
@@ -565,7 +590,7 @@ class QARHAMultiHeadOmniClassifierAccelerateTrainer:
         if prepare_base_model:
             modules.append(self.model)
 
-        if self.rla_stage in {"residual_only", "joint"} and prepare_adapters:
+        if self.rla_stage in {"residual_only", "joint", "residual_and_decoder"} and prepare_adapters:
             if getattr(self, "video_adapter", None) is not None:
                 modules.append(self.video_adapter)
             if getattr(self, "audio_adapter", None) is not None:
@@ -579,7 +604,7 @@ class QARHAMultiHeadOmniClassifierAccelerateTrainer:
         if prepare_base_model:
             self.model = prepared[idx]; idx += 1
 
-        if self.rla_stage in {"residual_only", "joint"} and prepare_adapters:
+        if self.rla_stage in {"residual_only", "joint", "residual_and_decoder"} and prepare_adapters:
             if getattr(self, "video_adapter", None) is not None:
                 self.video_adapter = prepared[idx]; idx += 1
             if getattr(self, "audio_adapter", None) is not None:
@@ -754,6 +779,10 @@ class QARHAMultiHeadOmniClassifierAccelerateTrainer:
         criterion = CrossEntropyLoss()
         num_classes = self.global_config.get('NUM_CLASSES', 0)
 
+        all_pred_texts = []
+        all_gold_texts = []
+        all_qa_datasets = []
+
         with torch.no_grad():
             for batch in tqdm(val_dataloader, desc="Validating", total=len(val_dataloader), disable=not self.accelerator.is_main_process):
                 if 'input_ids' not in batch or 'labels' not in batch:
@@ -771,7 +800,7 @@ class QARHAMultiHeadOmniClassifierAccelerateTrainer:
                 domain_ids = self._datasets_to_domain_ids(batch['dataset'], device=input_ids.device)
         
                 # Each should be of shape (B, D_feat)
-                if ("audio_feats" in batch) and (self.rla_stage in {"residual_only", "joint"}) and self.use_rla_audio:
+                if ("audio_feats" in batch) and (self.rla_stage in {"residual_only", "joint", "residual_and_decoder"}) and self.use_rla_audio:
                     audio_feats = batch["audio_feats"]
 
                     # folllowing the video_feats_batch, the pooled_audio_feats should be [B, X*K*C]
@@ -786,7 +815,7 @@ class QARHAMultiHeadOmniClassifierAccelerateTrainer:
                 else:
                     pooled_audio_feats = None
                 
-                if ("video_feats" in batch) and (self.rla_stage in {"residual_only", "joint"}) and self.use_rla_video:
+                if ("video_feats" in batch) and (self.rla_stage in {"residual_only", "joint", "residual_and_decoder"}) and self.use_rla_video:
                     # assume a torch loaded batch of video features
                     video_feats = batch["video_feats"]
                     
@@ -953,7 +982,7 @@ class QARHAMultiHeadOmniClassifierAccelerateTrainer:
                 rla_resume_diff_cfg=True,
             )
             # Phase 1b: now prepare freshly built adapters as modules-only
-            if self.rla_stage in {"residual_only", "joint"}:
+            if self.rla_stage in {"residual_only", "joint", "residual_and_decoder"}:
                 adapters = []
                 if self.video_adapter is not None: adapters.append(self.video_adapter)
                 if self.audio_adapter is not None: adapters.append(self.audio_adapter)
@@ -1059,7 +1088,7 @@ class QARHAMultiHeadOmniClassifierAccelerateTrainer:
 
                 # Each should be of shape (B, D_feat)
                 if ("audio_feats" in batch) and (batch["audio_feats"] is not None) \
-                    and (self.rla_stage in {"residual_only", "joint"}) and self.use_rla_audio:
+                    and (self.rla_stage in {"residual_only", "joint", "residual_and_decoder"}) and self.use_rla_audio:
                     
                     audio_feats = batch["audio_feats"]
 
@@ -1076,7 +1105,7 @@ class QARHAMultiHeadOmniClassifierAccelerateTrainer:
                     pooled_audio_feats = None
                 
                 if ("video_feats" in batch) and (batch["video_feats"] is not None) \
-                    and (self.rla_stage in {"residual_only", "joint"}) and self.use_rla_video:
+                    and (self.rla_stage in {"residual_only", "joint", "residual_and_decoder"}) and self.use_rla_video:
 
                     # assume a torch loaded batch of video features
                     video_feats = batch["video_feats"]
@@ -1160,7 +1189,7 @@ class QARHAMultiHeadOmniClassifierAccelerateTrainer:
                         pooled_base = h_penult.mean(dim=1)
 
                     # 3) hidden fusion (RHA) if enabled
-                    if (self.rla_stage in {"residual_only","joint"}) and (self.use_rla_video or self.use_rla_audio):
+                    if (self.rla_stage in {"residual_only","joint", "residual_and_decoder"}) and (self.use_rla_video or self.use_rla_audio):
                         pooled_after_video = (
                             self.video_adapter(pooled_base, domain_ids.clamp(min=0), prelim_global_logits=None, feats=pooled_video_feats, train_mode=True)
                             if (self.video_adapter is not None and pooled_video_feats is not None) else pooled_base
@@ -1473,7 +1502,7 @@ class QARHAMultiHeadOmniClassifierAccelerateTrainer:
             train_dataloader=train_dataloader,
             val_dataloader=test_dataloader,
             prepare_base_model=True,
-            prepare_adapters=(self.rla_stage in {"residual_only", "joint"}),
+            prepare_adapters=(self.rla_stage in {"residual_only", "joint", "residual_and_decoder"}),
         )
 
         # --- Build per-module optimizers (no stepping during test; required so load_state can map) ---
