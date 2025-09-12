@@ -231,15 +231,16 @@ class MultiHeadOmniClassifier(nn.Module):
                 attention_mask, (B, T), past_key_values_length=0, dtype=dtype, device=device
             )
         # If _update_causal_mask is missing, pass None and let the block handle it.
+        raise Exception("Last blk", last_blk)
 
         # --- call the final block with keyword args expected by HF layers
         blk_out = last_blk(
             hidden_states=h_penult_mod,
-            attention_mask=causal_mask,    # 4D bias or None
-            position_ids=None,
-            past_key_value=None,
-            output_attentions=False,
-            use_cache=False,
+            # attention_mask=causal_mask,    # 4D bias or None
+            # position_ids=None,
+            # past_key_value=None,
+            # output_attentions=False,
+            # use_cache=False,
         )
 
         h_last_mod = blk_out[0] if isinstance(blk_out, (tuple, list)) else blk_out  # [B,T,H]
