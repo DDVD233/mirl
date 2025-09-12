@@ -231,7 +231,8 @@ def compute_metrics_by_dataset(
             )
             for k, v in senti.items():
                 result[f"{dataset_name}/{k}"] = v
-        elif domain == "emotion":
+        # elif domain == "emotion":
+        elif "emotion" in domain:   # handles e.g., "ravdess_emotion"
             emo = compute_emotion_weighted_accuracies(
                 preds, gts, index_to_label=index_to_label
             )
