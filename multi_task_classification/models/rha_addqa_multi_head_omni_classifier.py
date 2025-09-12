@@ -224,25 +224,30 @@ class MultiHeadOmniClassifier(nn.Module):
 
         last_blk = lm_stack.layers[-1]
 
-        # --- build the 4D causal mask the way HF does internally
-        causal_mask = None
-        if hasattr(core, "_update_causal_mask"):
-            causal_mask = core._update_causal_mask(
-                attention_mask, (B, T), past_key_values_length=0, dtype=dtype, device=device
-            )
-        # If _update_causal_mask is missing, pass None and let the block handle it.
+        # --- NEW: derive position_ids if you don't already have them
+        position_ids = kwargs.get("position_ids")
+        if position_ids is None:
+            if attention_mask is not None:
+                position_ids = (attention_mask.long().cumsum(-1) - 1).clamp_min(0)
+            else:
+                # fallback: 0..T-1 for each row
+                position_ids = torch.arange(T, device=device).unsqueeze(0).expand(B, T)
 
-        # --- call the final block with keyword args expected by HF layers
+        # --- NEW: compute RoPE embeddings from the block's rotary emb
+        attn_mod = last_blk.self_attn
+        cos, sin = attn_mod.rotary_emb(h_penult_mod, position_ids)
+        cos = cos.to(dtype)   # avoid dtype mismatch errors (seen in Omni issues)
+        sin = sin.to(dtype)
+
+        # --- call the final block, now WITH position_embeddings
         blk_out = last_blk(
             hidden_states=h_penult_mod,
-            # attention_mask=causal_mask,    # 4D bias or None
-            # position_ids=None,
-            # past_key_value=None,
-            # output_attentions=False,
-            # use_cache=False,
+            attention_mask=attention_mask,          # 2D (B,T) is fine here in latest HF
+            position_embeddings=(cos, sin),         # <-- REQUIRED
+            use_cache=False,
+            output_attentions=False,
         )
-
-        h_last_mod = blk_out[0] if isinstance(blk_out, (tuple, list)) else blk_out  # [B,T,H]
+        h_last_mod = blk_out[0] if isinstance(blk_out, (tuple, list)) else blk_out
 
         # 5) LM logits (+ teacher-forced loss) from modified token states
         maybe_model = getattr(self.backbone, "model", None)
