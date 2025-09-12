@@ -43,5 +43,6 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml addqa_train_
     --project "freeze-base-qa-omni-classifier-multi-task-lora" \
     --gradient_accumulation_steps 8 \
     --format_prompt "" \
+    --max_prompt_length 4096 \
 
 echo "QA training completed!"

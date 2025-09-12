@@ -187,7 +187,6 @@ class MultiHeadOmniClassifier(nn.Module):
         )
 
         hidden_states = out.hidden_states
-        h_last   = hidden_states[-1]   # [B,T,H] final token states pre-lm
         h_penult = hidden_states[-2]   # [B,T,H] penultimate, for pooling
 
         # 2) pooled_base from penultimate layer
@@ -208,9 +207,14 @@ class MultiHeadOmniClassifier(nn.Module):
         if audio_pooled_rha is not None:
             pooled_eff = audio_pooled_rha.to(dtype)
 
-        # 4) Inject Δ into every token representation before LM head
-        delta      = (pooled_eff - pooled_base).to(h_last.dtype)  # [B,H]
-        h_last_mod = h_last + delta.unsqueeze(1)                  # [B,T,H]
+        # 4) Inject Δ into the *penultimate* layer, then recompute the last layer
+        delta = (pooled_eff - pooled_base).to(h_penult.dtype)     # [B,H]
+        h_penult_mod = h_penult + delta.unsqueeze(1)              # [B,T,H]
+
+        # re-run the final decoder block on the modified states (no mask passed)
+        last_blk = self.backbone.model.model.layers[-1]           # HF LLaMA/Qwen-style
+        blk_out  = last_blk(h_penult_mod, attention_mask=attention_mask, use_cache=False)
+        h_last_mod = blk_out[0] if isinstance(blk_out, (tuple, list)) else blk_out  # [B,T,H]
 
         # 5) LM logits (+ teacher-forced loss) from modified token states
         maybe_model = getattr(self.backbone, "model", None)

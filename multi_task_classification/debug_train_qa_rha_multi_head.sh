@@ -89,5 +89,6 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml train_qa_rha
   --use_rla_video \
   --rla_video_use_ln \
   --format_prompt "" \
+  --max_prompt_length 4096 \
 
 echo "Run finished."

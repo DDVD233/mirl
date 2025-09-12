@@ -336,7 +336,7 @@ class QARHAMultiHeadOmniClassifierAccelerateTrainer:
 
             # space left after prompt
             rem = T - prompt_len
-            raise Exception("Printing the remaining space for answer tokens", rem)
+            print("WARNING: FOR TEACHER FORCING, Printing the remaining space for answer tokens", rem)
             if rem > 0:
                 ans_tok = ans_tok[:rem]
                 qa_input_ids[j, prompt_len:prompt_len+len(ans_tok)] = torch.tensor(ans_tok, device=device)
@@ -524,19 +524,29 @@ class QARHAMultiHeadOmniClassifierAccelerateTrainer:
                     bundles["audio"] = {"params": aud_params, "lr": rla_lr}
 
         elif self.rla_stage == "residual_and_decoder":
-            # train adapters only
-            print("Freezing base model, training adapters and classifier/ lm_heads only")
-            # Freeze the model backbone
+            # train adapters + lm_head + final block
+            print("Freezing base model, training adapters, lm_head, and final block")
+
+            # 1. Freeze everything first
             _set_requires_grad(self.model, False)
-            # but unfreeze the lm_head
+
+            # 2. Unfreeze the lm_head
             _set_requires_grad(self.model.backbone.lm_head, True)
+
+            # 3. Unfreeze the final transformer block
+            final_block = self.model.backbone.model.layers[-1]
+            _set_requires_grad(final_block, True)
+
+            # 4. Enable adapters
             _set_requires_grad(self.video_adapter, True)
             _set_requires_grad(self.audio_adapter, True)
 
+            # Collect params for optimizer
             head_params = [p for p in self.model.backbone.lm_head.parameters() if p.requires_grad]
+            block_params = [p for p in final_block.parameters() if p.requires_grad]
 
-            if head_params:
-                bundles["base"] = {"params": head_params, "lr": base_lr}
+            if head_params or block_params:
+                bundles["base"] = {"params": head_params + block_params, "lr": base_lr}
 
             if self.video_adapter is not None:
                 vid_params = [p for p in self.video_adapter.parameters() if p.requires_grad]

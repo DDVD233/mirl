@@ -137,7 +137,8 @@ class RLHFDataset(Dataset):
         # NOTE: SET MODALITIES, split the images and videos
         self.modalities = set(config.get("modalities", "images,videos").split(","))
 
-        self.max_prompt_length = config.get("max_prompt_length", 1024)
+        self.max_prompt_length = config.get("max_prompt_length", 4096)
+        print("WARNING: max_prompt_length is set to", self.max_prompt_length)
         self.return_raw_chat = config.get("return_raw_chat", False)
         self.return_full_prompt = config.get("return_full_prompt", False)
         self.truncation = config.get("truncation", "error")
