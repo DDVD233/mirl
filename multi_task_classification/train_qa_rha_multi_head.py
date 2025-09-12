@@ -66,7 +66,7 @@ def parse_parameters():
     # --- NEW: Residual Logit Adapter (RLA) flags ---
     parser.add_argument('--use_rla_video', action='store_true', help='Enable video residual logit adapter')
     parser.add_argument('--use_rla_audio', action='store_true', help='Enable audio residual logit adapter')
-    parser.add_argument('--rla_stage', type=str, choices=['base_only','residual_only','joint'],
+    parser.add_argument('--rla_stage', type=str, choices=['base_only','residual_only','joint', "residual_and_decoder"],
                         help='RLA training stage')
     parser.add_argument('--rla_p_moddrop_video', type=float, help='Video modality dropout prob')
     parser.add_argument('--rla_p_moddrop_audio', type=float, help='Audio modality dropout prob')
