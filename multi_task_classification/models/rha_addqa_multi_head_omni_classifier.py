@@ -213,7 +213,7 @@ class MultiHeadOmniClassifier(nn.Module):
 
         # re-run the final decoder block on the modified states (no mask passed)
         last_blk = self.backbone.model.model.layers[-1]           # HF LLaMA/Qwen-style
-        blk_out  = last_blk(h_penult_mod, attention_mask=attention_mask, use_cache=False)
+        blk_out  = last_blk(h_penult_mod)
         h_last_mod = blk_out[0] if isinstance(blk_out, (tuple, list)) else blk_out  # [B,T,H]
 
         # 5) LM logits (+ teacher-forced loss) from modified token states
