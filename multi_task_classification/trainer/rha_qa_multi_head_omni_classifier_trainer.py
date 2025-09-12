@@ -988,6 +988,9 @@ class QARHAMultiHeadOmniClassifierAccelerateTrainer:
                 if self.audio_adapter is not None: adapters.append(self.audio_adapter)
                 if adapters:
                     prepared = self.accelerator.prepare(*adapters)
+                    
+                    if not isinstance(prepared, (list, tuple)):
+                        prepared = [prepared]
                     i = 0
                     if self.video_adapter is not None:
                         self.video_adapter = prepared[i]; i += 1
