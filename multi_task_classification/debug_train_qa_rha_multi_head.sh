@@ -56,7 +56,7 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml train_qa_rha
   --lr 1e-4 \
   --hard_gamma 5.0 \
   --base_lr 1e-4 \
-  --rla_lr  5e-4 \
+  --rla_lr  2e-4 \
   --epochs 10 \
   --train_file "/scratch/keane/human_behaviour/human_behaviour_data/qa_train_w_feats.jsonl" \
   --val_file   "/scratch/keane/human_behaviour/human_behaviour_data/qa_test_w_feats.jsonl" \
@@ -89,6 +89,6 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml train_qa_rha
   --use_rla_video \
   --rla_video_use_ln \
   --format_prompt "" \
-  --max_prompt_length 4096 \
+  --max_prompt_length 8096 \
 
 echo "Run finished."

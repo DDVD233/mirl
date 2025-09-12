@@ -534,6 +534,7 @@ class QARHAMultiHeadOmniClassifierAccelerateTrainer:
             _set_requires_grad(self.model.backbone.lm_head, True)
 
             # 3. Unfreeze the final transformer block
+            # (not just the head)
             final_block = self.model.backbone.model.model.layers[-1]
             _set_requires_grad(final_block, True)
 
