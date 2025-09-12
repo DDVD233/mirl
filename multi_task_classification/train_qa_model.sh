@@ -32,17 +32,17 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml addqa_train_
     --val_file  "/scratch/keane/human_behaviour/human_behaviour_data/qa_test.jsonl" \
     --test_file "/scratch/keane/human_behaviour/human_behaviour_data/qa_test.jsonl" \
     --label_map_path "/home/keaneong/human-behavior/verl/multi_task_classification/unified_label_map_w_feats_v5_unified_scheme_splitmmpsy_binarymmpsy_no_vptd_chalearn_lmvd_esconv.json" \
-    --load_checkpoint_path "/scratch/keane/human_behaviour/v5_multi_head_lora_training/step_49500" \
+    --load_checkpoint_path "/scratch/keane/human_behaviour/v5_multi_head_lora_training/step_9156" \
     --save_every_n_epochs 1 \
     --save_every_n_steps 9999999 \
     --save_checkpoint_dir "/scratch/keane/human_behaviour/freeze_base_qa_multi_task_model/" \
-    --validation_result_dir "/scratch/keane/human_behaviour/freeze_base_qa_multi_task_model/test_results_2" \
+    --validation_result_dir "/scratch/keane/human_behaviour/freeze_base_qa_multi_task_model/test_results_3" \
     --validate_every_n_epochs 1 \
     --validate_every_n_steps 999999 \
     --early_stopping_patience 999999 \
     --project "freeze-base-qa-omni-classifier-multi-task-lora" \
     --gradient_accumulation_steps 8 \
     --format_prompt "" \
-    --max_prompt_length 4096 \
+    --max_prompt_length 8096 \
 
 echo "QA training completed!"
