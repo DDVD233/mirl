@@ -725,7 +725,7 @@ class QARHAMultiHeadOmniClassifierAccelerateTrainer:
             pooled_eff = apply_hidden_adapters(
                 h_base=pooled_base,
                 domain_ids=domain_ids_q,                    # -1s are fine; adapters can ignore if desired
-                prelim_global_logits=None,                  # not needed during QA
+                prelim_global_logits=out0["cls_logits"],                  # not needed during QA
                 video_hidden_adapter=self.video_adapter if self.use_rla_video else None,
                 audio_hidden_adapter=self.audio_adapter if self.use_rla_audio else None,
                 video_feats=pooled_video_feats,
