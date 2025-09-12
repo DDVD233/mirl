@@ -208,50 +208,18 @@ class MultiHeadOmniClassifier(nn.Module):
             pooled_eff = audio_pooled_rha.to(dtype)
 
         # 4) Inject Δ into the *penultimate* layer, then recompute the last layer
-        delta = (pooled_eff - pooled_base).to(h_penult.dtype)     # [B,H]
-        h_penult_mod = h_penult + delta.unsqueeze(1)              # [B,T,H]
-        _, T, _ = h_penult_mod.shape
+        delta = (pooled_eff - pooled_base).to(h_penult.dtype)     # [B, H]
 
-        # --- find the decoder stack robustly (Qwen2.5-Omni Thinker uses an inner model)
-        core = getattr(self.backbone, "model", self.backbone)          # e.g., Qwen2_5OmniThinkerForConditionalGeneration.model
-        lm_stack = (
-            getattr(core, "language_model", None) or                   # common for Qwen Thinker
-            getattr(core, "model", None) or                            # common for LLaMA-style
-            getattr(self.backbone, "text_model", None)                 # fallback name seen in some variants
-        )
-        if lm_stack is None or not hasattr(lm_stack, "layers"):
-            raise RuntimeError("Could not locate decoder layers on Qwen2.5-Omni Thinker (no .layers found).")
+        # take the final hidden states the backbone already produced
+        h_last = hidden_states[-1]                                 # [B, T, H]
 
-        last_blk = lm_stack.layers[-1]
+        # inject Δ uniformly across the sequence at the last layer output
+        h_last_mod = h_last + delta.unsqueeze(1)                   # [B, T, H]
 
-        # h_penult_mod: [B, T, H]
-        B, T, _ = h_penult_mod.shape
-        device, dtype = h_penult_mod.device, h_penult_mod.dtype
-
-        # 1) Make (B, T) “text-only” positions (mask-aware if you like)
-        if attention_mask is not None:
-            # running index per row where mask==1
-            # (simple version: just arange(T); mRoPE doesn’t care if you’re text-only)
-            base_pos = torch.arange(T, device=device).unsqueeze(0).expand(B, T)
-        else:
-            base_pos = torch.arange(T, device=device).unsqueeze(0).expand(B, T)
-
-        # 2) Expand to (3, B, T) for TMRoPE
-        pos_ids_mrope = base_pos.unsqueeze(0).expand(3, B, T)
-
-        # 3) Call the last block with these position ids
-        blk_out = last_blk(
-            hidden_states=h_penult_mod,
-            attention_mask=attention_mask,   # your existing 2-D mask is fine
-            position_ids=pos_ids_mrope,      # <-- key fix
-            use_cache=False,
-        )
-        h_last_mod = blk_out[0] if isinstance(blk_out, (tuple, list)) else blk_out
-
-        # 5) LM logits (+ teacher-forced loss) from modified token states
+        # final norm (if present) then lm_head
         maybe_model = getattr(self.backbone, "model", None)
         if maybe_model is not None and hasattr(maybe_model, "norm"):
-            h_for_lm = maybe_model.norm(h_last_mod)   # e.g., Llama final RMSNorm
+            h_for_lm = maybe_model.norm(h_last_mod)
         else:
             h_for_lm = h_last_mod
 
