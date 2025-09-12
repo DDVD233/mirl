@@ -988,7 +988,6 @@ class QARHAMultiHeadOmniClassifierAccelerateTrainer:
                 if self.audio_adapter is not None: adapters.append(self.audio_adapter)
                 if adapters:
                     prepared = self.accelerator.prepare(*adapters)
-                    
                     if not isinstance(prepared, (list, tuple)):
                         prepared = [prepared]
                     i = 0
@@ -1194,11 +1193,11 @@ class QARHAMultiHeadOmniClassifierAccelerateTrainer:
                     # 3) hidden fusion (RHA) if enabled
                     if (self.rla_stage in {"residual_only","joint", "residual_and_decoder"}) and (self.use_rla_video or self.use_rla_audio):
                         pooled_after_video = (
-                            self.video_adapter(pooled_base, domain_ids.clamp(min=0), prelim_global_logits=None, feats=pooled_video_feats, train_mode=True)
+                            self.video_adapter(pooled_base, domain_ids.clamp(min=0), global_logits=None, feats=pooled_video_feats, train_mode=True)
                             if (self.video_adapter is not None and pooled_video_feats is not None) else pooled_base
                         )
                         pooled_after_audio = (
-                            self.audio_adapter(pooled_after_video, domain_ids.clamp(min=0), prelim_global_logits=None, feats=pooled_audio_feats, train_mode=True)
+                            self.audio_adapter(pooled_after_video, domain_ids.clamp(min=0), global_logits=None, feats=pooled_audio_feats, train_mode=True)
                             if (self.audio_adapter is not None and pooled_audio_feats is not None) else pooled_after_video
                         )
 
