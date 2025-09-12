@@ -43,6 +43,9 @@ export TORCH_USE_CUDA_DSA=1
 # --label_map_path "/home/keaneong/human-behavior/verl/multi_task_classification/unified_feat_meld_label_map.json" \
 # --rla_resume_diff_training_stage \
 
+
+  # --use_rla_audio \
+
 accelerate launch --config_file configs/accelerate_config_qwen.yaml train_qa_rha_multi_head.py \
   --rla_resume_diff_training_stage \
   --mode train \
@@ -80,12 +83,11 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml train_qa_rha
   --rla_video_norm none \
   --rla_audio_norm l2 \
   --rla_audio_temporal none \
-  --rla_video_alpha_init 3.0 \
   --rla_audio_alpha_init 3.0 \
-  --use_rla_video \
-  --use_rla_audio \
-  --rla_video_use_ln \
   --rla_audio_use_ln \
+  --rla_video_alpha_init 3.0 \
+  --use_rla_video \
+  --rla_video_use_ln \
   --format_prompt "" \
 
 echo "Run finished."
