@@ -213,6 +213,7 @@ class MultiHeadOmniClassifier(nn.Module):
 
         # re-run the final decoder block on the modified states (no mask passed)
         last_blk = self.backbone.model.model.layers[-1]           # HF LLaMA/Qwen-style
+        raise Exception(f"h_penult_mod {h_penult_mod} and last blk {last_blk}")
         blk_out  = last_blk(h_penult_mod)
         h_last_mod = blk_out[0] if isinstance(blk_out, (tuple, list)) else blk_out  # [B,T,H]
 
