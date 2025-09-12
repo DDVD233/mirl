@@ -39,6 +39,20 @@ def compute_metrics_by_data_source(
     # Get the absolute path to meta.json
     script_dir = os.path.dirname(os.path.abspath(__file__))
     label_map_path = os.path.join(script_dir, "meta.json")
+
+    ignore_datasets = {"mimeqa", "siq2", "intentqa"}
+    # remove predictions, ground_truths, datasets for ignored datasets
+    filtered_predictions = []
+    filtered_ground_truths = []
+    filtered_datasets = []
+    for pred, gt, ds in zip(predictions, ground_truths, datasets):
+        if ds not in ignore_datasets:
+            filtered_predictions.append(pred)
+            filtered_ground_truths.append(gt)
+            filtered_datasets.append(ds)
+    predictions = filtered_predictions
+    ground_truths = filtered_ground_truths
+    datasets = filtered_datasets
     
     # Load meta config to build label mappings
     with open(label_map_path, "r") as f:
@@ -105,23 +119,33 @@ def compute_metrics_by_data_source(
     return result
 
 if __name__ == "__main__":
-    predictions   = [
-        # DatasetA (6 samples)
-        "<think>Well, looking at the image, the person's eyes are looking down and their mouth is in a sort of frown. There's no big smile or anything that would suggest happiness. It doesn't look like they're angry or fearful either. So, I'd say the primary facial expression is sad.</think> \\boxed{sad}", "A", "B", "B", "A", "B",
-        # DatasetB (5 samples)
-        "A", "C", "C", "B", "B",
-    ]
-    ground_truths = [
-        # DatasetA GT
-        "sad", "B", "B", "B", "A", "A",
-        # DatasetB GT
-        "A", "C", "B", "B", "C",
-    ]
-    datasets = [
-        "DatasetA","DatasetA","DatasetA","DatasetA","DatasetA","DatasetA",
-        "DatasetB","DatasetB","DatasetB","DatasetB","DatasetB",
-    ]
+    # predictions   = [
+    #     # DatasetA (6 samples)
+    #     "<think>Well, looking at the image, the person's eyes are looking down and their mouth is in a sort of frown. There's no big smile or anything that would suggest happiness. It doesn't look like they're angry or fearful either. So, I'd say the primary facial expression is sad.</think> \\boxed{sad}", "A", "B", "B", "A", "B",
+    #     # DatasetB (5 samples)
+    #     "A", "C", "C", "B", "B",
+    # ]
+    # ground_truths = [
+    #     # DatasetA GT
+    #     "sad", "B", "B", "B", "A", "A",
+    #     # DatasetB GT
+    #     "A", "C", "B", "B", "C",
+    # ]
+    # datasets = [
+    #     "DatasetA","DatasetA","DatasetA","DatasetA","DatasetA","DatasetA",
+    #     "DatasetB","DatasetB","DatasetB","DatasetB","DatasetB",
+    # ]
+
+    input_filename = "examples/reward_function/omni_all_modalities.json"
+    with open(input_filename, "r") as f:
+        input_data = json.load(f)
+    predictions = input_data["predictions"]
+    ground_truths = input_data["ground_truths"]
+    datasets = input_data["datasets"]
 
     metrics = compute_metrics_by_data_source(predictions, ground_truths, datasets)
-    print("=== Synthetic two-dataset sanity check ===")
-    print(json.dumps(metrics, indent=4))
+    # drop sub metrics (with 2 slashes)
+    metrics = {k: v for k, v in metrics.items() if k.count('/') < 2}
+    print(metrics)
+    # print("=== Synthetic two-dataset sanity check ===")
+    # print(json.dumps(metrics, indent=4))
