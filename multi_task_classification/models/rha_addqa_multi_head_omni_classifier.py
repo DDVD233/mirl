@@ -210,11 +210,38 @@ class MultiHeadOmniClassifier(nn.Module):
         # 4) Inject Δ into the *penultimate* layer, then recompute the last layer
         delta = (pooled_eff - pooled_base).to(h_penult.dtype)     # [B,H]
         h_penult_mod = h_penult + delta.unsqueeze(1)              # [B,T,H]
+        _, T, _ = h_penult_mod.shape
 
-        # re-run the final decoder block on the modified states (no mask passed)
-        last_blk = self.backbone.model.model.layers[-1]           # HF LLaMA/Qwen-style
-        raise Exception(f"h_penult_mod {h_penult_mod} and last blk {last_blk}")
-        blk_out  = last_blk(h_penult_mod)
+        # --- find the decoder stack robustly (Qwen2.5-Omni Thinker uses an inner model)
+        core = getattr(self.backbone, "model", self.backbone)          # e.g., Qwen2_5OmniThinkerForConditionalGeneration.model
+        lm_stack = (
+            getattr(core, "language_model", None) or                   # common for Qwen Thinker
+            getattr(core, "model", None) or                            # common for LLaMA-style
+            getattr(self.backbone, "text_model", None)                 # fallback name seen in some variants
+        )
+        if lm_stack is None or not hasattr(lm_stack, "layers"):
+            raise RuntimeError("Could not locate decoder layers on Qwen2.5-Omni Thinker (no .layers found).")
+
+        last_blk = lm_stack.layers[-1]
+
+        # --- build the 4D causal mask the way HF does internally
+        causal_mask = None
+        if hasattr(core, "_update_causal_mask"):
+            causal_mask = core._update_causal_mask(
+                attention_mask, (B, T), past_key_values_length=0, dtype=dtype, device=device
+            )
+        # If _update_causal_mask is missing, pass None and let the block handle it.
+
+        # --- call the final block with keyword args expected by HF layers
+        blk_out = last_blk(
+            hidden_states=h_penult_mod,
+            attention_mask=causal_mask,    # 4D bias or None
+            position_ids=None,
+            past_key_value=None,
+            output_attentions=False,
+            use_cache=False,
+        )
+
         h_last_mod = blk_out[0] if isinstance(blk_out, (tuple, list)) else blk_out  # [B,T,H]
 
         # 5) LM logits (+ teacher-forced loss) from modified token states
