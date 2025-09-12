@@ -36,7 +36,7 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml train_multi_
     --train_file "/scratch/keane/human_behaviour/human_behaviour_data/w_feats_v6_exclude_heldout_train.jsonl" \
     --val_file "/scratch/keane/human_behaviour/human_behaviour_data/w_feats_v6_exclude_heldout_val.jsonl" \
     --test_file "/scratch/keane/human_behaviour/human_behaviour_data/w_feats_v6_exclude_heldout_test.jsonl" \
-    --label_map_path "/home/keaneong/human-behavior/verl/multi_task_classification/unified_label_map_v6.json" \
+    --label_map_path "/home/keaneong/human-behavior/verl/multi_task_classification/seperate_unified_label_map_v6.json" \
     --save_every_n_epochs 1 \
     --save_every_n_steps 5000 \
     --save_checkpoint_dir "/scratch/keane/human_behaviour/v6_heldout_multi_head_lora_training" \
