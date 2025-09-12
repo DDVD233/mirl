@@ -30,6 +30,7 @@ class ResidualHiddenAdapter(nn.Module):
         self.p_moddrop = p_moddrop
         self.use_ln = use_ln
         self.use_conf_gain = use_conf_gain
+        self._printed_zero_conf_msg = False   # flag
 
         if use_ln:
             self.ln_feats = nn.LayerNorm(feat_dim)
@@ -65,7 +66,9 @@ class ResidualHiddenAdapter(nn.Module):
         out = torch.zeros(B, 3, device=device, dtype=global_logits.dtype)
 
         if (global_logits is None) or ((domain_ids == -1).all()):
-            print("Returning zero confidence as this is QA (i.e. all domain_ids == -1)")
+            if not self._printed_zero_conf_msg:
+                print("Returning zero confidence as this is QA (i.e. all domain_ids == -1)")
+                self._printed_zero_conf_msg = True
             return out
         
         unique = domain_ids.unique(sorted=True).tolist()
