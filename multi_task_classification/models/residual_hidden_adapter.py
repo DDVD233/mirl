@@ -60,12 +60,13 @@ class ResidualHiddenAdapter(nn.Module):
         else:
             B = global_logits.size(0)
         
+        device = global_logits.device
+        
         out = torch.zeros(B, 3, device=device, dtype=global_logits.dtype)
 
         if (global_logits is None) or ((domain_ids == -1).all()):
+            print("Returning zero confidence as this is QA (i.e. all domain_ids == -1)")
             return out
-
-        device = global_logits.device
         
         unique = domain_ids.unique(sorted=True).tolist()
         for d in unique:
