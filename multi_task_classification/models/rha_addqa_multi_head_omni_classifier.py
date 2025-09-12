@@ -224,28 +224,27 @@ class MultiHeadOmniClassifier(nn.Module):
 
         last_blk = lm_stack.layers[-1]
 
-        # --- NEW: derive position_ids if you don't already have them
-        position_ids = kwargs.get("position_ids")
-        if position_ids is None:
-            if attention_mask is not None:
-                position_ids = (attention_mask.long().cumsum(-1) - 1).clamp_min(0)
-            else:
-                # fallback: 0..T-1 for each row
-                position_ids = torch.arange(T, device=device).unsqueeze(0).expand(B, T)
+        # h_penult_mod: [B, T, H]
+        B, T, _ = h_penult_mod.shape
+        device, dtype = h_penult_mod.device, h_penult_mod.dtype
 
-        # --- NEW: compute RoPE embeddings from the block's rotary emb
-        attn_mod = last_blk.self_attn
-        cos, sin = attn_mod.rotary_emb(h_penult_mod, position_ids)
-        cos = cos.to(dtype)   # avoid dtype mismatch errors (seen in Omni issues)
-        sin = sin.to(dtype)
+        # 1) Make (B, T) “text-only” positions (mask-aware if you like)
+        if attention_mask is not None:
+            # running index per row where mask==1
+            # (simple version: just arange(T); mRoPE doesn’t care if you’re text-only)
+            base_pos = torch.arange(T, device=device).unsqueeze(0).expand(B, T)
+        else:
+            base_pos = torch.arange(T, device=device).unsqueeze(0).expand(B, T)
 
-        # --- call the final block, now WITH position_embeddings
+        # 2) Expand to (3, B, T) for TMRoPE
+        pos_ids_mrope = base_pos.unsqueeze(0).expand(3, B, T)
+
+        # 3) Call the last block with these position ids
         blk_out = last_blk(
             hidden_states=h_penult_mod,
-            attention_mask=attention_mask,          # 2D (B,T) is fine here in latest HF
-            position_embeddings=(cos, sin),         # <-- REQUIRED
+            attention_mask=attention_mask,   # your existing 2-D mask is fine
+            position_ids=pos_ids_mrope,      # <-- key fix
             use_cache=False,
-            output_attentions=False,
         )
         h_last_mod = blk_out[0] if isinstance(blk_out, (tuple, list)) else blk_out
 
