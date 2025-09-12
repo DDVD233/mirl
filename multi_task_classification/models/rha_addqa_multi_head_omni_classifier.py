@@ -231,7 +231,6 @@ class MultiHeadOmniClassifier(nn.Module):
                 attention_mask, (B, T), past_key_values_length=0, dtype=dtype, device=device
             )
         # If _update_causal_mask is missing, pass None and let the block handle it.
-        raise Exception("Last blk", last_blk)
 
         # --- call the final block with keyword args expected by HF layers
         blk_out = last_blk(
