@@ -188,8 +188,8 @@ for DS in "${PROCESS_DS[@]}"; do
     --rla_stage residual_and_head \
     --d_video_feat 3318 \
     --d_audio_feat 6373 \
-    --rla_hidden_video 512 \
-    --rla_hidden_audio 256 \
+    --rla_hidden_video 256 \
+    --rla_hidden_audio 512 \
     --rla_p_moddrop_video 0.20 \
     --rla_p_moddrop_audio 0.20 \
     --rla_video_temporal meanstd \
