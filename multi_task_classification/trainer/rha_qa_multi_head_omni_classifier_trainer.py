@@ -336,6 +336,7 @@ class QARHAMultiHeadOmniClassifierAccelerateTrainer:
 
             # space left after prompt
             rem = T - prompt_len
+            raise Exception("Printing the remaining space for answer tokens", rem)
             if rem > 0:
                 ans_tok = ans_tok[:rem]
                 qa_input_ids[j, prompt_len:prompt_len+len(ans_tok)] = torch.tensor(ans_tok, device=device)
