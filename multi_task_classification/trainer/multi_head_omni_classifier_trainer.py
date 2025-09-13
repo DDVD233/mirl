@@ -644,7 +644,7 @@ class MultiHeadOmniClassifierAccelerateTrainer:
                 print(f"Epoch {epoch+1}/{self.epochs} - Train Loss: {avg_train_loss:.4f} - Train Acc: {train_acc:.4f}")
 
             # Epoch-based validation phase (only if step-based validation is not configured)
-            if validate_every_n_epochs is not None and (epoch + 1) % validate_every_n_epochs == 0:
+            if validate_every_n_epochs is not None and (epoch + 1) % validate_every_n_epochs == 0 and not is_resumed_epoch:
                 val_results = self.validate(val_dataloader, "validation", current_step=current_step)
                 
                 if self.accelerator.is_main_process and val_results is not None:
