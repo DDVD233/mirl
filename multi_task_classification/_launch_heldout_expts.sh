@@ -35,6 +35,9 @@ COMMON_ARGS=(
   --project "$PROJECT"
   --format_prompt ""
   --max_prompt_length 4096
+  --use_scheduler \
+  --scheduler_type cosine \
+  --warmup_steps 50 \
 )
 
 # -----------------------------------------
