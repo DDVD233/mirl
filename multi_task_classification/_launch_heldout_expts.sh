@@ -28,8 +28,8 @@ COMMON_ARGS=(
   --mode train
   --training_strategy lora
   --train_batch_size 1
-  --val_batch_size 1
-  --test_batch_size 1
+  --val_batch_size 2
+  --test_batch_size 2
   --lr 1e-4
   --epochs 1
   --label_map_path "$LABEL_MAP"
