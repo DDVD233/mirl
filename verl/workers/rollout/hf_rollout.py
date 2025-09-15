@@ -139,6 +139,12 @@ class HFRollout(BaseRollout):
         # make necessary reputations if num_return_sequences > 1
         num_return_sequences = kwargs.get("num_return_sequences", 1)
         
+        # Debug information
+        print(f"DEBUG: Before expansion - position_ids shape: {position_ids.shape}")
+        print(f"DEBUG: generated_batch_size: {generated_batch_size}")
+        print(f"DEBUG: num_return_sequences: {num_return_sequences}")
+        print(f"DEBUG: seq shape: {seq.shape}")
+        
         # Ensure position_ids and attention_mask match the generated batch size
         # The generate function may have expanded the batch if num_return_sequences > 1
         if position_ids.size(0) != generated_batch_size:
@@ -146,6 +152,7 @@ class HFRollout(BaseRollout):
             assert generated_batch_size == position_ids.size(0) * num_return_sequences
             position_ids = position_ids.repeat_interleave(num_return_sequences, dim=0)
             attention_mask = attention_mask.repeat_interleave(num_return_sequences, dim=0)
+            print(f"DEBUG: After expansion - position_ids shape: {position_ids.shape}")
 
         prompt = seq[:, :prompt_length]  # (generated_batch_size, prompt_length)
         response = seq[:, prompt_length:]  # (generated_batch_size, response_length)
@@ -154,7 +161,13 @@ class HFRollout(BaseRollout):
         delta_position_id = torch.arange(1, response_length + 1, device=position_ids.device)
         delta_position_id = delta_position_id.unsqueeze(0).repeat(generated_batch_size, 1)
         
+        print(f"DEBUG: response_length: {response_length}")
+        print(f"DEBUG: delta_position_id shape: {delta_position_id.shape}")
+        print(f"DEBUG: position_ids shape before concat: {position_ids.shape}")
+        
         response_position_ids = position_ids[:, -1:] + delta_position_id
+        print(f"DEBUG: response_position_ids shape: {response_position_ids.shape}")
+        
         position_ids = torch.cat([position_ids, response_position_ids], dim=-1)
 
         response_attention_mask = get_response_mask(
