@@ -95,6 +95,17 @@ class HFRollout(BaseRollout):
         prompt_length = idx.size(1)
         attention_mask = prompts.batch["attention_mask"]  # left-padded attention_mask
         position_ids = prompts.batch["position_ids"]
+        
+        # Handle 3D position_ids if present (some models use 3D position encodings)
+        # Based on the debug output, position_ids is [batch, prompt_length, hidden_dim]
+        # but we need [batch, prompt_length]
+        if position_ids.dim() == 3:
+            # The position_ids should be [batch, seq_len], not [batch, seq_len, hidden]
+            # It looks like position embeddings were passed instead of position indices
+            # We need to generate proper position indices
+            batch_size = position_ids.size(0)
+            seq_len = position_ids.size(1)
+            position_ids = torch.arange(seq_len, device=position_ids.device).unsqueeze(0).expand(batch_size, -1)
 
         # used to construct attention_mask
         eos_token_id = prompts.meta_info["eos_token_id"]
@@ -139,12 +150,6 @@ class HFRollout(BaseRollout):
         # make necessary reputations if num_return_sequences > 1
         num_return_sequences = kwargs.get("num_return_sequences", 1)
         
-        # Debug information
-        print(f"DEBUG: Before expansion - position_ids shape: {position_ids.shape}")
-        print(f"DEBUG: generated_batch_size: {generated_batch_size}")
-        print(f"DEBUG: num_return_sequences: {num_return_sequences}")
-        print(f"DEBUG: seq shape: {seq.shape}")
-        
         # Ensure position_ids and attention_mask match the generated batch size
         # The generate function may have expanded the batch if num_return_sequences > 1
         if position_ids.size(0) != generated_batch_size:
@@ -152,7 +157,6 @@ class HFRollout(BaseRollout):
             assert generated_batch_size == position_ids.size(0) * num_return_sequences
             position_ids = position_ids.repeat_interleave(num_return_sequences, dim=0)
             attention_mask = attention_mask.repeat_interleave(num_return_sequences, dim=0)
-            print(f"DEBUG: After expansion - position_ids shape: {position_ids.shape}")
 
         prompt = seq[:, :prompt_length]  # (generated_batch_size, prompt_length)
         response = seq[:, prompt_length:]  # (generated_batch_size, response_length)
@@ -161,13 +165,7 @@ class HFRollout(BaseRollout):
         delta_position_id = torch.arange(1, response_length + 1, device=position_ids.device)
         delta_position_id = delta_position_id.unsqueeze(0).repeat(generated_batch_size, 1)
         
-        print(f"DEBUG: response_length: {response_length}")
-        print(f"DEBUG: delta_position_id shape: {delta_position_id.shape}")
-        print(f"DEBUG: position_ids shape before concat: {position_ids.shape}")
-        
         response_position_ids = position_ids[:, -1:] + delta_position_id
-        print(f"DEBUG: response_position_ids shape: {response_position_ids.shape}")
-        
         position_ids = torch.cat([position_ids, response_position_ids], dim=-1)
 
         response_attention_mask = get_response_mask(
