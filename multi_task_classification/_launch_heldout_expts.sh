@@ -66,8 +66,8 @@ TRAINS=(
   "/scratch/keane/human_behaviour/human_behaviour_data/heldout_train_32_mmsd.jsonl"
   "/scratch/keane/human_behaviour/human_behaviour_data/heldout_train_4_mosei_senti.jsonl"
   "/scratch/keane/human_behaviour/human_behaviour_data/heldout_train_32_mosei_senti.jsonl"
-  "/scratch/keane/human_behaviour/human_behaviour_data/heldout_train_4_qa_mimeqa.jsonl"
-  "/scratch/keane/human_behaviour/human_behaviour_data/heldout_train_32_qa_mimeqa.jsonl"
+#   "/scratch/keane/human_behaviour/human_behaviour_data/heldout_train_4_qa_mimeqa.jsonl"
+#   "/scratch/keane/human_behaviour/human_behaviour_data/heldout_train_32_qa_mimeqa.jsonl"
 )
 
 VALS=(
@@ -79,8 +79,8 @@ VALS=(
   "/scratch/keane/human_behaviour/human_behaviour_data/heldout_test_mmsd.jsonl"
   "/scratch/keane/human_behaviour/human_behaviour_data/heldout_test_mosei_senti.jsonl"
   "/scratch/keane/human_behaviour/human_behaviour_data/heldout_test_mosei_senti.jsonl"
-  "/scratch/keane/human_behaviour/human_behaviour_data/heldout_test_qa_mimeqa.jsonl"
-  "/scratch/keane/human_behaviour/human_behaviour_data/heldout_test_qa_mimeqa.jsonl"
+#   "/scratch/keane/human_behaviour/human_behaviour_data/heldout_test_qa_mimeqa.jsonl"
+#   "/scratch/keane/human_behaviour/human_behaviour_data/heldout_test_qa_mimeqa.jsonl"
 )
 
 TESTS=(
@@ -92,8 +92,8 @@ TESTS=(
   "/scratch/keane/human_behaviour/human_behaviour_data/heldout_test_mmsd.jsonl"
   "/scratch/keane/human_behaviour/human_behaviour_data/heldout_test_mosei_senti.jsonl"
   "/scratch/keane/human_behaviour/human_behaviour_data/heldout_test_mosei_senti.jsonl"
-  "/scratch/keane/human_behaviour/human_behaviour_data/heldout_test_qa_mimeqa.jsonl"
-  "/scratch/keane/human_behaviour/human_behaviour_data/heldout_test_qa_mimeqa.jsonl"
+#   "/scratch/keane/human_behaviour/human_behaviour_data/heldout_test_qa_mimeqa.jsonl"
+#   "/scratch/keane/human_behaviour/human_behaviour_data/heldout_test_qa_mimeqa.jsonl"
 )
 
 # Per-index TRAIN BATCH SIZE and GRAD ACCUMULATION
