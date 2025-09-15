@@ -17,6 +17,8 @@ PROJECT="all_heldout_expts"
 LABEL_MAP="/home/keaneong/human-behavior/verl/multi_task_classification/seperate_unified_label_map_v6.json"
 BASE_SAVE_DIR="/scratch/keane/human_behaviour/all_heldout_expts"
 RESUME_FROM=""
+# leave resume_from as blank to start training from scratch
+
 
 # --label_map_path "/home/keaneong/human-behavior/verl/multi_task_classification/seperate_unified_label_map_v6.json" \
 # "/home/keaneong/human-behavior/verl/multi_task_classification/unified_label_map_v6.json"
@@ -29,7 +31,7 @@ COMMON_ARGS=(
   --val_batch_size 1
   --test_batch_size 1
   --lr 1e-4
-  --epochs 10
+  --epochs 1
   --label_map_path "$LABEL_MAP"
   --save_every_n_epochs 999999
   --save_every_n_steps 999999
