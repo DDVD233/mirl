@@ -140,7 +140,10 @@ class HFRollout(BaseRollout):
         num_return_sequences = kwargs.get("num_return_sequences", 1)
         
         # Ensure position_ids and attention_mask match the generated batch size
-        if num_return_sequences > 1 and position_ids.size(0) != generated_batch_size:
+        # The generate function may have expanded the batch if num_return_sequences > 1
+        if position_ids.size(0) != generated_batch_size:
+            # This means generation expanded the batch, so we need to expand position_ids and attention_mask
+            assert generated_batch_size == position_ids.size(0) * num_return_sequences
             position_ids = position_ids.repeat_interleave(num_return_sequences, dim=0)
             attention_mask = attention_mask.repeat_interleave(num_return_sequences, dim=0)
 
