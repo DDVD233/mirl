@@ -108,9 +108,9 @@ TRAIN_BS=(
   2  # mmsd_32
   1  # mosei_senti_4
   2  # mosei_senti_32
-  1  # mimeqa_4
-  2  # mimeqa_32
 )
+#   1  # mimeqa_4
+#   2  # mimeqa_32
 
 GACC=(
   1  # daicwoz_4
@@ -121,9 +121,10 @@ GACC=(
   1  # mmsd_32
   1  # mosei_senti_4
   1  # mosei_senti_32
-  1  # mimeqa_4
-  1  # mimeqa_32
 )
+
+#   1  # mimeqa_4
+#   1  # mimeqa_32
 
 # Sanity checks
 if [[ ${#TYPES[@]} -ne ${#TRAINS[@]} || ${#TYPES[@]} -ne ${#VALS[@]} || ${#TYPES[@]} -ne ${#TESTS[@]} ]]; then
