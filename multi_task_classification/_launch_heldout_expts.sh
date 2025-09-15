@@ -15,8 +15,8 @@ export TORCH_USE_CUDA_DSA=1
 ACCEL_CFG="configs/accelerate_config_qwen.yaml"
 PROJECT="all_heldout_expts"
 LABEL_MAP="/home/keaneong/human-behavior/verl/multi_task_classification/seperate_unified_label_map_v6.json"
-BASE_SAVE_DIR="/scratch/keane/human_behaviour/all_heldout_expts"
-RESUME_FROM=""   # leave blank to start from scratch
+BASE_SAVE_DIR="/scratch/keane/human_behaviour/all_heldout_expts/omni2.5seperateheads"
+RESUME_FROM="/scratch/keane/human_behaviour/seperate_v6_heldout_multi_head_lora_training/step_46722"   # leave blank to start from scratch
 
 # Common args (no train_batch_size / gradient_accumulation_steps here; set per-index below)
 COMMON_ARGS=(
