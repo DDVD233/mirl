@@ -32,6 +32,7 @@ import verl.utils.torch_functional as verl_F
 from verl.utils.model import compute_position_id_with_mask
 import time, os, math, warnings
 from verl.utils.dataset.count_mm_tokens import compute_modality_token_breakdown
+import inspect
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +56,40 @@ def assert_homogeneous(batch_list: List[Dict[str, Any]]):
     sigs = {b.get("modality_signature") for b in batch_list}
     if len(sigs) != 1:
         raise AssertionError(f"Non-homogeneous batch signatures: {sigs}")
+
+
+def processor_supports_video(processor: ProcessorMixin) -> bool:
+    """
+    Check if a processor supports video inputs by inspecting its __call__ signature.
+
+    Args:
+        processor: The processor to check
+
+    Returns:
+        True if the processor supports video parameter, False otherwise
+    """
+    if processor is None:
+        return False
+
+    try:
+        sig = inspect.signature(processor.__call__)
+        params = sig.parameters
+        # return false if it's Gemma3Processor, which doesn't support video
+        if "Gemma3Processor" in processor.__class__.__name__:
+            return False
+
+        # Check if 'videos' is a parameter
+        if 'videos' in params:
+            param = params['videos']
+            # Verify it can be used as a keyword argument
+            if param.kind in (inspect.Parameter.KEYWORD_ONLY,
+                              inspect.Parameter.POSITIONAL_OR_KEYWORD):
+                return True
+    except (ValueError, TypeError, AttributeError):
+        logger.debug("Cannot inspect processor __call__ signature")
+
+    return False
+
 
 def collate_fn(data_list: list[dict]) -> dict:
     """
@@ -237,6 +272,7 @@ class RLHFDataset(Dataset):
                         messages, add_generation_prompt=True, tokenize=False
                     )
                     processor_kwargs = {"text": [raw_prompt]}
+                    images = None
                     
                     if "images" in self.modalities and image_key in doc and len(doc[image_key]) > 0:
                         images = [process_image(image) for image in doc[image_key]]
@@ -245,6 +281,25 @@ class RLHFDataset(Dataset):
                     if "videos" in self.modalities and video_key in doc and len(doc[video_key]) > 0:    
                         videos = [process_video(video) for video in doc[video_key]]
                         processor_kwargs["videos"] = videos
+
+                        # Handle video-to-image conversion for processors that don't support video
+                        if videos and not processor_supports_video(processor):
+                            # Convert video frames to images
+                            if images is None:
+                                images = []
+                            for video_tensor in videos:
+                                # video_tensor is shape [n_frames, 3, H, W]
+                                for frame_idx in range(video_tensor.shape[0]):
+                                    frame = video_tensor[frame_idx]  # [3, H, W]
+                                    frame_np = frame.permute(1, 2, 0).numpy()  # [H, W, 3]
+                                    from PIL import Image
+                                    frame_image = Image.fromarray(frame_np.astype('uint8'), 'RGB')
+                                    images.append(frame_image)
+                            videos = None
+                            if processor_supports_video(processor):
+                                return len(processor(text=[raw_prompt], images=images, videos=videos)["input_ids"][0])
+                            else:
+                                return len(processor(text=[raw_prompt], images=images)["input_ids"][0])
 
                     if "audio" in self.modalities and audio_key in doc and doc.get(audio_key, None) is not None and len(doc[audio_key]) > 0:
                         # processing of audio
@@ -295,7 +350,7 @@ class RLHFDataset(Dataset):
     def __len__(self):
         return len(self.dataframe)
 
-    def _build_messages(self, example: dict):
+    def _build_messages(self, example: dict, convert_video_to_images):
         """
         This appears to be called twice, once during maybe_filter_out_long_prompts, and another time during getitems
         """
@@ -363,7 +418,12 @@ class RLHFDataset(Dataset):
                         if segment == "<image>" and "images" in self.modalities:
                             content_list.append({"type": "image"})
                         elif segment == "<video>" and "videos" in self.modalities:
-                            content_list.append({"type": "video"})
+                            if convert_video_to_images:
+                                # Replace each video tag with 4 image tags
+                                for _ in range(4):
+                                    content_list.append({"type": "image"})
+                            else:
+                                content_list.append({"type": "video"})
                         elif segment == "<audio>" and "audio" in self.modalities:
                             content_list.append({"type": "audio"})
                         else:
@@ -439,12 +499,17 @@ class RLHFDataset(Dataset):
         else:
             row_dict["ext_audio_feats_path"] = None
 
+        convert_video_to_images = False
+        if (self.processor is not None and self.video_key in row_dict and
+                row_dict.get(self.video_key, None) is not None and len(row_dict[self.video_key]) > 0):
+            convert_video_to_images = not processor_supports_video(self.processor)
+
         # NOTE: BUILD_MESSAGES IS CALLED TWICE; 
         # NOTE: FIRST TIME IS TO GET THE LENGTH OF THE RAW PROMPT AND FILTER OUT 
         # NOTE: PROMPTS THAT DO NOT FIT THE LENGTH; 
         # NOTE: SECOND TIME IS TO BUILD THE MESSAGE TO BE PASSED INTO THE MODEL
 
-        messages = self._build_messages(row_dict)
+        messages = self._build_messages(row_dict, convert_video_to_images=convert_video_to_images)
 
         if "audio" in self.modalities:
             # NOTE: Set the following prompt for qwen omni when we are training on audio
@@ -478,6 +543,7 @@ class RLHFDataset(Dataset):
 
             multi_modal_data = {}
             processor_kwargs = {"text": [raw_prompt], "return_tensors": "pt"}
+            images = None
 
             if "images" in self.modalities and self.image_key in row_dict and row_dict.get(self.image_key, None) is not None and len(row_dict[self.image_key]) > 0:
                 images = []
@@ -505,17 +571,36 @@ class RLHFDataset(Dataset):
 
                 # due to the video key is "video" instead of "videos" in vllm, we need to use "video" here
                 # link: https://github.com/vllm-project/vllm/blob/3c545c0c3b98ee642373a308197d750d0e449403/vllm/multimodal/parse.py#L205
-                multi_modal_data["video"] = [video.numpy() for video in videos]
-                processor_kwargs["videos"] = videos
+                if processor_supports_video(self.processor):
+                    multi_modal_data["video"] = [video.numpy() for video in videos]
+                    processor_kwargs["videos"] = videos
+                else:
+                    # Processor doesn't support video, convert to images
+                    video_frames_as_images = []
+                    for video_tensor in videos:
+                        # video_tensor is shape [n_frames, 3, H, W]
+                        # Convert each frame to PIL Image
+                        for frame_idx in range(video_tensor.shape[0]):
+                            frame = video_tensor[frame_idx]  # [3, H, W]
+                            # Convert from tensor to PIL Image
+                            # Assuming the tensor is in uint8 format [0, 255]
+                            frame_np = frame.permute(1, 2, 0).numpy()  # [H, W, 3]
+                            from PIL import Image
+                            frame_image = Image.fromarray(frame_np.astype('uint8'), 'RGB')
+                            video_frames_as_images.append(frame_image)
 
-                if dbg:
-                    shapes = [tuple(v.shape) for v in videos]  # [T,3,H,W]
-                    toks = []
-                    for (T, C, H, W) in shapes:
-                        toks.append(_tok_est_from_hw(H, W) * T)
-                    print(f"[video] n={len(videos)} shapes={shapes} est_tokens={toks} "
-                        f"sum_est_tokens={sum(toks)} p99_est={_p99(toks)}")
+                    # Append video frames to existing images
+                    if images is None:
+                        images = video_frames_as_images
+                    else:
+                        images.extend(video_frames_as_images)
 
+                    # Update multi_modal_data with the combined images
+                    multi_modal_data["image"] = images
+                    processor_kwargs["images"] = images
+
+                    # Clear videos since we've converted them to images
+                    videos = None
             if (
                 "audio" in self.modalities
                 and self.audio_key in row_dict
