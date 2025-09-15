@@ -138,7 +138,9 @@ class HFRollout(BaseRollout):
 
         # make necessary reputations if num_return_sequences > 1
         num_return_sequences = kwargs.get("num_return_sequences", 1)
-        if num_return_sequences > 1:
+        
+        # Ensure position_ids and attention_mask match the generated batch size
+        if num_return_sequences > 1 and position_ids.size(0) != generated_batch_size:
             position_ids = position_ids.repeat_interleave(num_return_sequences, dim=0)
             attention_mask = attention_mask.repeat_interleave(num_return_sequences, dim=0)
 
@@ -148,7 +150,7 @@ class HFRollout(BaseRollout):
         response_length = response.size(1)
         delta_position_id = torch.arange(1, response_length + 1, device=position_ids.device)
         delta_position_id = delta_position_id.unsqueeze(0).repeat(generated_batch_size, 1)
-
+        
         response_position_ids = position_ids[:, -1:] + delta_position_id
         position_ids = torch.cat([position_ids, response_position_ids], dim=-1)
 
