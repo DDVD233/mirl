@@ -335,6 +335,9 @@ class MultiHeadOmniClassifierAccelerateTrainer:
                 loss = criterion(logits, labels)
                 
                 total_loss += loss.item() * input_ids.size(0)
+
+                # TODO; see if you want to implement here a selection of ONLY the relevant classes for a dataset;
+                # TODO; perhaps by drawing from the label map which contains the dataset class mappings
                 preds = logits.argmax(dim=1)
 
                 gathered_preds = self.accelerator.gather_for_metrics(preds)
