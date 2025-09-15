@@ -147,7 +147,7 @@ for i in "${!TYPES[@]}"; do
   VAL_DIR="${SAVE_DIR}/validation_results"
   mkdir -p "$SAVE_DIR" "$VAL_DIR"
 
-  SCRIPT="train_multi_head.py"
+  SCRIPT="train_heldout_multi_head.py"
   EXTRA_ARGS=()
 
   if [[ "$EXP_TYPE" == "qa" ]]; then
