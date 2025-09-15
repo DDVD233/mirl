@@ -53,9 +53,9 @@ TYPES=(
   "cls"   # mmsd (train_32)
   "cls"   # mosei_senti (train_4)
   "cls"   # mosei_senti (train_32)
-  "qa"    # mimeqa (train_4)
-  "qa"    # mimeqa (train_32)
 )
+#   "qa"    # mimeqa (train_4)
+#   "qa"    # mimeqa (train_32)
 
 TRAINS=(
   "/scratch/keane/human_behaviour/human_behaviour_data/heldout_train_4_daicwoz.jsonl"
