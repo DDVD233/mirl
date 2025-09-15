@@ -22,7 +22,6 @@ export TORCH_USE_CUDA_DSA=1
 # Launch training with accelerate for head_only strategy
     # --load_checkpoint_path "/scratch/keane/human_behaviour/v5_multi_head_lora_training/step_20000" \
 
-# --load_checkpoint_path "/scratch/keane/human_behaviour/v6_heldout_multi_head_lora_training/step_10000" \
 
 echo "Launching multi head training with Accelerate..."
 accelerate launch --config_file configs/accelerate_config_qwen.yaml train_multi_head.py \
@@ -40,7 +39,6 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml train_multi_
     --save_every_n_epochs 1 \
     --save_every_n_steps 5000 \
     --save_checkpoint_dir "/scratch/keane/human_behaviour/v6_heldout_multi_head_lora_training" \
-    --load_checkpoint_path "/scratch/keane/human_behaviour/v6_heldout_multi_head_lora_training/step_45000" \
     --validation_result_dir "/scratch/keane/human_behaviour/v6_heldout_multi_head_lora_training/validation_results" \
     --validate_every_n_epochs 1 \
     --validate_every_n_steps 9999999 \
