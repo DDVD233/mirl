@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # multi_experiment_cls_and_qa.sh
-# Indexed arrays: TYPES[i], TRAINS[i], VALS[i], TESTS[i]
+# Indexed arrays: TYPES[i], TRAINS[i], VALS[i], TESTS[i], TRAIN_BS[i], GACC[i]
 
 set -u
 echo "Starting LoRA sweep (CLS + QA)…"
@@ -16,18 +16,12 @@ ACCEL_CFG="configs/accelerate_config_qwen.yaml"
 PROJECT="all_heldout_expts"
 LABEL_MAP="/home/keaneong/human-behavior/verl/multi_task_classification/seperate_unified_label_map_v6.json"
 BASE_SAVE_DIR="/scratch/keane/human_behaviour/all_heldout_expts"
-RESUME_FROM=""
-# leave resume_from as blank to start training from scratch
+RESUME_FROM=""   # leave blank to start from scratch
 
-
-# --label_map_path "/home/keaneong/human-behavior/verl/multi_task_classification/seperate_unified_label_map_v6.json" \
-# "/home/keaneong/human-behavior/verl/multi_task_classification/unified_label_map_v6.json"
-
-# Common args
+# Common args (no train_batch_size / gradient_accumulation_steps here; set per-index below)
 COMMON_ARGS=(
   --mode train
   --training_strategy lora
-  --train_batch_size 1
   --val_batch_size 2
   --test_batch_size 2
   --lr 1e-4
@@ -39,7 +33,6 @@ COMMON_ARGS=(
   --validate_every_n_steps 9999999
   --early_stopping_patience 99999999
   --project "$PROJECT"
-  --gradient_accumulation_steps 1
   --format_prompt ""
   --max_prompt_length 4096
 )
@@ -99,10 +92,41 @@ TESTS=(
   "/scratch/keane/human_behaviour/human_behaviour_data/heldout_test_qa_mimeqa.jsonl"
   "/scratch/keane/human_behaviour/human_behaviour_data/heldout_test_qa_mimeqa.jsonl"
 )
-# Sanity check
+
+# Per-index TRAIN BATCH SIZE and GRAD ACCUMULATION
+# (Example values — tweak for your GPU/RAM budget)
+TRAIN_BS=(
+  1  # daicwoz_4
+  2  # daicwoz_32
+  1  # meld_emo_4
+  2  # meld_emo_32
+  1  # mmsd_4
+  2  # mmsd_32
+  1  # mosei_senti_4
+  2  # mosei_senti_32
+  1  # mimeqa_4
+  2  # mimeqa_32
+)
+
+GACC=(
+  1  # daicwoz_4
+  1  # daicwoz_32
+  1  # meld_emo_4
+  1  # meld_emo_32
+  1  # mmsd_4
+  1  # mmsd_32
+  1  # mosei_senti_4
+  1  # mosei_senti_32
+  1  # mimeqa_4
+  1  # mimeqa_32
+)
+
+# Sanity checks
 if [[ ${#TYPES[@]} -ne ${#TRAINS[@]} || ${#TYPES[@]} -ne ${#VALS[@]} || ${#TYPES[@]} -ne ${#TESTS[@]} ]]; then
-  echo "[FATAL] Array length mismatch (TYPES/TRAINS/VALS/TESTS)."
-  exit 2
+  echo "[FATAL] Array length mismatch (TYPES/TRAINS/VALS/TESTS)."; exit 2
+fi
+if [[ ${#TYPES[@]} -ne ${#TRAIN_BS[@]} || ${#TYPES[@]} -ne ${#GACC[@]} ]]; then
+  echo "[FATAL] Array length mismatch (TYPES vs TRAIN_BS/GACC)."; exit 2
 fi
 
 # -----------------------------------------
@@ -113,6 +137,8 @@ for i in "${!TYPES[@]}"; do
   TRAIN_FILE="${TRAINS[$i]}"
   VAL_FILE="${VALS[$i]}"
   TEST_FILE="${TESTS[$i]}"
+  TB="${TRAIN_BS[$i]}"
+  GA="${GACC[$i]}"
 
   SAVE_DIR="${BASE_SAVE_DIR}/exp${i}"
   VAL_DIR="${SAVE_DIR}/validation_results"
@@ -138,6 +164,7 @@ for i in "${!TYPES[@]}"; do
   echo "Train: $TRAIN_FILE"
   echo "Val:   $VAL_FILE"
   echo "Test:  $TEST_FILE"
+  echo "Train BS: $TB   |   Grad Accum: $GA"
   echo "Save:  $SAVE_DIR"
   echo "Log:   $LOG_FILE"
   echo "Script: $SCRIPT"
@@ -147,6 +174,8 @@ for i in "${!TYPES[@]}"; do
   accelerate launch --config_file "$ACCEL_CFG" "$SCRIPT" \
     "${COMMON_ARGS[@]}" \
     "${LOAD_ARG[@]}" \
+    --train_batch_size "$TB" \
+    --gradient_accumulation_steps "$GA" \
     --train_file "$TRAIN_FILE" \
     --val_file "$VAL_FILE" \
     --test_file "$TEST_FILE" \
