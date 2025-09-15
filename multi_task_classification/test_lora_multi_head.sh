@@ -56,5 +56,8 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml train_multi_
     --early_stopping_patience 99999999 \
     --project "test-omni-classifier-multi-head-lora" \
     --gradient_accumulation_steps 128 \
+    --format_prompt "" \
+    --max_prompt_length 4096 \
+
 
 echo "Lora Multi Head Testing completed!"

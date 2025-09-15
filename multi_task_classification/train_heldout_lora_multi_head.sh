@@ -49,5 +49,7 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml train_multi_
     --scheduler_type cosine \
     --warmup_steps 50 \
     --format_prompt "" \
+    --max_prompt_length 4096 \
+
 
 echo "Lora Multi Head training completed!"
