@@ -136,7 +136,7 @@ if __name__ == "__main__":
     #     "DatasetB","DatasetB","DatasetB","DatasetB","DatasetB",
     # ]
 
-    input_filename = "examples/reward_function/qwen_25_vl_vision_only.json"
+    input_filename = "examples/reward_function/gemma3_4b.json"
     with open(input_filename, "r") as f:
         input_data = json.load(f)
     predictions = input_data["predictions"]

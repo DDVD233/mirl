@@ -264,7 +264,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             torch_dtype = PrecisionType.to_dtype(torch_dtype)
 
         # override model kwargs
-        if "Qwen2.5-Omni" in local_path:
+        if "Omni" in local_path:
             from transformers import Qwen2_5OmniThinkerConfig
             actor_model_config = Qwen2_5OmniThinkerConfig.from_pretrained(
                 local_path, 
@@ -300,7 +300,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
 
         with init_context(), warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            if "Qwen2.5-Omni" in local_path:
+            if "Omni" in local_path:
                 from transformers import Qwen2_5OmniThinkerForConditionalGeneration
                 actor_module_class = Qwen2_5OmniThinkerForConditionalGeneration
             elif type(actor_model_config) in AutoModelForVision2Seq._model_mapping.keys():
