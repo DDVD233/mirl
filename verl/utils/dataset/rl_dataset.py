@@ -588,6 +588,9 @@ class RLHFDataset(Dataset):
                             from PIL import Image
                             frame_image = Image.fromarray(frame_np.astype('uint8'), 'RGB')
                             video_frames_as_images.append(frame_image)
+                    # Ensure we have at least 4 frames, otherwise pad by repeating last frame
+                    while len(video_frames_as_images) < 4:
+                        video_frames_as_images.append(copy.deepcopy(video_frames_as_images[-1]))
 
                     # Append video frames to existing images
                     if images is None:
@@ -657,7 +660,6 @@ class RLHFDataset(Dataset):
                 # helpful context dump (small)
                 print(f"[processor][ctx] has_video={videos is not None} "
                     f"n_vid={len(videos) if videos is not None else 0} "
-                    f"n_audio={len(audio_secs) if audio_secs else 0} "
                     f"raw_prompt_chars={len(raw_prompt)}")
                 raise
 
