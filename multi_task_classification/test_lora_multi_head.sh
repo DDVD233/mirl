@@ -6,7 +6,7 @@
 echo "Starting Multi Head Testing..."
 
 # Set CUDA_VISIBLE_DEVICES to use GPUs 2 and 3
-export CUDA_VISIBLE_DEVICES="4,5"
+export CUDA_VISIBLE_DEVICES="0,1"
 echo "Using GPUs: $CUDA_VISIBLE_DEVICES"
 
 # Set environment variables for better performance
@@ -42,20 +42,23 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml train_multi_
     --test_batch_size 2 \
     --lr 1e-4 \
     --epochs 10 \
-    --train_file "/scratch/keane/human_behaviour/human_behaviour_data/v5_train.jsonl" \
-    --val_file "/scratch/keane/human_behaviour/human_behaviour_data/v5_val.jsonl" \
-    --test_file "/scratch/keane/human_behaviour/human_behaviour_data/v5_test.jsonl" \
-    --label_map_path "/home/keaneong/human-behavior/verl/multi_task_classification/unified_label_map_w_feats_v5_unified_scheme_splitmmpsy_binarymmpsy_no_vptd_chalearn_lmvd_esconv.json" \
-    --load_checkpoint_path "/scratch/keane/human_behaviour/2_qa_multi_task_model/step_4500" \
+    --train_file "/scratch/keane/human_behaviour/human_behaviour_data/w_feats_v6_train.jsonl" \
+    --val_file "/scratch/keane/human_behaviour/human_behaviour_data/w_feats_v6_val.jsonl" \
+    --test_file "/scratch/keane/human_behaviour/human_behaviour_data/w_feats_v6_test.jsonl" \
+    --label_map_path "/home/keaneong/human-behavior/verl/multi_task_classification/unified_label_map_v6.json" \
+    --load_checkpoint_path "/scratch/keane/human_behaviour/v6_multi_head_lora_training/step_43539" \
     --save_every_n_epochs 999999 \
     --save_every_n_steps 999999 \
-    --save_checkpoint_dir "/scratch/keane/human_behaviour/v5_multi_head_lora_training" \
-    --validation_result_dir "/scratch/keane/human_behaviour/v5_multi_head_lora_training/test_results" \
+    --save_checkpoint_dir "/scratch/keane/human_behaviour/test_v6_multi_head_lora_training" \
+    --validation_result_dir "/scratch/keane/human_behaviour/v6_multi_head_lora_training/test_results" \
     --validate_every_n_epochs 1 \
-    --validate_every_n_steps 15000 \
+    --validate_every_n_steps 9999999 \
     --early_stopping_patience 99999999 \
-    --project "test-omni-classifier-multi-head-lora" \
+    --project "test-v6_omni-classifier-multi-head-lora" \
     --gradient_accumulation_steps 128 \
+    --use_scheduler \
+    --scheduler_type cosine \
+    --warmup_steps 50 \
     --format_prompt "" \
     --max_prompt_length 4096 \
 
