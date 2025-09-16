@@ -29,7 +29,7 @@ COMMON_ARGS=(
   --val_batch_size 2
   --test_batch_size 2
   --lr 1e-4
-  --epochs 1
+  --epochs 2
   --label_map_path "$LABEL_MAP"
   --save_every_n_epochs 999999
   --save_every_n_steps 999999
