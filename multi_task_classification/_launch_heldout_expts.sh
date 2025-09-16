@@ -106,9 +106,9 @@ COMMON_ARGS=(
 
 TYPES=(
   "cls"   
-  "cls"  
+  # "cls"  
   "cls"   
-  "cls"  
+  # "cls"  
 )
 
 TRAINS=(
@@ -141,18 +141,18 @@ TESTS=(
 # (Example values — tweak for your GPU/RAM budget)
 TRAIN_BS=(
   2  # daicwoz_4
-  2  # meld_emo_4
+  # 2  # meld_emo_4
   2  # mmsd_4
-  2  # mosei_senti_4
+  # 2  # mosei_senti_4
 )
 #   1  # mimeqa_4
 #   2  # mimeqa_32
 
 GACC=(
   2  # daicwoz_4
-  8  # meld_emo_4
+  # 8  # meld_emo_4
   4  # mmsd_4
-  8  # mosei_senti_4
+  # 8  # mosei_senti_4
 )
 
 #   1  # mimeqa_4
