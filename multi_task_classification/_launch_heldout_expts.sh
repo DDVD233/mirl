@@ -18,6 +18,9 @@ LABEL_MAP="/home/keaneong/human-behavior/verl/multi_task_classification/seperate
 BASE_SAVE_DIR="/scratch/keane/human_behaviour/all_heldout_expts/full_omni2.5fromscratch"
 RESUME_FROM=""   # leave blank to start from scratch
 # RESUME_FROM="/scratch/keane/human_behaviour/seperate_v6_heldout_multi_head_lora_training/step_46722"   # leave blank to start from scratch
+  # --use_scheduler \
+  # --scheduler_type cosine \
+  # --warmup_steps 50 \
 
 # Common args (no train_batch_size / gradient_accumulation_steps here; set per-index below)
 COMMON_ARGS=(
@@ -36,9 +39,6 @@ COMMON_ARGS=(
   --project "$PROJECT"
   --format_prompt ""
   --max_prompt_length 4096
-  --use_scheduler \
-  --scheduler_type cosine \
-  --warmup_steps 50 \
 )
 
 # -----------------------------------------
