@@ -15,8 +15,9 @@ export TORCH_USE_CUDA_DSA=1
 ACCEL_CFG="configs/accelerate_config_qwen.yaml"
 PROJECT="all_heldout_expts"
 LABEL_MAP="/home/keaneong/human-behavior/verl/multi_task_classification/seperate_unified_label_map_v6.json"
-BASE_SAVE_DIR="/scratch/keane/human_behaviour/all_heldout_expts/omni2.5seperateheads"
-RESUME_FROM="/scratch/keane/human_behaviour/seperate_v6_heldout_multi_head_lora_training/step_46722"   # leave blank to start from scratch
+BASE_SAVE_DIR="/scratch/keane/human_behaviour/all_heldout_expts/full_omni2.5fromscratch"
+RESUME_FROM=""   # leave blank to start from scratch
+# RESUME_FROM="/scratch/keane/human_behaviour/seperate_v6_heldout_multi_head_lora_training/step_46722"   # leave blank to start from scratch
 
 # Common args (no train_batch_size / gradient_accumulation_steps here; set per-index below)
 COMMON_ARGS=(
@@ -57,27 +58,63 @@ TYPES=(
 #   "qa"    # mimeqa (train_4)
 #   "qa"    # mimeqa (train_32)
 
-TRAINS=(
-  "/scratch/keane/human_behaviour/human_behaviour_data/heldout_train_4_daicwoz.jsonl"
-  "/scratch/keane/human_behaviour/human_behaviour_data/heldout_train_32_daicwoz.jsonl"
-  "/scratch/keane/human_behaviour/human_behaviour_data/heldout_train_4_meld_emotion.jsonl"
-  "/scratch/keane/human_behaviour/human_behaviour_data/heldout_train_32_meld_emotion.jsonl"
-  "/scratch/keane/human_behaviour/human_behaviour_data/heldout_train_4_mmsd.jsonl"
-  "/scratch/keane/human_behaviour/human_behaviour_data/heldout_train_32_mmsd.jsonl"
-  "/scratch/keane/human_behaviour/human_behaviour_data/heldout_train_4_mosei_senti.jsonl"
-  "/scratch/keane/human_behaviour/human_behaviour_data/heldout_train_32_mosei_senti.jsonl"
-)
+# Few shot training files ; you should use vals of the same length
+# TRAINS=(
+#   "/scratch/keane/human_behaviour/human_behaviour_data/heldout_train_4_daicwoz.jsonl"
+#   "/scratch/keane/human_behaviour/human_behaviour_data/heldout_train_32_daicwoz.jsonl"
+#   "/scratch/keane/human_behaviour/human_behaviour_data/heldout_train_4_meld_emotion.jsonl"
+#   "/scratch/keane/human_behaviour/human_behaviour_data/heldout_train_32_meld_emotion.jsonl"
+#   "/scratch/keane/human_behaviour/human_behaviour_data/heldout_train_4_mmsd.jsonl"
+#   "/scratch/keane/human_behaviour/human_behaviour_data/heldout_train_32_mmsd.jsonl"
+#   "/scratch/keane/human_behaviour/human_behaviour_data/heldout_train_4_mosei_senti.jsonl"
+#   "/scratch/keane/human_behaviour/human_behaviour_data/heldout_train_32_mosei_senti.jsonl"
+# )
 #   "/scratch/keane/human_behaviour/human_behaviour_data/heldout_train_4_qa_mimeqa.jsonl"
 #   "/scratch/keane/human_behaviour/human_behaviour_data/heldout_train_32_qa_mimeqa.jsonl"
+# VALS=(
+#   "/scratch/keane/human_behaviour/human_behaviour_data/heldout_test_daicwoz.jsonl"
+#   "/scratch/keane/human_behaviour/human_behaviour_data/heldout_test_daicwoz.jsonl"
+#   "/scratch/keane/human_behaviour/human_behaviour_data/heldout_test_mosei_emotion.jsonl"
+#   "/scratch/keane/human_behaviour/human_behaviour_data/heldout_test_mosei_emotion.jsonl"
+#   "/scratch/keane/human_behaviour/human_behaviour_data/heldout_test_mmsd.jsonl"
+#   "/scratch/keane/human_behaviour/human_behaviour_data/heldout_test_mmsd.jsonl"
+#   "/scratch/keane/human_behaviour/human_behaviour_data/heldout_test_mosei_senti.jsonl"
+#   "/scratch/keane/human_behaviour/human_behaviour_data/heldout_test_mosei_senti.jsonl"
+# )
+#   "/scratch/keane/human_behaviour/human_behaviour_data/heldout_test_qa_mimeqa.jsonl"
+#   "/scratch/keane/human_behaviour/human_behaviour_data/heldout_test_qa_mimeqa.jsonl"
+# TRAIN_BS=(
+#   2  # daicwoz_4
+#   2  # daicwoz_32
+#   2  # meld_emo_4
+#   2  # meld_emo_32
+#   2  # mmsd_4
+#   2  # mmsd_32
+#   2  # mosei_senti_4
+#   2  # mosei_senti_32
+# )
+# GACC=(
+#   1  # daicwoz_4
+#   1  # daicwoz_32
+#   1  # meld_emo_4
+#   1  # meld_emo_32
+#   1  # mmsd_4
+#   1  # mmsd_32
+#   1  # mosei_senti_4
+#   1  # mosei_senti_32
+# )
+
+TRAINS=(
+  "/scratch/keane/human_behaviour/human_behaviour_data/heldout_train_full_daicwoz.jsonl"
+  "/scratch/keane/human_behaviour/human_behaviour_data/heldout_train_full_meld_emotion.jsonl"
+  "/scratch/keane/human_behaviour/human_behaviour_data/heldout_train_full_mmsd.jsonl"
+  "/scratch/keane/human_behaviour/human_behaviour_data/heldout_train_full_mosei_senti.jsonl"
+)
 
 VALS=(
   "/scratch/keane/human_behaviour/human_behaviour_data/heldout_test_daicwoz.jsonl"
-  "/scratch/keane/human_behaviour/human_behaviour_data/heldout_test_daicwoz.jsonl"
-  "/scratch/keane/human_behaviour/human_behaviour_data/heldout_test_mosei_emotion.jsonl"
   "/scratch/keane/human_behaviour/human_behaviour_data/heldout_test_mosei_emotion.jsonl"
   "/scratch/keane/human_behaviour/human_behaviour_data/heldout_test_mmsd.jsonl"
-  "/scratch/keane/human_behaviour/human_behaviour_data/heldout_test_mmsd.jsonl"
-  "/scratch/keane/human_behaviour/human_behaviour_data/heldout_test_mosei_senti.jsonl"
   "/scratch/keane/human_behaviour/human_behaviour_data/heldout_test_mosei_senti.jsonl"
 )
 #   "/scratch/keane/human_behaviour/human_behaviour_data/heldout_test_qa_mimeqa.jsonl"
@@ -85,12 +122,8 @@ VALS=(
 
 TESTS=(
   "/scratch/keane/human_behaviour/human_behaviour_data/heldout_test_daicwoz.jsonl"
-  "/scratch/keane/human_behaviour/human_behaviour_data/heldout_test_daicwoz.jsonl"
-  "/scratch/keane/human_behaviour/human_behaviour_data/heldout_test_mosei_emotion.jsonl"
   "/scratch/keane/human_behaviour/human_behaviour_data/heldout_test_mosei_emotion.jsonl"
   "/scratch/keane/human_behaviour/human_behaviour_data/heldout_test_mmsd.jsonl"
-  "/scratch/keane/human_behaviour/human_behaviour_data/heldout_test_mmsd.jsonl"
-  "/scratch/keane/human_behaviour/human_behaviour_data/heldout_test_mosei_senti.jsonl"
   "/scratch/keane/human_behaviour/human_behaviour_data/heldout_test_mosei_senti.jsonl"
 )
 
@@ -100,27 +133,19 @@ TESTS=(
 # Per-index TRAIN BATCH SIZE and GRAD ACCUMULATION
 # (Example values — tweak for your GPU/RAM budget)
 TRAIN_BS=(
-  1  # daicwoz_4
-  2  # daicwoz_32
-  1  # meld_emo_4
-  2  # meld_emo_32
-  1  # mmsd_4
-  2  # mmsd_32
-  1  # mosei_senti_4
-  2  # mosei_senti_32
+  2  # daicwoz_4
+  2  # meld_emo_4
+  2  # mmsd_4
+  2  # mosei_senti_4
 )
 #   1  # mimeqa_4
 #   2  # mimeqa_32
 
 GACC=(
-  1  # daicwoz_4
-  1  # daicwoz_32
-  1  # meld_emo_4
-  1  # meld_emo_32
-  1  # mmsd_4
-  1  # mmsd_32
-  1  # mosei_senti_4
-  1  # mosei_senti_32
+  2  # daicwoz_4
+  8  # meld_emo_4
+  4  # mmsd_4
+  8  # mosei_senti_4
 )
 
 #   1  # mimeqa_4
