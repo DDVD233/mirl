@@ -6,7 +6,7 @@ set -u
 echo "Starting LoRA sweep (CLS + QA)…"
 
 # GPUs / perf
-export CUDA_VISIBLE_DEVICES="4,5"
+# export CUDA_VISIBLE_DEVICES="4,5"
 echo "Using GPUs: $CUDA_VISIBLE_DEVICES"
 export CUDA_LAUNCH_BLOCKING=1
 export TORCH_USE_CUDA_DSA=1
@@ -45,16 +45,16 @@ COMMON_ARGS=(
 # HARD-CODED EXPERIMENTS (keep indices aligned)
 # TYPE ∈ {cls, qa}
 # -----------------------------------------
-TYPES=(
-  "cls"   # daicwoz (train_4)
-  "cls"   # daicwoz (train_32)
-  "cls"   # meld_emotion (train_4)
-  "cls"   # meld_emotion (train_32)
-  "cls"   # mmsd (train_4)
-  "cls"   # mmsd (train_32)
-  "cls"   # mosei_senti (train_4)
-  "cls"   # mosei_senti (train_32)
-)
+# TYPES=(
+#   "cls"   # daicwoz (train_4)
+#   "cls"   # daicwoz (train_32)
+#   "cls"   # meld_emotion (train_4)
+#   "cls"   # meld_emotion (train_32)
+#   "cls"   # mmsd (train_4)
+#   "cls"   # mmsd (train_32)
+#   "cls"   # mosei_senti (train_4)
+#   "cls"   # mosei_senti (train_32)
+# )
 #   "qa"    # mimeqa (train_4)
 #   "qa"    # mimeqa (train_32)
 
@@ -103,6 +103,13 @@ TYPES=(
 #   1  # mosei_senti_4
 #   1  # mosei_senti_32
 # )
+
+TYPES=(
+  "cls"   # daicwoz (train_4)
+  "cls"   # daicwoz (train_32)
+  "cls"   # meld_emotion (train_4)
+  "cls"   # meld_emotion (train_32)
+)
 
 TRAINS=(
   "/scratch/keane/human_behaviour/human_behaviour_data/heldout_train_full_daicwoz.jsonl"
