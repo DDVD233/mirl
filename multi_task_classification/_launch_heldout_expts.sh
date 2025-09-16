@@ -142,10 +142,10 @@ TRAIN_BS=(
 #   2  # mimeqa_32
 
 GACC=(
-  2  # daicwoz_4
-  8  # meld_emo_4
-  4  # mmsd_4
-  8  # mosei_senti_4
+  1  # daicwoz_4
+  4  # meld_emo_4
+  2  # mmsd_4
+  4  # mosei_senti_4
 )
 
 #   1  # mimeqa_4
