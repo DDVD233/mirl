@@ -7,7 +7,7 @@ echo "Starting LoRA sweep (CLS + QA)…"
 
 # GPUs / perf
 # export CUDA_VISIBLE_DEVICES="4,5"
-echo "Using GPUs: $CUDA_VISIBLE_DEVICES"
+# echo "Using GPUs: $CUDA_VISIBLE_DEVICES"
 export CUDA_LAUNCH_BLOCKING=1
 export TORCH_USE_CUDA_DSA=1
 
