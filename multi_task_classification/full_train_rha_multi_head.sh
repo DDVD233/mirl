@@ -11,7 +11,7 @@ ACCEL_CFG="configs/accelerate_config_qwen.yaml"
 SCRIPT="train_rha_multi_head.py"
 
 BASE_SAVE_DIR="/scratch/keane/human_behaviour/v6_rha_residual_only"
-PROJECT_NAME="v6-full-rha-omni-classifier-multi-head-lora"
+PROJECT_NAME="v6-rha-omni-classifier-multi-head-lora"
 
 # === NEW: Allowlist (exact match, case-sensitive). If non-empty, ONLY these run.
 # INCLUDE_DATASETS=("meld_senti")
