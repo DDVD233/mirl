@@ -21,6 +21,11 @@ PROJECT_NAME="v6-rha-omni-classifier-multi-head-lora"
 # NOT TRAINING YET: (missed out: ravdess)
 # INCLUDE_DATASETS=("mosei_emotion" "mosei_senti" "meld_senti" "chsimsv2" "cremad" "meld_emotion")
 
+
+    # --use_scheduler \
+    # --scheduler_type cosine \
+    # --warmup_steps 50 \
+
 # FULL LIST (minus ravdess)
 INCLUDE_DATASETS=("mmsd" "urfunny" "mosei_emotion" "mosei_senti" "meld_senti" "chsimsv2" "cremad" "meld_emotion" "daicwoz" "ptsd_in_the_wild" "tess")
 
@@ -203,9 +208,6 @@ for DS in "${PROCESS_DS[@]}"; do
     --use_rla_audio \
     --rla_video_use_ln \
     --rla_audio_use_ln \
-    --use_scheduler \
-    --scheduler_type cosine \
-    --warmup_steps 50 \
     --format_prompt "" \
     --max_prompt_length 4096 \
 
