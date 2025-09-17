@@ -22,6 +22,11 @@ def extract_boxed_content(text: str) -> str:
     if markdown_match:
         return markdown_match.group(1)
 
+    # Some response use <answer>...</answer> instead of \boxed{...}.
+    answer_match = re.search(r"<answer>(.*?)</answer>", text)
+    if answer_match:
+        return answer_match.group(1)
+
     # Return the text as is if no boxed content is found
     return text
 
