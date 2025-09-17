@@ -4,14 +4,14 @@ set -euo pipefail
 echo "Starting LORA + RHA training (per-dataset)…"
 
 # ==== USER CONFIG (keep these constant except the two file paths) ====
-TRAIN_JSONL="/scratch/keane/human_behaviour/human_behaviour_data/v5_train.jsonl"
-VAL_JSONL="/scratch/keane/human_behaviour/human_behaviour_data/v5_test.jsonl"
+TRAIN_JSONL="/scratch/keane/human_behaviour/human_behaviour_data/w_feats_v6_train.jsonl"
+VAL_JSONL="/scratch/keane/human_behaviour/human_behaviour_data/w_feats_v6_test.jsonl"
 
 ACCEL_CFG="configs/accelerate_config_qwen.yaml"
 SCRIPT="train_rha_multi_head.py"
 
-BASE_SAVE_DIR="/scratch/keane/human_behaviour/rha_residual_only"
-PROJECT_NAME="step495000-full-rha-omni-classifier-multi-head-lora"
+BASE_SAVE_DIR="/scratch/keane/human_behaviour/v6_rha_residual_only"
+PROJECT_NAME="v6-full-rha-omni-classifier-multi-head-lora"
 
 # === NEW: Allowlist (exact match, case-sensitive). If non-empty, ONLY these run.
 # INCLUDE_DATASETS=("meld_senti")
@@ -19,9 +19,10 @@ PROJECT_NAME="step495000-full-rha-omni-classifier-multi-head-lora"
 # INCLUDE_DATASETS=("urfunny" "ptsd_in_the_wild" "tess" "ravdess")
 
 # NOT TRAINING YET: (missed out: ravdess)
-INCLUDE_DATASETS=("mosei_emotion" "mosei_senti" "meld_senti" "chsimsv2" "cremad" "meld_emotion")
+# INCLUDE_DATASETS=("mosei_emotion" "mosei_senti" "meld_senti" "chsimsv2" "cremad" "meld_emotion")
 
-# COMPLETED : mmsd
+# FULL LIST (minus ravdess)
+INCLUDE_DATASETS=("mmsd" "urfunny" "mosei_emotion" "mosei_senti" "meld_senti" "chsimsv2" "cremad" "meld_emotion" "daicwoz" "ptsd_in_the_wild" "tess")
 
 # Exclude list (used only when INCLUDE_DATASETS is empty)
 # this is the list of all datasets, the only datasets that we do not have are literally expw, einterface, mmpsy, so exclude those
@@ -168,18 +169,18 @@ for DS in "${PROCESS_DS[@]}"; do
     --test_batch_size 2 \
     --lr 1e-4 \
     --hard_gamma 5.0 \
-    --base_lr 3e-5 \
+    --base_lr 1e-4 \
     --rla_lr 5e-4 \
     --epochs 4 \
     --train_file "$TRAIN_OUT" \
     --val_file "$VAL_OUT" \
     --test_file "$VAL_OUT" \
-    --label_map_path "/home/keaneong/human-behavior/verl/multi_task_classification/unified_label_map_w_feats_v5_unified_scheme_splitmmpsy_binarymmpsy_no_vptd_chalearn_lmvd_esconv.json" \
+    --label_map_path "/home/keaneong/human-behavior/verl/multi_task_classification/unified_label_map_v6.json" \
+    --load_checkpoint_path "/scratch/keane/human_behaviour/v6_multi_head_lora_training/step_43539" \
     --save_every_n_epochs 1 \
     --save_every_n_steps 9999999 \
     --save_checkpoint_dir "$SAVE_DIR" \
     --validation_result_dir "$VAL_DIR" \
-    --load_checkpoint_path "/scratch/keane/human_behaviour/v5_multi_head_lora_training/step_49500" \
     --validate_every_n_epochs 1 \
     --validate_every_n_steps 999999 \
     --early_stopping_patience 99999 \
