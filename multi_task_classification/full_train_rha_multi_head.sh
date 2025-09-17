@@ -27,7 +27,8 @@ PROJECT_NAME="v6-rha-omni-classifier-multi-head-lora"
     # --warmup_steps 50 \
 
 # FULL LIST (minus ravdess)
-INCLUDE_DATASETS=("mmsd" "urfunny" "mosei_emotion" "mosei_senti" "meld_senti" "chsimsv2" "cremad" "meld_emotion" "daicwoz" "ptsd_in_the_wild" "tess")
+# Completed ("mmsd" "urfunny" "mosei_emotion" "mosei_senti")
+INCLUDE_DATASETS=("meld_senti" "chsimsv2" "cremad" "meld_emotion" "daicwoz" "ptsd_in_the_wild" "tess")
 
 # Exclude list (used only when INCLUDE_DATASETS is empty)
 # this is the list of all datasets, the only datasets that we do not have are literally expw, einterface, mmpsy, so exclude those
