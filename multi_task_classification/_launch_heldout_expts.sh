@@ -6,7 +6,7 @@ set -u
 echo "Starting LoRA sweep (CLS + QA)…"
 
 # GPUs / perf
-export CUDA_VISIBLE_DEVICES="0,1"
+export CUDA_VISIBLE_DEVICES="2,3"
 echo "Using GPUs: $CUDA_VISIBLE_DEVICES"
 export CUDA_LAUNCH_BLOCKING=1
 export TORCH_USE_CUDA_DSA=1
@@ -14,10 +14,10 @@ export TORCH_USE_CUDA_DSA=1
 # Shared configs
 ACCEL_CFG="configs/accelerate_config_qwen.yaml"
 PROJECT="all_heldout_expts"
-LABEL_MAP="/home/keaneong/human-behavior/verl/multi_task_classification/seperate_unified_label_map_v6.json"
-BASE_SAVE_DIR="/scratch/keane/human_behaviour/all_heldout_expts/full_omni2.5fromscratch_2epochs"
-RESUME_FROM=""   # leave blank to start from scratch
-# RESUME_FROM="/scratch/keane/human_behaviour/seperate_v6_heldout_multi_head_lora_training/step_46722"   # leave blank to start from scratch
+LABEL_MAP="/home/keaneong/human-behavior/verl/multi_task_classification/unified_label_map_v6.json"
+BASE_SAVE_DIR="/scratch/keane/human_behaviour/all_heldout_expts/full_hbatlas_2epochs"
+RESUME_FROM="/scratch/keane/human_behaviour/v6_heldout_multi_head_lora_training/step_38935"   # leave blank to start from scratch
+# RESUME_FROM="/scratch/keane/human_behaviour/v6_heldout_multi_head_lora_training/step_38935"   # leave blank to start from scratch
   # --use_scheduler \
   # --scheduler_type cosine \
   # --warmup_steps 50 \
@@ -39,6 +39,9 @@ COMMON_ARGS=(
   --project "$PROJECT"
   --format_prompt ""
   --max_prompt_length 4096
+  --use_scheduler \
+  --scheduler_type cosine \
+  --warmup_steps 50 \
 )
 
 # -----------------------------------------
@@ -106,32 +109,32 @@ COMMON_ARGS=(
 
 TYPES=(
   "cls"   
-  # "cls"  
+  "cls"  
   "cls"   
-  # "cls"  
+  "cls"  
 )
 
 TRAINS=(
   "/scratch/keane/human_behaviour/human_behaviour_data/heldout_train_full_daicwoz.jsonl"
-  # "/scratch/keane/human_behaviour/human_behaviour_data/heldout_train_full_meld_emotion.jsonl"
+  "/scratch/keane/human_behaviour/human_behaviour_data/heldout_train_full_meld_emotion.jsonl"
   "/scratch/keane/human_behaviour/human_behaviour_data/heldout_train_full_mmsd.jsonl"
-  # "/scratch/keane/human_behaviour/human_behaviour_data/heldout_train_full_mosei_senti.jsonl"
+  "/scratch/keane/human_behaviour/human_behaviour_data/heldout_train_full_mosei_senti.jsonl"
 )
 
 VALS=(
   "/scratch/keane/human_behaviour/human_behaviour_data/heldout_test_daicwoz.jsonl"
-  # "/scratch/keane/human_behaviour/human_behaviour_data/heldout_test_meld_emotion.jsonl"
+  "/scratch/keane/human_behaviour/human_behaviour_data/heldout_test_meld_emotion.jsonl"
   "/scratch/keane/human_behaviour/human_behaviour_data/heldout_test_mmsd.jsonl"
-  # "/scratch/keane/human_behaviour/human_behaviour_data/heldout_test_mosei_senti.jsonl"
+  "/scratch/keane/human_behaviour/human_behaviour_data/heldout_test_mosei_senti.jsonl"
 )
 #   "/scratch/keane/human_behaviour/human_behaviour_data/heldout_test_qa_mimeqa.jsonl"
 #   "/scratch/keane/human_behaviour/human_behaviour_data/heldout_test_qa_mimeqa.jsonl"
 
 TESTS=(
   "/scratch/keane/human_behaviour/human_behaviour_data/heldout_test_daicwoz.jsonl"
-  # "/scratch/keane/human_behaviour/human_behaviour_data/heldout_test_meld_emotion.jsonl"
+  "/scratch/keane/human_behaviour/human_behaviour_data/heldout_test_meld_emotion.jsonl"
   "/scratch/keane/human_behaviour/human_behaviour_data/heldout_test_mmsd.jsonl"
-  # "/scratch/keane/human_behaviour/human_behaviour_data/heldout_test_mosei_senti.jsonl"
+  "/scratch/keane/human_behaviour/human_behaviour_data/heldout_test_mosei_senti.jsonl"
 )
 
 #   "/scratch/keane/human_behaviour/human_behaviour_data/heldout_test_qa_mimeqa.jsonl"
@@ -141,18 +144,18 @@ TESTS=(
 # (Example values — tweak for your GPU/RAM budget)
 TRAIN_BS=(
   2  # daicwoz_4
-  # 2  # meld_emo_4
+  2  # meld_emo_4
   2  # mmsd_4
-  # 2  # mosei_senti_4
+  2  # mosei_senti_4
 )
 #   1  # mimeqa_4
 #   2  # mimeqa_32
 
 GACC=(
   2  # daicwoz_4
-  # 8  # meld_emo_4
+  8  # meld_emo_4
   4  # mmsd_4
-  # 8  # mosei_senti_4
+  8  # mosei_senti_4
 )
 
 #   1  # mimeqa_4
