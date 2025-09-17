@@ -11,6 +11,11 @@ def extract_boxed(text: str) -> str:
     match = re.search(r'\\boxed\{([^}]+)\}', text)
     if match:
         return match.group(1).strip()
+    # Could also be in <answer>...</answer> format
+    match = re.search(r'<answer>([^<]+)</answer>', text)
+    if match:
+        return match.group(1).strip()
+    # Otherwise return original text stripped
     return text.strip()
 
 def compute_metrics_by_data_source(
