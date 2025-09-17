@@ -828,6 +828,7 @@ class RHAMultiHeadOmniClassifierAccelerateTrainer:
                 num_training_steps=total_updates
             )
             null_scheduler = self.accelerator.prepare(null_scheduler)
+            self.accelerator.register_for_checkpointing(null_scheduler)
 
             # Load only model/RNG
             start_epoch, start_batch_offset, _, _, _ = self.load_checkpoint_unified(
