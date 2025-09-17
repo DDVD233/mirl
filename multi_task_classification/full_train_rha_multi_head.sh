@@ -202,7 +202,12 @@ for DS in "${PROCESS_DS[@]}"; do
     --use_rla_video \
     --use_rla_audio \
     --rla_video_use_ln \
-    --rla_audio_use_ln
+    --rla_audio_use_ln \
+    --use_scheduler \
+    --scheduler_type cosine \
+    --warmup_steps 50 \
+    --format_prompt "" \
+    --max_prompt_length 4096 \
 
   echo "Finished dataset: $DS"
 done
