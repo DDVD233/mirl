@@ -29,11 +29,20 @@ def extract_f1_scores(data):
 fairgrpo_f1 = extract_f1_scores(fairgrpo_data)
 grpo_f1 = extract_f1_scores(grpo_data)
 
-# Compute differences (FairGRPO - GRPO)
+# Compute percentage differences ((FairGRPO - GRPO) / GRPO * 100)
 differences = {}
 for key in fairgrpo_f1:
     if key in grpo_f1:
-        differences[key] = fairgrpo_f1[key] - grpo_f1[key]
+        # Avoid division by zero - skip if GRPO value is 0
+        if grpo_f1[key] != 0:
+            differences[key] = ((fairgrpo_f1[key] - grpo_f1[key]) / grpo_f1[key]) * 100
+        else:
+            # If GRPO is 0 but FairGRPO is not, this is infinite improvement
+            # We'll skip these for now or could set to a large value
+            if fairgrpo_f1[key] != 0:
+                differences[key] = 100  # Cap at 100% improvement when baseline is 0
+            else:
+                differences[key] = 0
 
 # Parse and organize data by dataset
 datasets = {}
@@ -153,13 +162,13 @@ for idx, (dataset, groups) in enumerate(datasets_ordered.items(), 1):
             text_positions.append('inside')
             text_colors.append('white')
 
-    # Create bar trace with customized text
+    # Create bar trace with customized text (showing percentage)
     trace = go.Bar(
         x=group_names,
         y=values,
         name=dataset,
         marker_color=colors,
-        text=[f'{v:.3f}' for v in values],
+        text=[f'{v:.1f}' for v in values],  # Format as percentage with 1 decimal
         textposition=text_positions,
         textfont=dict(size=18, family="Computer Modern"),
         showlegend=False
@@ -180,7 +189,7 @@ for idx, (dataset, groups) in enumerate(datasets_ordered.items(), 1):
         linecolor="black"
     )
     fig.update_yaxes(
-        title_text="F1 Difference",
+        title_text="F1 Difference (%)",
         row=row, col=col,
         tickfont=dict(size=22.5, family="Computer Modern", color="black"),  # 1.5x size
         title_font=dict(size=27, family="Computer Modern", color="black"),  # 1.5x size
@@ -190,7 +199,7 @@ for idx, (dataset, groups) in enumerate(datasets_ordered.items(), 1):
 
     # Set custom y-axis range for ISIC2020 (first dataset in the reordered list)
     if dataset == 'isic2020':
-        fig.update_yaxes(range=[-0.05, 0.15], row=row, col=col)
+        fig.update_yaxes(range=[-10, 30], row=row, col=col)  # Adjusted for percentage scale
 
 # Add invisible traces for legend
 fig.add_trace(
