@@ -27,15 +27,19 @@ PROJECT_NAME="v6-rha-omni-classifier-multi-head-lora"
     # --warmup_steps 50 \
 
 # FULL LIST (minus ravdess)
+# For old, with everything inside:
 # Completed ("mmsd" "urfunny" "mosei_emotion" "mosei_senti" "meld_senti" "chsimsv2" )
 INCLUDE_DATASETS=("meld_emotion" "daicwoz" "ptsd_in_the_wild" "tess" "cremad")
+
+# For most baseline:
+INCLUDE_DATASETS=("mmsd" "urfunny" "mosei_emotion" "mosei_senti" "meld_senti" "chsimsv2" "cremad" "meld_emotion" "daicwoz" "ptsd_in_the_wild" "tess")
 
 # Exclude list (used only when INCLUDE_DATASETS is empty)
 # this is the list of all datasets, the only datasets that we do not have are literally expw, einterface, mmpsy, so exclude those
 EXCLUDE_DATASETS=("einterface" "expw" "mmpsy_anxiety" "mmpsy_depression" "meld_emotion" "cremad" "chsimsv2" "meld_senti" "mosei_emotion" "mosei_senti" "ravdess" "tess" "ptsd_in_the_wild" "daicwoz" "urfunny" "mmsd")
 
 # Environment
-export CUDA_VISIBLE_DEVICES="4,5"
+export CUDA_VISIBLE_DEVICES="0,1"
 export CUDA_LAUNCH_BLOCKING=1
 export TORCH_USE_CUDA_DSA=1
 
