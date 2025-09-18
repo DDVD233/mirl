@@ -28,11 +28,11 @@ PROJECT_NAME="v6-rha-nogamma_noconf_omni-classifier-multi-head-lora"
 
 # FULL LIST (minus ravdess)
 # For old, with everything inside (conf, gamma):
-# Completed ("mmsd" "urfunny" "mosei_emotion" "mosei_senti" "meld_senti" "chsimsv2" )
-# INCLUDE_DATASETS=("meld_emotion" "daicwoz" "ptsd_in_the_wild" "tess" "cremad")
+# Completed ("mmsd" "urfunny" "mosei_emotion" "mosei_senti" "meld_senti" "chsimsv2" "meld_emotion")
+INCLUDE_DATASETS=("daicwoz" "ptsd_in_the_wild" "tess" "cremad")
 
 # For most baseline (no conf, no gamma):
-INCLUDE_DATASETS=("mmsd" "urfunny" "mosei_emotion" "mosei_senti" "meld_senti" "chsimsv2" "cremad" "meld_emotion" "daicwoz" "ptsd_in_the_wild" "tess")
+# INCLUDE_DATASETS=("mmsd" "urfunny" "mosei_emotion" "mosei_senti" "meld_senti" "chsimsv2" "cremad" "meld_emotion" "daicwoz" "ptsd_in_the_wild" "tess")
 
 # Exclude list (used only when INCLUDE_DATASETS is empty)
 # this is the list of all datasets, the only datasets that we do not have are literally expw, einterface, mmpsy, so exclude those
