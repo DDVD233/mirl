@@ -27,7 +27,7 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml addqa_train_
     --val_batch_size 2 \
     --test_batch_size 2 \
     --lr 1e-4 \
-    --epochs 3 \
+    --epochs 5 \
     --train_file "/scratch/keane/human_behaviour/human_behaviour_data/qa_train.jsonl" \
     --val_file  "/scratch/keane/human_behaviour/human_behaviour_data/qa_test.jsonl" \
     --test_file "/scratch/keane/human_behaviour/human_behaviour_data/qa_test.jsonl" \
