@@ -10,8 +10,8 @@ VAL_JSONL="/scratch/keane/human_behaviour/human_behaviour_data/w_feats_v6_test.j
 ACCEL_CFG="configs/accelerate_config_qwen.yaml"
 SCRIPT="train_rha_multi_head.py"
 
-BASE_SAVE_DIR="/scratch/keane/human_behaviour/v6_rha_residual_only"
-PROJECT_NAME="v6-rha-omni-classifier-multi-head-lora"
+BASE_SAVE_DIR="/scratch/keane/human_behaviour/v6_rha_residual_nogamma_noconf"
+PROJECT_NAME="v6-rha-nogamma_noconf_omni-classifier-multi-head-lora"
 
 # === NEW: Allowlist (exact match, case-sensitive). If non-empty, ONLY these run.
 # INCLUDE_DATASETS=("meld_senti")
@@ -27,11 +27,11 @@ PROJECT_NAME="v6-rha-omni-classifier-multi-head-lora"
     # --warmup_steps 50 \
 
 # FULL LIST (minus ravdess)
-# For old, with everything inside:
+# For old, with everything inside (conf, gamma):
 # Completed ("mmsd" "urfunny" "mosei_emotion" "mosei_senti" "meld_senti" "chsimsv2" )
-INCLUDE_DATASETS=("meld_emotion" "daicwoz" "ptsd_in_the_wild" "tess" "cremad")
+# INCLUDE_DATASETS=("meld_emotion" "daicwoz" "ptsd_in_the_wild" "tess" "cremad")
 
-# For most baseline:
+# For most baseline (no conf, no gamma):
 INCLUDE_DATASETS=("mmsd" "urfunny" "mosei_emotion" "mosei_senti" "meld_senti" "chsimsv2" "cremad" "meld_emotion" "daicwoz" "ptsd_in_the_wild" "tess")
 
 # Exclude list (used only when INCLUDE_DATASETS is empty)
@@ -178,7 +178,7 @@ for DS in "${PROCESS_DS[@]}"; do
     --val_batch_size 2 \
     --test_batch_size 2 \
     --lr 1e-4 \
-    --hard_gamma 5.0 \
+    --hard_gamma 0.0 \
     --base_lr 1e-4 \
     --rla_lr 5e-4 \
     --epochs 4 \
