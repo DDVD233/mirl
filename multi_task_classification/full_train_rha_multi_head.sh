@@ -13,7 +13,7 @@ SCRIPT="train_rha_multi_head.py"
 # BASE_SAVE_DIR="/scratch/keane/human_behaviour/v6_rha_remaining_no_conf_no_gamma"
 # PROJECT_NAME="v6-rha-nogamma_noconf_omni-classifier-multi-head-lora"
 BASE_SAVE_DIR="/scratch/keane/human_behaviour/v6_rha_remaining_full_conf_gamma"
-PROJECT_NAME="v6-rha-fullgamma_conf_omni-classifier-multi-head-lora"
+PROJECT_NAME="v6-rha-omni-classifier-multi-head-lora"
 
 # === NEW: Allowlist (exact match, case-sensitive). If non-empty, ONLY these run.
 # INCLUDE_DATASETS=("meld_senti")
