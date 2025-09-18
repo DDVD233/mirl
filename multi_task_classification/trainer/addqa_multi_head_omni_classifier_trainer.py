@@ -652,6 +652,17 @@ class MultiHeadOmniClassifierAccelerateTrainer:
         # updates_per_epoch = ceil(len(train_dataloader) / max(1, self.gradient_accumulation_steps))
         total_updates = self.epochs * len(train_dataloader)
         
+        # Initialize scheduler just for loading the checkpoints
+        null_optimizer = Adam(self.model.parameters(), lr=self.lr)
+        null_scheduler = get_scheduler(
+            "cosine",
+            null_optimizer,
+            num_warmup_steps=50,
+            num_training_steps=total_updates
+        )
+        null_scheduler = self.accelerator.prepare(null_scheduler)
+        self.accelerator.register_for_checkpointing(null_scheduler)
+
         # Get the scheduler
         if self.use_scheduler:
             scheduler = get_scheduler(

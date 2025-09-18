@@ -12,12 +12,12 @@ echo "Using GPUs: $CUDA_VISIBLE_DEVICES"
 export CUDA_LAUNCH_BLOCKING=1
 export TORCH_USE_CUDA_DSA=1
 
-    # --use_scheduler \
-    # --scheduler_type cosine \
-    # --warmup_steps 25
 
     # 0.001_qa_train.jsonl
     # qa_val.jsonl
+    #     --use_scheduler \
+    # --scheduler_type cosine \
+    # --warmup_steps 50 \
 
 echo "Launching QA training with Accelerate..."
 accelerate launch --config_file configs/accelerate_config_qwen.yaml addqa_train_multi_head.py \
@@ -44,8 +44,5 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml addqa_train_
     --gradient_accumulation_steps 8 \
     --format_prompt "" \
     --max_prompt_length 8096 \
-    --use_scheduler \
-    --scheduler_type cosine \
-    --warmup_steps 50 \
 
 echo "QA training completed!"
