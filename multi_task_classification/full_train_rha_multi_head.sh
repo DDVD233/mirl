@@ -183,7 +183,7 @@ for DS in "${PROCESS_DS[@]}"; do
     --val_batch_size 2 \
     --test_batch_size 2 \
     --lr 1e-4 \
-    --hard_gamma 5.0 \
+    --hard_gamma 0.0 \
     --base_lr 1e-4 \
     --rla_lr 5e-4 \
     --epochs 4 \
