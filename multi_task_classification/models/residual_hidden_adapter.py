@@ -64,7 +64,7 @@ class ResidualHiddenAdapter(nn.Module):
         device = global_logits.device
         
         out = torch.zeros(B, 3, device=device, dtype=global_logits.dtype)
-        return out # always return zero confidence for QA
+        # return out # always return zero confidence for QA
 
         if (global_logits is None) or ((domain_ids == -1).all()):
             if not self._printed_zero_conf_msg:
