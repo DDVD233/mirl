@@ -10,8 +10,8 @@ VAL_JSONL="/scratch/keane/human_behaviour/human_behaviour_data/w_feats_v6_test.j
 ACCEL_CFG="configs/accelerate_config_qwen.yaml"
 SCRIPT="train_rha_multi_head.py"
 
-BASE_SAVE_DIR="/scratch/keane/human_behaviour/v6_rha_residual_nogamma_noconf"
-PROJECT_NAME="v6-rha-nogamma_noconf_omni-classifier-multi-head-lora"
+BASE_SAVE_DIR="/scratch/keane/human_behaviour/v6_rha_remaining_conf_gamma"
+PROJECT_NAME="v6-rha-omni-classifier-multi-head-lora"
 
 # === NEW: Allowlist (exact match, case-sensitive). If non-empty, ONLY these run.
 # INCLUDE_DATASETS=("meld_senti")
@@ -29,7 +29,8 @@ PROJECT_NAME="v6-rha-nogamma_noconf_omni-classifier-multi-head-lora"
 # FULL LIST (minus ravdess)
 # For old, with everything inside (conf, gamma):
 # Completed ("mmsd" "urfunny" "mosei_emotion" "mosei_senti" "meld_senti" "chsimsv2" "meld_emotion")
-INCLUDE_DATASETS=("daicwoz" "ptsd_in_the_wild" "tess" "cremad")
+# LEAVING "daicwoz" out for now as it doesn't have pose; we configure this differently later
+INCLUDE_DATASETS=("ptsd_in_the_wild" "tess" "cremad")
 
 # For most baseline (no conf, no gamma):
 # INCLUDE_DATASETS=("mmsd" "urfunny" "mosei_emotion" "mosei_senti" "meld_senti" "chsimsv2" "cremad" "meld_emotion" "daicwoz" "ptsd_in_the_wild" "tess")
@@ -187,7 +188,7 @@ for DS in "${PROCESS_DS[@]}"; do
     --test_file "$VAL_OUT" \
     --label_map_path "/home/keaneong/human-behavior/verl/multi_task_classification/unified_label_map_v6.json" \
     --load_checkpoint_path "/scratch/keane/human_behaviour/v6_multi_head_lora_training/step_43539" \
-    --save_every_n_epochs 1 \
+    --save_every_n_epochs 999999 \
     --save_every_n_steps 9999999 \
     --save_checkpoint_dir "$SAVE_DIR" \
     --validation_result_dir "$VAL_DIR" \
