@@ -39,7 +39,7 @@ INCLUDE_DATASETS=("daicwoz" "ptsd_in_the_wild" "tess" "cremad")
 EXCLUDE_DATASETS=("einterface" "expw" "mmpsy_anxiety" "mmpsy_depression" "meld_emotion" "cremad" "chsimsv2" "meld_senti" "mosei_emotion" "mosei_senti" "ravdess" "tess" "ptsd_in_the_wild" "daicwoz" "urfunny" "mmsd")
 
 # Environment
-export CUDA_VISIBLE_DEVICES="0,1"
+export CUDA_VISIBLE_DEVICES="4,5"
 export CUDA_LAUNCH_BLOCKING=1
 export TORCH_USE_CUDA_DSA=1
 
