@@ -38,7 +38,7 @@ PROJECT_NAME="v6-rha-omni-classifier-multi-head-lora"
 # completed ("mmsd" "urfunny" "mosei_emotion" "mosei_senti")
 # Leaving out "daicwoz" for now as it doesn't have pose; we configure this differently later
 # INCLUDE_DATASETS=("meld_senti" "chsimsv2" "cremad" "meld_emotion" "ptsd_in_the_wild" "tess")
-INCLUDE_DATASETS=("tess" "ptsd_in_the_wild" "cremad" "chsimsv2" "meld_senti" "meld_emotion")
+INCLUDE_DATASETS=("tess" "ptsd_in_the_wild" "meld_emotion" "cremad" "chsimsv2" "meld_senti")
 
 # Exclude list (used only when INCLUDE_DATASETS is empty)
 # this is the list of all datasets, the only datasets that we do not have are literally expw, einterface, mmpsy, so exclude those
