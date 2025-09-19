@@ -924,6 +924,10 @@ class RHAMultiHeadOmniClassifierAccelerateTrainer:
 
                 # Calculate current step for validation checking
                 current_step = (epoch * len(train_dataloader)) + batch_idx + 1
+
+                if batch_idx == 7:
+                    print(f"⚠️ Skipping problematic batch {batch_idx}")
+                    continue
                 
                 # remember to set it back to train() mode after validation
                 if self.video_adapter is not None:
