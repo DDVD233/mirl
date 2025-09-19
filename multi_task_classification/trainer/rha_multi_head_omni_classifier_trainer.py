@@ -1085,6 +1085,7 @@ class RHAMultiHeadOmniClassifierAccelerateTrainer:
                     preds = logits.argmax(dim=1)
                     
                     # Gather accuracy metrics from all processes
+                    raise Exception("Gathering here")
                     gathered_preds = self.accelerator.gather_for_metrics(preds)
                     gathered_labels = self.accelerator.gather_for_metrics(labels)
                     
