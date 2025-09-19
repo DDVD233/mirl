@@ -46,6 +46,8 @@ INCLUDE_DATASETS=("daicwoz")
 # this is the list of all datasets, the only datasets that we do not have are literally expw, einterface, mmpsy, so exclude those
 EXCLUDE_DATASETS=("einterface" "expw" "mmpsy_anxiety" "mmpsy_depression" "meld_emotion" "cremad" "chsimsv2" "meld_senti" "mosei_emotion" "mosei_senti" "ravdess" "tess" "ptsd_in_the_wild" "daicwoz" "urfunny" "mmsd")
 
+# --train_file /scratch/keane/human_behaviour/human_behaviour_data/trunc_rla_fulltemp_train_daicwoz.jsonl
+#     --train_file "$TRAIN_OUT" \
 # Environment
 export CUDA_VISIBLE_DEVICES="4,5"
 export CUDA_LAUNCH_BLOCKING=1
@@ -190,7 +192,7 @@ for DS in "${PROCESS_DS[@]}"; do
     --base_lr 1e-4 \
     --rla_lr 5e-4 \
     --epochs 4 \
-    --train_file "$TRAIN_OUT" \
+    --train_file /scratch/keane/human_behaviour/human_behaviour_data/trunc_rla_fulltemp_train_daicwoz.jsonl \
     --val_file "$VAL_OUT" \
     --test_file "$VAL_OUT" \
     --label_map_path "/home/keaneong/human-behavior/verl/multi_task_classification/unified_label_map_v6.json" \
