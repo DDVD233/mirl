@@ -206,7 +206,7 @@ for DS in "${PROCESS_DS[@]}"; do
     --validate_every_n_steps 999999 \
     --early_stopping_patience 99999 \
     --project "${PROJECT_NAME}" \
-    --gradient_accumulation_steps 1 \
+    --gradient_accumulation_steps 8 \
     --rla_stage residual_and_head \
     --d_video_feat 3318 \
     --d_audio_feat 6373 \
