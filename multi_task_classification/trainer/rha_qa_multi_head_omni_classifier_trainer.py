@@ -984,6 +984,19 @@ class QARHAMultiHeadOmniClassifierAccelerateTrainer:
                 prepare_base_model=True,
                 prepare_adapters=False,
             )
+
+            # SPECIAL CASE, loading the scheduler for previous implementation
+            # so that it loads properly
+            null_optimizer = Adam(self.model.parameters(), lr=self.lr)
+            null_scheduler = get_scheduler(
+                "cosine",
+                null_optimizer,
+                num_warmup_steps=50,
+                num_training_steps=total_updates
+            )
+            null_scheduler = self.accelerator.prepare(null_scheduler)
+            self.accelerator.register_for_checkpointing(null_scheduler)
+
             # Load only model/RNG
             start_epoch, start_batch_offset, _, _, _ = self.load_checkpoint_unified(
                 accelerator=self.accelerator,
