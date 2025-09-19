@@ -1087,7 +1087,6 @@ class RHAMultiHeadOmniClassifierAccelerateTrainer:
                     # Gather accuracy metrics from all processes
                     gathered_preds = self.accelerator.gather_for_metrics(preds)
                     gathered_labels = self.accelerator.gather_for_metrics(labels)
-                    raise Exception("Gathering here")
                     
                     # Only compute global accuracy on main process
                     if self.accelerator.is_main_process:
