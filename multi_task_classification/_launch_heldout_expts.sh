@@ -150,10 +150,11 @@ TESTS=(
 # Per-index TRAIN BATCH SIZE and GRAD ACCUMULATION
 # (Example values — tweak for your GPU/RAM budget)
 TRAIN_BS=(
-  2 # daicwoz_4
+  # 2 # daicwoz_4
   # 2  # meld_emo_4
   # 2  # mmsd_4
   # 2  # mosei_senti_4
+  2 # QA
 )
 #   1  # mimeqa_4
 #   2  # mimeqa_32
