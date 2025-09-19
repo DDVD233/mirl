@@ -849,7 +849,7 @@ class RHAMultiHeadOmniClassifierAccelerateTrainer:
                     i = 0
                     if self.video_adapter is not None:
                         self.video_adapter = prepared[i]; i += 1
-                    if self.audio_adapter is not None and i < len(prepared):
+                    if self.audio_adapter is not None:
                         self.audio_adapter = prepared[i]
 
             # Phase 2: build per-module optimizers/schedulers for CURRENT prepared modules
