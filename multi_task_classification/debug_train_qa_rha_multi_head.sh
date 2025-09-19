@@ -56,7 +56,7 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml train_qa_rha
   --lr 1e-4 \
   --hard_gamma 0.0 \
   --base_lr 1e-4 \
-  --rla_lr  2e-4 \
+  --rla_lr  5e-4 \
   --epochs 10 \
   --train_file "/scratch/keane/human_behaviour/human_behaviour_data/qa_train_w_feats.jsonl" \
   --val_file   "/scratch/keane/human_behaviour/human_behaviour_data/qa_test_w_feats.jsonl" \
@@ -70,7 +70,7 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml train_qa_rha
   --validate_every_n_epochs 1 \
   --validate_every_n_steps 999999 \
   --early_stopping_patience 99999 \
-  --project "qa-rha-omni-classifier-multi-head-lora" \
+  --project "latest-qa-rha-omni-classifier-multi-head-lora" \
   --gradient_accumulation_steps 4 \
   --rla_stage residual_and_decoder \
   --d_video_feat 3318 \
