@@ -54,7 +54,7 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml train_qa_rha
   --val_batch_size 2 \
   --test_batch_size 2 \
   --lr 1e-4 \
-  --hard_gamma 5.0 \
+  --hard_gamma 0.0 \
   --base_lr 1e-4 \
   --rla_lr  2e-4 \
   --epochs 10 \
@@ -66,7 +66,7 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml train_qa_rha
   --save_every_n_steps 9999999 \
   --save_checkpoint_dir "/scratch/keane/human_behaviour/freeze_base_qa_rha_multi_task_model" \
   --validation_result_dir "/scratch/keane/human_behaviour/freeze_base_qa_rha_multi_task_model/test_results" \
-  --load_checkpoint_path "/scratch/keane/human_behaviour/freeze_base_qa_multi_task_model/step_4578" \
+  --load_checkpoint_path "/scratch/keane/human_behaviour/4_freeze_base_qa_multi_task_model/step_4578" \
   --validate_every_n_epochs 1 \
   --validate_every_n_steps 999999 \
   --early_stopping_patience 99999 \
