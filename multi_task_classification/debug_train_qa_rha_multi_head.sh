@@ -1,6 +1,6 @@
 #!/bin/bash
 echo "Starting LORA + RHA training..."
-export CUDA_VISIBLE_DEVICES="0,1,2,3"
+export CUDA_VISIBLE_DEVICES="0,1,4,5"
 export CUDA_LAUNCH_BLOCKING=1
 export TORCH_USE_CUDA_DSA=1
 
