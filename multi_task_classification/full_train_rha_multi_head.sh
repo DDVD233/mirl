@@ -38,7 +38,9 @@ PROJECT_NAME="v6-rha-omni-classifier-multi-head-lora"
 # completed ("mmsd" "urfunny" "mosei_emotion" "mosei_senti")
 # Leaving out "daicwoz" for now as it doesn't have pose; we configure this differently later
 # INCLUDE_DATASETS=("meld_senti" "chsimsv2" "cremad" "meld_emotion" "ptsd_in_the_wild" "tess")
-INCLUDE_DATASETS=("tess" "ptsd_in_the_wild" "meld_emotion" "cremad" "chsimsv2" "meld_senti")
+# INCLUDE_DATASETS=("tess" "ptsd_in_the_wild" "meld_emotion" "cremad" "chsimsv2" "meld_senti")
+    # --use_rla_video \
+INCLUDE_DATASETS=("daicwoz")
 
 # Exclude list (used only when INCLUDE_DATASETS is empty)
 # this is the list of all datasets, the only datasets that we do not have are literally expw, einterface, mmpsy, so exclude those
@@ -215,7 +217,6 @@ for DS in "${PROCESS_DS[@]}"; do
     --rla_audio_temporal none \
     --rla_video_alpha_init 4.0 \
     --rla_audio_alpha_init 4.0 \
-    --use_rla_video \
     --use_rla_audio \
     --rla_video_use_ln \
     --rla_audio_use_ln \

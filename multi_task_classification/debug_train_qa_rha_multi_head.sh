@@ -63,7 +63,7 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml train_qa_rha
   --test_file  "/scratch/keane/human_behaviour/human_behaviour_data/qa_test_w_feats.jsonl" \
   --label_map_path "/home/keaneong/human-behavior/verl/multi_task_classification/unified_label_map_v6.json" \
   --save_every_n_epochs 1 \
-  --save_every_n_steps 9999999 \
+  --save_every_n_steps 2000 \
   --save_checkpoint_dir "/scratch/keane/human_behaviour/rha_freeze_base_qa_multi_task_model" \
   --validation_result_dir "/scratch/keane/human_behaviour/rha_freeze_base_qa_multi_task_model/test_results" \
   --load_checkpoint_path "/scratch/keane/human_behaviour/4_freeze_base_qa_multi_task_model/step_4578" \
