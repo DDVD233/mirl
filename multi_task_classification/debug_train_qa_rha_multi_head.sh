@@ -1,6 +1,6 @@
 #!/bin/bash
 echo "Starting LORA + RHA training..."
-export CUDA_VISIBLE_DEVICES="0,1,4,5"
+export CUDA_VISIBLE_DEVICES="0,1,2,3"
 export CUDA_LAUNCH_BLOCKING=1
 export TORCH_USE_CUDA_DSA=1
 
@@ -45,9 +45,9 @@ export TORCH_USE_CUDA_DSA=1
 
 
   # --use_rla_audio \
+    # --rla_resume_diff_training_stage \
 
 accelerate launch --config_file configs/accelerate_config_qwen.yaml train_qa_rha_multi_head.py \
-  --rla_resume_diff_training_stage \
   --mode train \
   --training_strategy lora \
   --train_batch_size 2 \
@@ -66,7 +66,7 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml train_qa_rha
   --save_every_n_steps 2000 \
   --save_checkpoint_dir "/scratch/keane/human_behaviour/2_rha_freeze_base_qa_multi_task_model" \
   --validation_result_dir "/scratch/keane/human_behaviour/2_rha_freeze_base_qa_multi_task_model/test_results" \
-  --load_checkpoint_path "/scratch/keane/human_behaviour/4_freeze_base_qa_multi_task_model/step_4578" \
+  --load_checkpoint_path "/scratch/keane/human_behaviour/2_rha_freeze_base_qa_multi_task_model/step_2000" \
   --validate_every_n_epochs 1 \
   --validate_every_n_steps 999999 \
   --early_stopping_patience 99999 \
