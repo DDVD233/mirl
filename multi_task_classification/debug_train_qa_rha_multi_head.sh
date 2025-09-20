@@ -45,9 +45,10 @@ export TORCH_USE_CUDA_DSA=1
 
 
   # --use_rla_audio \
-    # --rla_resume_diff_training_stage \
+
 
 accelerate launch --config_file configs/accelerate_config_qwen.yaml train_qa_rha_multi_head.py \
+  --rla_resume_diff_training_stage \
   --mode train \
   --training_strategy lora \
   --train_batch_size 2 \
