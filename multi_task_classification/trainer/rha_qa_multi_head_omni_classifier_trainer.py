@@ -895,6 +895,21 @@ class QARHAMultiHeadOmniClassifierAccelerateTrainer:
         # Calculate average loss
         avg_loss = total_loss / max(1, len(all_labels)) if self.accelerator.is_main_process else 0.0
         
+
+        if self.accelerator.is_main_process:
+            out_dir = self.validation_result_dir or "."
+            os.makedirs(out_dir, exist_ok=True)
+            step_tag = str(current_step) if current_step is not None else "final"
+            out_path = os.path.join(out_dir, f"{split_name}_qa_preds_step_{step_tag}.json")
+
+            qa_records = [
+                {"dataset": d, "pred": p, "gold": g}
+                for d, p, g in zip(all_qa_datasets, all_pred_texts, all_gold_texts)
+            ]
+            with open(out_path, "w", encoding="utf-8") as f:
+                json.dump(qa_records, f, ensure_ascii=False, indent=2)
+            print(f"[QA] Saved {len(qa_records)} records to: {out_path}")
+        
         # Use the new evaluation module (only on main process)
         if self.accelerator.is_main_process:
             evaluation_results = evaluate_predictions(
