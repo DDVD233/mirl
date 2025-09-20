@@ -863,6 +863,15 @@ class RHAMultiHeadOmniClassifierAccelerateTrainer:
             self._accelerate_prepare_opts_scheds(opts_in_order, sch_in_order)
 
         else:
+
+            # SAME-REGIME (or fresh)
+            # Phase 1: prepare modules WITH adapters if active
+            train_dataloader, val_dataloader, (prepared_model, prepared_video, prepared_audio) = self._accelerate_prepare_modules(
+                                                                        train_dataloader, val_dataloader,
+                                                                        prepare_base_model=True,  # don’t wrap the model again
+                                                                        prepare_adapters=True,
+                                                                    )
+            
             null_optimizer = Adam(self.model.parameters(), lr=self.lr)
             null_scheduler = get_scheduler(
                 "cosine",
@@ -872,14 +881,6 @@ class RHAMultiHeadOmniClassifierAccelerateTrainer:
             )
             null_scheduler = self.accelerator.prepare(null_scheduler)
             self.accelerator.register_for_checkpointing(null_scheduler)
-            
-            # SAME-REGIME (or fresh)
-            # Phase 1: prepare modules WITH adapters if active
-            train_dataloader, val_dataloader, (prepared_model, prepared_video, prepared_audio) = self._accelerate_prepare_modules(
-                                                                        train_dataloader, val_dataloader,
-                                                                        prepare_base_model=True,  # don’t wrap the model again
-                                                                        prepare_adapters=True,
-                                                                    )
             
             # Load full state (model+opts+scheds+RNG) if compatible
             start_epoch, start_batch_offset, _, _, _ = self.load_checkpoint_unified(
