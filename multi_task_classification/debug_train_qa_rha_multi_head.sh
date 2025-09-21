@@ -85,7 +85,7 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml train_qa_rha
   --validate_every_n_steps 999999 \
   --early_stopping_patience 99999 \
   --project "latest-qa-rha-omni-classifier-multi-head-lora" \
-  --gradient_accumulation_steps 4 \
+  --gradient_accumulation_steps 2 \
   --rla_stage residual_and_decoder \
   --d_video_feat 3318 \
   --d_audio_feat 6373 \
