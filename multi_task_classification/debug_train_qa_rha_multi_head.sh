@@ -71,21 +71,21 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml train_qa_rha
   --hard_gamma 0.0 \
   --base_lr 1e-4 \
   --rla_lr  5e-4 \
-  --epochs 10 \
-  --train_file "/scratch/keane/human_behaviour/human_behaviour_data/last_train_mimeqa_rha.jsonl" \
-  --val_file   "/scratch/keane/human_behaviour/human_behaviour_data/last_test_mimeqa_rha.jsonl" \
-  --test_file  "/scratch/keane/human_behaviour/human_behaviour_data/last_test_mimeqa_rha.jsonl" \
+  --epochs 1 \
+  --train_file "/scratch/keane/human_behaviour/human_behaviour_data/last_train_siq2_rha.jsonl" \
+  --val_file   "/scratch/keane/human_behaviour/human_behaviour_data/last_test_siq2_rha.jsonl" \
+  --test_file  "/scratch/keane/human_behaviour/human_behaviour_data/last_test_siq2_rha.jsonl" \
   --label_map_path "/home/keaneong/human-behavior/verl/multi_task_classification/unified_label_map_v6.json" \
   --save_every_n_epochs 1 \
   --save_every_n_steps 2000 \
   --save_checkpoint_dir "/scratch/keane/human_behaviour/last_rha_freeze_base_qa_multi_task_model" \
-  --validation_result_dir "/scratch/keane/human_behaviour/last_rha_freeze_base_qa_multi_task_model/mimeqa_test_results" \
+  --validation_result_dir "/scratch/keane/human_behaviour/last_rha_freeze_base_qa_multi_task_model/siq2_test_results" \
   --load_checkpoint_path "/scratch/keane/human_behaviour/4_freeze_base_qa_multi_task_model/step_4578" \
   --validate_every_n_epochs 1 \
   --validate_every_n_steps 999999 \
   --early_stopping_patience 99999 \
   --project "latest-qa-rha-omni-classifier-multi-head-lora" \
-  --gradient_accumulation_steps 2 \
+  --gradient_accumulation_steps 4 \
   --rla_stage residual_and_decoder \
   --d_video_feat 3318 \
   --d_audio_feat 6373 \
