@@ -79,7 +79,7 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml train_qa_rha
   --save_every_n_epochs 1 \
   --save_every_n_steps 2000 \
   --save_checkpoint_dir "/scratch/keane/human_behaviour/last_rha_freeze_base_qa_multi_task_model" \
-  --validation_result_dir "/scratch/keane/human_behaviour/last_rha_freeze_base_qa_multi_task_model/intentqs_test_results" \
+  --validation_result_dir "/scratch/keane/human_behaviour/last_rha_freeze_base_qa_multi_task_model/intentqa_test_results" \
   --load_checkpoint_path "/scratch/keane/human_behaviour/4_freeze_base_qa_multi_task_model/step_4578" \
   --validate_every_n_epochs 1 \
   --validate_every_n_steps 999999 \
