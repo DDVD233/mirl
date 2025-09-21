@@ -46,6 +46,19 @@ export TORCH_USE_CUDA_DSA=1
 
   # --use_rla_audio \
 
+   # MIME QA:
+    # last_train_mimeqa_rha.jsonl
+    # last_test_mimeqa_rha.jsonl
+
+    # INTENTQA:
+    # last_train_intentqa_rha.jsonl
+    # last_test_intentqa_rha.jsonl
+
+    # SIQ2:
+    # last_train_siq2_rha.jsonl
+    # last_test_siq2_rha.jsonl
+
+
 
 accelerate launch --config_file configs/accelerate_config_qwen.yaml train_qa_rha_multi_head.py \
   --rla_resume_diff_training_stage \
@@ -59,14 +72,14 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml train_qa_rha
   --base_lr 1e-4 \
   --rla_lr  5e-4 \
   --epochs 10 \
-  --train_file "/scratch/keane/human_behaviour/human_behaviour_data/qa_train_w_feats.jsonl" \
-  --val_file   "/scratch/keane/human_behaviour/human_behaviour_data/qa_test_w_feats.jsonl" \
-  --test_file  "/scratch/keane/human_behaviour/human_behaviour_data/qa_test_w_feats.jsonl" \
+  --train_file "/scratch/keane/human_behaviour/human_behaviour_data/last_train_mimeqa_rha.jsonl" \
+  --val_file   "/scratch/keane/human_behaviour/human_behaviour_data/last_test_mimeqa_rha.jsonl" \
+  --test_file  "/scratch/keane/human_behaviour/human_behaviour_data/last_test_mimeqa_rha.jsonl" \
   --label_map_path "/home/keaneong/human-behavior/verl/multi_task_classification/unified_label_map_v6.json" \
   --save_every_n_epochs 1 \
   --save_every_n_steps 2000 \
-  --save_checkpoint_dir "/scratch/keane/human_behaviour/2_rha_freeze_base_qa_multi_task_model" \
-  --validation_result_dir "/scratch/keane/human_behaviour/2_rha_freeze_base_qa_multi_task_model/test_results" \
+  --save_checkpoint_dir "/scratch/keane/human_behaviour/last_rha_freeze_base_qa_multi_task_model" \
+  --validation_result_dir "/scratch/keane/human_behaviour/last_rha_freeze_base_qa_multi_task_model/mimeqa_test_results" \
   --load_checkpoint_path "/scratch/keane/human_behaviour/4_freeze_base_qa_multi_task_model/step_4578" \
   --validate_every_n_epochs 1 \
   --validate_every_n_steps 999999 \
