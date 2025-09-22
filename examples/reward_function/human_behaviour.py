@@ -1,5 +1,7 @@
 from typing import List, Dict
 import re
+import numpy as np
+from sentence_transformers import SentenceTransformer
 
 def extract_boxed_content(text: str) -> str:
     """
@@ -45,6 +47,35 @@ def accuracy_reward(response: str, ground_truth: str) -> float:
     """
     return 1.0 if response == ground_truth else 0.0
 
+def cosine_similarity_reward(pred_label: str, ground_truth: str, model: SentenceTransformer) -> float:
+    """
+    Compute cosine similarity between predicted label and ground truth using embeddings.
+
+    Args:
+        pred_label: Predicted label string
+        ground_truth: Ground truth string
+        model: SentenceTransformer model for embeddings
+
+    Returns:
+        Cosine similarity score between 0 and 1
+    """
+    # Get embeddings for both strings
+    embeddings = model.encode([pred_label, ground_truth], convert_to_numpy=True)
+
+    # Compute cosine similarity
+    pred_emb = embeddings[0]
+    gt_emb = embeddings[1]
+
+    # Normalize vectors
+    pred_norm = pred_emb / np.linalg.norm(pred_emb)
+    gt_norm = gt_emb / np.linalg.norm(gt_emb)
+
+    # Compute cosine similarity
+    cos_sim = np.dot(pred_norm, gt_norm)
+
+    # Ensure the value is between 0 and 1
+    return max(0.0, min(1.0, float(cos_sim)))
+
 def human_behaviour_compute_score_batch(
     data_sources: List[str],
     solution_strs: List[str],
@@ -67,6 +98,10 @@ def human_behaviour_compute_score_batch(
     batch_scores = []
     format_weight = 0.2 # weight for format correctness
 
+    # Initialize the embedding model (using a lightweight model)
+    # 'all-MiniLM-L6-v2' is fast and only 22.7MB
+    embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
+
     for data_source, predict_str, ground_truth, extra_info in zip(data_sources, solution_strs, ground_truths, extra_infos):
         # Normalize response formatting (e.g., qwen2.5vl quirks)
         full_response = re.sub(r"\s*(<|>|/)\s*", r"\1", predict_str)
@@ -77,14 +112,16 @@ def human_behaviour_compute_score_batch(
         # Compute individual components
         format_score = format_reward(full_response)
         standard_score = accuracy_reward(pred_label, ground_truth)
+        similarity_score = cosine_similarity_reward(pred_label, ground_truth, embedding_model)
 
-        # Weighted overall score
-        overall_score = (1 - format_weight) * standard_score + format_weight * format_score
+        # Sum of all three rewards
+        overall_score = standard_score + format_weight * format_score + 0.5 * similarity_score
 
         scores = {
             "score": overall_score,
             "standard_score": standard_score,
             "format_score": format_score,
+            "similarity_score": similarity_score,
         }
         batch_scores.append(scores)
 
