@@ -1,5 +1,8 @@
 import os
+from collections import defaultdict
+
 import ujson
+from tqdm import tqdm
 
 
 def update_annotations(file_path: str) -> None:
@@ -102,6 +105,18 @@ def update_annotations(file_path: str) -> None:
         assert answer in keys, f"Answer '{answer}' not in mappings keys for question: {question}"
         assert answer in question, f"Answer '{answer}' not found in question: {question}"
 
+    # Add daic-woz
+    if 'train' in file_path:
+        with open('heldout_train_full_daicwoz.jsonl', 'r') as f:
+            for line in f:
+                data = ujson.loads(line)
+                updated_lines.append(data)
+    else:
+        with open('heldout_test_daicwoz.jsonl', 'r') as f:
+            for line in f:
+                data = ujson.loads(line)
+                updated_lines.append(data)
+
     new_filename = os.path.splitext(file_path)[0] + '_upd.jsonl'
 
     with open(new_filename, 'w') as f:
@@ -145,17 +160,46 @@ def merge_annotations():
                 data = ujson.loads(line)
                 all_data.append(data)
 
-    with open('daicwoz_with_transcript.jsonl', 'r') as f:
-        for line in f:
-            data = ujson.loads(line)
-            all_data.append(data)
+    # with open('daicwoz_with_transcript.jsonl', 'r') as f:
+    #     for line in f:
+    #         data = ujson.loads(line)
+    #         all_data.append(data)
+
+    paths = []
+    dataset_counts = defaultdict(int)
 
     # Remove "dataset":"ravdess"
     all_data = [item for item in all_data if item.get('dataset') not in ['ravdess', 'einterface', 'expw']]
 
-    # remove mosei_senti
-    all_data = [item for item in all_data if item.get('dataset') != 'mosei_senti']
+    # # remove mosei_senti
+    # all_data = [item for item in all_data if item.get('dataset') != ]
+    filtered_data = []
+    num_audios, num_videos, num_images = 0, 0, 0
+    for item in tqdm(all_data):
+        if len(item['audios']) > 0:
+            path = item['audios'][0]
+        elif len(item['videos']) > 0:
+            path = item['videos'][0]
+        elif len(item['images']) > 0:
+            path = item['images'][0]
+        else:
+            path = item['problem']
+        if path in paths:
+            continue
 
+        if len(item['videos']) > 0:
+            num_videos += 1
+        elif len(item['audios']) > 0:
+            num_audios += 1
+        elif len(item['images']) > 0:
+            num_images += 1
+        filtered_data.append(item)
+        # paths.append(path)
+        dataset_counts[item['dataset']] += 1
+
+    print(dataset_counts)
+    print(
+        f"Total unique samples: {len(filtered_data)}, with {num_audios} audios, {num_videos} videos, {num_images} images.")
     with open('all_annotations.jsonl', 'w') as f:
         for item in all_data:
             f.write(ujson.dumps(item) + '\n')

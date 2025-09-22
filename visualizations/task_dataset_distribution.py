@@ -5,13 +5,17 @@ from pathlib import Path
 import numpy as np
 from collections import defaultdict
 
-# Define color palette
-colors = ["#da81c1", "#7dbfa7", "#b0d766", "#8ca0cb", "#ee946c", "#da81c1"]
+# Define color palette for modalities
+modality_colors = {
+    'T/A/V': '#7dbfa7',  # Text + Audio + Video
+    'A': '#da81c1',      # Audio only
+    'T': '#b0d766'       # Text only
+}
 
 # Define task to dataset mapping based on the table
 task_dataset_mapping = {
-    'SEN': ['MOSEI', 'MELD', 'CH-SIMSv2'],
-    'EMO': ['MOSEI', 'MELD', 'CREMA-D', 'RAVDESS', 'TESS'],
+    'SEN': ['CH-SIMSv2', 'MELD-S', 'MOSEI-S'],
+    'EMO': ['CREMA-D', 'RAVDESS', 'TESS', 'MELD-E', 'MOSEI-E'],
     'HUM': ['UR-FUNNY'],
     'SAR': ['MUSTARD'],
     'SOC': ['SocialIQ2'],
@@ -25,6 +29,10 @@ task_dataset_mapping = {
 # Define dataset to modality mapping (T=Text, A=Audio, V=Video)
 dataset_modalities = {
     'MOSEI': 'T/A/V',
+    'MOSEI-E': 'T/A/V',
+    'MOSEI-S': 'T/A/V',
+    'MELD-E': 'T/A/V',
+    'MELD-S': 'T/A/V',
     'MELD': 'T/A/V',
     'CH-SIMSv2': 'T/A/V',
     'CREMA-D': 'A',
@@ -55,10 +63,10 @@ def get_dataset_task_counts():
 
             # Map dataset names to our standardized names
             dataset_mapping = {
-                'mosei_emotion': 'MOSEI',
-                'mosei_sentiment': 'MOSEI',
-                'meld_emotion': 'MELD',
-                'meld_sentiment': 'MELD',
+                'mosei_emotion': 'MOSEI-E',
+                'mosei_senti': 'MOSEI-S',
+                'meld_emotion': 'MELD-E',
+                'meld_senti': 'MELD-S',
                 'cremad': 'CREMA-D',
                 'tess': 'TESS',
                 'chsimsv2': 'CH-SIMSv2',
@@ -83,7 +91,7 @@ def get_dataset_task_counts():
             original_dataset = sample.get('dataset', '').lower()
             if 'emotion' in original_dataset:
                 task = 'EMO'
-            elif 'sentiment' in original_dataset:
+            elif 'senti' in original_dataset:
                 task = 'SEN'
             elif 'anxiety' in original_dataset:
                 task = 'ANX'
@@ -102,17 +110,15 @@ def get_dataset_task_counts():
     return dataset_task_counts
 
 def assign_modality_colors(modality):
-    """Assign color based on modality complexity"""
-    modality_color_map = {
-        'T': colors[0],       # Text only - lightest
-        'A': colors[1],       # Audio only
-        'V': colors[2],       # Video only
-        'T/A': colors[3],     # Text + Audio
-        'A/V': colors[4],     # Audio + Video
-        'T/V': colors[5],     # Text + Video
-        'T/A/V': colors[2]    # All three - darkest
-    }
-    return modality_color_map.get(modality, colors[0])
+    """Assign color based on modality type"""
+    # Map all modality combinations to the three main categories
+    if modality == 'T':
+        return modality_colors['T']  # Text only
+    elif modality == 'A':
+        return modality_colors['A']  # Audio only
+    else:
+        # All other combinations (T/A, A/V, T/V, T/A/V) use the T/A/V color
+        return modality_colors['T/A/V']
 
 def create_stacked_bar_chart():
     """Create stacked bar chart showing dataset contributions to each task"""
@@ -154,6 +160,9 @@ def create_stacked_bar_chart():
         modality_groups[modality].sort()
 
     traces = []
+
+    # Track which legend groups we've already added
+    legend_added = {'T': False, 'A': False, 'T/A/V': False}
 
     # Create traces in modality order for consistent stacking
     modality_order = ['T', 'A', 'V', 'T/A', 'A/V', 'T/V', 'T/A/V']
@@ -203,19 +212,32 @@ def create_stacked_bar_chart():
             # Get color for modality
             color = assign_modality_colors(modality)
 
+            # Determine legend group and whether to show in legend
+            if modality == 'T':
+                legend_group = 'Text only'
+                show_legend = not legend_added['T']
+                legend_added['T'] = True
+            elif modality == 'A':
+                legend_group = 'Audio only'
+                show_legend = not legend_added['A']
+                legend_added['A'] = True
+            else:
+                legend_group = 'T+A+V'
+                show_legend = not legend_added['T/A/V']
+                legend_added['T/A/V'] = True
+
             # Create trace with mixed text positions
             trace = go.Bar(
-                name=f"{dataset} ({modality})",
+                name=legend_group if show_legend else f"{dataset} ({modality})",
                 x=tasks,
                 y=task_values,
                 marker_color=color,
                 text=text_labels,
                 textposition=text_positions,
-                textfont=dict(size=24, family='Computer Modern'),
-                hovertemplate='<b>%{fullData.name}</b><br>' +
-                              'Task: %{x}<br>' +
-                              'Samples: %{y:,}<br>' +
-                              '<extra></extra>'
+                textfont=dict(size=31, family='Computer Modern'),
+                customdata=[f"{dataset} ({modality})"] * len(tasks),
+                legendgroup=legend_group,
+                showlegend=show_legend
             )
 
             # Update text colors individually
@@ -230,12 +252,12 @@ def create_stacked_bar_chart():
 
     # Update layout
     fig.update_layout(
-        title={
-            'text': 'Dataset Contributions Across Behavioral Tasks',
-            'x': 0.5,
-            'xanchor': 'center',
-            'font': {'size': 36, 'color': 'black', 'family': 'Computer Modern'}
-        },
+        # title={
+        #     'text': 'Dataset Contributions Across Behavioral Tasks',
+        #     'x': 0.5,
+        #     'xanchor': 'center',
+        #     'font': {'size': 36, 'color': 'black', 'family': 'Computer Modern'}
+        # },
         xaxis_title='Task',
         yaxis_title='Number of Samples',
         barmode='stack',
@@ -243,7 +265,17 @@ def create_stacked_bar_chart():
         width=800,
         height=800,
         font=dict(size=24, color='black', family='Computer Modern'),
-        showlegend=False,  # Remove legend
+        showlegend=True,  # Show legend
+        legend=dict(
+            x=1,  # Position at right
+            y=0.9,  # Position at top
+            xanchor='right',
+            yanchor='top',
+            font=dict(size=24, family='Computer Modern'),
+            bgcolor='rgba(255, 255, 255, 0.8)',  # Semi-transparent white background
+            bordercolor='black',
+            borderwidth=1
+        ),
         bargap=0.1,  # Smaller bar spacing
         margin=dict(l=120, r=100, t=150, b=120),
         xaxis=dict(
@@ -286,7 +318,7 @@ def create_stacked_bar_chart():
 
     # Save the figure
     fig.write_html('visualizations/task_dataset_distribution.html')
-    fig.write_image('visualizations/task_dataset_distribution.png', width=800, height=800, scale=2)
+    fig.write_image('visualizations/task_dataset_distribution.png', width=700, height=900, scale=4)
     print("Task-dataset distribution chart saved!")
 
     # Print summary statistics (ordered by size)

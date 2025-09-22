@@ -49,46 +49,55 @@ def analyze_modalities(annotations):
 
     return modality_counts
 
-def create_modality_bar_plot(modality_counts):
-    """Create bar plot for modality distribution"""
+def create_modality_pie_chart(modality_counts):
+    """Create pie chart for modality distribution"""
 
     # Sort by count for better visualization
     sorted_items = sorted(modality_counts.items(), key=lambda x: x[1], reverse=True)
     categories = [item[0] for item in sorted_items]
     values = [item[1] for item in sorted_items]
 
-    fig = go.Figure(data=[
-        go.Bar(
-            x=categories,
-            y=values,
-            marker_color=colors[0],
-            text=values,
-            textposition='auto',
-            textfont=dict(size=18, color='white', family='Computer Modern')
-        )
-    ])
+    # Calculate percentages to determine text position
+    total = sum(values)
+    percentages = [v/total * 100 for v in values]
+
+    # Set text position and color based on percentage
+    # If percentage < 5%, put text outside with black color
+    textpositions = ['inside' if p >= 5 else 'outside' for p in percentages]
+
+    fig = go.Figure(data=[go.Pie(
+        labels=categories,
+        values=values,
+        marker=dict(colors=colors[:len(categories)]),
+        textinfo='label+percent',
+        textposition=textpositions,
+        textfont=dict(size=24, family='Computer Modern'),
+        insidetextfont=dict(size=24, color='white', family='Computer Modern'),
+        outsidetextfont=dict(size=24, color='black', family='Computer Modern'),
+        hovertemplate='<b>%{label}</b><br>' +
+                      'Count: %{value}<br>' +
+                      'Percentage: %{percent}<br>' +
+                      '<extra></extra>'
+    )])
 
     fig.update_layout(
-        title={
-            'text': 'Distribution of Modalities in Human Behavior Dataset',
-            'x': 0.5,
-            'xanchor': 'center',
-            'font': {'size': 30, 'color': 'black', 'family': 'Computer Modern'}
-        },
-        xaxis_title='Modality Combination',
-        yaxis_title='Number of Samples',
+        # title={
+        #     'text': 'Distribution of Modalities in Human Behavior Dataset',
+        #     'x': 0.5,
+        #     'xanchor': 'center',
+        #     'font': {'size': 30, 'color': 'black', 'family': 'Computer Modern'}
+        # },
         template='plotly_white',
         width=800,
         height=800,
         showlegend=False,
-        font=dict(size=18, color='black', family='Computer Modern'),
-        xaxis={'tickangle': -45},
+        font=dict(size=24, color='white', family='Computer Modern'),
         margin=dict(l=100, r=100, t=120, b=120)
     )
 
     # Save the figure with scale=2 for high resolution
     fig.write_html('visualizations/modality_distribution.html')
-    fig.write_image('visualizations/modality_distribution.png', width=800, height=800, scale=2)
+    fig.write_image('visualizations/modality_distribution.png', width=500, height=500, scale=2)
     print("Modality distribution plot saved to visualizations/modality_distribution.html and .png")
 
     return fig
@@ -221,14 +230,24 @@ def create_duration_pie_chart(durations):
     labels = [labels[i] for i in non_zero_indices]
     bin_counts = [bin_counts[i] for i in non_zero_indices]
 
+    # Calculate percentages to determine text position
+    total = sum(bin_counts)
+    percentages = [v/total * 100 for v in bin_counts]
+
+    # Set text position and color based on percentage
+    # If percentage < 5%, put text outside with black color
+    textpositions = ['inside' if p >= 5 else 'outside' for p in percentages]
+
     # Create pie chart
     fig = go.Figure(data=[go.Pie(
         labels=labels,
         values=bin_counts,
         marker=dict(colors=colors[:len(labels)]),
         textinfo='label+percent',
-        textposition='auto',
-        textfont=dict(size=24, color='white', family='Computer Modern'),
+        textposition=textpositions,
+        textfont=dict(size=24, family='Computer Modern'),
+        insidetextfont=dict(size=24, color='white', family='Computer Modern'),
+        outsidetextfont=dict(size=24, color='black', family='Computer Modern'),
         hovertemplate='<b>%{label}</b><br>' +
                       'Count: %{value}<br>' +
                       'Percentage: %{percent}<br>' +
@@ -236,31 +255,23 @@ def create_duration_pie_chart(durations):
     )])
 
     fig.update_layout(
-        title={
-            'text': 'Distribution of Audio/Video Duration',
-            'x': 0.5,
-            'xanchor': 'center',
-            'font': {'size': 30, 'color': 'black', 'family': 'Computer Modern'}
-        },
+        # title={
+        #     'text': 'Distribution of Audio/Video Duration',
+        #     'x': 0.5,
+        #     'xanchor': 'center',
+        #     'font': {'size': 30, 'color': 'black', 'family': 'Computer Modern'}
+        # },
         template='plotly_white',
         width=800,
         height=800,
         font=dict(size=24, color='white', family='Computer Modern'),
-        showlegend=True,
-        legend=dict(
-            orientation="v",
-            yanchor="middle",
-            y=0.5,
-            xanchor="left",
-            x=1.02,
-            font=dict(size=24, color='black', family='Computer Modern')
-        ),
-        margin=dict(l=100, r=150, t=120, b=100)
+        showlegend=False,
+        margin=dict(l=100, r=100, t=120, b=100)
     )
 
     # Save the figure with scale=2 for high resolution
     fig.write_html('visualizations/duration_distribution.html')
-    fig.write_image('visualizations/duration_distribution.png', width=800, height=800, scale=2)
+    fig.write_image('visualizations/duration_distribution.png', width=500, height=500, scale=2)
     print("Duration distribution pie chart saved to visualizations/duration_distribution.html and .png")
 
     return fig
@@ -275,7 +286,7 @@ def main():
     print("\nAnalyzing modality distribution...")
     modality_counts = analyze_modalities(annotations)
     print("Modality counts:", modality_counts)
-    fig1 = create_modality_bar_plot(modality_counts)
+    fig1 = create_modality_pie_chart(modality_counts)
 
     # Figure 2: Duration distribution pie chart
     print("\nAnalyzing duration distribution...")

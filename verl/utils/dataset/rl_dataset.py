@@ -377,8 +377,6 @@ class RLHFDataset(Dataset):
         """
         row_dict: dict = self.dataframe[item]
 
-
-
         if 'reward_model' not in row_dict:
             if 'answer' in row_dict:
                 answer = row_dict['answer']
