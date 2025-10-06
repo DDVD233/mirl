@@ -125,3 +125,7 @@ logs
 log
 outputs
 .history
+
+data/
+data_logs/
+misc_data/
