@@ -292,7 +292,7 @@ class BaseModelMerger(ABC):
                 )
             except AttributeError:
                 model = auto_model_class._from_config(
-                    self.model_config, torch_dtype=torch.bfloat16, trust_remote_code=self.config.trust_remote_code
+                    self.model_config, torch_dtype=torch.bfloat16
                 )
         model.to_empty(device="cpu")
         model = self.patch_model_generation_config(model)
