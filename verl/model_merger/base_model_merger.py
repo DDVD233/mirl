@@ -199,7 +199,7 @@ class BaseModelMerger(ABC):
     def get_transformers_auto_model_class(self):
         if "ForTokenClassification" in self.model_config.architectures[0]:
             return AutoModelForTokenClassification
-        elif "omni" in self.hf_model_config_path:
+        elif "omni" in self.hf_model_config_path.lower():
             from transformers import Qwen2_5OmniThinkerForConditionalGeneration
             return Qwen2_5OmniThinkerForConditionalGeneration
         elif "ForCausalLM" in self.model_config.architectures[0]:
@@ -286,9 +286,14 @@ class BaseModelMerger(ABC):
     def save_hf_model_and_tokenizer(self, state_dict: dict[str, torch.Tensor]):
         auto_model_class = self.get_transformers_auto_model_class()
         with init_empty_weights():
-            model = auto_model_class.from_config(
-                self.model_config, torch_dtype=torch.bfloat16, trust_remote_code=self.config.trust_remote_code
-            )
+            try:
+                model = auto_model_class.from_config(
+                    self.model_config, torch_dtype=torch.bfloat16, trust_remote_code=self.config.trust_remote_code
+                )
+            except AttributeError:
+                model = auto_model_class._from_config(
+                    self.model_config, torch_dtype=torch.bfloat16, trust_remote_code=self.config.trust_remote_code
+                )
         model.to_empty(device="cpu")
         model = self.patch_model_generation_config(model)
 
