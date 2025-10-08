@@ -184,6 +184,7 @@ class BaseModelMerger(ABC):
     def __init__(self, config: ModelMergerConfig):
         self.config = config
         self.hf_model_config_path = config.hf_model_config_path
+        print(f"Loading model config from {self.hf_model_config_path}")
         if "Omni" in self.hf_model_config_path:
             from transformers import Qwen2_5OmniThinkerConfig
             self.model_config = Qwen2_5OmniThinkerConfig.from_pretrained(
