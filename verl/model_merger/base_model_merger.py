@@ -184,9 +184,16 @@ class BaseModelMerger(ABC):
     def __init__(self, config: ModelMergerConfig):
         self.config = config
         self.hf_model_config_path = config.hf_model_config_path
-        self.model_config = AutoConfig.from_pretrained(
-            self.hf_model_config_path, trust_remote_code=self.config.trust_remote_code
-        )
+        if "Omni" in self.hf_model_config_path:
+            from transformers import Qwen2_5OmniThinkerConfig
+            self.model_config = Qwen2_5OmniThinkerConfig.from_pretrained(
+                self.hf_model_config_path,
+                trust_remote_code=self.config.trust_remote_code
+            )
+        else:
+            self.model_config = AutoConfig.from_pretrained(
+                self.hf_model_config_path, trust_remote_code=self.config.trust_remote_code
+            )
 
     def get_transformers_auto_model_class(self):
         if "ForTokenClassification" in self.model_config.architectures[0]:
