@@ -199,7 +199,7 @@ class BaseModelMerger(ABC):
     def get_transformers_auto_model_class(self):
         if "ForTokenClassification" in self.model_config.architectures[0]:
             return AutoModelForTokenClassification
-        elif "Qwen2.5-Omni" in self.hf_model_config_path:
+        elif "omni" in self.hf_model_config_path:
             from transformers import Qwen2_5OmniThinkerForConditionalGeneration
             return Qwen2_5OmniThinkerForConditionalGeneration
         elif "ForCausalLM" in self.model_config.architectures[0]:
