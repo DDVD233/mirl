@@ -9,6 +9,9 @@ export HYDRA_FULL_ERROR=1
 export PYTHONPATH="/home/keaneong/human-behavior/verl:$PYTHONPATH"
 export NCCL_ASYNC_ERROR_HANDLING=1
 
+# train modality batching = do one modality at a time;
+
+
 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
     data.train_files=/scratch/keane/human_behaviour/human_behaviour_data/w_feats_v6_train.jsonl \
