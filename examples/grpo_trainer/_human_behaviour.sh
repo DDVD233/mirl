@@ -3,8 +3,8 @@ ENGINE=${1:-vllm}
 
 PYTHONUNBUFFERED=1 HYDRA_FULL_ERROR=1 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
-    data.train_files=/scratch/keane/human_behaviour/human_behaviour_data/train_no_meld_no_chalearn_vision_v2_template_prompts.jsonl \
-    data.val_files=/scratch/keane/human_behaviour/human_behaviour_data/val_no_meld_no_chalearn_vision_v2_template_prompts.jsonl \
+    data.train_files=/scratch/keane/human_behaviour/human_behaviour_data/w_feats_v6_train.jsonl \
+    data.val_files=/scratch/keane/human_behaviour/human_behaviour_data/w_feats_v6_val.jsonl \
     data.train_batch_size=512 \
     data.val_batch_size=128 \
     data.max_prompt_length=4096 \
