@@ -16,7 +16,7 @@ python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
     data.train_files=/scratch/keane/human_behaviour/human_behaviour_data/w_feats_v6_train.jsonl \
     data.val_files=/scratch/keane/human_behaviour/human_behaviour_data/w_feats_v6_val.jsonl \
-    data.train_batch_size=192 \
+    data.train_batch_size=256 \
     data.val_batch_size=96 \
     data.max_prompt_length=4096 \
     data.max_response_length=4096 \
@@ -35,7 +35,7 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.model.path=Qwen/Qwen2.5-Omni-7B \
     actor_rollout_ref.actor.optim.lr=1e-6 \
     actor_rollout_ref.model.use_remove_padding=False \
-    actor_rollout_ref.actor.ppo_mini_batch_size=48 \
+    actor_rollout_ref.actor.ppo_mini_batch_size=128 \
     actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=2 \
     actor_rollout_ref.actor.use_kl_loss=False \
     actor_rollout_ref.actor.kl_loss_coef=0 \
@@ -71,7 +71,7 @@ python3 -m verl.trainer.main_ppo \
     trainer.save_freq=10 \
     trainer.val_before_train=False \
     trainer.val_only=False \
-    trainer.validation_data_dir=/home/keaneong/human-behavior/verl/examples/grpo_trainer/mixed_modal_verl_models_hb_omni_gpublock1 \
+    trainer.validation_data_dir=/home/keaneong/human-behavior/verl/examples/grpo_trainer/new_mixed_modal_verl_models_hb_omni_gpublock1 \
     trainer.test_freq=5 \
     trainer.total_epochs=5 $@ \
-    trainer.default_local_dir=/scratch/keane/human_behaviour/mixed_modal_verl_models_hb_omni_gpublock1
+    trainer.default_local_dir=/scratch/keane/human_behaviour/new_mixed_modal_verl_models_hb_omni_gpublock1
