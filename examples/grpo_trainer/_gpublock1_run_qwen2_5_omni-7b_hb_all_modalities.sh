@@ -18,7 +18,7 @@ python3 -m verl.trainer.main_ppo \
     data.val_files=/scratch/keane/human_behaviour/human_behaviour_data/v5_val_upd.jsonl \
     data.train_batch_size=128 \
     data.val_batch_size=96 \
-    data.max_prompt_length=8096 \
+    data.max_prompt_length=4096 \
     data.max_response_length=4096 \
     data.filter_overlong_prompts=False \
     data.truncation='right' \
