@@ -11,11 +11,14 @@ export NCCL_ASYNC_ERROR_HANDLING=1
 
 # train modality batching = do one modality at a time;
 
+# --train_file "/scratch/keane/human_behaviour/human_behaviour_data/w_feats_v6_exclude_heldout_train.jsonl" \
+# --val_file "/scratch/keane/human_behaviour/human_behaviour_data/w_feats_v6_exclude_heldout_val.jsonl" \
+
 
 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
-    data.train_files=/scratch/keane/human_behaviour/human_behaviour_data/v5_train_upd.jsonl \
-    data.val_files=/scratch/keane/human_behaviour/human_behaviour_data/v5_val_upd.jsonl \
+    data.train_files=/scratch/keane/human_behaviour/human_behaviour_data/w_feats_v6_exclude_heldout_train.jsonl \
+    data.val_files=/scratch/keane/human_behaviour/human_behaviour_data/w_feats_v6_exclude_heldout_val.jsonl \
     data.train_batch_size=128 \
     data.val_batch_size=96 \
     data.max_prompt_length=4096 \
@@ -64,14 +67,14 @@ python3 -m verl.trainer.main_ppo \
     reward_model.reward_manager=batch \
     trainer.critic_warmup=0 \
     trainer.logger='["console","wandb"]' \
-    trainer.project_name='mixed_modal_verl_hb' \
-    trainer.experiment_name='mixed_modal_omni_gpublock_1' \
+    trainer.project_name='rl_omni_heldout' \
+    trainer.experiment_name='rl_omni_heldout' \
     trainer.n_gpus_per_node=2 \
     trainer.nnodes=1 \
-    trainer.save_freq=10 \
+    trainer.save_freq=500 \
     trainer.val_before_train=False \
     trainer.val_only=False \
-    trainer.validation_data_dir=/home/keaneong/human-behavior/verl/examples/grpo_trainer/new_mixed_modal_verl_models_hb_omni_gpublock1 \
-    trainer.test_freq=1 \
+    trainer.validation_data_dir=/home/keaneong/human-behavior/verl/examples/grpo_trainer/rl_omni_heldout \
+    trainer.test_freq=500 \
     trainer.total_epochs=5 $@ \
-    trainer.default_local_dir=/scratch/keane/human_behaviour/new_mixed_modal_verl_models_hb_omni_gpublock1
+    trainer.default_local_dir=/scratch/keane/human_behaviour/rl_omni_heldout
