@@ -73,10 +73,10 @@ python3 -m verl.trainer.main_ppo \
     trainer.experiment_name='rl_omni_heldout' \
     trainer.n_gpus_per_node=2 \
     trainer.nnodes=1 \
-    trainer.save_freq=112 \
+    trainer.save_freq=50 \
     trainer.val_before_train=False \
     trainer.val_only=False \
     trainer.validation_data_dir=/scratch/keane/human_behaviour/rl_omni_heldout \
-    trainer.test_freq=112 \
+    trainer.test_freq=50 \
     trainer.total_epochs=5 $@ \
     trainer.default_local_dir=/scratch/keane/human_behaviour/rl_omni_heldout
