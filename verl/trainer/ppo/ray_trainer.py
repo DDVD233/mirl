@@ -313,6 +313,40 @@ def compute_advantage(
         )
         data.batch["advantages"] = advantages
         data.batch["returns"] = returns
+
+    elif adv_estimator == AdvantageEstimator.TARPO:
+        grpo_calculation_mask = data.batch["response_mask"]
+
+        # TODO_TARPO: make sure that the data batch has dataset_ids, task_ids, and class_labels
+        # TODO_TARPO: so the class_labels should be prefixed by the task (i.e. SEN_NEU)
+
+        # info, taken from the non_tensor batch,
+        # this is usually a string identifier for the task, 
+        # for task_ids, dataset_ids, class_labels
+        advantages, returns = core_algos.compute_tarpo_outcome_advantage(
+            token_level_rewards=data.batch["token_level_rewards"],
+            response_mask=grpo_calculation_mask,
+            index=data.non_tensor_batch["uid"],
+            task_ids=data.non_tensor_batch.get("task", None),
+            dataset_ids = data.non_tensor_batch.get("dataset", None),
+            class_labels=data.non_tensor_batch.get("class_label", None),
+            use_task_adapter=True,
+            use_class_weights=True,
+            use_cvar_boost=True,
+            use_grpo_group_norm=True,
+            
+            # EMA decays
+            beta_mu = 0.99,
+            beta_sigma = 0.99,
+            beta_mean = 0.98,
+            beta_cvar = 0.98,
+            # Static metadata for class weights
+            static_class_counts = None,  # (dataset, class) -> count
+            dataset_classes = None,         # dataset -> set(classes)
+        )
+        data.batch["advantages"] = advantages
+        data.batch["returns"] = returns
+
     else:
         # handle all other adv estimator type other than GAE and GRPO
         adv_estimator_fn = core_algos.get_adv_estimator_fn(adv_estimator)
@@ -1299,8 +1333,6 @@ class RayPPOTrainer:
 
                 batch: DataProto = DataProto.from_single_dict(batch_dict)
                                 
-                
-
                 # add uid to batch
                 batch.non_tensor_batch["uid"] = np.array(
                     [str(uuid.uuid4()) for _ in range(len(batch.batch))], dtype=object
@@ -1310,24 +1342,7 @@ class RayPPOTrainer:
                 batch_keys_to_pop = ["input_ids", "attention_mask", "position_ids"]
                 non_tensor_batch_keys_to_pop = ["raw_prompt_ids"]
 
-                
-                # if "input_ids" in batch.batch:
-                #     print(f"[DEBUG] input_ids shape: {batch.batch['input_ids'].shape}")
-                #     print(f"[DEBUG] First sequence tokens: {batch.batch['input_ids'][0][:10].tolist()}")
-
-
-                # if "input_ids" in batch.batch:
-                #             with open(debug_file, "a") as f:  # append mode
-                #                 f.write(f"[DEBUG] Epoch {epoch}, Iter {i}\n")
-                #                 f.write(f"input_ids shape: {batch.batch['input_ids'].shape}\n")
-                #                 f.write(f"First sequence tokens: {batch.batch['input_ids'][0][:10].tolist()}\n\n")
-
-                # if i == 5:
-                #     raise ValueError(
-                #         f"Debugging error at iteration 4\n"
-                #         f"input_ids shape: {batch.batch['input_ids'].shape}\n"
-                #         f"First 10 tokens: {batch.batch['input_ids'][0][:10].tolist()}"
-                #     )
+                # TODO_TARPO: put the task ids here
 
                 if "multi_modal_data" in batch.non_tensor_batch:
                     non_tensor_batch_keys_to_pop.append("multi_modal_data")

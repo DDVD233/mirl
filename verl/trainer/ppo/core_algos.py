@@ -21,10 +21,10 @@ implement PPO-like algorithms.
 __all__ = ["register_adv_est", "get_adv_estimator_fn", "AdvantageEstimator"]
 
 import math
-from collections import defaultdict
+from collections import defaultdict, deque
 from enum import Enum
 from sklearn.cluster import KMeans
-from typing import Any, Callable, Optional, Dict, List, Tuple
+from typing import Any, Callable, Optional, Dict, List, Tuple, Set
 
 import numpy as np
 import torch
@@ -104,6 +104,7 @@ class AdvantageEstimator(str, Enum):
     GRPO_PASSK = "grpo_passk"
     GPG = "gpg"
     DRPO = "drpo"
+    TARPO = "tarpo"
 
 
 ADV_ESTIMATOR_REGISTRY: dict[str, Any] = {}
@@ -1562,3 +1563,300 @@ def compute_pf_ppo_reweight_data(
     resampled_data.meta_info = resampled_meta_info
 
     return resampled_data
+
+
+
+
+############################################################################ TARPO #########################################################################
+
+# ---------------------------- TARPO GLOBAL STATE ---------------------------- #
+# Per-task running stats & buffers
+# task_stats[task_id] = {
+#   "mu": float, "sigma": float,
+#   "mean_ema": float, "cvar_ema": float,
+#   "buffer": deque(float), "count": int
+# }
+task_stats: Dict[Any, Dict[str, Any]] = defaultdict(lambda: {
+    "mu": 0.0, "sigma": 1.0,
+    "mean_ema": 0.0, "cvar_ema": 0.0,
+    "buffer": deque(maxlen=1024),
+    "count": 0,
+})
+
+# Per-(dataset,class) EMA counts for inverse-frequency weights
+# dc_counts[(d,c)] = float (EMA count), d_counts[d] = float (EMA total), d_classes[d] = set of classes observed
+dc_counts: Dict[Tuple[Any, Any], float] = defaultdict(float)
+d_counts:  Dict[Any, float]            = defaultdict(float)
+d_classes: Dict[Any, set]              = defaultdict(set)
+
+# Small helpers
+def _ema_update(prev: float, new: float, beta: float) -> float:
+    return float(beta * prev + (1.0 - beta) * new)
+
+def _safe_std(x: torch.Tensor, eps: float) -> torch.Tensor:
+    s = torch.std(x)
+    return torch.clamp(s, min=eps)
+
+def _compute_cvar_from_tensor(x: torch.Tensor, alpha: float, eps: float) -> Tuple[torch.Tensor, torch.Tensor]:
+    """Return (VaR, CVaR) on a 1D tensor."""
+    q = torch.quantile(x, alpha)
+    tail = x[x <= q]
+    if tail.numel() == 0:
+        return q, torch.clamp(q, min=eps)
+    return q, tail.mean().clamp_min(eps)
+
+
+@register_adv_est(AdvantageEstimator.TARPO)
+def compute_tarpo_outcome_advantage(
+    token_level_rewards: torch.Tensor,   # (B, L), where L is the response_length
+    response_mask:      torch.Tensor,    # (B, L)
+    index:              torch.Tensor,    # (B,) question /prompt ids (unused except parity with others)
+    task_ids:           List[Any],       # (B,) task id per sample
+    dataset_ids:        List[Any],       # (B,) dataset id per sample
+    class_labels:       List[Any],       # (B,) class label per sample (for weighting)
+    *,
+    # --- Ablation toggles ---
+    use_task_adapter:   bool = True,
+    use_class_weights:  bool = True,
+    use_cvar_boost:     bool = True,
+    use_grpo_group_norm: bool = False,
+    # --- Hyperparameters ---
+    eps: float = EPS_DEFAULT,
+    alpha: float = 0.2,                  # CVaR tail fraction
+    lambda_risk: float = 0.3,            # blend strength for dynamic tail boost
+    # EMA decays
+    beta_mu: float = 0.99,
+    beta_sigma: float = 0.99,
+    beta_mean: float = 0.98,
+    beta_cvar: float = 0.98,
+    # Static metadata for class weights
+    static_class_counts: Optional[Dict[Tuple[Any, Any], int]] = None,  # (dataset, class) -> count
+    dataset_classes:     Optional[Dict[Any, Set[Any]]] = None,         # dataset -> set(classes)
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """
+    TARPO advantage/return computation (no per-prompt batch norm).
+    Pipeline (modular; combine once at the end):
+        A) Build q2rollouts/q2tasks/q2datasets/q2class and batch_task_stats
+        B) Task-adapter normalization -> q2norm[qid][k]
+        C) Static inverse-frequency class weight -> q2w[qid] (scalar)
+        D) CVaR dynamic tail boost -> q2rho[qid] (via per-task rho_t from per-question means)
+        E) Final score per rollout:  score = norm * q2w[qid] * q2rho[qid]
+        F) Broadcast to token level and return (advantages == returns)
+    """
+
+    device = token_level_rewards.device
+    B, L   = token_level_rewards.shape
+
+    # 1) Rollout-level scalar raw rewards
+    # Token_level rewards is essentially the rewards for each token in the response
+    # here, we sum them to get the total reward for the entire response
+    raw_scores = token_level_rewards.sum(dim=-1)  # (B,)
+
+    # So, essentially, we assume that the scores 
+    # correspond to the batch samples in order (B,), where B is 
+    # the total number of rollouts in the mini-batch, (i.e. 5 for the same question)
+    # if there is 2 questions, then B = 10 (5 rollouts each)
+    # and this is the same order as task_ids, dataset_ids, class_labels,
+    # qid is basically the question id that each rollout corresponds to
+    # i.e. index = [qid_1, qid_1, qid_1] (for a rollout of 3)
+    # note that there may be more than one question in the mini-batch
+    # which looks like [qid_1, qid_1, qid_1, qid_2, qid_2, qid_2] 
+    # (for 2 questions, each with 3 rollouts)
+    # we use qid to essentially delineate the different training examples
+    q2rollouts: Dict[Any, List[float]] = defaultdict(list)
+    q2tasks:    Dict[Any, Any]         = {}
+    q2datasets: Dict[Any, Any]         = {}
+    q2class:    Dict[Any, Any]         = {}
+
+    # Per-task sufficient stats captured in one dict (single pass)
+    batch_task_stats: Dict[Any, Dict[str, float]] = defaultdict(lambda: {"sum": 0.0, "sumsq": 0.0, "count": 0.0})
+
+    # the end will be a dictionary mapping from qid
+    # to raw scores, to task ids, dataset ids, class labels
+    # for that qid
+    for i in range(B):
+        qid: Any = index[i]
+        t   = task_ids[i]
+        d   = dataset_ids[i]
+        c   = class_labels[i]
+        r   = float(raw_scores[i].item())
+
+        q2rollouts[qid].append(r)
+        q2tasks[qid]    = t
+        q2datasets[qid] = d
+        q2class[qid]    = c
+
+        # accumulate per-task sufficient stats
+        batch_task_stats[t]["sum"]   += r
+        batch_task_stats[t]["sumsq"] += r * r
+        batch_task_stats[t]["count"] += 1.0
+
+    # NOTE: the returns at the end of this function are essentially the 
+    # normalized values of the scores, which are then broadcasted to token-level
+    # i.e. for each token in the response, it will now have the same normalized 
+    # score as the entire response
+    # [1.2], [0.5] --> [1.2, 1.2, 1.2], [0.5, 0.5, 0.5] (for response length of 3 for both responses)
+
+    # -------------------------------
+    # B) Task-adapter normalization
+    # -------------------------------
+    if use_task_adapter:
+        # Update EMA cache per task from batch sufficient stats
+        for t, st in batch_task_stats.items():
+            n = int(st["count"])
+            if n <= 0:
+                continue
+            mu_b = st["sum"] / n
+            if n > 1:
+                var_b = max(st["sumsq"] / n - mu_b * mu_b, 0.0)
+                sd_b  = math.sqrt(var_b + 1e-12)
+            else:
+                sd_b  = eps
+            if task_stats[t]["count"] == 0:
+                task_stats[t]["mu"]    = mu_b
+                task_stats[t]["sigma"] = max(sd_b, eps)
+            else:
+                task_stats[t]["mu"]    = _ema_update(task_stats[t]["mu"],    mu_b,    beta_mu)
+                task_stats[t]["sigma"] = _ema_update(task_stats[t]["sigma"], max(sd_b, eps), beta_sigma)
+            task_stats[t]["count"] += n
+
+        # Normalize each qid’s rollouts with its task’s EMA (produce q2norm)
+        q2norm: Dict[Any, List[float]] = {}
+        for qid, vals in q2rollouts.items():
+            t    = q2tasks[qid]
+            mu_t = float(task_stats[t]["mu"])
+            sd_t = float(max(task_stats[t]["sigma"], eps))
+            q2norm[qid] = [(v - mu_t) / (sd_t + eps) for v in vals]
+    else:
+        q2norm = {qid: list(vals) for qid, vals in q2rollouts.items()}
+
+    # -------------------------------------------
+    # C) Static inverse-frequency class weights
+    #     w_{d,c} = ((1/N_{d,c}) / sum_{c'∈C_d} 1/N_{d,c'}) * |C_d|
+    # produce a single scalar q2w[qid]
+    # -------------------------------------------
+    if use_class_weights:
+        if static_class_counts is None or dataset_classes is None:
+            raise ValueError("Static class counts and dataset_classes must be provided when use_class_weights=True.")
+        # Precompute S_d and |C_d| once per dataset
+        d2_S: Dict[Any, float] = {}
+        d2_C: Dict[Any, int]   = {}
+        for d, Cset in dataset_classes.items():
+            S = 0.0
+            for c2 in Cset:
+                S += 1.0 / max(float(static_class_counts.get((d, c2), 1)), eps)
+            d2_S[d] = max(S, eps)
+            d2_C[d] = max(len(Cset), 1)
+
+        q2w: Dict[Any, float] = {}
+        for qid in q2norm.keys():
+            d = q2datasets[qid]
+            c = q2class[qid]
+            inv = 1.0 / max(float(static_class_counts.get((d, c), 1)), eps)
+            q2w[qid] = inv * (d2_C[d] / d2_S[d])
+    else:
+        q2w = {qid: 1.0 for qid in q2norm.keys()}
+
+    # ----------------------------------------------------------
+    # D) CVaR dynamic tail ratio (per task) → q2k[qid]
+    #     Buffer uses per-question MEAN of weighted scores
+    #     k_t = mean_ema / (cvar_ema + ε)   (no boost here)
+    # ----------------------------------------------------------
+    if use_cvar_boost:
+        # Append per-qid mean(after weighting) to the task’s buffer
+        for qid, vals in q2norm.items():
+            t = q2tasks[qid]
+            w = q2w[qid]
+            mean_q = float(np.mean(vals) * w)  # mean of (norm * weight), which is the mean of the rollouts basically.
+            task_stats[t]["buffer"].append(mean_q)
+
+        task2_k: Dict[Any, float] = {}
+        for t in batch_task_stats.keys():
+            buf = task_stats[t]["buffer"]
+            if not buf:
+                task2_k[t] = 1.0
+                continue
+            x = torch.tensor(buf, device=device, dtype=raw_scores.dtype)
+            mean_raw = float(x.mean().item())
+            _, cvar_raw = _compute_cvar_from_tensor(x, alpha=alpha, eps=eps)
+
+            # EMA smoothing of (mean, cvar)
+            prev_mean = float(task_stats[t].get("mean_ema", mean_raw))
+            prev_cvar = float(task_stats[t].get("cvar_ema", float(cvar_raw.item())))
+            task_stats[t]["mean_ema"] = _ema_update(prev_mean, mean_raw, beta_mean)
+            task_stats[t]["cvar_ema"] = _ema_update(prev_cvar, float(cvar_raw.item()), beta_cvar)
+
+            mean_t = task_stats[t]["mean_ema"]
+            cvar_t = max(task_stats[t]["cvar_ema"], eps)
+            k_t    = min(max(mean_t / cvar_t, 0.0), 10.0)  # clamp for safety
+            task2_k[t] = k_t
+
+        q2k: Dict[Any, float] = {qid: task2_k[q2tasks[qid]] for qid in q2norm.keys()}
+    else:
+        q2k = {qid: 1.0 for qid in q2norm.keys()}
+        
+    # --------------------------------------------
+    # E) Combine once at the end, with ablations baked in:
+    #    Let base = (norm_or_raw) * (weight_or_1)
+    #    Effective lambda: λ_eff = λ_risk if CVaR enabled else 0
+    #    Effective k:      k_eff = k_t     if CVaR enabled else 1
+    #
+    #    score = (1 - λ_eff) * base + λ_eff * (k_eff * base)
+    # --------------------------------------------
+
+    q2_final: Dict[str, List[float]] = defaultdict(list)
+    qpos: Dict[Any, int] = defaultdict(int)
+
+    for i in range(B):
+        qid = index[i]
+        j   = qpos[qid]
+
+        # 1) Norm or raw (already prepared upstream)
+        norm_or_raw = q2norm[qid][j]
+
+        # 2) Class weight or 1.0
+        w_eff = q2w[qid] if use_class_weights else 1.0
+
+        # 3) CVaR components
+        k_eff   = q2k[qid] if use_cvar_boost else 1.0
+        lam_eff = lambda_risk if use_cvar_boost else 0.0
+
+        # 4) Base term
+        base = norm_or_raw * w_eff
+
+        # 5) Interpolated final score
+        #     (1−λ)*base + λ*k*base
+        s_final = (1.0 - lam_eff) * base + lam_eff * (k_eff * base)
+
+        q2_final[qid].append(float(s_final))
+        qpos[qid] += 1
+
+    # --------------------------------------------
+    # F) Optional GRPO-style group normalization
+    # --------------------------------------------
+    if use_grpo_group_norm:
+        for qid, vals in q2_final.items():
+            if len(vals) >= 2:
+                mu = float(np.mean(vals))
+                sd = max(float(np.std(vals, ddof=0)), eps)
+                q2_final[qid] = [(v - mu) / sd for v in vals]
+            # if only 1 rollout → keep as is
+
+    # --------------------------------------------
+    # G) Rebuild tensor in original rollout order
+    # --------------------------------------------
+    final_scores = torch.empty_like(raw_scores)
+    qptr: Dict[Any, int] = defaultdict(int)
+
+    for i in range(B):
+        qid = index[i]
+        j   = qptr[qid]
+        final_scores[i] = torch.tensor(q2_final[qid][j], device=device, dtype=raw_scores.dtype)
+        qptr[qid] += 1
+
+    # --------------------------------------------
+    # H) Broadcast to token level and return
+    # --------------------------------------------
+    returns = final_scores.unsqueeze(-1) * response_mask
+    
+    return returns, returns
