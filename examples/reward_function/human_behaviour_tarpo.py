@@ -1,102 +1,131 @@
-from typing import List, Dict
+from typing import List, Dict, Optional
 import re
+import numpy as np
+
+
+# Lazy initialization for SentenceTransformer
+_sentence_transformer_loaded = False
+_STModel: Optional["SentenceTransformer"] = None
+
+
+def _ensure_st_model():
+    """Load SentenceTransformer only once (lazy load)."""
+    global _sentence_transformer_loaded, _STModel
+    if not _sentence_transformer_loaded:
+        from sentence_transformers import SentenceTransformer
+        _STModel = SentenceTransformer('all-MiniLM-L6-v2')
+        _sentence_transformer_loaded = True
+    return _STModel
+
 
 def extract_boxed_content(text: str) -> str:
-    """
-    Extract content within \boxed{} or similar boxing notations.
-
-    Args:
-        text (str): Text containing potentially boxed content.
-
-    Returns:
-        str: Extracted boxed content or the original text if no box found.
-    """
-
-    # Look for LaTeX \boxed{} notation
-    boxed_match = re.search(r"\\boxed{([^}]*)}", text)
-    if boxed_match:
-        return boxed_match.group(1)
-
-    # Look for markdown boxed notation (e.g., [boxed content])
-    markdown_match = re.search(r"\[(.*?)\]", text)
-    if markdown_match:
-        return markdown_match.group(1)
-
-    # Return the text as is if no boxed content is found
+    """Extract content within \boxed{}, [ ], or <answer>...</answer>."""
+    for pattern in [
+        r"\\boxed{([^}]*)}",      # \boxed{...}
+        r"\[(.*?)\]",             # [ ... ]
+        r"<answer>(.*?)</answer>" # <answer>...</answer>
+    ]:
+        match = re.search(pattern, text)
+        if match:
+            return match.group(1)
     return text
 
+
 def format_reward(response: str) -> float:
-    """
-    Check whether the response matches the expected format.
-    Here we require something like <think>...</think> ... \boxed{...}
-    """
+    """Reward 1.0 if format matches expected <think>...</think> ... \boxed{...}."""
     pattern = re.compile(r"<think>.*</think>.*\\boxed\{.*\}.*", re.DOTALL)
-    format_match = re.fullmatch(pattern, response)
-    return 1.0 if format_match else 0.0
+    return 1.0 if re.fullmatch(pattern, response) else 0.0
+
 
 def accuracy_reward(response: str, ground_truth: str) -> float:
-    """
-    Simple accuracy: exact match to ground truth string.
-    """
+    """Exact string match (case-insensitive handled externally)."""
     return 1.0 if response == ground_truth else 0.0
+
+
+def cosine_similarity_reward(pred_label: str, ground_truth: str, model) -> float:
+    """
+    Compute cosine similarity between two strings using embeddings.
+    Returns scaled score in [0, 1].
+    """
+    embeddings = model.encode([pred_label, ground_truth], convert_to_numpy=True)
+    pred_emb, gt_emb = embeddings
+    pred_norm = pred_emb / max(np.linalg.norm(pred_emb), 1e-12)
+    gt_norm = gt_emb / max(np.linalg.norm(gt_emb), 1e-12)
+    cos_sim = float(np.dot(pred_norm, gt_norm))
+    # Scale from [-1, 1] → [0, 1]
+    return (cos_sim + 1.0) / 2.0
+
+
+def _parse_type_from_task_id(task_id: str) -> str:
+    """Extract '<type>' from '<task>_<type>'."""
+    _, _, tail = task_id.rpartition("_")
+    t = (tail if _ else task_id).strip().lower()
+    if t in {"cls", "classification"}:
+        return "cls"
+    if t in {"qa", "qna", "q&a"}:
+        return "qa"
+    return "cls"
+
 
 def human_behaviour_compute_score_batch(
     data_sources: List[str],
     solution_strs: List[str],
     ground_truths: List[str],
     extra_infos: List[str],
+    task_ids: List[str],
     **kwargs
 ) -> List[Dict[str, float]]:
     """
-    Compute human behaviour scoring for batch inputs.
-
-    Args:
-        data_sources: List of data sources (unused here, but kept for interface compatibility)
-        solution_strs: List of model prediction strings
-        ground_truths: List of ground truth strings
-        extra_infos: List of extra information (unused here, kept for compatibility)
-
-    Returns:
-        List of score dictionaries
+    Compute scores for each response:
+      - type=cls → exact string match only (no cosine)
+      - type=qa  → cosine similarity only
+      - always includes format score
     """
+    assert len(solution_strs) == len(ground_truths) == len(task_ids), "Input length mismatch."
+
+    format_weight = 0.2
+    similarity_weight = 0.5
+    need_cosine = any(_parse_type_from_task_id(tid) == "qa" for tid in task_ids)
+    st_model = _ensure_st_model() if need_cosine else None
+
     batch_scores = []
-    format_weight = 0.2 # weight for format correctness
+    for predict_str, ground_truth, task_id in zip(solution_strs, ground_truths, task_ids):
+        task_type = _parse_type_from_task_id(task_id)
 
-    for data_source, predict_str, ground_truth, extra_info in zip(data_sources, solution_strs, ground_truths, extra_infos):
-        # Normalize response formatting (e.g., qwen2.5vl quirks)
         full_response = re.sub(r"\s*(<|>|/)\s*", r"\1", predict_str)
-        pred_label = extract_boxed_content(full_response).lower()  # handle qwen2.5vl-32b format
-        ground_truth = ground_truth.lower()
+        pred_label = extract_boxed_content(full_response).strip().lower()
+        gt_norm = ground_truth.strip().lower()
 
-        # print(pred_label)
-        # Compute individual components
         format_score = format_reward(full_response)
-        standard_score = accuracy_reward(pred_label, ground_truth)
 
-        # Weighted overall score
-        overall_score = (1 - format_weight) * standard_score + format_weight * format_score
+        if task_type == "cls":
+            standard_score = accuracy_reward(pred_label, gt_norm)
+            similarity_score = 0.0
+        else:  # QA task
+            standard_score = 0.0
+            similarity_score = cosine_similarity_reward(pred_label, gt_norm, st_model)
 
-        scores = {
+        overall_score = standard_score + format_weight * format_score + similarity_weight * similarity_score
+        batch_scores.append({
             "score": overall_score,
             "standard_score": standard_score,
             "format_score": format_score,
-        }
-        batch_scores.append(scores)
+            "similarity_score": similarity_score,
+            "task_type": task_type,
+        })
 
     return batch_scores
 
 
 if __name__ == "__main__":
-    response_str = (
-        "<think>Well, I've listened to the speech recording. It sounds like the speaker is expressing anger. "
-        "You know, the tone and the way the words are said seem to indicate frustration or annoyance. "
-        "So, I'd say the emotion is anger.</think>\\boxed{anger}If you have any other questions or need more help, feel free to let me know."
+    cls_response = "<think>Reasoning…</think>\\boxed{anger}"
+    qa_response = "<think>Thinking…</think>\\boxed{The Eiffel Tower is in Paris.}"
+
+    scores = human_behaviour_compute_score_batch(
+        data_sources=["", ""],
+        solution_strs=[cls_response, qa_response],
+        ground_truths=["anger", "The Eiffel Tower is located in Paris."],
+        extra_infos=["", ""],
+        task_ids=["sen_cls", "intent_qa"]
     )
-
-    data_sources = ["sample_audio.wav"]
-    solution_strs = [response_str]
-    ground_truths = ["anger"]
-    extra_infos = [""]
-
-    scores = human_behaviour_compute_score_batch(data_sources, solution_strs, ground_truths, extra_infos)
     print(scores)
