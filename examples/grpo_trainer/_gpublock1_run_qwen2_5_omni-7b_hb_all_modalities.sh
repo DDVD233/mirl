@@ -77,7 +77,7 @@ python3 -m verl.trainer.main_ppo \
     trainer.save_freq=121 \
     trainer.val_before_train=False \
     trainer.val_only=False \
-    trainer.validation_data_dir=/scratch/keane/human_behaviour/rl_omni_heldout \
+    trainer.validation_data_dir=/scratch/keane/human_behaviour/v2_rl_omni_heldout \
     trainer.test_freq=121 \
     trainer.total_epochs=10 $@ \
-    trainer.default_local_dir=/scratch/keane/human_behaviour/rl_omni_heldout
+    trainer.default_local_dir=/scratch/keane/human_behaviour/v2_rl_omni_heldout
