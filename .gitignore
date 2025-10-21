@@ -135,4 +135,8 @@ MathRuler/
 
 
 # exception
-!/home/keaneong/human-behavior/verl/build/lib/verl/workers/reward_manager/batch.py
+!build/lib/
+!build/lib/verl/
+!build/lib/verl/workers/
+!build/lib/verl/workers/reward_manager/
+!build/lib/verl/workers/reward_manager/batch.py
