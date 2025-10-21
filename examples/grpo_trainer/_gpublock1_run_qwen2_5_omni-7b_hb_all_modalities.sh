@@ -16,12 +16,13 @@ export NCCL_ASYNC_ERROR_HANDLING=1
 
 # the printed out total steps will essentially be the all the steps within the full number of epochs (i.e. 1/1210, where epoch is 5), 1210 is num of steps for 5 epochs
 # take 1210/5 = 242 as steps per epoch
+# hence we should eval every 242 but save every 121
 
 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
     data.train_files=/scratch/keane/human_behaviour/human_behaviour_data/w_feats_v6_exclude_heldout_train.jsonl \
     data.val_files=/scratch/keane/human_behaviour/human_behaviour_data/w_feats_v6_exclude_heldout_val.jsonl \
-    data.train_batch_size=128 \
+    data.train_batch_size=256 \
     data.val_batch_size=96 \
     data.max_prompt_length=4096 \
     data.max_response_length=4096 \
@@ -73,10 +74,10 @@ python3 -m verl.trainer.main_ppo \
     trainer.experiment_name='rl_omni_heldout' \
     trainer.n_gpus_per_node=2 \
     trainer.nnodes=1 \
-    trainer.save_freq=50 \
+    trainer.save_freq=121 \
     trainer.val_before_train=False \
     trainer.val_only=False \
     trainer.validation_data_dir=/scratch/keane/human_behaviour/rl_omni_heldout \
-    trainer.test_freq=50 \
-    trainer.total_epochs=5 $@ \
+    trainer.test_freq=121 \
+    trainer.total_epochs=10 $@ \
     trainer.default_local_dir=/scratch/keane/human_behaviour/rl_omni_heldout
