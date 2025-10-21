@@ -132,3 +132,7 @@ misc_data/
 
 flash-attention/
 MathRuler/
+
+
+# exception
+!/home/keaneong/human-behavior/verl/build/lib/verl/workers/reward_manager/batch.py
