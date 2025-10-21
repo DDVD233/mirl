@@ -133,10 +133,3 @@ misc_data/
 flash-attention/
 MathRuler/
 
-
-# exception
-!build/lib/
-!build/lib/verl/
-!build/lib/verl/workers/
-!build/lib/verl/workers/reward_manager/
-!build/lib/verl/workers/reward_manager/batch.py
