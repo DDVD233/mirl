@@ -1,7 +1,7 @@
 from typing import List, Dict, Optional
 import re
 import numpy as np
-
+from sentence_transformers import SentenceTransformer, util
 
 # Lazy initialization for SentenceTransformer
 _sentence_transformer_loaded = False
@@ -12,7 +12,6 @@ def _ensure_st_model():
     """Load SentenceTransformer only once (lazy load)."""
     global _sentence_transformer_loaded, _STModel
     if not _sentence_transformer_loaded:
-        from sentence_transformers import SentenceTransformer
         _STModel = SentenceTransformer('all-MiniLM-L6-v2')
         _sentence_transformer_loaded = True
     return _STModel
@@ -41,17 +40,15 @@ def accuracy_reward(response: str, ground_truth: str) -> float:
     """Exact string match (case-insensitive handled externally)."""
     return 1.0 if response == ground_truth else 0.0
 
-
 def cosine_similarity_reward(pred_label: str, ground_truth: str, model) -> float:
     """
     Compute cosine similarity between two strings using embeddings.
     Returns scaled score in [0, 1].
     """
-    embeddings = model.encode([pred_label, ground_truth], convert_to_numpy=True)
-    pred_emb, gt_emb = embeddings
-    pred_norm = pred_emb / max(np.linalg.norm(pred_emb), 1e-12)
-    gt_norm = gt_emb / max(np.linalg.norm(gt_emb), 1e-12)
-    cos_sim = float(np.dot(pred_norm, gt_norm))
+    import numpy as np
+
+    embeddings = model.encode([pred_label, ground_truth], convert_to_tensor=True)
+    cos_sim = util.cos_sim(embeddings[0], embeddings[1]).item()
     # Scale from [-1, 1] → [0, 1]
     return (cos_sim + 1.0) / 2.0
 
@@ -102,10 +99,13 @@ def human_behaviour_compute_score_batch(
             label_score = accuracy_reward(pred_label, gt_norm)
             label_weight = 1.0 - format_weight
             overall_score = label_weight * label_score + format_weight * format_score
+            similarity_score = 0.0
         else:  # QA task
             similarity_score = cosine_similarity_reward(pred_label, gt_norm, st_model)
             similarity_weight = 1.0 - format_weight
             overall_score = similarity_weight * similarity_score + format_weight * format_score
+            # placeholders 
+            label_score = 0.0
 
         batch_scores.append({
             "score": overall_score,
@@ -119,14 +119,15 @@ def human_behaviour_compute_score_batch(
 
 
 if __name__ == "__main__":
-    cls_response = "<think>Reasoning…</think>\\boxed{anger}"
-    qa_response = "<think>Thinking…</think>\\boxed{The Eiffel Tower is in Paris.}"
+    cls_response = "<think>Reasoning.....</think>\\boxed{anger}"
+    qa_response = "<think>Reasoning....</think>\\boxed{The Eiffel Tower is in Paris.}"
+    qa_response_two = "<think>Reasoning....</think>\\boxed{good.}"
 
     scores = human_behaviour_compute_score_batch(
-        data_sources=["", ""],
-        solution_strs=[cls_response, qa_response],
-        ground_truths=["anger", "The Eiffel Tower is located in Paris."],
-        extra_infos=["", ""],
-        task_ids=["sen_cls", "intent_qa"]
+        data_sources=["", "", ""],
+        solution_strs=[cls_response, qa_response, qa_response_two],
+        ground_truths=["anger", "The Eiffel Tower is located in Paris.", "bad."],
+        extra_infos=["", "", ""],
+        task_ids=["sen_cls", "intent_qa", "mime_qa"]
     )
     print(scores)

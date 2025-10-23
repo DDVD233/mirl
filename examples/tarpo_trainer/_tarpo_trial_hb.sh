@@ -19,7 +19,7 @@ export NCCL_ASYNC_ERROR_HANDLING=1
 # hence we should eval every 242 but save every 121
 
 python3 -m verl.trainer.main_ppo \
-    algorithm.adv_estimator=grpo \
+    algorithm.adv_estimator=tarpo \
     data.train_files=/scratch/keane/human_behaviour/human_behaviour_data/w_feats_v6_exclude_heldout_train.jsonl \
     data.val_files=/scratch/keane/human_behaviour/human_behaviour_data/w_feats_v6_exclude_heldout_val.jsonl \
     data.train_batch_size=128 \
@@ -71,13 +71,13 @@ python3 -m verl.trainer.main_ppo \
     trainer.critic_warmup=0 \
     trainer.logger='["console","wandb"]' \
     trainer.project_name='rl_omni_heldout' \
-    trainer.experiment_name='rl_omni_heldout' \
+    trainer.experiment_name='tarpo_rl_omni_heldout' \
     trainer.n_gpus_per_node=2 \
     trainer.nnodes=1 \
     trainer.save_freq=121 \
     trainer.val_before_train=False \
     trainer.val_only=False \
-    trainer.validation_data_dir=/scratch/keane/human_behaviour/v2_rl_omni_heldout \
+    trainer.validation_data_dir=/scratch/keane/human_behaviour/tarpo_v2_rl_omni_heldout \
     trainer.test_freq=121 \
     trainer.total_epochs=10 $@ \
-    trainer.default_local_dir=/scratch/keane/human_behaviour/v2_rl_omni_heldout
+    trainer.default_local_dir=/scratch/keane/human_behaviour/tarpo_v2_rl_omni_heldout

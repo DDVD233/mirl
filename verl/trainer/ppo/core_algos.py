@@ -1566,7 +1566,7 @@ def compute_pf_ppo_reweight_data(
 
 
 
-
+#TODO_TARPO: (version to work on) make sure these function are present in the two core_algos files
 ############################################################################ TARPO #########################################################################
 
 # ---------------------------- TARPO GLOBAL STATE ---------------------------- #
@@ -1578,10 +1578,10 @@ def compute_pf_ppo_reweight_data(
 # }
 task_stats: Dict[Any, Dict[str, Any]] = defaultdict(lambda: {
     "mu": 0.0, "sigma": 1.0,
-    "mean_ema": 0.0, "cvar_ema": 0.0,
-    "buffer": deque(maxlen=1024),
+    "buffer_mean_ema": 0.0, "buffer_cvar_ema": 0.0, "buffer_ptail_ema": 0.0,
+    "buffer": deque(maxlen=256),
     "count": 0,
-})
+}) # count here is basically the number of examples corresponding to the specific task
 
 # Per-(dataset,class) EMA counts for inverse-frequency weights
 # dc_counts[(d,c)] = float (EMA count), d_counts[d] = float (EMA total), d_classes[d] = set of classes observed
@@ -1629,9 +1629,10 @@ def compute_tarpo_outcome_advantage(
     beta_sigma: float = 0.99,
     beta_mean: float = 0.98,
     beta_cvar: float = 0.98,
+    beta_tail: float = 1.0,
     # Static metadata for class weights
-    static_class_counts: Optional[Dict[Tuple[Any, Any], int]] = None,  # (dataset, class) -> count
-    dataset_classes:     Optional[Dict[Any, Set[Any]]] = None,         # dataset -> set(classes)
+    class_count_info: Optional[Dict[Any, Dict[Any, int]]] = None,  # {dataset: {class: count}}
+    class_weight_scope: str = "auto"
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """
     TARPO advantage/return computation (no per-prompt batch norm).
@@ -1676,20 +1677,20 @@ def compute_tarpo_outcome_advantage(
     # for that qid
     for i in range(B):
         qid: Any = index[i]
-        t   = task_ids[i]
-        d   = dataset_ids[i]
-        c   = class_labels[i]
-        r   = float(raw_scores[i].item())
+        task   = task_ids[i]
+        dataset   = dataset_ids[i]
+        class_label   = class_labels[i]
+        raw_rollout_reward   = float(raw_scores[i].item())
 
-        q2rollouts[qid].append(r)
-        q2tasks[qid]    = t
-        q2datasets[qid] = d
-        q2class[qid]    = c
+        q2rollouts[qid].append(raw_rollout_reward)
+        q2tasks[qid]    = task
+        q2datasets[qid] = dataset
+        q2class[qid]    = class_label
 
-        # accumulate per-task sufficient stats
-        batch_task_stats[t]["sum"]   += r
-        batch_task_stats[t]["sumsq"] += r * r
-        batch_task_stats[t]["count"] += 1.0
+        # accumulate per-task sufficient stats; just for the batch
+        batch_task_stats[task]["sum"]   += raw_rollout_reward
+        batch_task_stats[task]["sumsq"] += raw_rollout_reward * raw_rollout_reward
+        batch_task_stats[task]["count"] += 1.0
 
     # NOTE: the returns at the end of this function are essentially the 
     # normalized values of the scores, which are then broadcasted to token-level
@@ -1702,7 +1703,7 @@ def compute_tarpo_outcome_advantage(
     # -------------------------------
     if use_task_adapter:
         # Update EMA cache per task from batch sufficient stats
-        for t, st in batch_task_stats.items():
+        for task, st in batch_task_stats.items():
             n = int(st["count"])
             if n <= 0:
                 continue
@@ -1712,20 +1713,20 @@ def compute_tarpo_outcome_advantage(
                 sd_b  = math.sqrt(var_b + 1e-12)
             else:
                 sd_b  = eps
-            if task_stats[t]["count"] == 0:
-                task_stats[t]["mu"]    = mu_b
-                task_stats[t]["sigma"] = max(sd_b, eps)
+            if task_stats[task]["count"] == 0:
+                task_stats[task]["mu"]    = mu_b
+                task_stats[task]["sigma"] = max(sd_b, eps)
             else:
-                task_stats[t]["mu"]    = _ema_update(task_stats[t]["mu"],    mu_b,    beta_mu)
-                task_stats[t]["sigma"] = _ema_update(task_stats[t]["sigma"], max(sd_b, eps), beta_sigma)
-            task_stats[t]["count"] += n
+                task_stats[task]["mu"]    = _ema_update(task_stats[task]["mu"],    mu_b,    beta_mu)
+                task_stats[task]["sigma"] = _ema_update(task_stats[task]["sigma"], max(sd_b, eps), beta_sigma)
+            task_stats[task]["count"] += n
 
         # Normalize each qid’s rollouts with its task’s EMA (produce q2norm)
         q2norm: Dict[Any, List[float]] = {}
         for qid, vals in q2rollouts.items():
-            t    = q2tasks[qid]
-            mu_t = float(task_stats[t]["mu"])
-            sd_t = float(max(task_stats[t]["sigma"], eps))
+            task    = q2tasks[qid]
+            mu_t = float(task_stats[task]["mu"])
+            sd_t = float(max(task_stats[task]["sigma"], eps))
             q2norm[qid] = [(v - mu_t) / (sd_t + eps) for v in vals]
     else:
         q2norm = {qid: list(vals) for qid, vals in q2rollouts.items()}
@@ -1736,60 +1737,120 @@ def compute_tarpo_outcome_advantage(
     # produce a single scalar q2w[qid]
     # -------------------------------------------
     if use_class_weights:
-        if static_class_counts is None or dataset_classes is None:
-            raise ValueError("Static class counts and dataset_classes must be provided when use_class_weights=True.")
-        # Precompute S_d and |C_d| once per dataset
-        d2_S: Dict[Any, float] = {}
-        d2_C: Dict[Any, int]   = {}
-        for d, Cset in dataset_classes.items():
-            S = 0.0
-            for c2 in Cset:
-                S += 1.0 / max(float(static_class_counts.get((d, c2), 1)), eps)
-            d2_S[d] = max(S, eps)
-            d2_C[d] = max(len(Cset), 1)
+        if not class_count_info:
+            raise ValueError(
+                "class_count_info must be provided as {group_id -> {class_label -> count}} "
+                "(group_id is a dataset_id or a task_id depending on class_weight_scope)."
+            )
 
+        # Precompute denominators S_g and cardinalities |C_g| per group (dataset OR task).
+        g2_S: Dict[Any, float] = {}
+        g2_C: Dict[Any, int]   = {}
+        for group_id, class_count_map in class_count_info.items():
+            if not class_count_map:
+                g2_S[group_id] = 1.0
+                g2_C[group_id] = 1
+                continue
+            S = 0.0
+            for c2, cnt in class_count_map.items():
+                # count of the group class label
+                Ngc = float(max(cnt, 1))
+                S  += 1.0 / max(Ngc, eps)
+            g2_S[group_id] = max(S, eps)
+            g2_C[group_id] = max(len(class_count_map), 1)
+
+        def _resolve_group_id_based_on_qid(qid: Any) -> Any:
+            """Pick dataset or task grouping for this qid."""
+            if class_weight_scope == "dataset":
+                return q2datasets[qid]
+            elif class_weight_scope == "task":
+                return q2tasks[qid]
+            elif class_weight_scope == "auto":
+                d = q2datasets[qid]
+                t = q2tasks[qid]
+                if d in class_count_info:
+                    return d
+                if t in class_count_info:
+                    return t
+                return None
+            else:
+                raise ValueError(f"Invalid class_weight_scope={class_weight_scope!r}; use 'dataset' | 'task' | 'auto'.")
+
+        # Per-qid scalar weight
         q2w: Dict[Any, float] = {}
         for qid in q2norm.keys():
-            d = q2datasets[qid]
-            c = q2class[qid]
-            inv = 1.0 / max(float(static_class_counts.get((d, c), 1)), eps)
-            q2w[qid] = inv * (d2_C[d] / d2_S[d])
+            group_id = _resolve_group_id_based_on_qid(qid)
+            if group_id is None or group_id not in class_count_info:
+                # Fallback: neutral weight
+                q2w[qid] = 1.0
+                continue
+
+            class_map = class_count_info[group_id]
+            c         = q2class[qid]
+            Ngc       = float(max(class_map.get(c, 1), 1))
+            inv       = 1.0 / max(Ngc, eps)
+            q2w[qid]  = inv * (g2_C[group_id] / g2_S[group_id])
     else:
         q2w = {qid: 1.0 for qid in q2norm.keys()}
 
-    # ----------------------------------------------------------
-    # D) CVaR dynamic tail ratio (per task) → q2k[qid]
+   
+   # ----------------------------------------------------------
+    # D) CVaR×tail-frequency dynamic boost (per task) → q2k[qid]
     #     Buffer uses per-question MEAN of weighted scores
-    #     k_t = mean_ema / (cvar_ema + ε)   (no boost here)
+    #     k_t = (mean_ema / (cvar_ema + ε)) * ((p_tail_ema / α) ** beta_tail)
     # ----------------------------------------------------------
     if use_cvar_boost:
-        # Append per-qid mean(after weighting) to the task’s buffer
+        # Append per-qid mean(after weighting) to the task’s buffer (task-level)
         for qid, vals in q2norm.items():
-            t = q2tasks[qid]
+            task = q2tasks[qid]
             w = q2w[qid]
-            mean_q = float(np.mean(vals) * w)  # mean of (norm * weight), which is the mean of the rollouts basically.
-            task_stats[t]["buffer"].append(mean_q)
+            # mean of (norm * weight) across rollouts for this question
+            mean_q = float(np.mean(vals) * w)
+            task_stats[task]["buffer"].append(mean_q)
 
         task2_k: Dict[Any, float] = {}
-        for t in batch_task_stats.keys():
-            buf = task_stats[t]["buffer"]
+        for task in batch_task_stats.keys():
+            buf = task_stats[task]["buffer"]
             if not buf:
-                task2_k[t] = 1.0
+                task2_k[task] = 1.0
                 continue
+
             x = torch.tensor(buf, device=device, dtype=raw_scores.dtype)
+
+            # Base stats from buffer
             mean_raw = float(x.mean().item())
-            _, cvar_raw = _compute_cvar_from_tensor(x, alpha=alpha, eps=eps)
+            # VaR/CVaR and empirical tail mass
+            # (inline or via helper)
+            q_alpha = torch.quantile(x, alpha)
+            tail = x[x <= q_alpha]
+            if tail.numel() == 0:
+                cvar_raw = mean_raw
+                p_tail_raw = max(1.0 / max(len(x), 1), alpha * 0.1)
+            else:
+                cvar_raw = float(tail.mean().item())
+                p_tail_raw = float(tail.numel()) / float(x.numel())
 
-            # EMA smoothing of (mean, cvar)
-            prev_mean = float(task_stats[t].get("mean_ema", mean_raw))
-            prev_cvar = float(task_stats[t].get("cvar_ema", float(cvar_raw.item())))
-            task_stats[t]["mean_ema"] = _ema_update(prev_mean, mean_raw, beta_mean)
-            task_stats[t]["cvar_ema"] = _ema_update(prev_cvar, float(cvar_raw.item()), beta_cvar)
+            # EMA smoothing of (mean, cvar, p_tail)
+            prev_mean  = float(task_stats[task].get("buffer_mean_ema", mean_raw))
+            prev_cvar  = float(task_stats[task].get("buffer_cvar_ema", cvar_raw))
+            prev_ptail = float(task_stats[task].get("buffer_ptail_ema", p_tail_raw))
 
-            mean_t = task_stats[t]["mean_ema"]
-            cvar_t = max(task_stats[t]["cvar_ema"], eps)
-            k_t    = min(max(mean_t / cvar_t, 0.0), 10.0)  # clamp for safety
-            task2_k[t] = k_t
+            task_stats[task]["buffer_mean_ema"]  = _ema_update(prev_mean,  mean_raw,  beta_mean)
+            task_stats[task]["buffer_cvar_ema"]  = _ema_update(prev_cvar,  cvar_raw,  beta_cvar)
+            task_stats[task]["buffer_ptail_ema"] = _ema_update(prev_ptail, p_tail_raw, beta_cvar)
+
+            mean_t  = task_stats[task]["buffer_mean_ema"]
+            cvar_t  = max(task_stats[task]["buffer_cvar_ema"], eps)
+            ptail_t = max(task_stats[task]["buffer_ptail_ema"], eps)
+
+            # CVaR×frequency ratio
+            # Frequency ratio upweighs or downweights based on the number of samples here.
+            freq_factor = (ptail_t / max(alpha, eps)) ** beta_tail
+            k_t = (mean_t / cvar_t) * freq_factor
+
+            # Safety clamp
+            k_t = float(np.clip(k_t, 0.0, 10.0))
+            task2_k[task] = k_t
 
         q2k: Dict[Any, float] = {qid: task2_k[q2tasks[qid]] for qid in q2norm.keys()}
     else:
@@ -1805,11 +1866,11 @@ def compute_tarpo_outcome_advantage(
     # --------------------------------------------
 
     q2_final: Dict[str, List[float]] = defaultdict(list)
-    qpos: Dict[Any, int] = defaultdict(int)
+    qrolloutpos: Dict[Any, int] = defaultdict(int) # store the positions of the rollouts that we are at
 
     for i in range(B):
         qid = index[i]
-        j   = qpos[qid]
+        j   = qrolloutpos[qid]
 
         # 1) Norm or raw (already prepared upstream)
         norm_or_raw = q2norm[qid][j]
@@ -1829,7 +1890,7 @@ def compute_tarpo_outcome_advantage(
         s_final = (1.0 - lam_eff) * base + lam_eff * (k_eff * base)
 
         q2_final[qid].append(float(s_final))
-        qpos[qid] += 1
+        qrolloutpos[qid] += 1
 
     # --------------------------------------------
     # F) Optional GRPO-style group normalization
@@ -1846,13 +1907,13 @@ def compute_tarpo_outcome_advantage(
     # G) Rebuild tensor in original rollout order
     # --------------------------------------------
     final_scores = torch.empty_like(raw_scores)
-    qptr: Dict[Any, int] = defaultdict(int)
+    qfinalrolloutpos: Dict[Any, int] = defaultdict(int)
 
     for i in range(B):
         qid = index[i]
-        j   = qptr[qid]
+        j   = qfinalrolloutpos[qid]
         final_scores[i] = torch.tensor(q2_final[qid][j], device=device, dtype=raw_scores.dtype)
-        qptr[qid] += 1
+        qfinalrolloutpos[qid] += 1
 
     # --------------------------------------------
     # H) Broadcast to token level and return

@@ -1342,7 +1342,11 @@ class RayPPOTrainer:
                 batch_keys_to_pop = ["input_ids", "attention_mask", "position_ids"]
                 non_tensor_batch_keys_to_pop = ["raw_prompt_ids"]
 
-                # TODO_TARPO: put the task ids here
+                # TODO_TARPO: put the task ids and class_label here:
+                if "task" in batch.non_tensor_batch:
+                    non_tensor_batch_keys_to_pop.append("task")
+                if "class_label" in batch.non_tensor_batch:
+                    non_tensor_batch_keys_to_pop.append("class_label")
 
                 if "multi_modal_data" in batch.non_tensor_batch:
                     non_tensor_batch_keys_to_pop.append("multi_modal_data")

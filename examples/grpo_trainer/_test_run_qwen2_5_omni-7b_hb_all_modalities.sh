@@ -66,6 +66,7 @@ unset ROCR_VISIBLE_DEVICES
 # actor_rollout_ref.rollout.enforce_eager=True                       # avoids CUDA graph preallocs
 # actor_rollout_ref.rollout.gpu_memory_utilization=0.5              # conservative; can raise later (requires restart)
 # you can also try a batch size of 3; for now and 3 gpus
+# we need to try a batch size of 256 (train) ; 96 (val)
 
 # # prefill strategy
 # actor_rollout_ref.rollout.enable_chunked_prefill=False             # keep off unless you set batched_tokens >= max_model_len

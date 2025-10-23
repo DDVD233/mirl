@@ -149,7 +149,6 @@ def load_reward_manager(
 
 
 def compute_reward(data: DataProto, reward_fn: AbstractRewardManager) -> tuple[torch.Tensor, dict[str, Any]]:
-    # TODO_TARPO: this is the computing of rewards, please modify it to support different tasks
     
     """
     Compute reward for a batch of data.
