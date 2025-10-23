@@ -22,13 +22,29 @@ tensorflow/my_graph/*
 # Distribution / packaging
 .Python
 env/
-build/
+
+build/*
+!build/lib
+build/lib/*
+!build/lib/verl
+build/lib/verl/*
+!build/lib/verl/workers/
+build/lib/verl/workers/*
+!build/lib/verl/workers/reward_manager/
+build/lib/verl/workers/reward_manager/*
+!build/lib/verl/workers/reward_manager/batch.py
+
+verl/workers/*
+!verl/workers/reward_manager/
+verl/workers/reward_manager/*
+!verl/workers/reward_manager/batch.py
+
 develop-eggs/
 dist/
 downloads/
 eggs/
 .eggs/
-lib/
+
 lib64/
 parts/
 sdist/
@@ -132,3 +148,4 @@ misc_data/
 
 flash-attention/
 MathRuler/
+

@@ -84,7 +84,7 @@ def human_behaviour_compute_score_batch(
     assert len(solution_strs) == len(ground_truths) == len(task_ids), "Input length mismatch."
 
     format_weight = 0.2
-    similarity_weight = 0.5
+
     need_cosine = any(_parse_type_from_task_id(tid) == "qa" for tid in task_ids)
     st_model = _ensure_st_model() if need_cosine else None
 
@@ -99,16 +99,17 @@ def human_behaviour_compute_score_batch(
         format_score = format_reward(full_response)
 
         if task_type == "cls":
-            standard_score = accuracy_reward(pred_label, gt_norm)
-            similarity_score = 0.0
+            label_score = accuracy_reward(pred_label, gt_norm)
+            label_weight = 1.0 - format_weight
+            overall_score = label_weight * label_score + format_weight * format_score
         else:  # QA task
-            standard_score = 0.0
             similarity_score = cosine_similarity_reward(pred_label, gt_norm, st_model)
+            similarity_weight = 1.0 - format_weight
+            overall_score = similarity_weight * similarity_score + format_weight * format_score
 
-        overall_score = standard_score + format_weight * format_score + similarity_weight * similarity_score
         batch_scores.append({
             "score": overall_score,
-            "standard_score": standard_score,
+            "standard_score": label_score,
             "format_score": format_score,
             "similarity_score": similarity_score,
             "task_type": task_type,
