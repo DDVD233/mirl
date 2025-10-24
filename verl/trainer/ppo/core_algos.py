@@ -1583,6 +1583,10 @@ task_stats: Dict[Any, Dict[str, Any]] = defaultdict(lambda: {
     "count": 0,
 }) # count here is basically the number of examples corresponding to the specific task
 
+try:
+    from v7_class_counts import CLASS_COUNT_INFO_DATASET, CLASS_COUNT_INFO_TASK
+except Exception:
+    CLASS_COUNT_INFO_DATASET, CLASS_COUNT_INFO_TASK = {}, {}
 # Per-(dataset,class) EMA counts for inverse-frequency weights
 # dc_counts[(d,c)] = float (EMA count), d_counts[d] = float (EMA total), d_classes[d] = set of classes observed
 
@@ -1641,6 +1645,17 @@ def compute_tarpo_outcome_advantage(
         E) Final score per rollout:  score = norm * q2w[qid] * q2rho[qid]
         F) Broadcast to token level and return (advantages == returns)
     """
+
+    if use_class_weights and (class_count_info == "import_from_dict"):
+        if class_weight_scope == "dataset":
+            class_count_info = CLASS_COUNT_INFO_DATASET
+        # elif class_weight_scope == "task":
+        #     class_count_info = CLASS_COUNT_INFO_TASK
+        elif class_weight_scope == "auto":
+            # merged = dict(CLASS_COUNT_INFO_TASK)
+            merged = dict(CLASS_COUNT_INFO_DATASET)
+            # merged.update(CLASS_COUNT_INFO_TASK)
+            class_count_info = merged
 
     device = token_level_rewards.device
     B, L   = token_level_rewards.shape
