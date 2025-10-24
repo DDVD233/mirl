@@ -20,8 +20,8 @@ export NCCL_ASYNC_ERROR_HANDLING=1
 
 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=tarpo \
-    data.train_files=/scratch/keane/human_behaviour/human_behaviour_data/w_feats_v6_exclude_heldout_train.jsonl \
-    data.val_files=/scratch/keane/human_behaviour/human_behaviour_data/w_feats_v6_exclude_heldout_val.jsonl \
+    data.train_files=/scratch/keane/human_behaviour/human_behaviour_data/final_v7_train.jsonl \
+    data.val_files=/scratch/keane/human_behaviour/human_behaviour_data/final_v7_test.jsonl \
     data.train_batch_size=128 \
     data.val_batch_size=96 \
     data.max_prompt_length=4096 \
