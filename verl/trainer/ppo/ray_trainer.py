@@ -1255,9 +1255,9 @@ class RayPPOTrainer:
             out[f"{prefix}/mu"]            = float(st.get("mu", 0.0))
             out[f"{prefix}/sigma"]         = float(st.get("sigma", 1.0))
             out[f"{prefix}/count"]         = float(st.get("count", 0))
-            out[f"{prefix}/ema_mean"]      = float(st.get("buffer_mean_ema", 0.0))
-            out[f"{prefix}/ema_cvar"]      = float(st.get("buffer_cvar_ema", 0.0))
-            out[f"{prefix}/ema_ptail"]     = float(st.get("buffer_ptail_ema", 0.0))
+            out[f"{prefix}/buffer_mean_ema"]      = float(st.get("buffer_mean_ema", 0.0))
+            out[f"{prefix}/buffer_cvar_ema"]      = float(st.get("buffer_cvar_ema", 0.0))
+            out[f"{prefix}/buffer_ptail_ema"]     = float(st.get("buffer_ptail_ema", 0.0))
 
             # buffer summary (never log the raw deque)
             buf = st.get("buffer", None)

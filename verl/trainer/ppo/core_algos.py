@@ -1773,23 +1773,35 @@ def compute_tarpo_outcome_advantage(
             else:
                 raise ValueError(f"Invalid class_weight_scope={class_weight_scope!r}; use 'dataset' | 'task' | 'auto'.")
 
-        # Per-qid scalar weight
+            # Per-qid scalar weight
         q2w: Dict[Any, float] = {}
         for qid in q2norm.keys():
             group_id = _resolve_group_id_based_on_qid(qid)
             if group_id is None or group_id not in class_count_info:
-                # Fallback: neutral weight
+                # Group not found at all → neutral
                 q2w[qid] = 1.0
                 continue
 
             class_map = class_count_info[group_id]
-            c         = q2class[qid]
-            Ngc       = float(max(class_map.get(c, 1), 1))
-            inv       = 1.0 / max(Ngc, eps)
-            q2w[qid]  = inv * (g2_C[group_id] / g2_S[group_id])
+
+            # If the group exists but is EMPTY (QA), keep it strictly neutral.
+            if not class_map:
+                q2w[qid] = 1.0
+                continue
+
+            c = q2class[qid]
+
+            # If class label is None or unseen, treat as count=1 (neutral).
+            raw_cnt = class_map.get(c, 1) if c is not None else 1
+            Ngc = float(max(raw_cnt, 1))
+
+            inv = 1.0 / max(Ngc, eps)
+            Sg  = g2_S[group_id]
+            Cg  = g2_C[group_id]
+
+            q2w[qid] = inv * (Cg / max(Sg, eps))
     else:
         q2w = {qid: 1.0 for qid in q2norm.keys()}
-
    
    # ----------------------------------------------------------
     # D) CVaR×tail-frequency dynamic boost (per task) → q2k[qid]
