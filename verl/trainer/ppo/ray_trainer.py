@@ -319,6 +319,7 @@ def compute_advantage(
 
         # TODO_TARPO: make sure that the data batch has dataset_ids, task_ids, and class_labels
         # TODO_TARPO: so the class_labels should be prefixed by the task (i.e. SEN_NEU)
+        # TODO_TARPO: you can add the static class code later on
 
         # info, taken from the non_tensor batch,
         # this is usually a string identifier for the task, 
@@ -331,9 +332,9 @@ def compute_advantage(
             dataset_ids = data.non_tensor_batch.get("dataset", None),
             class_labels=data.non_tensor_batch.get("class_label", None),
             use_task_adapter=True,
-            use_class_weights=True,
-            use_cvar_boost=True,
-            use_grpo_group_norm=True,
+            use_class_weights=False,
+            use_cvar_boost=False,
+            use_grpo_group_norm=False,
             
             # EMA decays
             beta_mu = 0.99,
