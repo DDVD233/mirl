@@ -1585,9 +1585,6 @@ task_stats: Dict[Any, Dict[str, Any]] = defaultdict(lambda: {
 
 # Per-(dataset,class) EMA counts for inverse-frequency weights
 # dc_counts[(d,c)] = float (EMA count), d_counts[d] = float (EMA total), d_classes[d] = set of classes observed
-dc_counts: Dict[Tuple[Any, Any], float] = defaultdict(float)
-d_counts:  Dict[Any, float]            = defaultdict(float)
-d_classes: Dict[Any, set]              = defaultdict(set)
 
 # Small helpers
 def _ema_update(prev: float, new: float, beta: float) -> float:

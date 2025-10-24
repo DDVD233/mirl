@@ -1235,15 +1235,16 @@ class RayPPOTrainer:
             seqlen_list=global_seqlen_lst, partitions=global_partition_lst, prefix=logging_prefix
         )
         metrics.update(global_balance_stats)
-
-    def _sanitize_key(x: str) -> str:
-        return str(x).replace("/", "_").replace(" ", "_")
+    
 
     def _tarpo_metrics_all_tasks():
         """
         Summarize core_algos.task_stats into flat scalars for metrics.update(...).
         Logs ALL tasks every call. No truncation.
         """
+
+        def _sanitize_key(x: str) -> str:
+            return str(x).replace("/", "_").replace(" ", "_")
 
         out = {}
         for task_id, st in core_algos.task_stats.items():
@@ -1546,7 +1547,7 @@ class RayPPOTrainer:
                     
                     # Log TARPO task_stats (all tasks) every step
                     try:
-                        tarpo_metrics = _tarpo_metrics_all_tasks()
+                        tarpo_metrics = self._tarpo_metrics_all_tasks()
                         if tarpo_metrics:
                             metrics.update(tarpo_metrics)
                     except Exception as e:
