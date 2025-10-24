@@ -1237,7 +1237,7 @@ class RayPPOTrainer:
         metrics.update(global_balance_stats)
     
 
-    def _tarpo_metrics_all_tasks():
+    def _tarpo_metrics_all_tasks(self):
         """
         Summarize core_algos.task_stats into flat scalars for metrics.update(...).
         Logs ALL tasks every call. No truncation.
