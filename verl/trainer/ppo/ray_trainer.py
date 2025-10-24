@@ -341,6 +341,7 @@ def compute_advantage(
             beta_sigma = 0.95,
             beta_mean = 0.95,
             beta_cvar = 0.95,
+            beta_tail = 1.0,
 
             # Static metadata for class weights
             class_count_info = None, 
@@ -1235,6 +1236,44 @@ class RayPPOTrainer:
         )
         metrics.update(global_balance_stats)
 
+    def _sanitize_key(x: str) -> str:
+        return str(x).replace("/", "_").replace(" ", "_")
+
+    def _tarpo_metrics_all_tasks():
+        """
+        Summarize core_algos.task_stats into flat scalars for metrics.update(...).
+        Logs ALL tasks every call. No truncation.
+        """
+
+        out = {}
+        for task_id, st in core_algos.task_stats.items():
+            tkey = _sanitize_key(task_id)
+            prefix = f"tarpo/task/{tkey}"
+
+            # core EMAs / counters
+            out[f"{prefix}/mu"]            = float(st.get("mu", 0.0))
+            out[f"{prefix}/sigma"]         = float(st.get("sigma", 1.0))
+            out[f"{prefix}/count"]         = float(st.get("count", 0))
+            out[f"{prefix}/ema_mean"]      = float(st.get("buffer_mean_ema", 0.0))
+            out[f"{prefix}/ema_cvar"]      = float(st.get("buffer_cvar_ema", 0.0))
+            out[f"{prefix}/ema_ptail"]     = float(st.get("buffer_ptail_ema", 0.0))
+
+            # buffer summary (never log the raw deque)
+            buf = st.get("buffer", None)
+            if buf and len(buf) > 0:
+                x = np.asarray(list(buf), dtype=float)
+                out[f"{prefix}/buffer_len"]  = int(x.size)
+                out[f"{prefix}/buffer_mean"] = float(x.mean())
+                out[f"{prefix}/buffer_std"]  = float(x.std(ddof=0)) if x.size > 1 else 0.0
+                for q in (0.10, 0.25, 0.50, 0.75, 0.90):
+                    out[f"{prefix}/buffer_q{int(q*100):02d}"] = float(np.quantile(x, q))
+                out[f"{prefix}/buffer_min"]  = float(x.min())
+                out[f"{prefix}/buffer_max"]  = float(x.max())
+            else:
+                out[f"{prefix}/buffer_len"]  = 0
+
+        return out
+
     def fit(self):
         """
         The training loop of PPO.
@@ -1451,7 +1490,6 @@ class RayPPOTrainer:
                         batch = batch.union(old_log_prob)
 
                         if "rollout_log_probs" in batch.batch.keys():
-                            # TODO: we may want to add diff of probs too.
                             from verl.utils.debug.metrics import calculate_debug_metrics
 
                             metrics.update(calculate_debug_metrics(batch))
@@ -1505,6 +1543,14 @@ class RayPPOTrainer:
                             norm_adv_by_std_in_grpo=norm_adv_by_std_in_grpo,
                             config=self.config.algorithm,
                         )
+                    
+                    # Log TARPO task_stats (all tasks) every step
+                    try:
+                        tarpo_metrics = _tarpo_metrics_all_tasks()
+                        if tarpo_metrics:
+                            metrics.update(tarpo_metrics)
+                    except Exception as e:
+                        print(f"[WARN] TARPO metrics logging failed: {e}")
 
                     # update critic
                     if self.use_critic:

@@ -1627,9 +1627,9 @@ def compute_tarpo_outcome_advantage(
     # EMA decays
     beta_mu: float = 0.99,
     beta_sigma: float = 0.99,
-    beta_mean: float = 0.98,
-    beta_cvar: float = 0.98,
-    beta_tail: float = 1.0,
+    beta_mean: float = 0.98,    # per task buffer EMA for CVaR's mean references (how much of the prev to keep etc.)
+    beta_cvar: float = 0.98,    # per task buffer EMA for CVaR
+    beta_tail: float = 1.0,    # how strongly the frequency of tail events modulates CVaR boost
     # Static metadata for class weights
     class_count_info: Optional[Dict[Any, Dict[Any, int]]] = None,  # {dataset: {class: count}}
     class_weight_scope: str = "auto"

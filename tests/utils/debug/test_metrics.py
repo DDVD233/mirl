@@ -42,6 +42,8 @@ class TestMetrics(unittest.TestCase):
         metrics = calculate_debug_metrics(data)
         print(metrics)
         assert metrics["training/rollout_probs_diff_valid"] == 1
+        self.assertIn("training/rollout_probs_diff_max", metrics)
+        self.assertIn("training/rollout_log_probs_diff_max", metrics)
 
 
 if __name__ == "__main__":

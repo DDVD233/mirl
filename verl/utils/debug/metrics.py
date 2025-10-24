@@ -74,9 +74,12 @@ def calculate_debug_metrics(data: DataProto) -> dict:
     Returns:
         dict: metrics
             "training/rollout_probs_diff_valid": 1->input is valid, 0->input is invalid
-            "training/rollout_probs_diff_max": max value of logprob diff of rollout vs. actor
-            "training/rollout_probs_diff_mean": mean value of logprob diff of rollout vs. actor
-            "training/rollout_probs_diff_std": std value of logprob diff of rollout vs. actor
+            "training/rollout_log_probs_diff_max": max value of logprob diff of rollout vs. actor
+            "training/rollout_log_probs_diff_mean": mean value of logprob diff of rollout vs. actor
+            "training/rollout_log_probs_diff_std": std value of logprob diff of rollout vs. actor
+            "training/rollout_probs_diff_max": max value of prob diff of rollout vs. actor
+            "training/rollout_probs_diff_mean": mean value of prob diff of rollout vs. actor
+            "training/rollout_probs_diff_std": std value of prob diff of rollout vs. actor
             "training/rollout_actor_probs_pearson_corr": logprob's pearson corrcoef of rollout vs. actor, reference to https://arxiv.org/pdf/2506.13585
     """
 
@@ -98,10 +101,14 @@ def calculate_debug_metrics(data: DataProto) -> dict:
     actor_probs = torch.exp(actor_old_log_probs)
     rollout_probs = torch.exp(rollout_old_log_probs)
     response_mask_bool = response_mask.bool()
+    rollout_log_probs_diff = calculate_log_prob_diff(actor_old_log_probs, rollout_old_log_probs, response_mask_bool)
     pearson_corrcoef = pearson_correlation_coefficient(actor_probs, rollout_probs, response_mask_bool)
     rollout_probs_diff = calculate_log_prob_diff(actor_probs, rollout_probs, response_mask_bool)
     return {
         "training/rollout_probs_diff_valid": 1,
+        "training/rollout_log_probs_diff_max": torch.max(rollout_log_probs_diff).detach().item(),
+        "training/rollout_log_probs_diff_mean": torch.mean(rollout_log_probs_diff).detach().item(),
+        "training/rollout_log_probs_diff_std": torch.std(rollout_log_probs_diff).detach().item(),
         "training/rollout_probs_diff_max": torch.max(rollout_probs_diff).detach().item(),
         "training/rollout_probs_diff_mean": torch.mean(rollout_probs_diff).detach().item(),
         "training/rollout_probs_diff_std": torch.std(rollout_probs_diff).detach().item(),

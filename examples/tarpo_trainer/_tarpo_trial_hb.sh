@@ -23,7 +23,7 @@ python3 -m verl.trainer.main_ppo \
     data.train_files=/scratch/keane/human_behaviour/human_behaviour_data/final_v7_train.jsonl \
     data.val_files=/scratch/keane/human_behaviour/human_behaviour_data/final_v7_test.jsonl \
     data.train_batch_size=128 \
-    data.val_batch_size=96 \
+    data.val_batch_size=64 \
     data.max_prompt_length=4096 \
     data.max_response_length=4096 \
     data.filter_overlong_prompts=False \
@@ -72,12 +72,12 @@ python3 -m verl.trainer.main_ppo \
     trainer.logger='["console","wandb"]' \
     trainer.project_name='rl_omni_heldout' \
     trainer.experiment_name='tarpo_rl_omni_heldout' \
-    trainer.n_gpus_per_node=2 \
+    trainer.n_gpus_per_node=4 \
     trainer.nnodes=1 \
-    trainer.save_freq=121 \
+    trainer.save_freq=148 \
     trainer.val_before_train=False \
     trainer.val_only=False \
     trainer.validation_data_dir=/scratch/keane/human_behaviour/tarpo_v2_rl_omni_heldout \
-    trainer.test_freq=121 \
+    trainer.test_freq=148 \
     trainer.total_epochs=10 $@ \
     trainer.default_local_dir=/scratch/keane/human_behaviour/tarpo_v2_rl_omni_heldout
