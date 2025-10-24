@@ -6,7 +6,7 @@ export CUDA_VISIBLE_DEVICES=0,1
 unset ROCR_VISIBLE_DEVICES
 export PYTHONUNBUFFERED=1
 export HYDRA_FULL_ERROR=1
-export PYTHONPATH="/home/keaneong/human-behavior/verl:$PYTHONPATH"
+export PYTHONPATH="/home/jadali85/orcd/scratch/verl:$PYTHONPATH"
 export NCCL_ASYNC_ERROR_HANDLING=1
 
 # train modality batching = do one modality at a time;
@@ -20,8 +20,8 @@ export NCCL_ASYNC_ERROR_HANDLING=1
 
 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
-    data.train_files=/scratch/keane/human_behaviour/human_behaviour_data/w_feats_v6_exclude_heldout_train.jsonl \
-    data.val_files=/scratch/keane/human_behaviour/human_behaviour_data/w_feats_v6_exclude_heldout_val.jsonl \
+    data.train_files=/home/jadali85/orcd/scratch/av-asd/av_asd_train.jsonl \
+    data.val_files=/home/jadali85/orcd/scratch/av-asd/av_asd_val.jsonl \
     data.train_batch_size=128 \
     data.val_batch_size=96 \
     data.max_prompt_length=4096 \
@@ -37,7 +37,7 @@ python3 -m verl.trainer.main_ppo \
     data.train_modality_batching.drop_last=True \
     data.val_modality_batching.enabled=True \
     data.val_modality_batching.drop_last=False \
-    data.format_prompt=/home/keaneong/human-behavior/verl/examples/format_prompt/default.jinja \
+    data.format_prompt=/home/jadali85/orcd/scratch/mirl/examples/format_prompt/default.jinja \
     actor_rollout_ref.model.path=Qwen/Qwen2.5-Omni-7B \
     actor_rollout_ref.actor.optim.lr=1e-6 \
     actor_rollout_ref.model.use_remove_padding=False \
@@ -65,19 +65,19 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.rollout.max_model_len=8096 \
     actor_rollout_ref.rollout.max_num_batched_tokens=8096 \
     algorithm.use_kl_in_reward=False \
-    custom_reward_function.path=/home/keaneong/human-behavior/verl/examples/reward_function/human_behaviour.py \
+    custom_reward_function.path=/home/jadali85/orcd/scratch/mirl/examples/reward_function/human_behaviour.py \
     custom_reward_function.name=human_behaviour_compute_score_batch \
     reward_model.reward_manager=batch \
     trainer.critic_warmup=0 \
     trainer.logger='["console","wandb"]' \
-    trainer.project_name='rl_omni_heldout' \
-    trainer.experiment_name='rl_omni_heldout' \
+    trainer.project_name='jada_av_asd' \
+    trainer.experiment_name='jada_av_asd' \
     trainer.n_gpus_per_node=2 \
     trainer.nnodes=1 \
     trainer.save_freq=121 \
     trainer.val_before_train=False \
     trainer.val_only=False \
-    trainer.validation_data_dir=/scratch/keane/human_behaviour/v2_rl_omni_heldout \
+    trainer.validation_data_dir=/home/jadali85/orcd/scratch/av-asd/results/ \
     trainer.test_freq=121 \
     trainer.total_epochs=10 $@ \
-    trainer.default_local_dir=/scratch/keane/human_behaviour/v2_rl_omni_heldout
+    trainer.default_local_dir=/home/jadali85/orcd/scratch/av-asd/results/
