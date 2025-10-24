@@ -337,13 +337,15 @@ def compute_advantage(
             use_grpo_group_norm=False,
             
             # EMA decays
-            beta_mu = 0.99,
-            beta_sigma = 0.99,
-            beta_mean = 0.98,
-            beta_cvar = 0.98,
+            beta_mu = 0.95,
+            beta_sigma = 0.95,
+            beta_mean = 0.95,
+            beta_cvar = 0.95,
+
             # Static metadata for class weights
-            static_class_counts = None,  # (dataset, class) -> count
-            dataset_classes = None,         # dataset -> set(classes)
+            class_count_info = None, 
+            class_weight_scope = "auto"
+
         )
         data.batch["advantages"] = advantages
         data.batch["returns"] = returns
