@@ -54,13 +54,31 @@ def cosine_similarity_reward(pred_label: str, ground_truth: str, model) -> float
 
 
 def _parse_type_from_task_id(task_id: str) -> str:
-    """Extract '<type>' from '<task>_<type>'."""
-    _, _, tail = task_id.rpartition("_")
-    t = (tail if _ else task_id).strip().lower()
-    if t in {"cls", "classification"}:
+    """
+    Robustly extract the trailing task type from strings like:
+      "chsimsv2_sentiment_intensity_cls", "intent_qa", "mime_qna", "foo_q&a"
+    Rules:
+      - Only the FINAL token matters.
+      - Accept exactly: "cls", "qa", "qna", "q&a" (case-insensitive).
+      - Do NOT treat "classification" (or similar) as "cls".
+      - Default to "cls" if no recognized suffix is found.
+    """
+    if not isinstance(task_id, str) or not task_id.strip():
         return "cls"
-    if t in {"qa", "qna", "q&a"}:
+
+    # Normalize: strip, collapse weird trailing separators
+    s = task_id.strip().strip("_").lower()
+
+    # Split on underscores and any non-word chars to get the final token
+    tokens = re.split(r"[_\W]+", s)
+    last = tokens[-1] if tokens else ""
+
+    if last == "cls":
+        return "cls"
+    if last in {"qa", "qna", "q&a"}:
         return "qa"
+
+    # Fallback: default to classification-style behavior
     return "cls"
 
 
@@ -128,6 +146,6 @@ if __name__ == "__main__":
         solution_strs=[cls_response, qa_response, qa_response_two],
         ground_truths=["anger", "The Eiffel Tower is located in Paris.", "bad."],
         extra_infos=["", "", ""],
-        task_ids=["sen_cls", "intent_qa", "mime_qa"]
+        task_ids=["sen_intensity_data_cls", "intent_qa", "mime_qa"]
     )
     print(scores)
