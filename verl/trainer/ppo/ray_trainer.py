@@ -70,6 +70,27 @@ from examples.reward_function.hb_evaluation import compute_metrics_by_data_sourc
 WorkerType = type[Worker]
 
 debug_file = "/home/keaneong/human-behavior/verl/examples/grpo_trainer/debug_log.txt"
+# Create a timestamped log file in the same directory as this script
+log_dir = os.path.dirname(os.path.abspath(__file__))
+timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+full_debug_log_file = os.path.join(log_dir, f"full_debug_logs_{timestamp}.txt")
+
+# === Tee logger setup: save all stdout + stderr to file while keeping terminal output ===
+import sys
+import os
+from datetime import datetime
+
+class Tee:
+    """Write output to both terminal and a file."""
+    def __init__(self, *files):
+        self.files = files
+    def write(self, data):
+        for f in self.files:
+            f.write(data)
+            f.flush()
+    def flush(self):
+        for f in self.files:
+            f.flush()
 
 
 def _flatten(d, parent_key=""):
@@ -1295,6 +1316,13 @@ class RayPPOTrainer:
             default_backend=self.config.trainer.logger,
             config=cfg_dict,
         )
+
+        # Open the file for writing and attach to stdout and stderr
+        log_fh = open(full_debug_log_file, "w", buffering=1)  # line-buffered
+        sys.stdout = Tee(sys.__stdout__, log_fh)
+        sys.stderr = Tee(sys.__stderr__, log_fh)
+
+        print(f"[INFO] Logging all output to terminal and {full_debug_log_file}")
 
         if "wandb" in self.config.trainer.logger and wandb.run is not None:
             flat_cfg = _flatten(cfg_dict)
