@@ -66,6 +66,10 @@ from verl.utils.tracking import ValidationGenerationsLogger
 from verl.utils.dataset.log_mm_tokens import log_modality_budgets
 
 from examples.reward_function.hb_evaluation import compute_metrics_by_data_source
+# === Tee logger setup: save all stdout + stderr to file while keeping terminal output ===
+import sys
+import os
+from datetime import datetime
 
 WorkerType = type[Worker]
 
@@ -75,11 +79,6 @@ log_dir = os.path.dirname(os.path.abspath(__file__))
 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 full_debug_log_file = os.path.join(log_dir, f"full_debug_logs_{timestamp}.txt")
 
-
-# === Tee logger setup: save all stdout + stderr to file while keeping terminal output ===
-import sys
-import os
-from datetime import datetime
 
 class Tee:
     """Write output to both terminal and a file."""
