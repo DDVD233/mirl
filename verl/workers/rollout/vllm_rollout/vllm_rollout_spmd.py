@@ -87,6 +87,13 @@ def _pre_process_inputs(pad_token_id, prompt_token_ids: torch.Tensor) -> list[in
 if is_version_ge(pkg="vllm", minver="0.7.3"):
     VLLMHijack.hijack()
 
+# Apply time-series patches to vLLM if available
+try:
+    from verl.models.transformers.monkey_patch import time_series_vllm_patch
+    time_series_vllm_patch()
+except ImportError:
+    pass
+
 
 class vLLMRollout(BaseRollout):
     def __init__(

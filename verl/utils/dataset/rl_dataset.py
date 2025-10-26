@@ -137,6 +137,7 @@ class RLHFDataset(Dataset):
         self.prompt_key = config.get("prompt_key", "prompt")
         self.image_key = config.get("image_key", "images")
         self.video_key = config.get("video_key", "videos")
+        self.time_series_key = config.get("time_series_key", "time-series")
         self.max_prompt_length = config.get("max_prompt_length", 1024)
         self.return_raw_chat = config.get("return_raw_chat", False)
         self.return_full_prompt = config.get("return_full_prompt", False)
@@ -276,7 +277,7 @@ class RLHFDataset(Dataset):
                          "provide the final answer. The reasoning process MUST BE enclosed within <think> "
                          "</think> tags. The final answer MUST BE put in \\boxed{}.")
 
-        if self.image_key in example or self.video_key in example:
+        if self.image_key in example or self.video_key in example or self.time_series_key in example:
             new_messages = []
             for message in messages:
                 new_message = copy.deepcopy(message)
@@ -316,6 +317,11 @@ class RLHFDataset(Dataset):
                             content_list.append({"type": "video"})
                     else:
                         content_list.append({"type": "text", "text": segment + format_prompt})
+
+                # Add time-series to content list if present
+                if self.time_series_key in example and example[self.time_series_key]:
+                    content_list.append({"type": "time-series"})
+
                 new_message["content"] = content_list
                 new_messages.append(new_message)
         else:
@@ -460,6 +466,20 @@ class RLHFDataset(Dataset):
                     
                     # Clear videos since we've converted them to images
                     videos = None
+
+            # Process time-series data
+            time_series = None
+            if self.time_series_key in row_dict and row_dict.get(self.time_series_key, None) is not None and len(row_dict[self.time_series_key]) > 0:
+                from verl.utils.dataset.ts_utils import process_time_series
+
+                time_series = []
+                for ts_item in row_dict.get(self.time_series_key):
+                    ts_path = os.path.join(self.base_dir, ts_item) if isinstance(ts_item, str) else ts_item
+                    time_series.append(process_time_series(ts_path))
+
+                # Add time-series to multi_modal_data
+                # Use "time-series" key to match vLLM convention
+                multi_modal_data["time-series"] = time_series
 
             # Call processor with appropriate parameters
             if processor_supports_video(self.processor):
