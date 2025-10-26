@@ -20,8 +20,8 @@ export NCCL_ASYNC_ERROR_HANDLING=1
 
 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=tarpo \
-    data.train_files=/scratch/keane/human_behaviour/human_behaviour_data/final_v7_train.jsonl \
-    data.val_files=/scratch/keane/human_behaviour/human_behaviour_data/final_v7_test.jsonl \
+    data.train_files=/scratch/keane/human_behaviour/human_behaviour_data/final_v8_train.jsonl \
+    data.val_files=/scratch/keane/human_behaviour/human_behaviour_data/final_v8_test.jsonl \
     data.train_batch_size=128 \
     data.val_batch_size=64 \
     data.max_prompt_length=4096 \
@@ -62,8 +62,8 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.rollout.n=5 \
     actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=1 \
     actor_rollout_ref.ref.fsdp_config.param_offload=True \
-    actor_rollout_ref.rollout.max_model_len=4096 \
-    actor_rollout_ref.rollout.max_num_batched_tokens=4096 \
+    actor_rollout_ref.rollout.max_model_len=8192 \
+    actor_rollout_ref.rollout.max_num_batched_tokens=8192 \
     algorithm.use_kl_in_reward=False \
     custom_reward_function.path=/home/keaneong/human-behavior/verl/examples/reward_function/human_behaviour_tarpo.py \
     custom_reward_function.name=human_behaviour_compute_score_batch \
