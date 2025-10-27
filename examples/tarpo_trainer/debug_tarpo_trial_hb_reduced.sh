@@ -2,7 +2,7 @@
 set -x
 
 # Pin to GPUs 0,1
-export CUDA_VISIBLE_DEVICES=0,1,2,3
+export CUDA_VISIBLE_DEVICES=2,3
 unset ROCR_VISIBLE_DEVICES
 export PYTHONUNBUFFERED=1
 export HYDRA_FULL_ERROR=1
@@ -52,7 +52,7 @@ export NCCL_ASYNC_ERROR_HANDLING=1
         actor_rollout_ref.actor.fsdp_config.param_offload=False \
         actor_rollout_ref.actor.fsdp_config.optimizer_offload=False \
         actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=1 \
-        actor_rollout_ref.rollout.tensor_model_parallel_size=1 \
+        actor_rollout_ref.rollout.tensor_model_parallel_size=2 \
         actor_rollout_ref.rollout.name=vllm \
         actor_rollout_ref.rollout.engine_kwargs.vllm.disable_mm_preprocessor_cache=True \
         actor_rollout_ref.rollout.gpu_memory_utilization=0.6 \
@@ -72,12 +72,12 @@ export NCCL_ASYNC_ERROR_HANDLING=1
         trainer.logger='["console","wandb"]' \
         trainer.project_name='rl_omni_heldout' \
         trainer.experiment_name='tarpo_rl_omni_heldout' \
-        trainer.n_gpus_per_node=4 \
+        trainer.n_gpus_per_node=2 \
         trainer.nnodes=1 \
         trainer.save_freq=50 \
         trainer.val_before_train=False \
         trainer.val_only=False \
-        trainer.validation_data_dir=/scratch/keane/human_behaviour/tarpo_v2_rl_omni_heldout \
+        trainer.validation_data_dir=/scratch/keane/human_behaviour/debug_tarpo_v2_rl_omni_heldout \
         trainer.test_freq=50 \
         trainer.total_epochs=10 $@ \
-        trainer.default_local_dir=/scratch/keane/human_behaviour/tarpo_v2_rl_omni_heldout
+        trainer.default_local_dir=/scratch/keane/human_behaviour/debug_tarpo_v2_rl_omni_heldout
