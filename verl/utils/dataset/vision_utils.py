@@ -155,7 +155,7 @@ def process_video(
         if debug:
             print(f"[process_video][error] {e}\n{traceback.format_exc()}")
         # Return a small dummy to keep pipeline alive
-        dummy = torch.zeros((1, 3, 224, 224), dtype=torch.uint8)
+        dummy = torch.zeros((4, 3, 224, 224), dtype=torch.uint8)
         return dummy
 
     # --- DIAGNOSTICS (after decode/resize) ---

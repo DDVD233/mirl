@@ -65,7 +65,7 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.rollout.max_model_len=8096 \
     actor_rollout_ref.rollout.max_num_batched_tokens=8096 \
     algorithm.use_kl_in_reward=False \
-    custom_reward_function.path=/home/keaneong/human-behavior/verl/examples/reward_function/human_behaviour_tarpo.py \
+    custom_reward_function.path=/home/keaneong/human-behavior/verl/examples/reward_function/human_behaviour.py \
     custom_reward_function.name=human_behaviour_compute_score_batch \
     reward_model.reward_manager=batch \
     trainer.critic_warmup=0 \
