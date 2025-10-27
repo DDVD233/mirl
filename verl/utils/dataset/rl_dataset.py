@@ -525,6 +525,24 @@ class RLHFDataset(Dataset):
         # NOTE: PROMPTS THAT DO NOT FIT THE LENGTH; 
         # NOTE: SECOND TIME IS TO BUILD THE MESSAGE TO BE PASSED INTO THE MODEL
 
+        # ------------------- PATCH START -------------------
+        # Audio fallback: if audio is present but NO videos, insert a dummy "video" placeholder
+        has_audio = "audio" in self.modalities and self.audio_key in row_dict and row_dict.get(self.audio_key) and len(row_dict[self.audio_key]) > 0
+        has_video = "videos" in self.modalities and self.video_key in row_dict and row_dict.get(self.video_key) and len(row_dict[self.video_key]) > 0
+
+        needs_video_fallback = bool(has_audio and (not has_video))
+
+        if needs_video_fallback:
+            # Ensure the structure exists
+            if self.video_key not in row_dict or row_dict.get(self.video_key) is None:
+                row_dict[self.video_key] = []
+            # Insert a sentinel so _build_messages() will include <video> tags
+            # and downstream logic will attempt to process a video.
+            row_dict[self.video_key].append("dummy")
+            # Since we just "added" video, re-evaluate convert_video_to_images
+            convert_video_to_images = not processor_supports_video(self.processor)
+        # ------------------- PATCH END ---------------------
+
         messages = self._build_messages(row_dict, convert_video_to_images=convert_video_to_images)
 
         if "audio" in self.modalities:
@@ -582,7 +600,11 @@ class RLHFDataset(Dataset):
                 # print(f"KEANE: GETTING VIDEO {row_dict[self.video_key]}")
 
                 for video in row_dict.get(self.video_key):
-                    video = os.path.join(self.base_dir, video) if isinstance(video, str) else video
+                    # video = os.path.join(self.base_dir, video) if isinstance(video, str) else video
+                    # videos.append(process_video(video))
+
+                    # If we injected "dummy" above, process_video will return a black frame.
+                    video = os.path.join(self.base_dir, video) if isinstance(video, str) and video != "dummy" else video
                     videos.append(process_video(video))
 
                 # due to the video key is "video" instead of "videos" in vllm, we need to use "video" here
@@ -620,6 +642,8 @@ class RLHFDataset(Dataset):
 
                     # Clear videos since we've converted them to images
                     videos = None
+
+            # if audio key is present, append audio tokens
             if (
                 "audio" in self.modalities
                 and self.audio_key in row_dict
