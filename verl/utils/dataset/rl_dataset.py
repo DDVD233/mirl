@@ -516,9 +516,9 @@ class RLHFDataset(Dataset):
             row_dict["ext_audio_feats_path"] = None
 
         convert_video_to_images = False
-        if (self.processor is not None and self.video_key in row_dict and
-                row_dict.get(self.video_key, None) is not None and len(row_dict[self.video_key]) > 0):
-            convert_video_to_images = not processor_supports_video(self.processor)
+        # if (self.processor is not None and self.video_key in row_dict and
+        #         row_dict.get(self.video_key, None) is not None and len(row_dict[self.video_key]) > 0):
+        #     convert_video_to_images = not processor_supports_video(self.processor)
 
         # NOTE: BUILD_MESSAGES IS CALLED TWICE; 
         # NOTE: FIRST TIME IS TO GET THE LENGTH OF THE RAW PROMPT AND FILTER OUT 
@@ -540,7 +540,7 @@ class RLHFDataset(Dataset):
             # and downstream logic will attempt to process a video.
             row_dict[self.video_key].append("dummy")
             # Since we just "added" video, re-evaluate convert_video_to_images
-            convert_video_to_images = not processor_supports_video(self.processor)
+            # convert_video_to_images = not processor_supports_video(self.processor)
 
             # Prepend <video>\n tag to the prompt
             tag = "<video>\n"
@@ -560,7 +560,7 @@ class RLHFDataset(Dataset):
                 row_dict[self.prompt_key] = tag
 
             # recompute conversion mode
-            convert_video_to_images = not processor_supports_video(self.processor)
+            # convert_video_to_images = not processor_supports_video(self.processor)
 
         # ------------------- PATCH END ---------------------
 
