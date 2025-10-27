@@ -78,13 +78,20 @@ def process_video(
     fps_max_frames: Optional[int] = None,
     *,
     debug: bool = False,           # <-- turn on diagnostics
-    name_hint: Optional[str] = None
 ) -> torch.Tensor:
     """Converts a video dict into a [n_frames, 3, H, W] uint8 tensor.
 
     Set debug=True for per-call diagnostics to help track OOM spikes.
     """
     start_t = time.perf_counter()
+
+    # --- PATCH: handle dummy sentinel early ---
+    if video == "dummy" or (isinstance(video, dict) and video.get("type") == "dummy"):
+        dummy = torch.zeros((1, 3, 224, 224), dtype=torch.uint8)
+        if debug:
+            print("[process_video] returning dummy video tensor:", dummy.shape)
+        return dummy
+    # --- /PATCH ---
 
     # Normalize string input → dict
     if isinstance(video, str):
