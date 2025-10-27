@@ -77,6 +77,7 @@ def process_video(
     fps_min_frames: Optional[int] = None,
     fps_max_frames: Optional[int] = None,
     *,
+    name_hint = None,
     debug: bool = False,           # <-- turn on diagnostics
 ) -> torch.Tensor:
     """Converts a video dict into a [n_frames, 3, H, W] uint8 tensor.
@@ -87,7 +88,7 @@ def process_video(
 
     # --- PATCH: handle dummy sentinel early ---
     if video == "dummy" or (isinstance(video, dict) and video.get("type") == "dummy"):
-        dummy = torch.zeros((1, 3, 224, 224), dtype=torch.uint8)
+        dummy = torch.zeros((4, 3, 224, 224), dtype=torch.uint8)
         if debug:
             print("[process_video] returning dummy video tensor:", dummy.shape)
         return dummy

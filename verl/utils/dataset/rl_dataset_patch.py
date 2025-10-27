@@ -541,6 +541,27 @@ class RLHFDataset(Dataset):
             row_dict[self.video_key].append("dummy")
             # Since we just "added" video, re-evaluate convert_video_to_images
             convert_video_to_images = not processor_supports_video(self.processor)
+
+            # Prepend <video>\n tag to the prompt
+            tag = "<video>\n"
+            prompt = row_dict.get(self.prompt_key)
+
+            if isinstance(prompt, str):
+                row_dict[self.prompt_key] = tag + prompt
+            elif isinstance(prompt, list):
+                # list of strings → prepend to first element
+                if len(prompt) > 0 and isinstance(prompt[0], str):
+                    prompt[0] = tag + prompt[0]
+                else:
+                    # empty list or unexpected type → just make a one-element list
+                    row_dict[self.prompt_key] = [tag]
+            else:
+                # fallback if somehow missing
+                row_dict[self.prompt_key] = tag
+
+            # recompute conversion mode
+            convert_video_to_images = not processor_supports_video(self.processor)
+
         # ------------------- PATCH END ---------------------
 
         messages = self._build_messages(row_dict, convert_video_to_images=convert_video_to_images)
