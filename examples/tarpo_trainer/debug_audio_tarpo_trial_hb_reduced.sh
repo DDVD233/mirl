@@ -19,7 +19,7 @@ export NCCL_ASYNC_ERROR_HANDLING=1
 # hence we should eval every 242 but save every 121
 
     python3 -m verl.trainer.main_ppo \
-        algorithm.adv_estimator=tarpo \
+        algorithm.adv_estimator=grpo \
         data.train_files=/scratch/keane/human_behaviour/human_behaviour_data/final_v8_train.jsonl \
         data.val_files=/scratch/keane/human_behaviour/human_behaviour_data/final_v8_test.jsonl \
         data.train_batch_size=128 \
@@ -65,7 +65,7 @@ export NCCL_ASYNC_ERROR_HANDLING=1
         actor_rollout_ref.rollout.max_model_len=8192 \
         actor_rollout_ref.rollout.max_num_batched_tokens=8192 \
         algorithm.use_kl_in_reward=False \
-        custom_reward_function.path=/home/keaneong/human-behavior/verl/examples/reward_function/human_behaviour_tarpo.py \
+        custom_reward_function.path=/home/keaneong/human-behavior/verl/examples/reward_function/human_behaviour.py \
         custom_reward_function.name=human_behaviour_compute_score_batch \
         reward_model.reward_manager=batch \
         trainer.critic_warmup=0 \

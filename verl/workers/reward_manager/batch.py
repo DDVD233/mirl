@@ -64,23 +64,23 @@ class BatchRewardManager(AbstractRewardManager):
         extras = data.non_tensor_batch.get("extra_info", [None] * len(data))
 
         # TODO_TARPO: modify compute score to accept task_ids
-        task_ids = data.non_tensor_batch.get("task", [None] * len(data))
-        scores = self.compute_score(
-            task_ids = task_ids,
-            data_sources=data_sources,
-            solution_strs=responses_str,
-            ground_truths=ground_truths,
-            extra_infos=extras,
-            **self.reward_kwargs,
-        )
-
+        # task_ids = data.non_tensor_batch.get("task", [None] * len(data))
         # scores = self.compute_score(
+        #     task_ids = task_ids,
         #     data_sources=data_sources,
         #     solution_strs=responses_str,
         #     ground_truths=ground_truths,
         #     extra_infos=extras,
         #     **self.reward_kwargs,
         # )
+
+        scores = self.compute_score(
+            data_sources=data_sources,
+            solution_strs=responses_str,
+            ground_truths=ground_truths,
+            extra_infos=extras,
+            **self.reward_kwargs,
+        )
 
         return scores
 
