@@ -31,7 +31,7 @@ from verl.utils.device import is_cuda_available
 from verl.utils.import_utils import load_extern_type
 from verl.utils.dataset.modality_sampler import ModalitySignatureBatchSampler
 from verl.utils.dataset.synced_modality_sampler import DistributedModalitySignatureBatchSampler
-
+from verl.utils.dataset.debug_modality_sampler import DebugModalitySignatureBatchSampler
 
 @hydra.main(config_path="config", config_name="ppo_trainer", version_base=None)
 def main(config):
@@ -519,16 +519,34 @@ def create_rl_sampler(data_config, dataset, split: str = "train", *, world_size:
         batch_size = data_config.get("train_batch_size" if split=="train" else "val_batch_size")
         drop_last = data_config.get(f"{split}_modality_batching", {}).get("drop_last", True)
         shuffle = (split == "train")
-        sampler = DistributedModalitySignatureBatchSampler(
+        # sampler = DistributedModalitySignatureBatchSampler(
+        #     indices_by_sig=by_sig,
+        #     batch_size=int(batch_size),
+        #     world_size=world_size,
+        #     rank=rank,
+        #     drop_last=drop_last,
+        #     shuffle=shuffle,
+        #     seed=data_config.get("seed", 42),
+        #     pad_to_equal=True,
+        # )
+        # sampler = ModalitySignatureBatchSampler(
+        #     indices_by_sig=by_sig,
+        #     batch_size=int(batch_size),
+        #     drop_last=drop_last,
+        #     shuffle=shuffle,
+        #     seed=data_config.get("seed", 42),
+
+        # )
+        sampler = DebugModalitySignatureBatchSampler(
             indices_by_sig=by_sig,
             batch_size=int(batch_size),
-            world_size=world_size,
-            rank=rank,
             drop_last=drop_last,
             shuffle=shuffle,
             seed=data_config.get("seed", 42),
-            pad_to_equal=True,
+
         )
+
+        
         sampler.set_epoch(epoch)
 
     # Use a sampler to facilitate checkpoint resumption.
