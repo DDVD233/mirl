@@ -185,6 +185,7 @@ class RLHFDataset(Dataset):
     def _read_files_and_tokenize(self):
         dataframes = []
 
+        #TODO_TARPO
         features = datasets.Features({
             "problem": datasets.Value("string"),
             "answer":  datasets.Value("string"),
@@ -192,12 +193,27 @@ class RLHFDataset(Dataset):
             "videos":  datasets.Sequence(datasets.Value("string")),
             "audios":  datasets.Sequence(datasets.Value("string")),  # <- force list of strings
             "dataset": datasets.Value("string"),
+            "task": datasets.Value("string"),
+            "class_label": datasets.Value("string"),
             "texts":   datasets.Sequence(datasets.Value("string")),
             "modality_signature": datasets.Value("string"),
-            # TODO: THE BOTTOM TWO ARE JUST FOR DEBUGGING FOR NOW; remove when running the other scripts
             "ext_video_feats": datasets.Sequence(datasets.Value("string")),  # <- optional, default []
             "ext_audio_feats": datasets.Sequence(datasets.Value("string")),  # <- optional, default []
         })
+
+        # features = datasets.Features({
+        #     "problem": datasets.Value("string"),
+        #     "answer":  datasets.Value("string"),
+        #     "images":  datasets.Sequence(datasets.Value("string")),
+        #     "videos":  datasets.Sequence(datasets.Value("string")),
+        #     "audios":  datasets.Sequence(datasets.Value("string")),  # <- force list of strings
+        #     "dataset": datasets.Value("string"),
+        #     "texts":   datasets.Sequence(datasets.Value("string")),
+        #     "modality_signature": datasets.Value("string"),
+        #     # TODO: THE BOTTOM TWO ARE JUST FOR DEBUGGING FOR NOW; remove when running the other scripts
+        #     "ext_video_feats": datasets.Sequence(datasets.Value("string")),  # <- optional, default []
+        #     "ext_audio_feats": datasets.Sequence(datasets.Value("string")),  # <- optional, default []
+        # })
 
         for parquet_file in self.data_files:
             # read parquet files and cache
