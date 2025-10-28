@@ -141,11 +141,17 @@ if __name__ == "__main__":
     qa_response = "<think>Reasoning....</think>\\boxed{The Eiffel Tower is in Paris.}"
     qa_response_two = "<think>Reasoning....</think>\\boxed{good.}"
 
+    # scores = human_behaviour_compute_score_batch(
+    #     data_sources=["", "", ""],
+    #     solution_strs=[cls_response, qa_response, qa_response_two],
+    #     ground_truths=["anger", "The Eiffel Tower is located in Paris.", "bad."],
+    #     extra_infos=["", "", ""],
+    #     task_ids=["sen_intensity_data_cls", "intent_qa", "mime_qa"]
+    # )
     scores = human_behaviour_compute_score_batch(
         data_sources=["", "", ""],
         solution_strs=[cls_response, qa_response, qa_response_two],
         ground_truths=["anger", "The Eiffel Tower is located in Paris.", "bad."],
         extra_infos=["", "", ""],
-        task_ids=["sen_intensity_data_cls", "intent_qa", "mime_qa"]
     )
     print(scores)
