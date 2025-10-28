@@ -19,9 +19,9 @@ export NCCL_ASYNC_ERROR_HANDLING=1
 # hence we should eval every 242 but save every 121
 
     python3 -m verl.trainer.main_ppo \
-        algorithm.adv_estimator=tarpo \
-        data.train_files=/scratch/keane/human_behaviour/human_behaviour_data/final_v8_train.jsonl \
-        data.val_files=/scratch/keane/human_behaviour/human_behaviour_data/final_v8_test.jsonl \
+        algorithm.adv_estimator=grpo \
+        data.train_files=/scratch/keane/human_behaviour/human_behaviour_data/w_feats_v6_train.jsonl \
+        data.val_files=/scratch/keane/human_behaviour/human_behaviour_data/w_feats_v6_val.jsonl \
         data.train_batch_size=128 \
         data.val_batch_size=64 \
         data.max_prompt_length=4096 \

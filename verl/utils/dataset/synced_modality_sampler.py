@@ -1,5 +1,5 @@
 import math, random, torch
-from typing import Dict, List, Iterator, Optional
+from typing import Dict, List, Iterator, Optional, Tuple
 from collections import deque
 from torch.utils.data import BatchSampler
 
@@ -28,8 +28,14 @@ class DistributedModalitySignatureBatchSampler(BatchSampler):
             assert 0 <= rank < world_size
             self.indices_by_sig = {s: list(v) for s, v in indices_by_sig.items()}
             self.batch_size = int(batch_size)
+            
+            # TODO: Please note that world size and rank is always 1 and 0, given that dist cannot be called
+            # TODO: the sampler lives on the driver, not within each ray, so we 
+            # TODO: just need to make sure that the batches it yields are divisible
+            # TODO: by the DP (number of data splits etc.)
             self.world_size = int(world_size)
             self.rank = int(rank)
+
             self.drop_last = bool(drop_last)
             self.shuffle = bool(shuffle)
             self.seed = int(seed)
@@ -51,6 +57,7 @@ class DistributedModalitySignatureBatchSampler(BatchSampler):
         return out
 
     def __iter__(self) -> Iterator[List[int]]:
+        
         # 1) identical RNG on all ranks
         g = torch.Generator()
         g.manual_seed(self.seed + self.epoch)
