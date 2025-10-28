@@ -105,7 +105,7 @@ def collate_fn(data_list: list[dict]) -> dict:
     """
     # data list is the batch list
     # NOTE: we assert homogeneous if the modality signatures are not homogeneous
-    # assert_homogeneous(data_list) # assert if not homogeneous
+    assert_homogeneous(data_list) # assert if not homogeneous
 
     tensors = defaultdict(list)
     non_tensors = defaultdict(list)
@@ -218,20 +218,6 @@ class RLHFDataset(Dataset):
     def _read_files_and_tokenize(self):
         dataframes = []
 
-        # features = datasets.Features({
-        #     "problem": datasets.Value("string"),
-        #     "answer":  datasets.Value("string"),
-        #     "images":  datasets.Sequence(datasets.Value("string")),
-        #     "videos":  datasets.Sequence(datasets.Value("string")),
-        #     "audios":  datasets.Sequence(datasets.Value("string")),  # <- force list of strings
-        #     "dataset": datasets.Value("string"),
-        #     "texts":   datasets.Sequence(datasets.Value("string")),
-        #     "modality_signature": datasets.Value("string"),
-        #     "ext_video_feats": datasets.Sequence(datasets.Value("string")),  # <- optional, default []
-        #     "ext_audio_feats": datasets.Sequence(datasets.Value("string")),  # <- optional, default []
-        # })
-
-        # TODO_TARPO: uncomment when needed for TARPO implementation
         features = datasets.Features({
             "problem": datasets.Value("string"),
             "answer":  datasets.Value("string"),
@@ -239,13 +225,27 @@ class RLHFDataset(Dataset):
             "videos":  datasets.Sequence(datasets.Value("string")),
             "audios":  datasets.Sequence(datasets.Value("string")),  # <- force list of strings
             "dataset": datasets.Value("string"),
-            "task": datasets.Value("string"),
-            "class_label": datasets.Value("string"),
             "texts":   datasets.Sequence(datasets.Value("string")),
             "modality_signature": datasets.Value("string"),
             "ext_video_feats": datasets.Sequence(datasets.Value("string")),  # <- optional, default []
             "ext_audio_feats": datasets.Sequence(datasets.Value("string")),  # <- optional, default []
         })
+
+        # TODO_TARPO: uncomment when needed for TARPO implementation
+        # features = datasets.Features({
+        #     "problem": datasets.Value("string"),
+        #     "answer":  datasets.Value("string"),
+        #     "images":  datasets.Sequence(datasets.Value("string")),
+        #     "videos":  datasets.Sequence(datasets.Value("string")),
+        #     "audios":  datasets.Sequence(datasets.Value("string")),  # <- force list of strings
+        #     "dataset": datasets.Value("string"),
+        #     "task": datasets.Value("string"),
+        #     "class_label": datasets.Value("string"),
+        #     "texts":   datasets.Sequence(datasets.Value("string")),
+        #     "modality_signature": datasets.Value("string"),
+        #     "ext_video_feats": datasets.Sequence(datasets.Value("string")),  # <- optional, default []
+        #     "ext_audio_feats": datasets.Sequence(datasets.Value("string")),  # <- optional, default []
+        # })
 
 
         for parquet_file in self.data_files:
@@ -516,14 +516,53 @@ class RLHFDataset(Dataset):
             row_dict["ext_audio_feats_path"] = None
 
         convert_video_to_images = False
-        if (self.processor is not None and self.video_key in row_dict and
-                row_dict.get(self.video_key, None) is not None and len(row_dict[self.video_key]) > 0):
-            convert_video_to_images = not processor_supports_video(self.processor)
+        # if (self.processor is not None and self.video_key in row_dict and
+        #         row_dict.get(self.video_key, None) is not None and len(row_dict[self.video_key]) > 0):
+        #     convert_video_to_images = not processor_supports_video(self.processor)
 
         # NOTE: BUILD_MESSAGES IS CALLED TWICE; 
         # NOTE: FIRST TIME IS TO GET THE LENGTH OF THE RAW PROMPT AND FILTER OUT 
         # NOTE: PROMPTS THAT DO NOT FIT THE LENGTH; 
         # NOTE: SECOND TIME IS TO BUILD THE MESSAGE TO BE PASSED INTO THE MODEL
+
+        # ------------------- PATCH START -------------------
+        # Audio fallback: if audio is present but NO videos, insert a dummy "video" placeholder
+        has_audio = "audio" in self.modalities and self.audio_key in row_dict and row_dict.get(self.audio_key) and len(row_dict[self.audio_key]) > 0
+        has_video = "videos" in self.modalities and self.video_key in row_dict and row_dict.get(self.video_key) and len(row_dict[self.video_key]) > 0
+
+        needs_video_fallback = bool(has_audio and (not has_video))
+
+        if needs_video_fallback:
+            # Ensure the structure exists
+            if self.video_key not in row_dict or row_dict.get(self.video_key) is None:
+                row_dict[self.video_key] = []
+            # Insert a sentinel so _build_messages() will include <video> tags
+            # and downstream logic will attempt to process a video.
+            row_dict[self.video_key].append("dummy")
+            # Since we just "added" video, re-evaluate convert_video_to_images
+            # convert_video_to_images = not processor_supports_video(self.processor)
+
+            # Prepend <video>\n tag to the prompt
+            tag = "<video>\n"
+            prompt = row_dict.get(self.prompt_key)
+
+            if isinstance(prompt, str):
+                row_dict[self.prompt_key] = tag + prompt
+            elif isinstance(prompt, list):
+                # list of strings → prepend to first element
+                if len(prompt) > 0 and isinstance(prompt[0], str):
+                    prompt[0] = tag + prompt[0]
+                else:
+                    # empty list or unexpected type → just make a one-element list
+                    row_dict[self.prompt_key] = [tag]
+            else:
+                # fallback if somehow missing
+                row_dict[self.prompt_key] = tag
+
+            # recompute conversion mode
+            # convert_video_to_images = not processor_supports_video(self.processor)
+
+        # ------------------- PATCH END ---------------------
 
         messages = self._build_messages(row_dict, convert_video_to_images=convert_video_to_images)
 
@@ -582,7 +621,11 @@ class RLHFDataset(Dataset):
                 # print(f"KEANE: GETTING VIDEO {row_dict[self.video_key]}")
 
                 for video in row_dict.get(self.video_key):
-                    video = os.path.join(self.base_dir, video) if isinstance(video, str) else video
+                    # video = os.path.join(self.base_dir, video) if isinstance(video, str) else video
+                    # videos.append(process_video(video))
+
+                    # If we injected "dummy" above, process_video will return a black frame.
+                    video = os.path.join(self.base_dir, video) if isinstance(video, str) and video != "dummy" else video
                     videos.append(process_video(video))
 
                 # due to the video key is "video" instead of "videos" in vllm, we need to use "video" here
@@ -620,6 +663,8 @@ class RLHFDataset(Dataset):
 
                     # Clear videos since we've converted them to images
                     videos = None
+
+            # if audio key is present, append audio tokens
             if (
                 "audio" in self.modalities
                 and self.audio_key in row_dict
