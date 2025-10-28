@@ -1,69 +1,47 @@
-import random
-from typing import Dict, List, Iterator
+import math, random, torch
+from typing import Dict, List, Iterator, Optional
 from collections import deque
-import torch
-import torch.distributed as dist
 from torch.utils.data import BatchSampler
 
-def _is_dist():
-    return dist.is_available() and dist.is_initialized()
-
-def _get_rank():
-    return dist.get_rank() if _is_dist() else 0
-
-def _get_world_size():
-    return dist.get_world_size() if _is_dist() else 1
-
-class SyncedModalitySignatureBatchSampler(BatchSampler):
+class DistributedModalitySignatureBatchSampler(BatchSampler):
     """
-    Globally synchronized (per-step) modality-signature sampler.
-    Rank 0 selects the next signature each step and broadcasts to all ranks.
-    Each rank pops a batch for that signature from its local queue; if empty, it pads
-    by sampling with replacement from the signature's pool to keep shapes identical.
+    Round-robin across modality signatures with per-rank sharding at the *batch* level.
+    - Same global shuffle on every rank for a given (seed, epoch)
+    - Each rank sees a disjoint slice of batches: batches[rank::world_size]
+    - Optional drop_last; else pad deterministically so all ranks yield equal counts
     """
     def __init__(
         self,
         indices_by_sig: Dict[str, List[int]],
         batch_size: int,
+        *,
+        world_size: int,
+        rank: int,
         drop_last: bool = True,
-        seed: int = 42,
         shuffle: bool = True,
+        seed: int = 42,
+        pad_to_equal: bool = True,  # keep steps identical across ranks
     ):
+        assert 0 <= rank < world_size
         self.indices_by_sig = {s: list(v) for s, v in indices_by_sig.items()}
         self.batch_size = int(batch_size)
-        self.drop_last = drop_last
-        self.shuffle = shuffle
-        self.rng = random.Random(seed + _get_rank())  # rank-shifted for local shuffles
-        self.sigs = list(self.indices_by_sig.keys())
+        self.world_size = int(world_size)
+        self.rank = int(rank)
+        self.drop_last = bool(drop_last)
+        self.shuffle = bool(shuffle)
+        self.seed = int(seed)
+        self.epoch = 0
+        self.pad_to_equal = bool(pad_to_equal)
 
-        # Precompute per-signature batch queues (local view)
-        self._per_sig_batches = {s: self._batches_for(self.indices_by_sig[s]) for s in self.sigs}
+        # stable order of signatures to RR over (shuffle via seed/epoch later)
+        self.sigs = sorted(self.indices_by_sig.keys())
 
-        # Rank-0 constructs the global round-robin order; others will receive it step-by-step.
-        if self.shuffle:
-            # Build a per-rank local shuffle to reduce correlation, but selection is driven by rank0 later.
-            for s in self.sigs:
-                self.rng.shuffle(self.indices_by_sig[s])
-
-        # Active signatures locally (we still need to know if we ran out and must pad)
-        self._active = {s: deque(self._per_sig_batches[s]) for s in self.sigs}
-
-        # Rank 0 keeps a global RR deque of signatures that still have *any* batches somewhere.
-        # Non-zero ranks will just receive the selected signature each step.
-        if _get_rank() == 0:
-            # NOTE: the "global" notion of availability is approximated by rank0's queues.
-            order = list(self.sigs)
-            if self.shuffle and len(order) > 0:
-                k = self.rng.randrange(len(order))
-                order = order[k:] + order[:k]
-            else:
-                order = sorted(order)
-            self._global_rr = deque([s for s in order if len(self._active[s]) > 0])
+    def set_epoch(self, epoch: int):
+        self.epoch = int(epoch)
 
     def _batches_for(self, pool: List[int]) -> List[List[int]]:
-        n = len(pool)
         batches = []
-        for start in range(0, n, self.batch_size):
+        for start in range(0, len(pool), self.batch_size):
             chunk = pool[start:start + self.batch_size]
             if len(chunk) < self.batch_size and self.drop_last:
                 continue
@@ -71,73 +49,69 @@ class SyncedModalitySignatureBatchSampler(BatchSampler):
                 batches.append(chunk)
         return batches
 
-    def _pick_next_signature_rank0(self) -> str | None:
-        """Rank 0: choose next signature with available batches; rotate RR."""
-        while self._global_rr:
-            s = self._global_rr[0]
-            # If rank0's local queue is empty for s, drop it from RR and continue.
-            if len(self._active[s]) == 0:
-                self._global_rr.popleft()
-                continue
-            # Rotate so round-robin continues next time
-            self._global_rr.rotate(-1)
-            return s
-        return None  # no signatures left
-
-    def _broadcast_signature(self, sig: str | None) -> str | None:
-        """Broadcast chosen signature (or None to indicate stop)."""
-        obj_list = [sig]
-        if _is_dist():
-            dist.broadcast_object_list(obj_list, src=0)
-        return obj_list[0]
-
-    def _pad_batch_from_pool(self, sig: str) -> List[int]:
-        """Synthesize a batch by sampling with replacement from the signature's pool."""
-        pool = self.indices_by_sig.get(sig, [])
-        if len(pool) == 0:
-            # Absolute fallback: return a degenerate batch of zeros (harmless indices)
-            return [0] * self.batch_size
-        # Sample with replacement to reach batch_size.
-        return [self.rng.choice(pool) for _ in range(self.batch_size)]
-
     def __iter__(self) -> Iterator[List[int]]:
-        rank = _get_rank()
+        # 1) Global RNG that’s identical on all ranks for (seed + epoch)
+        g = torch.Generator()
+        g.manual_seed(self.seed + self.epoch)
 
-        while True:
-            # Rank 0 picks signature for this global step.
-            if rank == 0:
-                next_sig = self._pick_next_signature_rank0()
-            else:
-                next_sig = None
+        # 2) Build global per-signature pools with identical shuffle
+        pools = {}
+        for s in self.sigs:
+            v = list(self.indices_by_sig[s])
+            if self.shuffle:
+                idx = torch.randperm(len(v), generator=g).tolist()
+                v = [v[i] for i in idx]
+            pools[s] = v
 
-            # Broadcast decision
-            next_sig = self._broadcast_signature(next_sig)
+        # 3) Turn into global batch lists per signature
+        per_sig_batches = {s: self._batches_for(pools[s]) for s in self.sigs}
 
-            # Stop condition
-            if next_sig is None:
-                break
+        # 4) Optional padding to equalize total number of global batches
+        if not self.drop_last and self.pad_to_equal:
+            # pad each signature's batches to the same modulo world_size
+            for s, blist in per_sig_batches.items():
+                rem = len(blist) % self.world_size
+                if rem != 0 and len(blist) > 0:
+                    need = self.world_size - rem
+                    # deterministic pad: repeat from start
+                    per_sig_batches[s] = blist + blist[:need]
 
-            # Each rank tries to pop a batch from its local queue for this signature.
-            q = self._active.get(next_sig, deque())
-            if len(q) > 0:
-                batch_idx = q.popleft()
-            else:
-                # Local queue exhausted: fabricate a pad batch so shapes match.
-                batch_idx = self._pad_batch_from_pool(next_sig)
+        # 5) Deterministic RR order across signatures
+        order = list(self.sigs)
+        if self.shuffle and len(order) > 0:
+            # rotate start in a deterministic way based on RNG
+            k = int(torch.randint(0, len(order), (1,), generator=g).item())
+            order = order[k:] + order[:k]
 
-            yield batch_idx
+        # 6) Shard at the *batch* level: each rank takes blist[rank::world_size]
+        per_sig_shards = {s: deque(per_sig_batches[s][self.rank::self.world_size]) for s in order}
+
+        # 7) RR over active signatures on this rank
+        active = deque([s for s in order if len(per_sig_shards[s]) > 0])
+        while active:
+            s = active.popleft()
+            q = per_sig_shards[s]
+            if q:
+                yield q.popleft()
+                if q:
+                    active.append(s)  # keep RR
+            # else: signature pruned automatically
 
     def __len__(self) -> int:
-        """
-        Upper bound on number of synchronized steps (computed from rank0 viewpoint).
-        Safe approximation: total #batches across signatures on *this* rank.
-        In practice, training will stop when rank0 announces None.
-        """
-        total = 0
+        # Per-rank length after sharding (+ padding if enabled)
+        total_global_batches = 0
         for pool in self.indices_by_sig.values():
             full, rem = divmod(len(pool), self.batch_size)
-            total += full + (0 if self.drop_last or rem == 0 else 1)
-        return total
+            nb = full + (0 if self.drop_last or rem == 0 else 1)
+            if not self.drop_last and self.pad_to_equal and nb > 0:
+                # pad up to multiple of world_size
+                r = nb % self.world_size
+                if r != 0:
+                    nb += (self.world_size - r)
+            total_global_batches += nb
+        # Each rank sees ceil(total_global_batches / world_size) only if remainder exists at the global level,
+        # but because we pad-to-equal per signature, it becomes exact:
+        return total_global_batches // self.world_size
 
 
 
