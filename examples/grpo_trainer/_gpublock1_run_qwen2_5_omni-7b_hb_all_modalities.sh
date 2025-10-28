@@ -6,8 +6,10 @@ export CUDA_VISIBLE_DEVICES=0,1
 unset ROCR_VISIBLE_DEVICES
 export PYTHONUNBUFFERED=1
 export HYDRA_FULL_ERROR=1
-export PYTHONPATH="/home/jadali85/orcd/scratch/verl:$PYTHONPATH"
+export PYTHONPATH="/home/jadali85/orcd/scratch/mirl:$PYTHONPATH"
 export NCCL_ASYNC_ERROR_HANDLING=1
+module load cuda/12.4.0
+
 
 # train modality batching = do one modality at a time;
 
