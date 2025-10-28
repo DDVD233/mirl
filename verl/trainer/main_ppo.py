@@ -547,7 +547,7 @@ def create_rl_sampler(data_config, dataset, split: str = "train", *, world_size:
         )
 
         
-        sampler.set_epoch(epoch)
+        # sampler.set_epoch(epoch)
 
     # Use a sampler to facilitate checkpoint resumption.
     # If shuffling is enabled in the data configuration, create a random sampler.
