@@ -446,6 +446,7 @@ class RayPPOTrainer:
         self.config = config
         self.reward_fn = reward_fn
         self.val_reward_fn = val_reward_fn
+        self.current_epoch = 0
 
         self.hybrid_engine = config.actor_rollout_ref.hybrid_engine
         assert self.hybrid_engine, "Currently, only support hybrid engine"
@@ -1400,6 +1401,12 @@ class RayPPOTrainer:
 
 
         for epoch in range(self.config.trainer.total_epochs):
+            self.current_epoch = epoch   # <-- set here
+            if hasattr(self.train_dataloader.batch_sampler, "set_epoch"):
+                self.train_dataloader.batch_sampler.set_epoch(epoch)
+            if hasattr(self.val_dataloader.batch_sampler, "set_epoch"):
+                self.val_dataloader.batch_sampler.set_epoch(epoch)
+                
             # i = 0
             for batch_idx, batch_dict in enumerate(self.train_dataloader):
                 #--- DEBUG: log batch content into debug_file ---
