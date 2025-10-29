@@ -100,9 +100,15 @@ def human_behaviour_compute_score_batch(
     if response_lengths is None:
         response_lengths = [len(s or "") for s in solution_strs]
 
+    predicted_log_path = "/home/keaneong/human-behavior/debug_ans_batches.txt"
+
     for i, (data_source, predict_str, ground_truth, extra_info) in enumerate(
         zip(data_sources, solution_strs, ground_truths, extra_infos)
     ):
+        with open(predicted_log_path, "a") as f:
+            f.write(f"Predicted Str: {predict_str}\n")
+            f.write("\n")
+
         # Normalize formatting quirks then extract <boxed{...}>
         full_response = re.sub(r"\s*(<|>|/)\s*", r"\1", predict_str or "")
         pred_label = extract_boxed_content(full_response).lower()
