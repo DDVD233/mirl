@@ -73,13 +73,13 @@ python3 -m verl.trainer.main_ppo \
     trainer.critic_warmup=0 \
     trainer.logger='["console","wandb"]' \
     trainer.project_name='jada_av_asd' \
-    trainer.experiment_name='jada_av_asd' \
+    trainer.experiment_name='jada_av_asd_1' \
     trainer.n_gpus_per_node=2 \
     trainer.nnodes=1 \
-    trainer.save_freq=121 \
+    trainer.save_freq=5 \
     trainer.val_before_train=False \
     trainer.val_only=False \
     trainer.validation_data_dir=/home/jadali85/orcd/scratch/av-asd/results/ \
-    trainer.test_freq=121 \
+    trainer.test_freq=5 \
     trainer.total_epochs=10 $@ \
     trainer.default_local_dir=/home/jadali85/orcd/scratch/av-asd/results/
