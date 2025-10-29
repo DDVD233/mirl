@@ -20,7 +20,7 @@ export NCCL_ASYNC_ERROR_HANDLING=1
 
     python3 -m verl.trainer.main_ppo \
         algorithm.adv_estimator=grpo \
-        data.train_files=/scratch/keane/human_behaviour/human_behaviour_data/problematic_lines.jsonl \
+        data.train_files=/scratch/keane/human_behaviour/human_behaviour_data/exclude_problematic_lines.jsonl \
         data.val_files=/scratch/keane/human_behaviour/human_behaviour_data/qa_test_w_feats.jsonl \
         data.train_batch_size=128 \
         data.val_batch_size=64 \
@@ -79,5 +79,5 @@ export NCCL_ASYNC_ERROR_HANDLING=1
         trainer.val_only=False \
         trainer.validation_data_dir=/scratch/keane/human_behaviour/3_debug_tarpo_v2_rl_omni_heldout \
         trainer.test_freq=500 \
-        trainer.total_epochs=10 $@ \
+        trainer.total_epochs=1 $@ \
         trainer.default_local_dir=/scratch/keane/human_behaviour/3_debug_tarpo_v2_rl_omni_heldout
