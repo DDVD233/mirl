@@ -17,10 +17,11 @@ export NCCL_ASYNC_ERROR_HANDLING=1
 # the printed out total steps will essentially be the all the steps within the full number of epochs (i.e. 1/1210, where epoch is 5), 1210 is num of steps for 5 epochs
 # take 1210/5 = 242 as steps per epoch
 # hence we should eval every 242 but save every 121
+# try also last_train_intentqa_rha.jsonl ; last_train_siq2_rha.jsonl
 
     python3 -m verl.trainer.main_ppo \
         algorithm.adv_estimator=grpo \
-        data.train_files=/scratch/keane/human_behaviour/human_behaviour_data/exclude_problematic_lines.jsonl \
+        data.train_files=/scratch/keane/human_behaviour/human_behaviour_data/last_train_mimeqa_rha.jsonl \
         data.val_files=/scratch/keane/human_behaviour/human_behaviour_data/qa_test_w_feats.jsonl \
         data.train_batch_size=64 \
         data.val_batch_size=32 \
