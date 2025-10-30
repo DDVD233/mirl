@@ -22,7 +22,7 @@ class DebugModalitySignatureBatchSampler(BatchSampler):
         seed: int = 42,
         shuffle: bool = True,
         dataset: Any = None,  # <-- NEW: optional dataset reference
-        log_path: str = "/home/keaneong/human-behavior/debug_batches.txt",
+        log_path: str = "/home/keaneong/human-behavior/test_intentqa_debug_batches.txt",
     ):
         self.indices_by_sig = {s: list(v) for s, v in indices_by_sig.items()}
         self.batch_size = int(batch_size)
