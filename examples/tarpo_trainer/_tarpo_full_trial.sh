@@ -17,14 +17,12 @@ export NCCL_ASYNC_ERROR_HANDLING=1
 # the printed out total steps will essentially be the all the steps within the full number of epochs (i.e. 1/1210, where epoch is 5), 1210 is num of steps for 5 epochs
 # take 1210/5 = 242 as steps per epoch
 # hence we should eval every 242 but save every 121
-# try also last_train_intentqa_rha.jsonl ; last_train_siq2_rha.jsonl
-
 
     python3 -m verl.trainer.main_ppo \
-        algorithm.adv_estimator=grpo \
-        data.train_files=/scratch/keane/human_behaviour/human_behaviour_data/merged_siq2_mimeqa.jsonl \
-        data.val_files=/scratch/keane/human_behaviour/human_behaviour_data/qa_test_w_feats.jsonl \
-        data.train_batch_size=256 \
+        algorithm.adv_estimator=tarpo \
+        data.train_files=/scratch/keane/human_behaviour/human_behaviour_data/final_v8_train_excl_intentqa.jsonl \
+        data.val_files=/scratch/keane/human_behaviour/human_behaviour_data/final_v8_val_excl_intentqa.jsonl \
+        data.train_batch_size=128 \
         data.val_batch_size=64 \
         data.max_prompt_length=4096 \
         data.max_response_length=4096 \
@@ -58,16 +56,16 @@ export NCCL_ASYNC_ERROR_HANDLING=1
         actor_rollout_ref.rollout.name=vllm \
         actor_rollout_ref.rollout.engine_kwargs.vllm.disable_mm_preprocessor_cache=True \
         actor_rollout_ref.rollout.gpu_memory_utilization=0.6 \
-        actor_rollout_ref.rollout.enable_chunked_prefill=True \
+        actor_rollout_ref.rollout.enable_chunked_prefill=False \
         actor_rollout_ref.rollout.enforce_eager=False \
         actor_rollout_ref.rollout.free_cache_engine=True \
-        actor_rollout_ref.rollout.n=2 \
+        actor_rollout_ref.rollout.n=5 \
         actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=1 \
         actor_rollout_ref.ref.fsdp_config.param_offload=True \
         actor_rollout_ref.rollout.max_model_len=8192 \
         actor_rollout_ref.rollout.max_num_batched_tokens=8192 \
         algorithm.use_kl_in_reward=False \
-        custom_reward_function.path=/home/keaneong/human-behavior/verl/examples/reward_function/debug_human_behaviour.py \
+        custom_reward_function.path=/home/keaneong/human-behavior/verl/examples/reward_function/human_behaviour_tarpo.py \
         custom_reward_function.name=human_behaviour_compute_score_batch \
         reward_model.reward_manager=batch \
         trainer.critic_warmup=0 \

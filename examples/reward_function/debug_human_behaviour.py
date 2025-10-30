@@ -74,6 +74,7 @@ def human_behaviour_compute_score_batch(
     solution_strs: List[str],
     ground_truths: List[str],
     extra_infos: List[str],
+    task_ids: List[str],
     *,
     # Overlength controls (required to activate punishment)
     max_response_length: Optional[int] = 512,
