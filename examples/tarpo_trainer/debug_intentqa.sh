@@ -23,11 +23,12 @@ export NCCL_ASYNC_ERROR_HANDLING=1
 # OUT_INCLUDE   = "/scratch/keane/human_behaviour/human_behaviour_data/problematic_lines_last_train_intentqa_rha.jsonl"
 # OUT_EXCLUDE   = "/scratch/keane/human_behaviour/human_behaviour_data/exclude_problematic_lines_last_train_intentqa_rha.jsonl"
 # /scratch/keane/human_behaviour/human_behaviour_data/last_test_intentqa_rha.jsonl
+# "/scratch/keane/human_behaviour/human_behaviour_data/last_test_intentqa_rha_cleaned.jsonl"
 
     python3 -m verl.trainer.main_ppo \
         algorithm.adv_estimator=grpo \
-        data.train_files=/scratch/keane/human_behaviour/human_behaviour_data/last_test_intentqa_rha.jsonl \
-        data.val_files=/scratch/keane/human_behaviour/human_behaviour_data/last_test_intentqa_rha.jsonl \
+        data.train_files=/scratch/keane/human_behaviour/human_behaviour_data/last_test_intentqa_rha_cleaned.jsonl \
+        data.val_files=/scratch/keane/human_behaviour/human_behaviour_data/last_test_intentqa_rha_cleaned.jsonl \
         data.train_batch_size=64 \
         data.val_batch_size=32 \
         data.max_prompt_length=2096 \
