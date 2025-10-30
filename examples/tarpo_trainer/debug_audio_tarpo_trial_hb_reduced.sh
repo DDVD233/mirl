@@ -19,9 +19,10 @@ export NCCL_ASYNC_ERROR_HANDLING=1
 # hence we should eval every 242 but save every 121
 # try also last_train_intentqa_rha.jsonl ; last_train_siq2_rha.jsonl
 
+
     python3 -m verl.trainer.main_ppo \
         algorithm.adv_estimator=grpo \
-        data.train_files=/scratch/keane/human_behaviour/human_behaviour_data/last_train_siq2_rha.jsonl \
+        data.train_files=/scratch/keane/human_behaviour/human_behaviour_data/last_train_intentqa_rha.jsonl \
         data.val_files=/scratch/keane/human_behaviour/human_behaviour_data/qa_test_w_feats.jsonl \
         data.train_batch_size=64 \
         data.val_batch_size=32 \
