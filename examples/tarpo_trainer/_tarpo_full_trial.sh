@@ -2,7 +2,7 @@
 set -x
 
 # Pin to GPUs 0,1
-export CUDA_VISIBLE_DEVICES=0,1
+export CUDA_VISIBLE_DEVICES=0,1,2,3
 unset ROCR_VISIBLE_DEVICES
 export PYTHONUNBUFFERED=1
 export HYDRA_FULL_ERROR=1
@@ -20,8 +20,8 @@ export NCCL_ASYNC_ERROR_HANDLING=1
 
     python3 -m verl.trainer.main_ppo \
         algorithm.adv_estimator=tarpo \
-        data.train_files=/scratch/keane/human_behaviour/human_behaviour_data/final_v8_train_excl_intentqa.jsonl \
-        data.val_files=/scratch/keane/human_behaviour/human_behaviour_data/final_v8_val_excl_intentqa.jsonl \
+        data.train_files=/scratch/keane/human_behaviour/human_behaviour_data/final_v8_train_cleaned.jsonl \
+        data.val_files=/scratch/keane/human_behaviour/human_behaviour_data/final_v8_val_cleaned.jsonl \
         data.train_batch_size=256 \
         data.val_batch_size=64 \
         data.max_prompt_length=4096 \
@@ -42,7 +42,7 @@ export NCCL_ASYNC_ERROR_HANDLING=1
         actor_rollout_ref.actor.optim.lr=1e-6 \
         actor_rollout_ref.model.use_remove_padding=False \
         actor_rollout_ref.actor.ppo_mini_batch_size=128 \
-        actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=1 \
+        actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=2 \
         actor_rollout_ref.actor.use_kl_loss=False \
         actor_rollout_ref.actor.kl_loss_coef=0 \
         actor_rollout_ref.actor.kl_loss_type=low_var_kl \
@@ -72,7 +72,7 @@ export NCCL_ASYNC_ERROR_HANDLING=1
         trainer.logger='["console","wandb"]' \
         trainer.project_name='rl_omni_heldout' \
         trainer.experiment_name='trial_tarpo_full' \
-        trainer.n_gpus_per_node=2 \
+        trainer.n_gpus_per_node=4 \
         trainer.nnodes=1 \
         trainer.save_freq=50 \
         trainer.val_before_train=True \
