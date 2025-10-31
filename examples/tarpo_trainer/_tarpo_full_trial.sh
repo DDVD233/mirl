@@ -2,7 +2,7 @@
 set -x
 
 # Pin to GPUs 0,1
-export CUDA_VISIBLE_DEVICES=0,1,2,3
+export CUDA_VISIBLE_DEVICES=0,1
 unset ROCR_VISIBLE_DEVICES
 export PYTHONUNBUFFERED=1
 export HYDRA_FULL_ERROR=1
@@ -71,13 +71,13 @@ export NCCL_ASYNC_ERROR_HANDLING=1
         trainer.critic_warmup=0 \
         trainer.logger='["console","wandb"]' \
         trainer.project_name='rl_omni_heldout' \
-        trainer.experiment_name='trial_tarpo_full' \
-        trainer.n_gpus_per_node=4 \
+        trainer.experiment_name='tarpo_full' \
+        trainer.n_gpus_per_node=2 \
         trainer.nnodes=1 \
         trainer.save_freq=50 \
-        trainer.val_before_train=True \
+        trainer.val_before_train=False \
         trainer.val_only=False \
-        trainer.validation_data_dir=/scratch/keane/human_behaviour/trial_tarpo_full \
-        trainer.test_freq=1 \
-        trainer.total_epochs=1 $@ \
-        trainer.default_local_dir=/scratch/keane/human_behaviour/trial_tarpo_full
+        trainer.validation_data_dir=/scratch/keane/human_behaviour/tarpo_full \
+        trainer.test_freq=30 \
+        trainer.total_epochs=10 $@ \
+        trainer.default_local_dir=/scratch/keane/human_behaviour/tarpo_full
