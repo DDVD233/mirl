@@ -78,6 +78,6 @@ export NCCL_ASYNC_ERROR_HANDLING=1
         trainer.val_before_train=True \
         trainer.val_only=False \
         trainer.validation_data_dir=/scratch/keane/human_behaviour/trial_tarpo_full \
-        trainer.test_freq=25 \
+        trainer.test_freq=1 \
         trainer.total_epochs=1 $@ \
         trainer.default_local_dir=/scratch/keane/human_behaviour/trial_tarpo_full
