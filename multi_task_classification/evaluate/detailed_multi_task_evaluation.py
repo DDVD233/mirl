@@ -222,6 +222,10 @@ def compute_metrics_by_dataset(
 
         # domain add-ons
         domain = dataset_to_domain.get(dataset_name)
+
+        if domain is None:
+            continue
+
         if domain == "sentiment_intensity":
             # TODO: For baselines, probably have to change this so that it
             # TODO: works with <dataset>_<sentiment> mapping ;
