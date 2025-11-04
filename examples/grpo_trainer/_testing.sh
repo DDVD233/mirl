@@ -22,8 +22,8 @@ module load cuda/12.4.0
 
 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
-    data.train_files=/home/jadali85/orcd/scratch/unified/w_feats_v6_train_mosei_mmpsy_only.jsonl \
-    data.val_files=/home/jadali85/orcd/scratch/unified/w_feats_v6_val_mosei_mmpsy_only.jsonl \
+    data.train_files=/orcd/scratch/orcd/007/jadali85/autism/v1_train.jsonl \
+    data.val_files=/orcd/scratch/orcd/007/jadali85/autism/v1_val.jsonl \
     data.train_batch_size=128 \
     data.val_batch_size=96 \
     data.max_prompt_length=4096 \
@@ -76,10 +76,10 @@ python3 -m verl.trainer.main_ppo \
     trainer.experiment_name='jada_av_asd_1' \
     trainer.n_gpus_per_node=2 \
     trainer.nnodes=1 \
-    trainer.save_freq=5 \
+    trainer.save_freq=180 \
     trainer.val_before_train=False \
     trainer.val_only=False \
-    trainer.validation_data_dir=/home/jadali85/orcd/scratch/unified/results_unified/ \
-    trainer.test_freq=5 \
-    trainer.total_epochs=10 $@ \
-    trainer.default_local_dir=/home/jadali85/orcd/scratch/unified/results_unified/
+    trainer.validation_data_dir=/orcd/scratch/orcd/007/jadali85/autism/results_unified \
+    trainer.test_freq=180 \
+    trainer.total_epochs=5 $@ \
+    trainer.default_local_dir=/orcd/scratch/orcd/007/jadali85/autism/results_unified
