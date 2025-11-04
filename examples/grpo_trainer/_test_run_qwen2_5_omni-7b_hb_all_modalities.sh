@@ -68,6 +68,13 @@ unset ROCR_VISIBLE_DEVICES
 # you can also try a batch size of 3; for now and 3 gpus
 # we need to try a batch size of 256 (train) ; 96 (val)
 
+# try this
+# actor_rollout_ref.actor.fsdp_config.param_offload=True
+# actor_rollout_ref.actor.fsdp_config.optimizer_offload=True
+# mini batch size, set it lower
+# actor_rollout_ref.actor.fsdp_config.param_offload=True
+# actor_rollout_ref.actor.fsdp_config.optimizer_offload=True
+
 # # prefill strategy
 # actor_rollout_ref.rollout.enable_chunked_prefill=False             # keep off unless you set batched_tokens >= max_model_len
 
