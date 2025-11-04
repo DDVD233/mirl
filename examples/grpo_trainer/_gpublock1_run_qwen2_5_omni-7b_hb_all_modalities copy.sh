@@ -22,8 +22,8 @@ module load cuda/12.4.0
 
 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
-    data.train_files=/home/jadali85/orcd/scratch/unified/w_feats_v6_train_existing_only.jsonl \
-    data.val_files=/home/jadali85/orcd/scratch/unified/w_feats_v6_val_existing_only.jsonl \
+    data.train_files=/home/jadali85/orcd/scratch/unified/w_feats_v6_train_mosei_mmpsy_only.jsonl \
+    data.val_files=/home/jadali85/orcd/scratch/unified/w_feats_v6_val_mosei_mmpsy_only.jsonl \
     data.train_batch_size=128 \
     data.val_batch_size=96 \
     data.max_prompt_length=4096 \
