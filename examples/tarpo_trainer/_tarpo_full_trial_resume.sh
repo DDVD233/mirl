@@ -17,6 +17,7 @@ export NCCL_ASYNC_ERROR_HANDLING=1
 # the printed out total steps will essentially be the all the steps within the full number of epochs (i.e. 1/1210, where epoch is 5), 1210 is num of steps for 5 epochs
 # take 1210/5 = 242 as steps per epoch
 # hence we should eval every 242 but save every 121
+    #  +actor_rollout_ref.rollout.engine_kwargs.vllm.kv_cache_dtype=fp8 \
 
     python3 -m verl.trainer.main_ppo \
         algorithm.adv_estimator=tarpo \
@@ -55,7 +56,6 @@ export NCCL_ASYNC_ERROR_HANDLING=1
         actor_rollout_ref.rollout.tensor_model_parallel_size=2 \
         actor_rollout_ref.rollout.name=vllm \
         actor_rollout_ref.rollout.engine_kwargs.vllm.disable_mm_preprocessor_cache=True \
-        +actor_rollout_ref.rollout.engine_kwargs.vllm.kv_cache_dtype=fp16 \
         actor_rollout_ref.rollout.gpu_memory_utilization=0.5 \
         actor_rollout_ref.rollout.enable_chunked_prefill=False \
         actor_rollout_ref.rollout.enforce_eager=True \
