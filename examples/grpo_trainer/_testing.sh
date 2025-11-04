@@ -79,7 +79,7 @@ python3 -m verl.trainer.main_ppo \
     trainer.save_freq=5 \
     trainer.val_before_train=False \
     trainer.val_only=False \
-    trainer.validation_data_dir=/home/jadali85/orcd/scratch/av-asd/results/ \
+    trainer.validation_data_dir=/home/jadali85/orcd/scratch/unified/results_unified/ \
     trainer.test_freq=5 \
     trainer.total_epochs=10 $@ \
-    trainer.default_local_dir=/home/jadali85/orcd/scratch/av-asd/results/
+    trainer.default_local_dir=/home/jadali85/orcd/scratch/unified/results_unified/
