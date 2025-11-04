@@ -19,6 +19,10 @@ export NCCL_ASYNC_ERROR_HANDLING=1
 # hence we should eval every 242 but save every 121
     #  +actor_rollout_ref.rollout.engine_kwargs.vllm.kv_cache_dtype=fp8 \
 
+# max response_length doesn't really do anything I beleive, its in fact summed by model length minus prompt length.
+# model length should be greater than that of the prompt length
+# NOTE: seems like the prompt length may be set as conservative while resuming 
+
     python3 -m verl.trainer.main_ppo \
         algorithm.adv_estimator=tarpo \
         data.train_files=/scratch/keane/human_behaviour/human_behaviour_data/final_v8_train_cleaned.jsonl \
