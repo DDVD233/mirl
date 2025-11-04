@@ -1663,7 +1663,10 @@ def compute_tarpo_outcome_advantage(
     # 1) Rollout-level scalar raw rewards
     # Token_level rewards is essentially the rewards for each token in the response
     # here, we sum them to get the total reward for the entire response
-    raw_scores = token_level_rewards.sum(dim=-1)  # (B,)
+    # be careful as we should not be biased toward a greater reward length
+    # so we take the mean instead
+    lengths = response_mask.sum(dim=-1).clamp_min(1)
+    raw_scores = (token_level_rewards * response_mask).sum(dim=-1) / lengths
 
     # So, essentially, we assume that the scores 
     # correspond to the batch samples in order (B,), where B is 
