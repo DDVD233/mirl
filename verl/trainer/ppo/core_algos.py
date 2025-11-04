@@ -1581,6 +1581,9 @@ task_stats: Dict[Any, Dict[str, Any]] = defaultdict(lambda: {
     "buffer_mean_ema": 0.0, "buffer_cvar_ema": 0.0, "buffer_ptail_ema": 0.0,
     "buffer": deque(maxlen=256),
     "count": 0,
+    "raw_batch_mu": 0.0,
+    "raw_batch_sigma": 1.0,
+    "raw_batch_count": 0,
 }) # count here is basically the number of examples corresponding to the specific task
 
 try:
@@ -1663,10 +1666,7 @@ def compute_tarpo_outcome_advantage(
     # 1) Rollout-level scalar raw rewards
     # Token_level rewards is essentially the rewards for each token in the response
     # here, we sum them to get the total reward for the entire response
-    # be careful as we should not be biased toward a greater reward length
-    # so we take the mean instead
-    lengths = response_mask.sum(dim=-1).clamp_min(1)
-    raw_scores = (token_level_rewards * response_mask).sum(dim=-1) / lengths
+    raw_scores = token_level_rewards.sum(dim=-1)  # (B,)
 
     # So, essentially, we assume that the scores 
     # correspond to the batch samples in order (B,), where B is 
@@ -1713,29 +1713,42 @@ def compute_tarpo_outcome_advantage(
     # score as the entire response
     # [1.2], [0.5] --> [1.2, 1.2, 1.2], [0.5, 0.5, 0.5] (for response length of 3 for both responses)
 
+     # B1) Update per-task stats (ALWAYS)
+    #     - raw_mu/raw_sigma/raw_count: non-EMA, for logging
+    #     - mu/sigma/count: EMA (used by adapter if enabled)
+    # -------------------------------
+    for task, st in batch_task_stats.items():
+        n = int(st["count"])
+        if n <= 0:
+            continue
+
+        mu_b = st["sum"] / max(n, 1)
+        if n > 1:
+            var_b = max(st["sumsq"] / n - mu_b * mu_b, 0.0)
+            sd_b  = math.sqrt(var_b + 1e-12)
+        else:
+            sd_b  = eps  # keep consistent with rest of code
+
+        # --- raw (non-EMA) stats for logging ---
+        task_stats[task]["raw_batch_mu"]    = float(mu_b)
+        task_stats[task]["raw_batch_sigma"] = float(max(sd_b, eps))
+        task_stats[task]["raw_batch_count"] = n
+
+        # --- EMA stats used by task adapter (but updated regardless) ---
+        if task_stats[task]["count"] == 0:
+            task_stats[task]["mu"]    = float(mu_b)
+            task_stats[task]["sigma"] = float(max(sd_b, eps))
+        else:
+            task_stats[task]["mu"]    = _ema_update(task_stats[task]["mu"],    float(mu_b),      beta_mu)
+            task_stats[task]["sigma"] = _ema_update(task_stats[task]["sigma"], float(max(sd_b, eps)), beta_sigma)
+
+        # Always accumulate total seen count
+        task_stats[task]["count"] += n
+
     # -------------------------------
     # B) Task-adapter normalization
     # -------------------------------
     if use_task_adapter:
-        # Update EMA cache per task from batch sufficient stats
-        for task, st in batch_task_stats.items():
-            n = int(st["count"])
-            if n <= 0:
-                continue
-            mu_b = st["sum"] / n
-            if n > 1:
-                var_b = max(st["sumsq"] / n - mu_b * mu_b, 0.0)
-                sd_b  = math.sqrt(var_b + 1e-12)
-            else:
-                sd_b  = eps
-            if task_stats[task]["count"] == 0:
-                task_stats[task]["mu"]    = mu_b
-                task_stats[task]["sigma"] = max(sd_b, eps)
-            else:
-                task_stats[task]["mu"]    = _ema_update(task_stats[task]["mu"],    mu_b,    beta_mu)
-                task_stats[task]["sigma"] = _ema_update(task_stats[task]["sigma"], max(sd_b, eps), beta_sigma)
-            task_stats[task]["count"] += n
-
         # Normalize each qid’s rollouts with its task’s EMA (produce q2norm)
         q2norm: Dict[Any, List[float]] = {}
         for qid, vals in q2rollouts.items():
