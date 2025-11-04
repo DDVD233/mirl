@@ -1758,8 +1758,8 @@ def compute_tarpo_outcome_advantage(
         q2norm: Dict[Any, List[float]] = {}
         for qid, vals in q2rollouts.items():
             task    = q2tasks[qid]
-            mu_t = float(task_stats[task]["mu"])
-            sd_t = float(max(task_stats[task]["sigma"], eps))
+            mu_t = float(task_stats[task]["ema_mu"])
+            sd_t = float(max(task_stats[task]["ema_sigma"], eps))
             q2norm[qid] = [(v - mu_t) / (sd_t + eps) for v in vals]
     else:
         q2norm = {qid: list(vals) for qid, vals in q2rollouts.items()}
