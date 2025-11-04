@@ -23,7 +23,7 @@ module load cuda/12.4.0
 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
     data.train_files=/orcd/scratch/orcd/007/jadali85/autism/v1_train.jsonl \
-    data.val_files=/orcd/scratch/orcd/007/jadali85/autism/v1_val.jsonl \
+    data.val_files=/orcd/scratch/orcd/007/jadali85/autism/testset/ados2_adam_toddler_module.jsonl \
     data.train_batch_size=128 \
     data.val_batch_size=96 \
     data.max_prompt_length=4096 \
@@ -73,13 +73,13 @@ python3 -m verl.trainer.main_ppo \
     trainer.critic_warmup=0 \
     trainer.logger='["console","wandb"]' \
     trainer.project_name='jada_av_asd' \
-    trainer.experiment_name='jada_av_asd_1' \
+    trainer.experiment_name='jada_av_asd_test' \
     trainer.n_gpus_per_node=2 \
     trainer.nnodes=1 \
-    trainer.save_freq=180 \
+    trainer.save_freq=0\
     trainer.val_before_train=False \
-    trainer.val_only=False \
+    trainer.val_only=True \
     trainer.validation_data_dir=/orcd/scratch/orcd/007/jadali85/autism/results_unified \
-    trainer.test_freq=180 \
-    trainer.total_epochs=5 $@ \
+    trainer.test_freq=1 \
+    trainer.total_epochs=1 $@ \
     trainer.default_local_dir=/orcd/scratch/orcd/007/jadali85/autism/results_unified
