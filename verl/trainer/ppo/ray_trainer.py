@@ -1284,7 +1284,6 @@ class RayPPOTrainer:
         )
         metrics.update(global_balance_stats)
     
-
     def _tarpo_metrics_all_tasks(self):
         """
         Summarize core_algos.task_stats into flat scalars for metrics.update(...).
@@ -1299,19 +1298,31 @@ class RayPPOTrainer:
             tkey = _sanitize_key(task_id)
             prefix = f"tarpo/task/{tkey}"
 
-            # core EMAs / counters
-            out[f"{prefix}/mu"]            = float(st.get("mu", 0.0))
-            out[f"{prefix}/sigma"]         = float(st.get("sigma", 1.0))
-            out[f"{prefix}/count"]         = float(st.get("count", 0))
-            out[f"{prefix}/buffer_mean_ema"]      = float(st.get("buffer_mean_ema", 0.0))
-            out[f"{prefix}/buffer_cvar_ema"]      = float(st.get("buffer_cvar_ema", 0.0))
-            out[f"{prefix}/buffer_ptail_ema"]     = float(st.get("buffer_ptail_ema", 0.0))
-            # --- NEW: raw (non-EMA) batch stats ---
-            out[f"{prefix}/raw_mu"]       = float(st.get("raw_mu", 0.0))
-            out[f"{prefix}/raw_sigma"]    = float(st.get("raw_sigma", 1.0))
-            out[f"{prefix}/raw_count"]    = float(st.get("raw_count", 0))
+            # --- Core EMAs / counters ---
+            out[f"{prefix}/ema_mu"]            = float(st.get("ema_mu", 0.0))
+            out[f"{prefix}/ema_sigma"]         = float(st.get("ema_sigma", 1.0))
+            out[f"{prefix}/ema_count"]         = float(st.get("ema_count", 0))
+            out[f"{prefix}/buffer_mean_ema"]   = float(st.get("buffer_mean_ema", 0.0))
+            out[f"{prefix}/buffer_cvar_ema"]   = float(st.get("buffer_cvar_ema", 0.0))
+            out[f"{prefix}/buffer_ptail_ema"]  = float(st.get("buffer_ptail_ema", 0.0))
 
-            # buffer summary (never log the raw deque)
+            # --- Raw (non-EMA) batch stats ---
+            out[f"{prefix}/raw_batch_mu"]      = float(st.get("raw_batch_mu", 0.0))
+            out[f"{prefix}/raw_batch_sigma"]   = float(st.get("raw_batch_sigma", 1.0))
+            out[f"{prefix}/raw_batch_count"]   = float(st.get("raw_batch_count", 0))
+
+            # --- Adapter-normalized advantages (batch + EMA) ---
+            out[f"{prefix}/adapter_advantage_batch_mu"]    = float(st.get("adapter_advantage_batch_mu", 0.0))
+            out[f"{prefix}/adapter_advantage_batch_sigma"] = float(st.get("adapter_advantage_batch_sigma", 1.0))
+            out[f"{prefix}/adapter_advantage_ema_mu"]      = float(st.get("adapter_advantage_ema_mu", 0.0))
+            out[f"{prefix}/adapter_advantage_ema_sigma"]   = float(st.get("adapter_advantage_ema_sigma", 1.0))
+
+            # --- k_t (boost) stats (batch + EMA of mean) ---
+            out[f"{prefix}/k_batch_mu"]        = float(st.get("k_batch_mu", 1.0))
+            out[f"{prefix}/k_batch_sigma"]     = float(st.get("k_batch_sigma", 0.0))
+            out[f"{prefix}/k_ema"]             = float(st.get("k_ema", 1.0))
+
+            # --- Buffer summary (never log the raw deque) ---
             buf = st.get("buffer", None)
             if buf and len(buf) > 0:
                 x = np.asarray(list(buf), dtype=float)

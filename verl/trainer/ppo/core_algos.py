@@ -1571,20 +1571,27 @@ def compute_pf_ppo_reweight_data(
 
 # ---------------------------- TARPO GLOBAL STATE ---------------------------- #
 # Per-task running stats & buffers
-# task_stats[task_id] = {
-#   "mu": float, "sigma": float,
-#   "mean_ema": float, "cvar_ema": float,
-#   "buffer": deque(float), "count": int
-# }
 task_stats: Dict[Any, Dict[str, Any]] = defaultdict(lambda: {
-    "mu": 0.0, "sigma": 1.0,
+    "ema_mu": 0.0, "ema_sigma": 1.0,
     "buffer_mean_ema": 0.0, "buffer_cvar_ema": 0.0, "buffer_ptail_ema": 0.0,
     "buffer": deque(maxlen=256),
-    "count": 0,
+    "ema_count": 0,                # renamed from 'count'
+
     "raw_batch_mu": 0.0,
     "raw_batch_sigma": 1.0,
     "raw_batch_count": 0,
-}) # count here is basically the number of examples corresponding to the specific task
+
+    # Adapter-normalized (post task adapter) advantages
+    "adapter_advantage_batch_mu": 0.0,
+    "adapter_advantage_batch_sigma": 1.0,
+    "adapter_advantage_ema_mu": 0.0,
+    "adapter_advantage_ema_sigma": 1.0,
+
+    # k_t (boost) batch + EMA
+    "k_batch_mu": 1.0,
+    "k_batch_sigma": 0.0,
+    "k_ema": 1.0,
+})  # ema_count is cumulative samples for this task
 
 try:
     from v7_class_counts import CLASS_COUNT_INFO_DATASET, CLASS_COUNT_INFO_TASK
@@ -1691,20 +1698,19 @@ def compute_tarpo_outcome_advantage(
     # to raw scores, to task ids, dataset ids, class labels
     # for that qid
     for i in range(B):
-        qid: Any = index[i]
-        task   = task_ids[i]
-        dataset   = dataset_ids[i]
-        class_label   = class_labels[i]
-        raw_rollout_reward   = float(raw_scores[i].item())
+        qid: Any        = index[i]
+        task            = task_ids[i]
+        dataset         = dataset_ids[i]
+        class_label     = class_labels[i]
+        raw_r           = float(raw_scores[i].item())
 
-        q2rollouts[qid].append(raw_rollout_reward)
+        q2rollouts[qid].append(raw_r)
         q2tasks[qid]    = task
         q2datasets[qid] = dataset
         q2class[qid]    = class_label
 
-        # accumulate per-task sufficient stats; just for the batch
-        batch_task_stats[task]["sum"]   += raw_rollout_reward
-        batch_task_stats[task]["sumsq"] += raw_rollout_reward * raw_rollout_reward
+        batch_task_stats[task]["sum"]   += raw_r
+        batch_task_stats[task]["sumsq"] += raw_r * raw_r
         batch_task_stats[task]["count"] += 1.0
 
     # NOTE: the returns at the end of this function are essentially the 
@@ -1729,21 +1735,20 @@ def compute_tarpo_outcome_advantage(
         else:
             sd_b  = eps  # keep consistent with rest of code
 
-        # --- raw (non-EMA) stats for logging ---
+        # raw batch stats
         task_stats[task]["raw_batch_mu"]    = float(mu_b)
         task_stats[task]["raw_batch_sigma"] = float(max(sd_b, eps))
         task_stats[task]["raw_batch_count"] = n
 
-        # --- EMA stats used by task adapter (but updated regardless) ---
-        if task_stats[task]["count"] == 0:
-            task_stats[task]["mu"]    = float(mu_b)
-            task_stats[task]["sigma"] = float(max(sd_b, eps))
+        # EMA (used by adapter; updated regardless of toggles)
+        if task_stats[task]["ema_count"] == 0:
+            task_stats[task]["ema_mu"]    = float(mu_b)
+            task_stats[task]["ema_sigma"] = float(max(sd_b, eps))
         else:
-            task_stats[task]["mu"]    = _ema_update(task_stats[task]["mu"],    float(mu_b),      beta_mu)
-            task_stats[task]["sigma"] = _ema_update(task_stats[task]["sigma"], float(max(sd_b, eps)), beta_sigma)
+            task_stats[task]["ema_mu"]    = _ema_update(task_stats[task]["ema_mu"],    float(mu_b),          beta_mu)
+            task_stats[task]["ema_sigma"] = _ema_update(task_stats[task]["ema_sigma"], float(max(sd_b, eps)), beta_sigma)
 
-        # Always accumulate total seen count
-        task_stats[task]["count"] += n
+        task_stats[task]["ema_count"] += n
 
     # -------------------------------
     # B) Task-adapter normalization
@@ -1758,6 +1763,28 @@ def compute_tarpo_outcome_advantage(
             q2norm[qid] = [(v - mu_t) / (sd_t + eps) for v in vals]
     else:
         q2norm = {qid: list(vals) for qid, vals in q2rollouts.items()}
+
+    # -------------------------------
+    # B3) Track adapter-normalized advantages per task (batch + EMA)
+    # -------------------------------
+    adapter_sum, adapter_sumsq, adapter_cnt = defaultdict(float), defaultdict(float), defaultdict(int)
+    for qid, vals in q2norm.items():
+        task = q2tasks[qid]
+        for v in vals:
+            vv = float(v)
+            adapter_sum[task]   += vv
+            adapter_sumsq[task] += vv * vv
+            adapter_cnt[task]   += 1
+    for task, n in adapter_cnt.items():
+        if n <= 0:
+            continue
+        mu = adapter_sum[task] / n
+        var = max(adapter_sumsq[task] / n - mu * mu, 0.0)
+        sd  = math.sqrt(var + 1e-12)
+        task_stats[task]["adapter_advantage_batch_mu"]    = float(mu)
+        task_stats[task]["adapter_advantage_batch_sigma"] = float(sd)
+        task_stats[task]["adapter_advantage_ema_mu"]    = _ema_update(task_stats[task].get("adapter_advantage_ema_mu", 0.0),    float(mu), beta_mu)
+        task_stats[task]["adapter_advantage_ema_sigma"] = _ema_update(task_stats[task].get("adapter_advantage_ema_sigma", 1.0), float(sd), beta_sigma)
 
     # -------------------------------------------
     # C) Static inverse-frequency class weights
@@ -1895,6 +1922,26 @@ def compute_tarpo_outcome_advantage(
         q2k: Dict[Any, float] = {qid: task2_k[q2tasks[qid]] for qid in q2norm.keys()}
     else:
         q2k = {qid: 1.0 for qid in q2norm.keys()}
+
+    # -------------------------------
+    # D2) Track k_t per task (batch + EMA of mean)
+    # -------------------------------
+    k_sum, k_sumsq, k_cnt = defaultdict(float), defaultdict(float), defaultdict(int)
+    for qid, k in q2k.items():
+        task = q2tasks[qid]
+        kk = float(k)
+        k_sum[task]   += kk
+        k_sumsq[task] += kk * kk
+        k_cnt[task]   += 1
+    for task, n in k_cnt.items():
+        if n <= 0:
+            continue
+        mu = k_sum[task] / n
+        var = max(k_sumsq[task] / n - mu * mu, 0.0)
+        sd  = math.sqrt(var + 1e-12)
+        task_stats[task]["k_batch_mu"]    = float(mu)
+        task_stats[task]["k_batch_sigma"] = float(sd)
+        task_stats[task]["k_ema"] = _ema_update(task_stats[task].get("k_ema", 1.0), float(mu), beta_mean)
         
     # --------------------------------------------
     # E) Combine once at the end, with ablations baked in:
