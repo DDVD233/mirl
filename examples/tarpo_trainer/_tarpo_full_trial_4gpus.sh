@@ -19,9 +19,9 @@ export NCCL_ASYNC_ERROR_HANDLING=1
 # hence we should eval every 242 but save every 121
 
 # list of edits done:
-# free_cache_engine:changed from true to false for speed at the expense of memory
-# actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=2 \ set to 2 from 1
-# actor_rollout_ref.model.use_remove_padding=True \ set to true from false
+# free_cache_engine:changed from true to false for speed at the expense of memory (failed)
+# actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=2 \ set to 2 from 1 
+# actor_rollout_ref.model.use_remove_padding=True \ set to true from false 
 # max prompt length and max response length set to 2048 from 4096
 # dataloader num workers set to 8
 # gpu memory set to 0.7 from 0.6
