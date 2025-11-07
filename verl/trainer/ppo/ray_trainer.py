@@ -353,10 +353,10 @@ def compute_advantage(
             task_ids=data.non_tensor_batch.get("task", None),
             dataset_ids = data.non_tensor_batch.get("dataset", None),
             class_labels=data.non_tensor_batch.get("class_label", None),
-            use_task_adapter=True,
+            use_task_adapter=False,
             use_class_weights=False,
             use_cvar_boost=False,
-            use_grpo_group_norm=False,
+            use_grpo_group_norm=True,
             
             # EMA decays
             beta_mu = 0.95,
