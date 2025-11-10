@@ -575,6 +575,10 @@ class RLHFDataset(Dataset):
             # NOTE: Replacement code
             try:
                 t0 = time.time()
+                # processing the modalities:
+                # TODO_DEBUG; increase token limits for processor
+                processor_kwargs["max_length"] = 10000
+
                 model_inputs = self.processor(**processor_kwargs)
                 dt = (time.time() - t0)*1000
                 if dbg:
@@ -624,6 +628,8 @@ class RLHFDataset(Dataset):
             input_ids = model_inputs.pop("input_ids")
             attention_mask = model_inputs.pop("attention_mask")
         
+        #TODO_DEBUG double check the prompt length here as it may lead to error
+        #TODO_DEBUG it may need to be set higher, to 4096 or something
         input_ids, attention_mask = verl_F.postprocess_data(
             input_ids=input_ids,
             attention_mask=attention_mask,

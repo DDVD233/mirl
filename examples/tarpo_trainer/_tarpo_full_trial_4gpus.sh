@@ -26,13 +26,15 @@ export NCCL_ASYNC_ERROR_HANDLING=1
 # dataloader num workers set to 8
 # gpu memory set to 0.7 from 0.6
 
+# originally prompt length, response length, max model len is 2048, 2048, 8192 
+
     python3 -m verl.trainer.main_ppo \
         algorithm.adv_estimator=tarpo \
         data.train_files=/scratch/keane/human_behaviour/human_behaviour_data/final_v8_train_cleaned.jsonl \
         data.val_files=/scratch/keane/human_behaviour/human_behaviour_data/final_v8_val_cleaned.jsonl \
         data.train_batch_size=256 \
         data.val_batch_size=64 \
-        data.max_prompt_length=2048 \
+        data.max_prompt_length=4096 \
         data.max_response_length=2048 \
         data.filter_overlong_prompts=False \
         data.truncation='right' \
@@ -70,8 +72,8 @@ export NCCL_ASYNC_ERROR_HANDLING=1
         actor_rollout_ref.rollout.n=5 \
         actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=1 \
         actor_rollout_ref.ref.fsdp_config.param_offload=True \
-        actor_rollout_ref.rollout.max_model_len=8192 \
-        actor_rollout_ref.rollout.max_num_batched_tokens=8192 \
+        actor_rollout_ref.rollout.max_model_len=10000 \
+        actor_rollout_ref.rollout.max_num_batched_tokens=10000 \
         algorithm.use_kl_in_reward=False \
         custom_reward_function.path=/home/keaneong/human-behavior/verl/examples/reward_function/human_behaviour_tarpo.py \
         custom_reward_function.name=human_behaviour_compute_score_batch \

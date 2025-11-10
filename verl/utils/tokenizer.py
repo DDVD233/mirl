@@ -96,5 +96,6 @@ def hf_processor(name_or_path, **kwargs):
     #     processor.max_pixels = max_pixels
     #     print(f"KEANE: Set min_pixels to {min_pixels} and max_pixels to {max_pixels}")
     # raise RuntimeError("Intentional Test Error")
+    # TODO_DEBUG; increase token limits for processor
 
     return processor

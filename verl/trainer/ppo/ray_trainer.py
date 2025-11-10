@@ -607,25 +607,12 @@ class RayPPOTrainer:
         """
         Creates the train and validation dataloaders.
         """
-        # TODO: we have to make sure the batch size is divisible by the dp size
         from verl.trainer.main_ppo import create_rl_dataset, create_rl_sampler
 
-        # if train_dataset is None:
-        #     train_dataset = create_rl_dataset(
-        #         self.config.data.train_files, self.config.data, self.tokenizer, self.processor
-        #     )
-        # if val_dataset is None:
-        #     val_dataset = create_rl_dataset(
-        #         self.config.data.val_files, self.config.data, self.tokenizer, self.processor
-        #     )
+
         self.train_dataset, self.val_dataset = train_dataset, val_dataset
 
-        # if train_sampler is None:
-        #     train_sampler = create_rl_sampler(self.config.data, self.train_dataset, split="train")
-        
-        # if val_sampler is None:
-        #     val_sampler = create_rl_sampler(self.config.data, self.val_dataset, split="val")
-            
+
         if collate_fn is None:
             from verl.utils.dataset.rl_dataset import collate_fn as default_collate_fn
 
@@ -642,7 +629,7 @@ class RayPPOTrainer:
 
         self.train_dataloader = StatefulDataLoader(
             dataset=self.train_dataset,
-            batch_sampler=train_sampler,   # do NOT also pass batch_size/sampler
+            batch_sampler=train_sampler,   
             num_workers=num_workers,
             collate_fn=collate_fn,
         )
@@ -1417,11 +1404,11 @@ class RayPPOTrainer:
 
 
         for epoch in range(self.config.trainer.total_epochs):
-            self.current_epoch = epoch   # <-- set here
-            if hasattr(self.train_dataloader.batch_sampler, "set_epoch"):
-                self.train_dataloader.batch_sampler.set_epoch(epoch)
-            if hasattr(self.val_dataloader.batch_sampler, "set_epoch"):
-                self.val_dataloader.batch_sampler.set_epoch(epoch)
+            # self.current_epoch = epoch   # <-- set here
+            # if hasattr(self.train_dataloader.batch_sampler, "set_epoch"):
+            #     self.train_dataloader.batch_sampler.set_epoch(epoch)
+            # if hasattr(self.val_dataloader.batch_sampler, "set_epoch"):
+            #     self.val_dataloader.batch_sampler.set_epoch(epoch)
                 
             # i = 0
             for batch_idx, batch_dict in enumerate(self.train_dataloader):

@@ -1,6 +1,6 @@
 # debug_sync_sampler.py
 from collections import defaultdict
-from synced_modality_sampler import DistributedModalitySignatureBatchSampler
+from verl.verl.utils.dataset.old.synced_modality_sampler import DistributedModalitySignatureBatchSampler
 
 def summarize_run(indices_by_sig, world_size, batch_size, *, seed=123, epoch=0,
                   drop_last=True, shuffle=True, pad_to_equal=False):

@@ -107,9 +107,9 @@ def human_behaviour_compute_score_batch(
     task_ids: Optional[List[str]] = None,
     *,
     # ---- Overlength controls (optional; pass to activate) ----
-    max_response_length: Optional[int] = 4096,   # e.g., model max tokens for the *response*
+    max_response_length: Optional[int] = 812,   # e.g., model max tokens for the *response*
     overlong_buffer_length: int = 128,           # grace window before max
-    overlong_penalty_factor: float = 0.0,        # scales the (<=0) penalty added to score
+    overlong_penalty_factor: float = 0.75,        # scales the (<=0) penalty added to score
     # Prefer token lengths from your tokenizer; fallback is len(text)
     response_lengths: Optional[List[int]] = None,
     **kwargs
