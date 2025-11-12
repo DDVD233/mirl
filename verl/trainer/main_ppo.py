@@ -398,15 +398,15 @@ def create_rl_sampler(data_config, dataset, split: str = "train", *, world_size:
         shuffle = (split == "train")
         base_seed = int(data_config.get("seed", 42))
   
-        sampler = DebugModalitySignatureBatchSampler(
-            indices_by_sig=by_sig,
-            batch_size=int(batch_size),
-            drop_last=drop_last,
-            shuffle=shuffle,
-            seed=data_config.get("seed", 42),
+        # sampler = DebugModalitySignatureBatchSampler(
+        #     indices_by_sig=by_sig,
+        #     batch_size=int(batch_size),
+        #     drop_last=drop_last,
+        #     shuffle=shuffle,
+        #     seed=data_config.get("seed", 42),
 
-        )
-        sampler = ResumeModalitySignatureBatchSampler(
+        # )
+        sampler = ResModalitySignatureBatchSampler(
         indices_by_sig=by_sig,
         batch_size=batch_size,
         drop_last=drop_last,
