@@ -88,6 +88,6 @@ export NCCL_ASYNC_ERROR_HANDLING=1
         trainer.val_before_train=False \
         trainer.val_only=False \
         trainer.validation_data_dir=/scratch/keane/human_behaviour/grpo_full \
-        trainer.test_freq=30 \
+        trainer.test_freq=50 \
         trainer.total_epochs=5 $@ \
         trainer.default_local_dir=/scratch/keane/human_behaviour/grpo_full
