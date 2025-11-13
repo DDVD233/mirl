@@ -106,6 +106,7 @@ class AdvantageEstimator(str, Enum):
     GPG = "gpg"
     DRPO = "drpo"
     FAIR_GRPO = "fair_grpo"
+    FAIR_GRPO_ND = "fair_grpo_nd"
 
 
 ADV_ESTIMATOR_REGISTRY: dict[str, Any] = {}
@@ -715,6 +716,436 @@ def compute_fair_grpo_outcome_advantage(
     
     returns = scores.unsqueeze(-1) * response_mask
     return returns, returns
+
+
+# --------------------------------------------------------------------------- #
+#  FairGRPO_ND Global Statistics (No Demographics version)                   #
+# --------------------------------------------------------------------------- #
+# Per-domain statistics for clustering (treats all as UNK)
+#   domain_nd_stats[dom] = {
+#       "vectors": List[np.ndarray],  # shape = (Q, R) for each question
+#       "q_ids": List[str],           # question ids in same order
+#       "gt_demos": List[str],        # ground truth demographics for analysis
+#       "count": int,                 # #questions accumulated so far
+#   }
+domain_nd_stats: Dict[Any, Dict[str, Any]] = defaultdict(
+    lambda: {"vectors": [], "q_ids": [], "gt_demos": [], "count": 0}
+)
+
+# Cluster alignment metrics storage
+cluster_alignment_metrics: Dict[str, Any] = {
+    "domain_metrics": defaultdict(dict),
+    "global_metrics": {},
+    "demo_metrics": defaultdict(dict)
+}
+
+@register_adv_est(AdvantageEstimator.FAIR_GRPO_ND)
+def compute_fair_grpo_nd_outcome_advantage(
+    token_level_rewards: torch.Tensor,      # (B,L)
+    response_mask:      torch.Tensor,       # (B,L)
+    index:              np.ndarray[str],    # (B,) question ids
+    domain_info: np.ndarray[str],           # (B,) domain names
+    demo_info: np.ndarray[str],             # (B,) demographic information (for analysis only)
+    epsilon: float = EPS_DEFAULT,
+):
+    """FairGRPO_ND: Assumes no demographic info, uses clustering only, analyzes alignment."""
+
+    B, L = token_level_rewards.shape
+
+    # 1) raw rollout-level rewards -------------------------------------- #
+    raw_scores = token_level_rewards.sum(dim=-1)  # (B,)
+    print(f"[FairGRPO_ND] B={B} L={L} raw_scores={raw_scores}")
+
+    # 2) collect rollouts per question for this mini-batch -------------- #
+    q2rollouts: Dict[str, List[float]] = defaultdict(list)
+    q2domain: Dict[str, Any] = {}
+    q2demo_gt: Dict[str, str] = {}  # Store ground truth for analysis
+    for i in range(B):
+        qid: str = index[i]
+        q2rollouts[qid].append(raw_scores[i].item())
+        q2domain[qid] = domain_info[i]
+        q2demo_gt[qid] = demo_info[i]  # Store GT demo for analysis
+
+    # ensure consistent rollout count ----------------------------------- #
+    rollout_lens = {len(v) for v in q2rollouts.values()}
+    assert len(rollout_lens) == 1, "Inconsistent rollout counts per question in batch!"
+
+    # build vector per question ----------------------------------------- #
+    q_vectors = {qid: np.asarray(v, dtype=np.float32) for qid, v in q2rollouts.items()}
+
+    # 3) update global per-domain statistics (all treated as UNK) ------- #
+    for qid, vec in q_vectors.items():
+        dom = q2domain[qid]
+        demo_gt = q2demo_gt[qid]
+        dstat = domain_nd_stats[dom]
+        dstat["vectors"].append(vec)
+        dstat["q_ids"].append(qid)
+        dstat["gt_demos"].append(demo_gt)  # Store GT for later analysis
+        dstat["count"] += 1
+
+    # 4) GRPO normalization (within-question) --------------------------- #
+    scores = raw_scores.clone()
+    id2mean = {}
+    id2std = {}
+    for qid, v in q2rollouts.items():
+        if len(v) == 1:
+            id2mean[qid] = torch.tensor(0.0)
+            id2std[qid] = torch.tensor(1.0)
+        else:
+            id2mean[qid] = torch.mean(torch.tensor(v))
+            id2std[qid] = torch.std(torch.tensor(v))
+
+    for i in range(B):
+        qid: str = index[i]
+        scores[i] = (scores[i] - id2mean[qid]) / (id2std[qid] + epsilon)
+    before_scale_score = scores.clone()
+
+    # 5) Domain-wise clustering (all samples) --------------------------- #
+    domain_cluster_cache: Dict[Any, Dict[str, Any]] = {}
+    for dom, dstat in domain_nd_stats.items():
+        if dstat["count"] > 0:
+            mu_d, assign, counts, centroids = _cluster_info_question(dstat["vectors"])
+            domain_cluster_cache[dom] = {
+                "mu_d": mu_d,
+                "assign": assign,
+                "counts": counts,
+                "centroids": centroids,
+                "q_ids": dstat["q_ids"],
+                "gt_demos": dstat["gt_demos"]  # Keep GT demos for alignment analysis
+            }
+
+    # 6) Apply two-level scaling ---------------------------------------- #
+    scaling_factors: List[float] = []
+    batch_cluster_assignments = []  # Track cluster assignments for this batch
+    batch_gt_demos = []  # Track ground truth demos for this batch
+
+    for i in range(B):
+        qid: str = index[i]
+        dom = q2domain[qid]
+        demo_gt = q2demo_gt[qid]
+        batch_gt_demos.append(demo_gt)
+
+        cache = domain_cluster_cache.get(dom)
+        if cache:
+            # Domain-level statistics
+            N_d = float(domain_nd_stats[dom]["count"])
+            mu_d = cache["mu_d"]
+            T_d = max(math.sqrt(N_d) * mu_d, epsilon)
+
+            # Cluster-level statistics (treating cluster as pseudo-demographic)
+            q_idx = cache["q_ids"].index(qid)
+            cluster_idx = cache["assign"][q_idx]
+            batch_cluster_assignments.append((dom, cluster_idx))
+
+            N_g = float(cache["counts"][cluster_idx])
+            mu_g = float(cache["centroids"][cluster_idx].mean())
+
+            # Ensure mu_g is not too small to avoid division issues
+            mu_g = max(mu_g, epsilon)
+
+            # Two-level scaling factor with bounds
+            factor = T_d * math.sqrt(N_g) * mu_g
+            # Bound the factor to prevent extreme scaling
+            factor = max(factor, epsilon)  # Prevent division by zero
+            factor = min(factor, 1e6)  # Prevent too large scaling
+
+            scaling_factors.append(factor)
+            scaled_score = scores[i] / factor
+
+            # Check for numerical issues
+            if math.isnan(scaled_score) or math.isinf(scaled_score):
+                print(f"[FairGRPO_ND] {qid} numerical issue: score={scores[i]:.3f}, factor={factor:.3f}, scaled={scaled_score}")
+                # Use original score if scaling fails
+                scores[i] = raw_scores[i]
+            else:
+                scores[i] = scaled_score
+        else:
+            batch_cluster_assignments.append((dom, -1))
+            scaling_factors.append(1.0)
+
+    # 7) Compute alignment metrics -------------------------------------- #
+    _compute_cluster_alignment_metrics(
+        domain_cluster_cache,
+        batch_cluster_assignments,
+        batch_gt_demos,
+        domain_info,
+        scores,
+        before_scale_score,
+        scaling_factors,
+        epsilon
+    )
+
+    # divide scores by std of scores
+    scores_std = torch.std(scores)
+    print("Scores std:", scores_std.item())
+    scores = scores / (scores_std + epsilon)
+
+    # Debug report ------------------------------------------------------- #
+    print("--------------FairGRPO_ND scaling report--------------")
+
+    # Print cache statistics
+    print("Global cache statistics:")
+    for dom in sorted(set(domain_info)):
+        dstat = domain_nd_stats[dom]
+        if dstat["count"] > 0:
+            print(f"  Domain '{dom}':")
+            print(f"    Total questions: {dstat['count']}")
+
+            cache = domain_cluster_cache.get(dom)
+            if cache:
+                # Analyze cluster-demo alignment
+                gt_demos = cache["gt_demos"]
+                assignments = cache["assign"]
+                cluster_demo_dist = defaultdict(lambda: defaultdict(int))
+                for q_idx, cluster_idx in enumerate(assignments):
+                    demo = gt_demos[q_idx]
+                    cluster_demo_dist[cluster_idx][demo] += 1
+
+                print(f"    Clusters found: {len(cache['counts'])}")
+                for cluster_idx in sorted(cluster_demo_dist.keys()):
+                    demo_dist = cluster_demo_dist[cluster_idx]
+                    total = sum(demo_dist.values())
+                    print(f"      Cluster {cluster_idx} (n={total}):")
+                    for demo, count in sorted(demo_dist.items()):
+                        pct = 100 * count / total
+                        print(f"        {demo}: {count} ({pct:.1f}%)")
+
+    # Print batch scaling factors
+    dom_cluster_scale: Dict[Tuple[Any, int], List[torch.Tensor]] = defaultdict(list)
+    for i in range(B):
+        dom, cluster_idx = batch_cluster_assignments[i]
+        key = (dom, cluster_idx)
+        dom_cluster_scale[key].append(scores[i] / (before_scale_score[i] + epsilon))
+
+    for (dom, cluster_idx), lst in dom_cluster_scale.items():
+        avg_sf = torch.mean(torch.stack(lst)).item()
+        print(f"[FairGRPO_ND] domain={dom:<15} cluster={cluster_idx:<3} | mean scale={avg_sf:6.3f}")
+
+    # Print global reward mean
+    print(f"[FairGRPO_ND] global reward mean = {torch.mean(scores):.3f}")
+
+    # Print comprehensive alignment metrics
+    _print_alignment_metrics()
+
+    returns = scores.unsqueeze(-1) * response_mask
+    return returns, returns
+
+
+def _compute_cluster_alignment_metrics(
+    domain_cluster_cache: Dict[Any, Dict[str, Any]],
+    batch_cluster_assignments: List[Tuple[Any, int]],
+    batch_gt_demos: List[str],
+    domain_info: np.ndarray,
+    scores: torch.Tensor,
+    before_scale_score: torch.Tensor,
+    scaling_factors: List[float],
+    epsilon: float
+):
+    """Compute comprehensive alignment and upscaling metrics."""
+    from sklearn.metrics import adjusted_rand_score, normalized_mutual_info_score
+    from collections import Counter
+
+    # Initialize metrics storage
+    metrics = cluster_alignment_metrics
+
+    # 1. Cluster-Demo Alignment Metrics (per domain and global)
+    for dom, cache in domain_cluster_cache.items():
+        if not cache or "assign" not in cache:
+            continue
+
+        gt_demos = cache["gt_demos"]
+        assignments = cache["assign"]
+
+        # Filter out UNK from GT for alignment calculation
+        valid_indices = [i for i, demo in enumerate(gt_demos) if demo != "UNK"]
+        if len(valid_indices) > 1:
+            valid_gt = [gt_demos[i] for i in valid_indices]
+            valid_assign = [assignments[i] for i in valid_indices]
+
+            # Compute alignment metrics
+            ari = adjusted_rand_score(valid_gt, valid_assign)
+            nmi = normalized_mutual_info_score(valid_gt, valid_assign)
+
+            metrics["domain_metrics"][dom] = {
+                "ari": ari,
+                "nmi": nmi,
+                "n_clusters": len(set(assignments)),
+                "n_gt_demos": len(set(valid_gt))
+            }
+
+    # 2. Global alignment metrics
+    all_gt_demos = []
+    all_clusters = []
+    for dom, cache in domain_cluster_cache.items():
+        if cache and "gt_demos" in cache:
+            gt_demos = cache["gt_demos"]
+            assignments = cache["assign"]
+            # Create globally unique cluster IDs
+            for i, (demo, cluster) in enumerate(zip(gt_demos, assignments)):
+                if demo != "UNK":
+                    all_gt_demos.append(demo)
+                    all_clusters.append(f"{dom}_{cluster}")
+
+    if len(all_gt_demos) > 1:
+        global_ari = adjusted_rand_score(all_gt_demos, all_clusters)
+        global_nmi = normalized_mutual_info_score(all_gt_demos, all_clusters)
+        metrics["global_metrics"] = {
+            "ari": global_ari,
+            "nmi": global_nmi,
+            "total_samples": len(all_gt_demos)
+        }
+
+    # 3. Upscaling Analysis
+    B = len(batch_gt_demos)
+    upscale_analysis = {
+        "minority_demo_upscaled": 0,
+        "minority_domain_upscaled": 0,
+        "hard_samples_upscaled": 0,
+        "total_upscaled": 0
+    }
+
+    # Determine minority groups
+    demo_counts = Counter(batch_gt_demos)
+    domain_counts = Counter(domain_info)
+
+    # Find minority threshold (less than average)
+    demo_threshold = sum(demo_counts.values()) / max(len(demo_counts), 1)
+    domain_threshold = sum(domain_counts.values()) / max(len(domain_counts), 1)
+
+    minority_demos = {demo for demo, count in demo_counts.items() if count < demo_threshold}
+    minority_domains = {dom for dom, count in domain_counts.items() if count < domain_threshold}
+
+    # Analyze each sample
+    for i in range(B):
+        scale_factor = scores[i] / (before_scale_score[i] + epsilon)
+        is_upscaled = abs(scores[i]) > abs(before_scale_score[i])  # Check if advantage increased
+
+        if is_upscaled:
+            upscale_analysis["total_upscaled"] += 1
+
+            # Check if from minority demo
+            if batch_gt_demos[i] in minority_demos:
+                upscale_analysis["minority_demo_upscaled"] += 1
+
+            # Check if from minority domain
+            if domain_info[i] in minority_domains:
+                upscale_analysis["minority_domain_upscaled"] += 1
+
+            # Check if hard sample (low raw reward)
+            if before_scale_score[i] < torch.median(before_scale_score):
+                upscale_analysis["hard_samples_upscaled"] += 1
+
+    # Convert to percentages
+    if upscale_analysis["total_upscaled"] > 0:
+        total = upscale_analysis["total_upscaled"]
+        upscale_analysis["minority_demo_pct"] = 100 * upscale_analysis["minority_demo_upscaled"] / total
+        upscale_analysis["minority_domain_pct"] = 100 * upscale_analysis["minority_domain_upscaled"] / total
+        upscale_analysis["hard_samples_pct"] = 100 * upscale_analysis["hard_samples_upscaled"] / total
+
+    metrics["upscale_analysis"] = upscale_analysis
+
+    # 4. Per-demographic group metrics
+    demo_scale_factors = defaultdict(list)
+    for i, demo in enumerate(batch_gt_demos):
+        scale_factor = scores[i] / (before_scale_score[i] + epsilon)
+        demo_scale_factors[demo].append(scale_factor.item())
+
+    for demo, factors in demo_scale_factors.items():
+        metrics["demo_metrics"][demo] = {
+            "mean_scale": np.mean(factors),
+            "std_scale": np.std(factors),
+            "count": len(factors)
+        }
+
+
+def _print_alignment_metrics():
+    """Print comprehensive alignment metrics report and log to wandb."""
+    metrics = cluster_alignment_metrics
+
+    # Print to console
+    print("\n========== CLUSTER ALIGNMENT ANALYSIS ==========")
+
+    # Prepare wandb logs
+    wandb_logs = {}
+
+    # 1. Domain-level metrics
+    if metrics["domain_metrics"]:
+        print("\n1. Domain-Level Cluster-Demo Alignment:")
+        for dom, dom_metrics in sorted(metrics["domain_metrics"].items()):
+            print(f"  Domain '{dom}':")
+            print(f"    ARI: {dom_metrics['ari']:.3f}")
+            print(f"    NMI: {dom_metrics['nmi']:.3f}")
+            print(f"    Clusters: {dom_metrics['n_clusters']}, GT Demos: {dom_metrics['n_gt_demos']}")
+
+            # Add to wandb logs
+            wandb_logs[f"fairgrpo_nd/domain_{dom}/ari"] = dom_metrics['ari']
+            wandb_logs[f"fairgrpo_nd/domain_{dom}/nmi"] = dom_metrics['nmi']
+            wandb_logs[f"fairgrpo_nd/domain_{dom}/n_clusters"] = dom_metrics['n_clusters']
+            wandb_logs[f"fairgrpo_nd/domain_{dom}/n_gt_demos"] = dom_metrics['n_gt_demos']
+
+    # 2. Global metrics
+    if metrics["global_metrics"]:
+        print("\n2. Global Cluster-Demo Alignment:")
+        print(f"  ARI: {metrics['global_metrics']['ari']:.3f}")
+        print(f"  NMI: {metrics['global_metrics']['nmi']:.3f}")
+        print(f"  Total samples: {metrics['global_metrics']['total_samples']}")
+
+        # Add to wandb logs
+        wandb_logs["fairgrpo_nd/global/ari"] = metrics['global_metrics']['ari']
+        wandb_logs["fairgrpo_nd/global/nmi"] = metrics['global_metrics']['nmi']
+        wandb_logs["fairgrpo_nd/global/total_samples"] = metrics['global_metrics']['total_samples']
+
+    # 3. Upscaling analysis
+    if "upscale_analysis" in metrics:
+        analysis = metrics["upscale_analysis"]
+        print("\n3. Upscaling Analysis:")
+        print(f"  Total upscaled: {analysis['total_upscaled']}")
+
+        # Add to wandb logs
+        wandb_logs["fairgrpo_nd/upscaling/total_upscaled"] = analysis['total_upscaled']
+
+        if analysis["total_upscaled"] > 0:
+            print(f"  From minority demos: {analysis.get('minority_demo_pct', 0):.1f}%")
+            print(f"  From minority domains: {analysis.get('minority_domain_pct', 0):.1f}%")
+            print(f"  Hard samples: {analysis.get('hard_samples_pct', 0):.1f}%")
+
+            # Add to wandb logs
+            wandb_logs["fairgrpo_nd/upscaling/minority_demo_pct"] = analysis.get('minority_demo_pct', 0)
+            wandb_logs["fairgrpo_nd/upscaling/minority_domain_pct"] = analysis.get('minority_domain_pct', 0)
+            wandb_logs["fairgrpo_nd/upscaling/hard_samples_pct"] = analysis.get('hard_samples_pct', 0)
+
+    # 4. Per-demographic metrics
+    if metrics["demo_metrics"]:
+        print("\n4. Per-Demographic Scaling Factors:")
+        sorted_demos = sorted(metrics["demo_metrics"].items(),
+                            key=lambda x: x[1]["mean_scale"])
+        for demo, demo_metric in sorted_demos:
+            print(f"  {demo:<15}: mean={demo_metric['mean_scale']:6.3f}, "
+                  f"std={demo_metric['std_scale']:5.3f}, n={demo_metric['count']}")
+
+            # Add to wandb logs (sanitize demo name for wandb key)
+            demo_key = demo.replace(" ", "_").replace("/", "_")
+            wandb_logs[f"fairgrpo_nd/demo_{demo_key}/mean_scale"] = demo_metric['mean_scale']
+            wandb_logs[f"fairgrpo_nd/demo_{demo_key}/std_scale"] = demo_metric['std_scale']
+            wandb_logs[f"fairgrpo_nd/demo_{demo_key}/count"] = demo_metric['count']
+
+    print("=" * 50 + "\n")
+
+    # Log to wandb if available
+    _log_to_wandb(wandb_logs)
+
+
+def _log_to_wandb(wandb_logs):
+    """Log metrics to wandb if it's available and initialized."""
+    try:
+        import wandb
+        if wandb.run is not None:
+            wandb.log(wandb_logs)
+            print(f"[FairGRPO_ND] Logged {len(wandb_logs)} metrics to wandb")
+    except ImportError:
+        pass  # wandb not installed
+    except Exception as e:
+        print(f"[FairGRPO_ND] Warning: Failed to log to wandb: {e}")
 
 
 @register_adv_est(AdvantageEstimator.GRPO_PASSK)  # or simply: @register_adv_est("grpo_passk")

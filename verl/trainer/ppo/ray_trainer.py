@@ -283,6 +283,20 @@ def compute_advantage(
         )
         data.batch["advantages"] = advantages
         data.batch["returns"] = returns
+    elif adv_estimator == AdvantageEstimator.FAIR_GRPO_ND:
+        grpo_calculation_mask = data.batch["response_mask"]
+        domain_info = data.non_tensor_batch["dataset"]
+        demo_info = data.non_tensor_batch["demo_group"]  # Still passed for analysis, but treated as UNK
+
+        advantages, returns = core_algos.compute_fair_grpo_nd_outcome_advantage(
+            token_level_rewards=data.batch["token_level_rewards"],
+            response_mask=grpo_calculation_mask,
+            index=data.non_tensor_batch["uid"],
+            domain_info=domain_info,
+            demo_info=demo_info  # Used for analysis only
+        )
+        data.batch["advantages"] = advantages
+        data.batch["returns"] = returns
     else:
         # handle all other adv estimator type other than GAE and GRPO
         adv_estimator_fn = core_algos.get_adv_estimator_fn(adv_estimator)
