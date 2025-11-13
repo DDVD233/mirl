@@ -103,16 +103,16 @@ def process_video(
     # Moderate budget
         # video = {"type": "video", "video": video,
         #         "min_pixels": 49152, "max_pixels": 262144, "nframes": 4}
-        # video= {
-        #     "type": "video", "video": video,
-        #     "min_pixels": 147456, "max_pixels": 147456, "nframes": 4
-        # }        
-
-    #TODO_DEBUG: Changing the pixel budget
         video= {
             "type": "video", "video": video,
-            "min_pixels": 65536, "max_pixels": 65536, "nframes": 4
-        }
+            "min_pixels": 147456, "max_pixels": 147456, "nframes": 4
+        }        
+
+    #TODO_DEBUG: Changing the pixel budget
+        # video= {
+        #     "type": "video", "video": video,
+        #     "min_pixels": 65536, "max_pixels": 65536, "nframes": 4
+        # }
     
     # Most expensive budget
     #     video = {"type": "video", "video": video, "min_pixels": 65536, "max_pixels": 524288,

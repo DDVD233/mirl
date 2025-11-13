@@ -1414,6 +1414,10 @@ class RayPPOTrainer:
             for batch_idx, batch_dict in enumerate(self.train_dataloader):
                 #--- DEBUG: log batch content into debug_file ---
 
+                if batch_idx == 7:
+                    print("skipping problematic batch")
+                    continue
+
                 # log modality budgets                
                 log_modality_budgets(batch_dict, step=self.global_steps)
 
