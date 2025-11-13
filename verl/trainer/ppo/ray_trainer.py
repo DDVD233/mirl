@@ -1414,7 +1414,7 @@ class RayPPOTrainer:
             for batch_idx, batch_dict in enumerate(self.train_dataloader):
                 #--- DEBUG: log batch content into debug_file ---
 
-                if batch_idx == 7:
+                if batch_idx == 7 or batch_idx == 19:
                     print("skipping problematic batch")
                     continue
 
