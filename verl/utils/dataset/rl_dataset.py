@@ -576,8 +576,8 @@ class RLHFDataset(Dataset):
             try:
                 t0 = time.time()
                 # processing the modalities:
-                # TODO_DEBUG; increase token limits for processor
-                processor_kwargs["max_length"] = 10000
+                # # TODO_DEBUG; increase token limits for processor
+                # processor_kwargs["max_length"] = 10000
 
                 model_inputs = self.processor(**processor_kwargs)
                 dt = (time.time() - t0)*1000
