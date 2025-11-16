@@ -6,16 +6,17 @@ set -u
 echo "Starting LoRA sweep (CLS + QA)…"
 
 # GPUs / perf
-export CUDA_VISIBLE_DEVICES="0,1,4,5"
+export CUDA_VISIBLE_DEVICES="0,1,2,3"
 echo "Using GPUs: $CUDA_VISIBLE_DEVICES"
 export CUDA_LAUNCH_BLOCKING=1
 export TORCH_USE_CUDA_DSA=1
 
 # Shared configs
 ACCEL_CFG="configs/accelerate_config_qwen.yaml"
-PROJECT="qa_all_heldout_expts"
-LABEL_MAP="/home/keaneong/human-behavior/verl/multi_task_classification/seperate_unified_label_map_v6.json"
-BASE_SAVE_DIR="/scratch/keane/human_behaviour/all_heldout_expts/qa_omnifromscratchdaicwoz_2epochs"
+PROJECT="iemocap_heldout_expts"
+# LABEL_MAP="/home/keaneong/human-behavior/verl/multi_task_classification/seperate_unified_label_map_v6.json"
+LABEL_MAP="/home/keaneong/human-behavior/verl/multi_task_classification/unified_label_map_v6_with_iemocap.json"
+BASE_SAVE_DIR="/scratch/keane/human_behaviour/all_heldout_expts/cls_iemocap_1epoch"
 RESUME_FROM=""   # leave blank to start from scratch
 # RESUME_FROM="/scratch/keane/human_behaviour/v6_heldout_multi_head_lora_training/step_38935"   # leave blank to start from scratch
 # RESUME_FROM="/scratch/keane/human_behaviour/v6_heldout_multi_head_lora_training/step_38935"   # leave blank to start from scratch
@@ -115,7 +116,8 @@ TYPES=(
   # "cls"  
   # "cls"   
   # "cls"
-  "qa"  
+  # "qa"  
+  "cls"
 )
 
 TRAINS=(
@@ -123,15 +125,18 @@ TRAINS=(
   # "/scratch/keane/human_behaviour/human_behaviour_data/heldout_train_full_meld_emotion.jsonl"
   # "/scratch/keane/human_behaviour/human_behaviour_data/heldout_train_full_mmsd.jsonl"
   # "/scratch/keane/human_behaviour/human_behaviour_data/heldout_train_full_mosei_senti.jsonl"
-  "/scratch/keane/human_behaviour/human_behaviour_data/heldout_qa_train.jsonl"
+  # "/scratch/keane/human_behaviour/human_behaviour_data/heldout_qa_train.jsonl"
+  "/scratch/keane/human_behaviour/human_behaviour_data/train_processed_iemocap_ground_truth.jsonl"
 )
+
 
 VALS=(
   # "/scratch/keane/human_behaviour/human_behaviour_data/heldout_test_daicwoz.jsonl"
   # "/scratch/keane/human_behaviour/human_behaviour_data/heldout_test_meld_emotion.jsonl"
   # "/scratch/keane/human_behaviour/human_behaviour_data/heldout_test_mmsd.jsonl"
   # "/scratch/keane/human_behaviour/human_behaviour_data/heldout_test_mosei_senti.jsonl"
-  "/scratch/keane/human_behaviour/human_behaviour_data/heldout_test_qa_mimeqa.jsonl"
+  # "/scratch/keane/human_behaviour/human_behaviour_data/heldout_test_qa_mimeqa.jsonl"
+  "/scratch/keane/human_behaviour/human_behaviour_data/test_processed_iemocap_ground_truth.jsonl"
 )
 #   "/scratch/keane/human_behaviour/human_behaviour_data/heldout_test_qa_mimeqa.jsonl"
 #   "/scratch/keane/human_behaviour/human_behaviour_data/heldout_test_qa_mimeqa.jsonl"
@@ -141,7 +146,8 @@ TESTS=(
   # "/scratch/keane/human_behaviour/human_behaviour_data/heldout_test_meld_emotion.jsonl"
   # "/scratch/keane/human_behaviour/human_behaviour_data/heldout_test_mmsd.jsonl"
   # "/scratch/keane/human_behaviour/human_behaviour_data/heldout_test_mosei_senti.jsonl"
-  "/scratch/keane/human_behaviour/human_behaviour_data/heldout_test_qa_mimeqa.jsonl"
+  # "/scratch/keane/human_behaviour/human_behaviour_data/heldout_test_qa_mimeqa.jsonl"
+  "/scratch/keane/human_behaviour/human_behaviour_data/test_processed_iemocap_ground_truth.jsonl"
 )
 
 #   "/scratch/keane/human_behaviour/human_behaviour_data/heldout_test_qa_mimeqa.jsonl"
@@ -154,7 +160,8 @@ TRAIN_BS=(
   # 2  # meld_emo_4
   # 2  # mmsd_4
   # 2  # mosei_senti_4
-  2 # QA
+  # 2 # QA
+  4
 )
 #   1  # mimeqa_4
 #   2  # mimeqa_32
@@ -164,7 +171,8 @@ GACC=(
   # 8  # meld_emo_4
   # 4  # mmsd_4
   # 8  # mosei_senti_4
-  4 # qa
+  # 4 # qa
+  8
 )
 
 #   1  # mimeqa_4

@@ -67,6 +67,7 @@ def process_audio(
 
     except Exception as e:
         print(f"Error processing audio {audio_path}: {e}")
+        print("Appending dummy seconds")
         dummy_seconds = 0.5
         dummy_audio = torch.zeros((int(16000 * dummy_seconds),), dtype=torch.float32)
         return dummy_audio, 16000
