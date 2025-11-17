@@ -128,7 +128,7 @@ TRAINS=(
   # "/scratch/keane/human_behaviour/human_behaviour_data/heldout_train_full_mmsd.jsonl"
   # "/scratch/keane/human_behaviour/human_behaviour_data/heldout_train_full_mosei_senti.jsonl"
   # "/scratch/keane/human_behaviour/human_behaviour_data/heldout_qa_train.jsonl"
-  "/scratch/keane/human_behaviour/human_behaviour_data/train_processed_iemocap_ground_truth.jsonl"
+  "/scratch/keane/human_behaviour/human_behaviour_data/no_vid_train_processed_iemocap_ground_truth.jsonl"
 )
 
 
@@ -138,7 +138,7 @@ VALS=(
   # "/scratch/keane/human_behaviour/human_behaviour_data/heldout_test_mmsd.jsonl"
   # "/scratch/keane/human_behaviour/human_behaviour_data/heldout_test_mosei_senti.jsonl"
   # "/scratch/keane/human_behaviour/human_behaviour_data/heldout_test_qa_mimeqa.jsonl"
-  "/scratch/keane/human_behaviour/human_behaviour_data/test_processed_iemocap_ground_truth.jsonl"
+  "/scratch/keane/human_behaviour/human_behaviour_data/no_vid_test_processed_iemocap_ground_truth.jsonl"
 )
 #   "/scratch/keane/human_behaviour/human_behaviour_data/heldout_test_qa_mimeqa.jsonl"
 #   "/scratch/keane/human_behaviour/human_behaviour_data/heldout_test_qa_mimeqa.jsonl"
@@ -149,7 +149,7 @@ TESTS=(
   # "/scratch/keane/human_behaviour/human_behaviour_data/heldout_test_mmsd.jsonl"
   # "/scratch/keane/human_behaviour/human_behaviour_data/heldout_test_mosei_senti.jsonl"
   # "/scratch/keane/human_behaviour/human_behaviour_data/heldout_test_qa_mimeqa.jsonl"
-  "/scratch/keane/human_behaviour/human_behaviour_data/test_processed_iemocap_ground_truth.jsonl"
+  "/scratch/keane/human_behaviour/human_behaviour_data/no_vid_test_processed_iemocap_ground_truth.jsonl"
 )
 
 #   "/scratch/keane/human_behaviour/human_behaviour_data/heldout_test_qa_mimeqa.jsonl"
