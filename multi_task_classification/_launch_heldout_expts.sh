@@ -206,7 +206,7 @@ for i in "${!TYPES[@]}"; do
 
   if [[ "$EXP_TYPE" == "qa" ]]; then
     SCRIPT="addqa_train_multi_head.py"
-    EXTRA_ARGS+=( --format_prompt "" --max_prompt_length 8096 )
+    EXTRA_ARGS+=( --format_prompt "" --max_prompt_length 6192 )
   fi
 
   LOAD_ARG=()
