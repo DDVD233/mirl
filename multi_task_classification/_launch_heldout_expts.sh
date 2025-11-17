@@ -42,7 +42,7 @@ COMMON_ARGS=(
   --early_stopping_patience 99999999
   --project "$PROJECT"
   --format_prompt ""
-  --max_prompt_length 8096
+  --max_prompt_length 6192
 )
 # --use_scheduler \
 # --scheduler_type cosine \
@@ -161,7 +161,7 @@ TRAIN_BS=(
   # 2  # mmsd_4
   # 2  # mosei_senti_4
   # 2 # QA
-  1
+  2
 )
 #   1  # mimeqa_4
 #   2  # mimeqa_32
@@ -206,7 +206,7 @@ for i in "${!TYPES[@]}"; do
 
   if [[ "$EXP_TYPE" == "qa" ]]; then
     SCRIPT="addqa_train_multi_head.py"
-    EXTRA_ARGS+=( --format_prompt "" --max_prompt_length 6192 )
+    EXTRA_ARGS+=( --format_prompt "" --max_prompt_length 8096 )
   fi
 
   LOAD_ARG=()
