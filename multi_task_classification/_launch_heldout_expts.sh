@@ -161,7 +161,7 @@ TRAIN_BS=(
   # 2  # mmsd_4
   # 2  # mosei_senti_4
   # 2 # QA
-  4
+  2
 )
 #   1  # mimeqa_4
 #   2  # mimeqa_32
