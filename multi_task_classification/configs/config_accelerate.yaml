@@ -45,7 +45,7 @@ train:
 
 dataset_config:
   max_prompt_length: 4096
-  modalities: "images,videos,audio"
+  modalities: "audio"
   prompt_key: "problem"
   image_key: "images"
   video_key: "videos"
