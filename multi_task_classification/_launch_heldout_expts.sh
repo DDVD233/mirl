@@ -17,8 +17,8 @@ PROJECT="iemocap_heldout_expts"
 # LABEL_MAP="/home/keaneong/human-behavior/verl/multi_task_classification/seperate_unified_label_map_v6.json"
 LABEL_MAP="/scratch/keane/human_behaviour/human_behaviour_data//unified_label_map_v6_with_iemocap.json"
 BASE_SAVE_DIR="/scratch/keane/human_behaviour/all_heldout_expts/cls_iemocap_1epoch"
-RESUME_FROM=""   # leave blank to start from scratch
-# RESUME_FROM="/scratch/keane/human_behaviour/v6_heldout_multi_head_lora_training/step_38935"   # leave blank to start from scratch
+# RESUME_FROM=""   # leave blank to start from scratch
+RESUME_FROM="/scratch/keane/human_behaviour/v6_heldout_multi_head_lora_training/step_38935"   # leave blank to start from scratch
 # RESUME_FROM="/scratch/keane/human_behaviour/v6_heldout_multi_head_lora_training/step_38935"   # leave blank to start from scratch
   # LABEL_MAP="/home/keaneong/human-behavior/verl/multi_task_classification/unified_label_map_v6.json"
     # --label_map_path "/home/keaneong/human-behavior/verl/multi_task_classification/seperate_unified_label_map_v6.json" \
