@@ -25,6 +25,7 @@ RESUME_FROM=""   # leave blank to start from scratch
   # --use_scheduler \
   # --scheduler_type cosine \
   # --warmup_steps 50 \
+# to use the scheduler when resuming
 
 # Common args (no train_batch_size / gradient_accumulation_steps here; set per-index below)
 COMMON_ARGS=(
@@ -42,11 +43,12 @@ COMMON_ARGS=(
   --early_stopping_patience 99999999
   --project "$PROJECT"
   --format_prompt ""
-  --max_prompt_length 6192
+  --max_prompt_length 8096
+  --use_scheduler \
+  --scheduler_type cosine \
+  --warmup_steps 50 \
+
 )
-# --use_scheduler \
-# --scheduler_type cosine \
-# --warmup_steps 50 \
 
 # -----------------------------------------
 # HARD-CODED EXPERIMENTS (keep indices aligned)
@@ -161,7 +163,7 @@ TRAIN_BS=(
   # 2  # mmsd_4
   # 2  # mosei_senti_4
   # 2 # QA
-  2
+  1
 )
 #   1  # mimeqa_4
 #   2  # mimeqa_32
