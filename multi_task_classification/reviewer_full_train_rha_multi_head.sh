@@ -192,7 +192,7 @@ for DS in "${PROCESS_DS[@]}"; do
     --train_file "$TRAIN_OUT" \
     --val_file "$VAL_OUT" \
     --test_file "$VAL_OUT" \
-    --label_map_path "/home/keaneong/human-behavior/verl/multi_task_classification/unified_label_map_v6.json" \
+    --label_map_path "/home/keaneong/human-behavior/verl/multi_task_classification/label_maps/unified_label_map_v6.json" \
     --load_checkpoint_path "/scratch/keane/human_behaviour/v6_multi_head_lora_training/step_43539" \
     --save_every_n_epochs 9999999 \
     --save_every_n_steps 9999999 \
