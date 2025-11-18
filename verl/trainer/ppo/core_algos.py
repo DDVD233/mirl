@@ -1775,6 +1775,8 @@ def compute_tarpo_outcome_advantage(
             adapter_sum[task]   += vv
             adapter_sumsq[task] += vv * vv
             adapter_cnt[task]   += 1
+
+    # TODO: the adapter advantages here just appear to be that of the mu and sigma
     for task, n in adapter_cnt.items():
         if n <= 0:
             continue

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
-
+export CUDA_VISIBLE_DEVICES="0,1,2,3"
 echo "Starting LORA + RHA training (per-dataset)…"
 
 # ==== USER CONFIG (keep these constant except the two file paths) ====
