@@ -156,7 +156,7 @@ def parse_parameters():
                        help='Mode: train or test')
     
     # Config file
-    parser.add_argument('--config', type=str, default='configs/config_rla_accelerate.yaml', 
+    parser.add_argument('--config', type=str, default='configs/config_rha_accelerate.yaml', 
                        help='Path to YAML config file')
     
     args = parser.parse_args()

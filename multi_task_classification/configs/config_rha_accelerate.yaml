@@ -81,9 +81,12 @@ train:
   scheduler_type: "cosine"  # Options: "linear", "cosine", "cosine_with_restarts", "polynomial", "constant", "constant_with_warmup"
   warmup_steps: 100  # Number of warmup steps (set to null to disable warmup)
 
+
+# For the reviewer expts, we exclude all the modalities for now; orignally, should be "images,videos,audio"
+
 dataset_config:
   max_prompt_length: 4096
-  modalities: "images,videos,audio"
+  modalities: ""
   prompt_key: "problem"
   image_key: "images"
   video_key: "videos"
