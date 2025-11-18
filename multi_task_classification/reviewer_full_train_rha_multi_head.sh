@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 set -euo pipefail
-export CUDA_VISIBLE_DEVICES="0,1,2,3"
 echo "Starting LORA + RHA training (per-dataset)…"
 
 # ==== USER CONFIG (keep these constant except the two file paths) ====
@@ -46,7 +45,7 @@ INCLUDE_DATASETS=("mmsd" "urfunny" "mosei_emotion" "mosei_senti" "meld_senti" "c
 # /scratch/keane/human_behaviour/human_behaviour_data/trunc_rla_fulltemp_train_daicwoz.jsonl (need to use this for daicwoz)
 #     --train_file "$TRAIN_OUT" \
 # Environment
-export CUDA_VISIBLE_DEVICES="4,5"
+export CUDA_VISIBLE_DEVICES="0,1,2,3"
 export CUDA_LAUNCH_BLOCKING=1
 export TORCH_USE_CUDA_DSA=1
 
