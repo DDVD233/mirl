@@ -573,30 +573,30 @@ class RLHFDataset(Dataset):
             # model_inputs = self.processor(**processor_kwargs)
 
             # NOTE: Replacement code
-            try:
-                t0 = time.time()
-                # processing the modalities:
-                # # TODO_DEBUG; increase token limits for processor
-                # processor_kwargs["max_length"] = 10000
+            # try:
+            t0 = time.time()
+            # processing the modalities:
+            # # TODO_DEBUG; increase token limits for processor
+            # processor_kwargs["max_length"] = 10000
 
-                model_inputs = self.processor(**processor_kwargs)
-                dt = (time.time() - t0)*1000
-                if dbg:
-                    # lengths after processor/tokenizer
-                    ids = model_inputs.get("input_ids")
-                    lens = [len(x) for x in ids] if ids is not None else []
-                    print(f"[processor] ok in {dt:.1f}ms; input_ids lens={lens} "
-                        f"min/med/max={ (min(lens) if lens else '-')} / "
-                        f"{ (sorted(lens)[len(lens)//2] if lens else '-') } / "
-                        f"{ (max(lens) if lens else '-') }")
-            except Exception as e:
-                print(f"[processor][ERROR] {type(e).__name__}: {e}")
-                # helpful context dump (small)
-                print(f"[processor][ctx] has_video={videos is not None} "
-                    f"n_vid={len(videos) if videos is not None else 0} "
-                    f"n_audio={len(audio_secs) if audio_secs else 0} "
-                    f"raw_prompt_chars={len(raw_prompt)}")
-                raise
+            model_inputs = self.processor(**processor_kwargs)
+            dt = (time.time() - t0)*1000
+            if dbg:
+                # lengths after processor/tokenizer
+                ids = model_inputs.get("input_ids")
+                lens = [len(x) for x in ids] if ids is not None else []
+                print(f"[processor] ok in {dt:.1f}ms; input_ids lens={lens} "
+                    f"min/med/max={ (min(lens) if lens else '-')} / "
+                    f"{ (sorted(lens)[len(lens)//2] if lens else '-') } / "
+                    f"{ (max(lens) if lens else '-') }")
+            # except Exception as e:
+            #     print(f"[processor][ERROR] {type(e).__name__}: {e}")
+            #     # helpful context dump (small)
+            #     print(f"[processor][ctx] has_video={videos is not None} "
+            #         f"n_vid={len(videos) if videos is not None else 0} "
+            #         f"n_audio={len(audio_secs) if audio_secs else 0} "
+            #         f"raw_prompt_chars={len(raw_prompt)}")
+            #     raise
 
             row_dict["modality_token_breakdown"] = compute_modality_token_breakdown(
                                             model_inputs=model_inputs,
