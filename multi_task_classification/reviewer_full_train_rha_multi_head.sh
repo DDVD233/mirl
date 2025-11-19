@@ -23,12 +23,15 @@ PROJECT_NAME="reviewer_ablate_raw_modalities"
 # NOT TRAINING YET: (missed out: ravdess)
 # INCLUDE_DATASETS=("mosei_emotion" "mosei_senti" "meld_senti" "chsimsv2" "cremad" "meld_emotion")
 # NEW REVIEWER PATHS
-# INCLUDE_DATASETS=("mmsd" "urfunny" "mosei_emotion" "mosei_senti" "meld_senti" "chsimsv2" "cremad" "meld_emotion" "ptsd_in_the_wild" "tess" "mmpsy_anxiety" "mmpsy_depression")
-### WHAT'S LEFT: "daicwoz" "mmpsy_anxiety" "mmpsy_depression"
+# FULL LIST (excl daicwoz which has to be separate):
+# INCLUDE_DATASETS=("mmsd" "urfunny" "mosei_emotion" "mosei_senti" "meld_senti" "chsimsv2" "cremad" "meld_emotion" "ptsd_in_the_wild" "tess")
+
+INCLUDE_DATASETS=("urfunny" "mosei_emotion" "mosei_senti" "meld_senti" "chsimsv2" "cremad" "meld_emotion" "ptsd_in_the_wild" "tess")
+#  "mmpsy_anxiety" "mmpsy_depression"
 # NOTE: daicwoz must use a different path instead : # /scratch/keane/human_behaviour/human_behaviour_data/trunc_rla_fulltemp_train_daicwoz.jsonl (need to use this for daicwoz)
     # --train_file /scratch/keane/human_behaviour/human_behaviour_data/trunc_rla_fulltemp_train_daicwoz.jsonl \
 # INCLUDE_DATASETS=("mmsd")
-INCLUDE_DATASETS=("daicwoz")
+# INCLUDE_DATASETS=("daicwoz")
 
 # FULL LIST (minus ravdess)
 # For old, with everything inside (conf, gamma):
@@ -52,7 +55,7 @@ INCLUDE_DATASETS=("daicwoz")
 # /scratch/keane/human_behaviour/human_behaviour_data/trunc_rla_fulltemp_train_daicwoz.jsonl (need to use this for daicwoz)
 #     --train_file "$TRAIN_OUT" \
 # Environment
-export CUDA_VISIBLE_DEVICES="2,3"
+export CUDA_VISIBLE_DEVICES="0,1,2,3"
 export CUDA_LAUNCH_BLOCKING=1
 export TORCH_USE_CUDA_DSA=1
 
@@ -183,8 +186,7 @@ for DS in "${PROCESS_DS[@]}"; do
   echo "  val_file:   $VAL_OUT    ($VAL_LINES lines)"
   echo "  save_dir:   $SAVE_DIR"
 
-  # --train_file "$TRAIN_OUT" \
-
+  # --train_file /scratch/keane/human_behaviour/human_behaviour_data/trunc_rla_fulltemp_train_daicwoz.jsonl \
   # effective 16 for daic-woz & mustard 
   # 32 for remaining
       # --use_rla_video \
@@ -201,7 +203,7 @@ for DS in "${PROCESS_DS[@]}"; do
     --base_lr 1e-4 \
     --rla_lr 5e-4 \
     --epochs 3 \
-    --train_file /scratch/keane/human_behaviour/human_behaviour_data/trunc_rla_fulltemp_train_daicwoz.jsonl \
+    --train_file "$TRAIN_OUT" \
     --val_file "$VAL_OUT" \
     --test_file "$VAL_OUT" \
     --label_map_path "/home/keaneong/human-behavior/verl/multi_task_classification/label_maps/unified_label_map_v6.json" \
@@ -229,6 +231,7 @@ for DS in "${PROCESS_DS[@]}"; do
     --rla_video_alpha_init 4.0 \
     --rla_audio_alpha_init 4.0 \
     --use_rla_audio \
+    --use_rla_video \
     --rla_video_use_ln \
     --rla_audio_use_ln \
     --format_prompt "" \
