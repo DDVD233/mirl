@@ -25,7 +25,8 @@ PROJECT_NAME="reviewer_ablate_raw_modalities"
 # INCLUDE_DATASETS=("mmsd" "urfunny" "mosei_emotion" "mosei_senti" "meld_senti" "chsimsv2" "cremad" "meld_emotion" "ptsd_in_the_wild" "tess" "mmpsy_anxiety" "mmpsy_depression")
 ### WHAT'S LEFT: "daicwoz" "mmpsy_anxiety" "mmpsy_depression"
 # NOTE: daicwoz must use a different path instead : # /scratch/keane/human_behaviour/human_behaviour_data/trunc_rla_fulltemp_train_daicwoz.jsonl (need to use this for daicwoz)
-INCLUDE_DATASETS=("daicwoz")
+    # --train_file /scratch/keane/human_behaviour/human_behaviour_data/trunc_rla_fulltemp_train_daicwoz.jsonl \
+INCLUDE_DATASETS=("mmsd")
 
 # FULL LIST (minus ravdess)
 # For old, with everything inside (conf, gamma):
@@ -182,6 +183,9 @@ for DS in "${PROCESS_DS[@]}"; do
 
   # --train_file "$TRAIN_OUT" \
 
+  # effective 16 for daic-woz & mustard 
+  # 32 for remaining
+
   accelerate launch --config_file "$ACCEL_CFG" "$SCRIPT" \
     --mode train \
     --rla_resume_diff_training_stage \
@@ -194,7 +198,7 @@ for DS in "${PROCESS_DS[@]}"; do
     --base_lr 1e-4 \
     --rla_lr 5e-4 \
     --epochs 4 \
-    --train_file /scratch/keane/human_behaviour/human_behaviour_data/trunc_rla_fulltemp_train_daicwoz.jsonl \
+    --train_file "$TRAIN_OUT" \
     --val_file "$VAL_OUT" \
     --test_file "$VAL_OUT" \
     --label_map_path "/home/keaneong/human-behavior/verl/multi_task_classification/label_maps/unified_label_map_v6.json" \
