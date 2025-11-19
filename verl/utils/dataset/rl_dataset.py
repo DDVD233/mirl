@@ -458,11 +458,12 @@ class RLHFDataset(Dataset):
                 row_dict_videos = row_dict.get(self.video_key)
                 for video in row_dict_videos:
                     video = os.path.join(self.base_dir, video) if isinstance(video, str) else video
+                    print("-----Video-----")
+                    print("Video path:", video)
                     video, video_metadata = process_video(video,
                                                           image_patch_size=self.image_patch_size,
                                                           return_video_metadata=True)
-                    print("-----Video-----")
-                    print(video)
+                    print("Video shape:", video.shape)
                     print(video_metadata)
                     print("-----Video-----")
                     if videos is None:
