@@ -505,10 +505,26 @@ class RLHFDataset(Dataset):
 
             # Call processor with appropriate parameters
             if processor_supports_video(self.processor):
-                model_inputs = self.processor(text=[raw_prompt], images=images, videos=videos, videos_kwargs=videos_kwargs, return_tensors="pt")
+                # Build kwargs dict and filter out None values
+                kwargs = {
+                    "text": [raw_prompt],
+                    "images": images,
+                    "videos": videos,
+                    "videos_kwargs": videos_kwargs,
+                    "return_tensors": "pt"
+                }
+                kwargs = {k: v for k, v in kwargs.items() if v is not None}
+                model_inputs = self.processor(**kwargs)
             else:
                 # Only pass images parameter if processor doesn't support video
-                model_inputs = self.processor(text=[raw_prompt], images=images, return_tensors="pt")
+                # Build kwargs dict and filter out None values
+                kwargs = {
+                    "text": [raw_prompt],
+                    "images": images,
+                    "return_tensors": "pt"
+                }
+                kwargs = {k: v for k, v in kwargs.items() if v is not None}
+                model_inputs = self.processor(**kwargs)
 
             input_ids = model_inputs.pop("input_ids")
             attention_mask = model_inputs.pop("attention_mask")
