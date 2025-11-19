@@ -22,9 +22,9 @@ PROJECT_NAME="reviewer_ablate_raw_modalities"
 
 # NOT TRAINING YET: (missed out: ravdess)
 # INCLUDE_DATASETS=("mosei_emotion" "mosei_senti" "meld_senti" "chsimsv2" "cremad" "meld_emotion")
-# INCLUDE_DATASETS=("mmsd" "urfunny" "mosei_emotion" "mosei_senti" "meld_senti" "chsimsv2" "cremad" "meld_emotion" "ptsd_in_the_wild" "tess" "daicwoz" "mmpsy_anxiety" "mmpsy_depression")
+# INCLUDE_DATASETS=("mmsd" "urfunny" "mosei_emotion" "mosei_senti" "meld_senti" "chsimsv2" "cremad" "meld_emotion" "ptsd_in_the_wild" "tess" "mmpsy_anxiety" "mmpsy_depression")
 ### WHAT'S LEFT: "daicwoz" "mmpsy_anxiety" "mmpsy_depression"
-INCLUDE_DATASETS=("daicwoz" "mmpsy_anxiety" "mmpsy_depression")
+# INCLUDE_DATASETS=("daicwoz" "mmpsy_anxiety" "mmpsy_depression")
 
 # FULL LIST (minus ravdess)
 # For old, with everything inside (conf, gamma):
