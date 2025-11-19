@@ -1271,45 +1271,97 @@ class RayPPOTrainer:
         )
         metrics.update(global_balance_stats)
     
-    def _tarpo_metrics_all_tasks(self):
+    def _tarpo_metrics_all(self):
         """
-        Summarize core_algos.task_stats into flat scalars for metrics.update(...).
-        Logs ALL tasks every call. No truncation.
+        Summarize BOTH task_stats and dataset_stats into flat scalars.
+        Logs everything in one unified dictionary:
+            tarpo/task/<task_id>/...
+            tarpo/dataset/<dataset_id>/...
         """
 
         def _sanitize_key(x: str) -> str:
             return str(x).replace("/", "_").replace(" ", "_")
 
         out = {}
+
+        # ======================================================================
+        #                           TASK-LEVEL LOGGING
+        # ======================================================================
         for task_id, st in core_algos.task_stats.items():
             tkey = _sanitize_key(task_id)
             prefix = f"tarpo/task/{tkey}"
 
+            # --- Core EMAs / counters (raw rewards, task adapter level) ---
+            out[f"{prefix}/ema_mu"]           = float(st.get("ema_mu", 0.0))
+            out[f"{prefix}/ema_sigma"]        = float(st.get("ema_sigma", 1.0))
+            out[f"{prefix}/ema_count"]        = float(st.get("ema_count", 0))
+            out[f"{prefix}/buffer_mean_ema"]  = float(st.get("buffer_mean_ema", 0.0))
+            out[f"{prefix}/buffer_cvar_ema"]  = float(st.get("buffer_cvar_ema", 0.0))
+            out[f"{prefix}/buffer_ptail_ema"] = float(st.get("buffer_ptail_ema", 0.0))
+
+            # --- Raw batch stats ---
+            out[f"{prefix}/raw_batch_mu"]     = float(st.get("raw_batch_mu", 0.0))
+            out[f"{prefix}/raw_batch_sigma"]  = float(st.get("raw_batch_sigma", 1.0))
+            out[f"{prefix}/raw_batch_count"]  = float(st.get("raw_batch_count", 0))
+
+            # --- Final TARPO advantages ---
+            out[f"{prefix}/final_advantage_batch_mu"]    = float(st.get("final_advantage_batch_mu", 0.0))
+            out[f"{prefix}/final_advantage_batch_sigma"] = float(st.get("final_advantage_batch_sigma", 1.0))
+            out[f"{prefix}/final_advantage_ema_mu"]      = float(st.get("final_advantage_ema_mu", 0.0))
+            out[f"{prefix}/final_advantage_ema_sigma"]   = float(st.get("final_advantage_ema_sigma", 1.0))
+
+            # --- k_t (CVaR boost) stats ---
+            out[f"{prefix}/k_batch_mu"]       = float(st.get("k_batch_mu", 1.0))
+            out[f"{prefix}/k_batch_sigma"]    = float(st.get("k_batch_sigma", 0.0))
+            out[f"{prefix}/k_ema"]            = float(st.get("k_ema", 1.0))
+
+            # --- Buffer summary ---
+            buf = st.get("buffer", None)
+            if buf and len(buf) > 0:
+                x = np.asarray(list(buf), dtype=float)
+                out[f"{prefix}/buffer_len"]  = int(x.size)
+                out[f"{prefix}/buffer_mean"] = float(x.mean())
+                out[f"{prefix}/buffer_std"]  = float(x.std(ddof=0)) if x.size > 1 else 0.0
+                for q in (0.10, 0.25, 0.50, 0.75, 0.90):
+                    out[f"{prefix}/buffer_q{int(q*100):02d}"] = float(np.quantile(x, q))
+                out[f"{prefix}/buffer_min"]  = float(x.min())
+                out[f"{prefix}/buffer_max"]  = float(x.max())
+            else:
+                out[f"{prefix}/buffer_len"]  = 0
+
+
+        # ======================================================================
+        #                         DATASET-LEVEL LOGGING
+        # ======================================================================
+        for ds_id, st in core_algos.dataset_stats.items():
+            dkey = _sanitize_key(ds_id)
+            prefix = f"tarpo/dataset/{dkey}"
+
             # --- Core EMAs / counters ---
-            out[f"{prefix}/ema_mu"]            = float(st.get("ema_mu", 0.0))
-            out[f"{prefix}/ema_sigma"]         = float(st.get("ema_sigma", 1.0))
-            out[f"{prefix}/ema_count"]         = float(st.get("ema_count", 0))
-            out[f"{prefix}/buffer_mean_ema"]   = float(st.get("buffer_mean_ema", 0.0))
-            out[f"{prefix}/buffer_cvar_ema"]   = float(st.get("buffer_cvar_ema", 0.0))
-            out[f"{prefix}/buffer_ptail_ema"]  = float(st.get("buffer_ptail_ema", 0.0))
+            out[f"{prefix}/ema_mu"]           = float(st.get("ema_mu", 0.0))
+            out[f"{prefix}/ema_sigma"]        = float(st.get("ema_sigma", 1.0))
+            out[f"{prefix}/ema_count"]        = float(st.get("ema_count", 0))
+            out[f"{prefix}/buffer_mean_ema"]  = float(st.get("buffer_mean_ema", 0.0))
+            out[f"{prefix}/buffer_cvar_ema"]  = float(st.get("buffer_cvar_ema", 0.0))
+            out[f"{prefix}/buffer_ptail_ema"] = float(st.get("buffer_ptail_ema", 0.0))
 
-            # --- Raw (non-EMA) batch stats ---
-            out[f"{prefix}/raw_batch_mu"]      = float(st.get("raw_batch_mu", 0.0))
-            out[f"{prefix}/raw_batch_sigma"]   = float(st.get("raw_batch_sigma", 1.0))
-            out[f"{prefix}/raw_batch_count"]   = float(st.get("raw_batch_count", 0))
+            # --- Raw batch stats ---
+            out[f"{prefix}/raw_batch_mu"]     = float(st.get("raw_batch_mu", 0.0))
+            out[f"{prefix}/raw_batch_sigma"]  = float(st.get("raw_batch_sigma", 1.0))
+            out[f"{prefix}/raw_batch_count"]  = float(st.get("raw_batch_count", 0))
 
-            # --- Adapter-normalized advantages (batch + EMA) ---
-            out[f"{prefix}/adapter_advantage_batch_mu"]    = float(st.get("adapter_advantage_batch_mu", 0.0))
-            out[f"{prefix}/adapter_advantage_batch_sigma"] = float(st.get("adapter_advantage_batch_sigma", 1.0))
-            out[f"{prefix}/adapter_advantage_ema_mu"]      = float(st.get("adapter_advantage_ema_mu", 0.0))
-            out[f"{prefix}/adapter_advantage_ema_sigma"]   = float(st.get("adapter_advantage_ema_sigma", 1.0))
+            # --- Final TARPO advantages ---
+            out[f"{prefix}/final_advantage_batch_mu"]    = float(st.get("final_advantage_batch_mu", 0.0))
+            out[f"{prefix}/final_advantage_batch_sigma"] = float(st.get("final_advantage_batch_sigma", 1.0))
+            out[f"{prefix}/final_advantage_ema_mu"]      = float(st.get("final_advantage_ema_mu", 0.0))
+            out[f"{prefix}/final_advantage_ema_sigma"]   = float(st.get("final_advantage_ema_sigma", 1.0))
 
-            # --- k_t (boost) stats (batch + EMA of mean) ---
-            out[f"{prefix}/k_batch_mu"]        = float(st.get("k_batch_mu", 1.0))
-            out[f"{prefix}/k_batch_sigma"]     = float(st.get("k_batch_sigma", 0.0))
-            out[f"{prefix}/k_ema"]             = float(st.get("k_ema", 1.0))
+            # --- k_t stats (mirrors task-level k_t for logging) ---
+            out[f"{prefix}/k_batch_mu"]       = float(st.get("k_batch_mu", 1.0))
+            out[f"{prefix}/k_batch_sigma"]    = float(st.get("k_batch_sigma", 0.0))
+            out[f"{prefix}/k_ema"]            = float(st.get("k_ema", 1.0))
 
-            # --- Buffer summary (never log the raw deque) ---
+            # --- Buffer summary ---
             buf = st.get("buffer", None)
             if buf and len(buf) > 0:
                 x = np.asarray(list(buf), dtype=float)
@@ -1614,7 +1666,7 @@ class RayPPOTrainer:
                     
                     # Log TARPO task_stats (all tasks) every step
                     try:
-                        tarpo_metrics = self._tarpo_metrics_all_tasks()
+                        tarpo_metrics = self._tarpo_metrics_all()
                         if tarpo_metrics:
                             metrics.update(tarpo_metrics)
                     except Exception as e:
