@@ -24,8 +24,8 @@ PROJECT_NAME="reviewer_ablate_raw_modalities"
 # INCLUDE_DATASETS=("mosei_emotion" "mosei_senti" "meld_senti" "chsimsv2" "cremad" "meld_emotion")
 # INCLUDE_DATASETS=("mmsd" "urfunny" "mosei_emotion" "mosei_senti" "meld_senti" "chsimsv2" "cremad" "meld_emotion" "ptsd_in_the_wild" "tess" "mmpsy_anxiety" "mmpsy_depression")
 ### WHAT'S LEFT: "daicwoz" "mmpsy_anxiety" "mmpsy_depression"
-# NOTE: daicwoz must 
-# INCLUDE_DATASETS=("daicwoz" "mmpsy_anxiety" "mmpsy_depression")
+# NOTE: daicwoz must use a different path instead : # /scratch/keane/human_behaviour/human_behaviour_data/trunc_rla_fulltemp_train_daicwoz.jsonl (need to use this for daicwoz)
+INCLUDE_DATASETS=("daicwoz")
 
 # FULL LIST (minus ravdess)
 # For old, with everything inside (conf, gamma):
