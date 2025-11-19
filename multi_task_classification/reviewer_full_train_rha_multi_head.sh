@@ -27,7 +27,8 @@ PROJECT_NAME="reviewer_ablate_raw_modalities"
 ### WHAT'S LEFT: "daicwoz" "mmpsy_anxiety" "mmpsy_depression"
 # NOTE: daicwoz must use a different path instead : # /scratch/keane/human_behaviour/human_behaviour_data/trunc_rla_fulltemp_train_daicwoz.jsonl (need to use this for daicwoz)
     # --train_file /scratch/keane/human_behaviour/human_behaviour_data/trunc_rla_fulltemp_train_daicwoz.jsonl \
-INCLUDE_DATASETS=("mmsd")
+# INCLUDE_DATASETS=("mmsd")
+INCLUDE_DATASETS=("daicwoz")
 
 # FULL LIST (minus ravdess)
 # For old, with everything inside (conf, gamma):
@@ -51,7 +52,7 @@ INCLUDE_DATASETS=("mmsd")
 # /scratch/keane/human_behaviour/human_behaviour_data/trunc_rla_fulltemp_train_daicwoz.jsonl (need to use this for daicwoz)
 #     --train_file "$TRAIN_OUT" \
 # Environment
-export CUDA_VISIBLE_DEVICES="0,1"
+export CUDA_VISIBLE_DEVICES="2,3"
 export CUDA_LAUNCH_BLOCKING=1
 export TORCH_USE_CUDA_DSA=1
 
@@ -186,6 +187,7 @@ for DS in "${PROCESS_DS[@]}"; do
 
   # effective 16 for daic-woz & mustard 
   # 32 for remaining
+      # --use_rla_video \
 
   accelerate launch --config_file "$ACCEL_CFG" "$SCRIPT" \
     --mode train \
@@ -199,7 +201,7 @@ for DS in "${PROCESS_DS[@]}"; do
     --base_lr 1e-4 \
     --rla_lr 5e-4 \
     --epochs 3 \
-    --train_file "$TRAIN_OUT" \
+    --train_file /scratch/keane/human_behaviour/human_behaviour_data/trunc_rla_fulltemp_train_daicwoz.jsonl \
     --val_file "$VAL_OUT" \
     --test_file "$VAL_OUT" \
     --label_map_path "/home/keaneong/human-behavior/verl/multi_task_classification/label_maps/unified_label_map_v6.json" \
@@ -227,7 +229,6 @@ for DS in "${PROCESS_DS[@]}"; do
     --rla_video_alpha_init 4.0 \
     --rla_audio_alpha_init 4.0 \
     --use_rla_audio \
-    --use_rla_video \
     --rla_video_use_ln \
     --rla_audio_use_ln \
     --format_prompt "" \
