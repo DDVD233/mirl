@@ -256,6 +256,7 @@ def compute_advantage(
         data.batch["advantages"] = advantages
         data.batch["returns"] = returns
     elif adv_estimator == AdvantageEstimator.FAIR_GRPO:
+        print(data.non_tensor_batch.keys())
         grpo_calculation_mask = data.batch["response_mask"]
         domain_info = data.non_tensor_batch["dataset"]
         demo_info = data.non_tensor_batch["demo_group"]
@@ -1126,8 +1127,6 @@ class RayPPOTrainer:
                         else curr_step_profile
                     )
                 batch: DataProto = DataProto.from_single_dict(batch_dict)
-                print("Non tensor", batch.non_tensor_batch)
-                print("tensor", batch.batch)
 
                 # add uid to batch
                 batch.non_tensor_batch["uid"] = np.array(
