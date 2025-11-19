@@ -428,7 +428,6 @@ class RLHFDataset(Dataset):
         if self.processor is not None and self.video_key in row_dict and row_dict.get(self.video_key, None) is not None and len(row_dict[self.video_key]) > 0:
             convert_video_to_images = not processor_supports_video(self.processor)
 
-        print(row_dict)
         messages = self._build_messages(row_dict, convert_video_to_images=convert_video_to_images)
         model_inputs = {}
 
