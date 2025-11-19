@@ -514,6 +514,7 @@ class RLHFDataset(Dataset):
                     "return_tensors": "pt"
                 }
                 kwargs = {k: v for k, v in kwargs.items() if v is not None}
+                print(kwargs)
                 model_inputs = self.processor(**kwargs)
             else:
                 # Only pass images parameter if processor doesn't support video
@@ -524,6 +525,7 @@ class RLHFDataset(Dataset):
                     "return_tensors": "pt"
                 }
                 kwargs = {k: v for k, v in kwargs.items() if v is not None}
+                print(kwargs)
                 model_inputs = self.processor(**kwargs)
 
             input_ids = model_inputs.pop("input_ids")
