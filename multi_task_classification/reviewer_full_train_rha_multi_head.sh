@@ -24,6 +24,7 @@ PROJECT_NAME="reviewer_ablate_raw_modalities"
 # INCLUDE_DATASETS=("mosei_emotion" "mosei_senti" "meld_senti" "chsimsv2" "cremad" "meld_emotion")
 # INCLUDE_DATASETS=("mmsd" "urfunny" "mosei_emotion" "mosei_senti" "meld_senti" "chsimsv2" "cremad" "meld_emotion" "ptsd_in_the_wild" "tess" "mmpsy_anxiety" "mmpsy_depression")
 ### WHAT'S LEFT: "daicwoz" "mmpsy_anxiety" "mmpsy_depression"
+# NOTE: daicwoz must 
 # INCLUDE_DATASETS=("daicwoz" "mmpsy_anxiety" "mmpsy_depression")
 
 # FULL LIST (minus ravdess)
@@ -206,7 +207,7 @@ for DS in "${PROCESS_DS[@]}"; do
     --validate_every_n_steps 999999 \
     --early_stopping_patience 99999 \
     --project "${PROJECT_NAME}" \
-    --gradient_accumulation_steps 1 \
+    --gradient_accumulation_steps 4 \
     --rla_stage residual_and_head \
     --d_video_feat 3318 \
     --d_audio_feat 6373 \
