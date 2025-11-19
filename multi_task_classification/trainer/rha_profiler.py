@@ -6,6 +6,13 @@ from trainer.rha_multi_head_omni_classifier_trainer import RHAMultiHeadOmniClass
 from models.adapter_utils import build_video_feats_batch, build_audio_feats_batch
 from models.rha_adapter_utils import maybe_build_hidden_adapters, apply_hidden_adapters
 
+## TODO NOTES: Select about 100-500 samples only; discard the 1st batch as warmup and run for N batches
+# You MUST report:
+# 	•	GPU model (A100/H100 etc)
+# 	•	Batch size
+# 	•	Precision (fp16/bf16)
+# 	•	Seq length (if applicable)
+# 	•	Input resolution (if applicable)
 
 class RHAMultiHeadOmniClassifierProfiler(RHAMultiHeadOmniClassifierAccelerateTrainer):
     """
