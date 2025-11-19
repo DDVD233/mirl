@@ -20,7 +20,7 @@ from PIL import Image
 from qwen_vl_utils import fetch_image, fetch_video
 
 
-def process_image(image: dict | Image.Image | str) -> Image.Image:
+def process_image(image: dict | Image.Image, image_patch_size: int = 14) -> Image.Image:
     if isinstance(image, str):
         image = {"type": "image", "image": image, "min_pixels": 65536, "max_pixels": 524288}
 
@@ -32,11 +32,11 @@ def process_image(image: dict | Image.Image | str) -> Image.Image:
         image["image"] = Image.open(BytesIO(image["bytes"]))
 
     try:
-        return fetch_image(image)
+        return fetch_image(image, image_patch_size=image_patch_size)
     except Exception as e:
         print(e)
         dummy_image = Image.new("RGB", (224, 224))
-        return process_image(dummy_image)
+        return process_image(dummy_image, image_patch_size=image_patch_size)
 
 
 VIDEO_FORMAT_HELP = """Currently, we only support the video formats introduced in qwen2-vl.
@@ -69,10 +69,13 @@ eg.
 
 def process_video(
     video: dict,
+    image_patch_size: int = 14,
     nframes: Optional[int] = None,
     fps: Optional[float] = None,
     fps_min_frames: Optional[int] = None,
     fps_max_frames: Optional[int] = None,
+    return_video_sample_fps: bool = False,
+    return_video_metadata: bool = False,
 ) -> torch.Tensor:
     """Converts a video dict into a [n_frames, 3, H, W] tensor
 
@@ -100,7 +103,12 @@ def process_video(
             if fps_max_frames is not None:
                 video["max_frames"] = fps_max_frames
     try:
-        return fetch_video(video)
+        return fetch_video(
+            video,
+            image_patch_size=image_patch_size,
+            return_video_sample_fps=return_video_sample_fps,
+            return_video_metadata=return_video_metadata,
+        )
     except Exception as e:
         print(e)
         dummy_video = torch.zeros((1, 3, 224, 224), dtype=torch.uint8)

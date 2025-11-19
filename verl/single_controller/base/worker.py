@@ -22,7 +22,11 @@ from dataclasses import dataclass
 
 import ray
 
-from verl.utils.device import get_torch_device, get_visible_devices_keyword
+from verl.utils.device import (
+    get_torch_device,
+    get_visible_devices_keyword,
+    is_npu_available,
+)
 
 from .decorator import Dispatch, Execute, register
 
@@ -125,6 +129,16 @@ class Worker(WorkerHelper):
         """
         assert mesh_name in self.__collect_dp_rank, f"{mesh_name} is not registered in {self.__class__.__name__}"
         return self.__collect_dp_rank[mesh_name]
+
+    @register(dispatch_mode=Dispatch.ONE_TO_ALL, blocking=True)
+    def create_transferqueue_client(self, controller_infos, storage_infos, role="train"):
+        from verl.utils.transferqueue_utils import create_transferqueue_client
+
+        create_transferqueue_client(
+            client_id=f"{role}_worker_{self.rank}",
+            controller_infos=controller_infos,
+            storage_infos=storage_infos,
+        )
 
     @classmethod
     def env_keys(cls):
@@ -236,7 +250,8 @@ class Worker(WorkerHelper):
             # environment variable for each actor, unless
             # RAY_EXPERIMENTAL_NOSET_*_VISIBLE_DEVICES is set,
             # so we need to set local rank when the flag is set.
-            local_rank = os.environ.get("RAY_LOCAL_RANK")
+            device_name = "NPU" if is_npu_available else "GPU"
+            local_rank = ray.get_runtime_context().get_accelerator_ids()[device_name][0]
             os.environ["LOCAL_RANK"] = local_rank
             get_torch_device().set_device(int(local_rank))
 

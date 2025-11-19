@@ -146,7 +146,9 @@ class MegatronCheckpointManager(BaseCheckpointManager):
         self.use_dist_checkpointing = use_dist_checkpointing or not self.bridge or self.is_value_model
         self.use_hf_checkpoint = not self.use_dist_checkpointing
 
-        self.weight_saver = get_weight_saver(self.arch)
+        self.weight_saver = None
+        if self.bridge is None:
+            self.weight_saver = get_weight_saver(self.arch)
 
     def get_rng_state(self, use_dist_ckpt: bool = True, data_parallel_random_init: bool = False):
         """collect rng state across data parallel ranks"""
@@ -229,7 +231,11 @@ class MegatronCheckpointManager(BaseCheckpointManager):
         return os.path.join(common_path, basename)
 
     def generate_state_dict(
-        self, generate_model: bool = True, generate_optimizer: bool = True, generate_extra: bool = True
+        self,
+        generate_model: bool = True,
+        generate_optimizer: bool = True,
+        generate_extra: bool = True,
+        is_loading: bool = False,
     ):
         # For save dist checkpointing
         state_dict = {}
@@ -250,7 +256,7 @@ class MegatronCheckpointManager(BaseCheckpointManager):
         # Optimizer State Dict
         if generate_optimizer:
             torch.distributed.barrier()
-            optimizer_sharded_states = self.optimizer.sharded_state_dict(state_dict)
+            optimizer_sharded_states = self.optimizer.sharded_state_dict(state_dict, is_loading=is_loading)
             state_dict["optimizer"] = optimizer_sharded_states
 
             if self.lr_scheduler is not None:
@@ -290,11 +296,20 @@ class MegatronCheckpointManager(BaseCheckpointManager):
         if local_path is not None:
             assert os.path.exists(local_path), f"Checkpoint path {local_path} does not exist."
 
+        # For load optimizer dist_ckpt
+        import transformer_engine
+
+        torch.serialization.add_safe_globals([torch.optim.AdamW])
+        torch.serialization.add_safe_globals([transformer_engine.pytorch.optimizers.fused_adam.FusedAdam])
+
         dist_checkpoint_path = get_dist_checkpoint_path(local_path)
 
         # Get State Dict for loading
         sharded_state_dict = self.generate_state_dict(
-            self.should_load_model and self.use_dist_checkpointing, self.should_load_optimizer, self.should_load_extra
+            self.should_load_model and self.use_dist_checkpointing,
+            self.should_load_optimizer,
+            self.should_load_extra,
+            is_loading=True,
         )
         log_with_rank(f"Generated state dict for loading: {sharded_state_dict.keys()}", rank=self.rank, logger=logger)
 
@@ -436,7 +451,8 @@ class MegatronCheckpointManager(BaseCheckpointManager):
             if self.rank == 0:
                 # Save tokenizer
                 hf_config_tokenizer_path = get_hf_model_checkpoint_path(local_path)
-                self.processing_class.save_pretrained(hf_config_tokenizer_path)
+                if self.processing_class is not None:
+                    self.processing_class.save_pretrained(hf_config_tokenizer_path)
                 # Save huggingface config
                 self.hf_config.save_pretrained(hf_config_tokenizer_path)
                 if hasattr(self.hf_config, "name_or_path") and self.hf_config.name_or_path:
@@ -457,7 +473,20 @@ class MegatronCheckpointManager(BaseCheckpointManager):
             if self.rank == 0:
                 # Save transformer config
                 print(self.transformer_config)
+                bypass_keys = [
+                    "finalize_model_grads_func",
+                    "grad_scale_func",
+                    "no_sync_func",
+                    "grad_sync_func",
+                    "param_sync_func",
+                ]
+                backup = {}
+                for k in bypass_keys:
+                    backup[k] = getattr(self.transformer_config, k, None)
+                    delattr(self.transformer_config, k)
                 transformer_config_dict = asdict(self.transformer_config)
+                for k in bypass_keys:
+                    setattr(self.transformer_config, k, backup[k])
                 to_convert_types = {torch.dtype: str, AttnBackend: str}
                 ignore_types = [Callable]
                 pop_keys = []
@@ -476,53 +505,60 @@ class MegatronCheckpointManager(BaseCheckpointManager):
 
         if self.should_save_hf_model and not self.use_hf_checkpoint:
             # wait for everyone to dump to local
-            state_dict = self.weight_saver(
-                self.model,
-                self.hf_config,
-                dtype=self.param_dtype,
-                is_value_model=self.is_value_model,
-                tie_word_embeddings=self.share_embeddings_and_output_weights,
-            )
-
-            torch.distributed.barrier()
-            if self.rank == 0:
+            if self.bridge is not None:
                 hf_model_ckpt_path = get_hf_model_checkpoint_path(local_path)
-                import warnings
-
-                from accelerate import init_empty_weights
-
-                with init_empty_weights(), warnings.catch_warnings():
-                    warnings.simplefilter("ignore")
-                    if "mistral7b-rm" in self.config.model.path:
-                        from transformers import MistralForSequenceClassification
-
-                        model = MistralForSequenceClassification.from_pretrained(
-                            self.config.model.path
-                        )  # use score head instead of lm_head
-                        state_dict["score.weight"] = state_dict["score.weight"]
-                    else:
-                        from transformers import AutoModelForCausalLM
-
-                        model = AutoModelForCausalLM.from_pretrained(self.config.model.path, torch_dtype="auto")
-                model.save_pretrained(hf_model_ckpt_path, state_dict=state_dict)
-                log_with_rank(
-                    f"Saved Huggingface config and tokenizer to {hf_model_ckpt_path}",
-                    rank=self.rank,
-                    logger=logger,
-                    log_only_rank_0=True,
+                self.bridge.save_weights(self.model, hf_model_ckpt_path)
+            else:
+                state_dict = self.weight_saver(
+                    self.model,
+                    self.hf_config,
+                    dtype=self.param_dtype,
+                    is_value_model=self.is_value_model,
+                    tie_word_embeddings=self.share_embeddings_and_output_weights,
                 )
 
-                if hdfs_path is not None:
-                    log_with_rank(
-                        f"Uploading checkpoint to {hdfs_path}", rank=self.rank, logger=logger, log_only_rank_0=True
-                    )
-                    from verl.utils import hdfs_io
+                torch.distributed.barrier()
+                if self.rank == 0:
+                    hf_model_ckpt_path = get_hf_model_checkpoint_path(local_path)
+                    import warnings
 
-                    hdfs_io.makedirs(hdfs_path, exist_ok=True)
-                    hdfs_io.copy(src=hf_model_ckpt_path, dst=hdfs_path, dirs_exist_ok=True)
+                    from accelerate import init_empty_weights
+
+                    with init_empty_weights(), warnings.catch_warnings():
+                        warnings.simplefilter("ignore")
+                        if "mistral7b-rm" in self.config.model.path:
+                            from transformers import MistralForSequenceClassification
+
+                            model = MistralForSequenceClassification.from_pretrained(
+                                self.config.model.path
+                            )  # use score head instead of lm_head
+                            state_dict["score.weight"] = state_dict["score.weight"]
+                        else:
+                            from transformers import AutoModelForCausalLM
+
+                            model = AutoModelForCausalLM.from_pretrained(self.config.model.path, torch_dtype="auto")
+                    model.save_pretrained(hf_model_ckpt_path, state_dict=state_dict)
                     log_with_rank(
-                        f"HDFS checkpoint uploaded to {hdfs_path}", rank=self.rank, logger=logger, log_only_rank_0=True
+                        f"Saved Huggingface config and tokenizer to {hf_model_ckpt_path}",
+                        rank=self.rank,
+                        logger=logger,
+                        log_only_rank_0=True,
                     )
+
+                    if hdfs_path is not None:
+                        log_with_rank(
+                            f"Uploading checkpoint to {hdfs_path}", rank=self.rank, logger=logger, log_only_rank_0=True
+                        )
+                        from verl.utils import hdfs_io
+
+                        hdfs_io.makedirs(hdfs_path, exist_ok=True)
+                        hdfs_io.copy(src=hf_model_ckpt_path, dst=hdfs_path, dirs_exist_ok=True)
+                        log_with_rank(
+                            f"HDFS checkpoint uploaded to {hdfs_path}",
+                            rank=self.rank,
+                            logger=logger,
+                            log_only_rank_0=True,
+                        )
 
         def finalize_save_fn():
             # Rank 0 uploads checkpoint to HDFS if hdfs_path is provided
