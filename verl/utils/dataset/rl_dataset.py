@@ -49,25 +49,27 @@ def processor_supports_video(processor: ProcessorMixin) -> bool:
     """
     if processor is None:
         return False
+    else:
+        return True
 
-    try:
-        sig = inspect.signature(processor.__call__)
-        params = sig.parameters
-        # return false if it's Gemma3Processor, which doesn't support video
-        if "Gemma3Processor" in processor.__class__.__name__:
-            return False
-
-        # Check if 'videos' is a parameter
-        if 'videos' in params:
-            param = params['videos']
-            # Verify it can be used as a keyword argument
-            if param.kind in (inspect.Parameter.KEYWORD_ONLY,
-                              inspect.Parameter.POSITIONAL_OR_KEYWORD):
-                return True
-    except (ValueError, TypeError, AttributeError):
-        logger.debug("Cannot inspect processor __call__ signature")
-
-    return False
+    # try:
+    #     sig = inspect.signature(processor.__call__)
+    #     params = sig.parameters
+    #     # return false if it's Gemma3Processor, which doesn't support video
+    #     if "Gemma3Processor" in processor.__class__.__name__:
+    #         return False
+    #
+    #     # Check if 'videos' is a parameter
+    #     if 'videos' in params:
+    #         param = params['videos']
+    #         # Verify it can be used as a keyword argument
+    #         if param.kind in (inspect.Parameter.KEYWORD_ONLY,
+    #                           inspect.Parameter.POSITIONAL_OR_KEYWORD):
+    #             return True
+    # except (ValueError, TypeError, AttributeError):
+    #     logger.debug("Cannot inspect processor __call__ signature")
+    #
+    # return False
 
 
 def collate_fn(data_list: list[dict]) -> dict:
