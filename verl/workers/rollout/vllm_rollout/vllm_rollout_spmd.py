@@ -581,6 +581,7 @@ class vLLMAsyncRollout(BaseRollout):
             try:
                 message = await self.socket.recv()
                 method, args, kwargs = pickle.loads(message)
+                print(method, args, kwargs)
                 result = await self._execute_method(method, *args, **kwargs)
                 await self.socket.send(pickle.dumps(result))
             except Exception as e:
