@@ -61,9 +61,9 @@ BASE_LOAD_CKPT="/scratch/keane/human_behaviour/4_freeze_base_qa_multi_task_model
 LABEL_MAP="/home/keaneong/human-behavior/verl/multi_task_classification/label_maps/unified_label_map_v6.json"
 
 # Datasets to iterate over
-# TASKS=("mimeqa" "intentqa" "siq2")
+TASKS=("intentqa" "siq2")
 # NOTE: They all do not seem to have audio features; only video
-TASKS=("mimeqa")
+# TASKS=("mimeqa")
 
 for TASK in "${TASKS[@]}"; do
   echo "============================================================"

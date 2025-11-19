@@ -13,6 +13,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 from others.dummy_classifier import DummyClassifier
 from models.rha_multi_head_omni_classifier import MultiHeadOmniClassifier
 from trainer.rha_multi_head_omni_classifier_trainer import RHAMultiHeadOmniClassifierAccelerateTrainer
+from trainer.rha_profiler import RHAMultiHeadOmniClassifierProfiler
 
 def parse_parameters():
     """
@@ -701,6 +702,29 @@ def main():
         print(f"[INFO] Starting testing mode...")
         test_results = trainer.test()
         print(f"[INFO] Test results: {test_results}")
+    elif MODE == 'profile':
+        print("[INFO] Profiling computational cost...")
+        trainer = RHAMultiHeadOmniClassifierProfiler(
+        data_files=TRAIN_DATA_FILE,
+        val_data_files=VAL_DATA_FILE,
+        test_data_files=TEST_DATA_FILE,
+        tokenizer=tokenizer,
+        processor=processor,
+        config=config,
+        batch_size=TRAIN_BATCH_SIZE,
+        val_batch_size=VAL_BATCH_SIZE,
+        test_batch_size=TEST_BATCH_SIZE,
+        lr=LR,
+        epochs=EPOCHS,
+        save_checkpoint_dir=SAVE_CHECKPOINT_DIR,
+        load_checkpoint_path=LOAD_CHECKPOINT_PATH,
+        model=model,
+        gradient_accumulation_steps=GRADIENT_ACCUMULATION_STEPS,
+        num_workers=NUM_WORKERS,
+        global_config=global_config
+    )
+        out = trainer.profile_forward_cost(num_batches=20, split="val")
+        print(out)
     else:
         raise ValueError(f"Invalid mode: {MODE}. Must be 'train' or 'test'.")
 
