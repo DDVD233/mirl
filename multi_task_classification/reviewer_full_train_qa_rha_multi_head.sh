@@ -58,7 +58,7 @@ export TORCH_USE_CUDA_DSA=1
 DATA_DIR="/scratch/keane/human_behaviour/human_behaviour_data"
 BASE_SAVE_DIR="/scratch/keane/human_behaviour/reviewer_expts_rha_qa_multi_task_model"
 BASE_LOAD_CKPT="/scratch/keane/human_behaviour/4_freeze_base_qa_multi_task_model/step_4578"
-LABEL_MAP="/home/keaneong/human-behavior/verl/multi_task_classification/unified_label_map_v6.json"
+LABEL_MAP="/home/keaneong/human-behavior/verl/multi_task_classification/label_maps/unified_label_map_v6.json"
 
 # Datasets to iterate over
 # TASKS=("mimeqa" "intentqa" "siq2")
