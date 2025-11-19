@@ -115,7 +115,7 @@ for TASK in "${TASKS[@]}"; do
     --validate_every_n_steps 999999 \
     --early_stopping_patience 99999 \
     --project "reviewer_ablate_raw_modalities" \
-    --gradient_accumulation_steps 4 \
+    --gradient_accumulation_steps 8 \
     --rla_stage residual_and_decoder \
     --d_video_feat 3318 \
     --d_audio_feat 6373 \
