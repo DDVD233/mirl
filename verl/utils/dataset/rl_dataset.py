@@ -647,7 +647,8 @@ class RLHFDataset(Dataset):
         row_dict["index"] = index
         row_dict["tools_kwargs"] = tools_kwargs
         row_dict["interaction_kwargs"] = interaction_kwargs
-        print("Row_dict", row_dict)
+        if "dataset" not in row_dict:
+            row_dict["dataset"] = "Unknown"
         return row_dict
 
     def __getstate__(self):
