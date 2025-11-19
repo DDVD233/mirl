@@ -76,7 +76,7 @@ def process_video(
     fps_max_frames: Optional[int] = None,
     return_video_sample_fps: bool = False,
     return_video_metadata: bool = False,
-) -> torch.Tensor:
+) -> (torch.Tensor, dict):
     """Converts a video dict into a [n_frames, 3, H, W] tensor
 
     Add video sample FPS in a future MR
@@ -112,7 +112,12 @@ def process_video(
     except Exception as e:
         print(e)
         dummy_video = torch.zeros((1, 3, 224, 224), dtype=torch.uint8)
-        return dummy_video
+        video_metadata = dict(
+            fps=1,
+            frames_indices=[i for i in range(len(video))],
+            total_num_frames=1,
+        )
+        return dummy_video, video_metadata
 
 
 def process_multi_modal_inputs_for_minicpmo(input_ids, attention_mask, position_ids, cu_seqlens, multi_modal_inputs):
