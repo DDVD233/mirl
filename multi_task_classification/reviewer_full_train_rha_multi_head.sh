@@ -22,6 +22,7 @@ PROJECT_NAME="reviewer_ablate_raw_modalities"
 
 # NOT TRAINING YET: (missed out: ravdess)
 # INCLUDE_DATASETS=("mosei_emotion" "mosei_senti" "meld_senti" "chsimsv2" "cremad" "meld_emotion")
+# NEW REVIEWER PATHS
 # INCLUDE_DATASETS=("mmsd" "urfunny" "mosei_emotion" "mosei_senti" "meld_senti" "chsimsv2" "cremad" "meld_emotion" "ptsd_in_the_wild" "tess" "mmpsy_anxiety" "mmpsy_depression")
 ### WHAT'S LEFT: "daicwoz" "mmpsy_anxiety" "mmpsy_depression"
 # NOTE: daicwoz must use a different path instead : # /scratch/keane/human_behaviour/human_behaviour_data/trunc_rla_fulltemp_train_daicwoz.jsonl (need to use this for daicwoz)
@@ -226,6 +227,7 @@ for DS in "${PROCESS_DS[@]}"; do
     --rla_video_alpha_init 4.0 \
     --rla_audio_alpha_init 4.0 \
     --use_rla_audio \
+    --use_rla_video \
     --rla_video_use_ln \
     --rla_audio_use_ln \
     --format_prompt "" \
