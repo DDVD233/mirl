@@ -280,12 +280,12 @@ def evaluate_bbox_format(predict_str):
     return format_score
 
 
-def medical_compute_score(predict_str: str, ground_truth: str, segmentation_mask=None, bbox=None) -> Dict[str, float]:
+def medical_compute_score(solution_str: str, ground_truth: str, **kwargs) -> Dict[str, float]:
     """
     Compute medical scoring including standard score, bounding box IoU, and format score.
 
     Args:
-        predict_str: The model's prediction string
+        solution_str: The model's prediction string
         ground_truth: The ground truth string
         segmentation_mask: Ground truth segmentation mask tensor
         bbox: Ground truth bounding box
@@ -294,8 +294,11 @@ def medical_compute_score(predict_str: str, ground_truth: str, segmentation_mask
         Tuple of (standard_score, bbox_score)
         Note: bbox_score is a combination of IoU score and format score
     """
+    segmentation_mask = None
+    bbox = None
+
     # Calculate standard score
-    answer = extract_boxed_content(predict_str)
+    answer = extract_boxed_content(solution_str)
     if answer == "None":
         standard_score = 0.0  # no answer
     else:
@@ -309,26 +312,27 @@ def medical_compute_score(predict_str: str, ground_truth: str, segmentation_mask
         false_negatives = len(ground_truth_conditions - predicted_conditions)
 
         # Calculate F1 score components
-        precision = true_positives / (true_positives + false_positives) if (true_positives + false_positives) > 0 else 0
+        precision = (
+            true_positives / (true_positives + false_positives) if (true_positives + false_positives) > 0 else 0
+        )
         recall = true_positives / (true_positives + false_negatives) if (true_positives + false_negatives) > 0 else 0
 
         # Calculate F1 score (harmonic mean of precision and recall)
         standard_score = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0
 
     # Calculate format score (how well the JSON follows the expected format)
-    format_score = evaluate_bbox_format(predict_str)
+    format_score = evaluate_bbox_format(solution_str)
 
     # length score
-    if len(predict_str) > 600:  # ~200 words
+    if len(solution_str) > 600:  # ~200 words
         length_score = 1
     else:
-        length_score = len(predict_str) * 0.001
-
+        length_score = len(solution_str) * 0.001
 
     # Calculate bounding box IoU score
     iou_score = 0.0
     # Extract predicted bounding boxes from the response
-    json_data = extract_json_from_response(predict_str)
+    json_data = extract_json_from_response(solution_str)
     if json_data:
         # Extract bounding boxes from the JSON
         try:
@@ -339,29 +343,28 @@ def medical_compute_score(predict_str: str, ground_truth: str, segmentation_mask
                         pred_bboxes.append(item["bbox_2d"])
             elif isinstance(json_data, dict) and "bbox_2d" in json_data:
                 pred_bboxes.append(json_data["bbox_2d"])
-            elif isinstance(json_data, dict) and 'objects_of_interest' in json_data:
-                for item in json_data['objects_of_interest']:
+            elif isinstance(json_data, dict) and "objects_of_interest" in json_data:
+                for item in json_data["objects_of_interest"]:
                     if isinstance(item, dict) and "bbox_2d" in item:
                         pred_bboxes.append(item["bbox_2d"])
-            # else:
-            #     print("Error: Invalid JSON format")
-            if random.random() < 0.0005:  # print every 0.5%
+
+            if random.random() < 0.005:  # print every 0.5%
                 print("[Bounding Box] ", json_data)
                 print("[Formatted Bounding Box] ", pred_bboxes)
-                print('[GT Bounding Box] ', bbox)
+                print("[GT Bounding Box] ", bbox)
 
             # Calculate IoU between predicted boxes and ground truth
             if pred_bboxes:
                 iou_score = calculate_bbox_iou(pred_bboxes, segmentation_mask, bbox)
         except:
             pass
-            # traceback.print_exc()
 
     scores = {
-        "overall": 0.6 * standard_score + 0.2 * iou_score + 0.1 * format_score + 0.1 * length_score,
+        "score": 0.5 * standard_score + 0.3 * iou_score + 0.1 * format_score,
         "standard_score": standard_score,
         "iou_score": iou_score,
         "format_score": format_score,
+        "length_score": length_score,
     }
     return scores
 
