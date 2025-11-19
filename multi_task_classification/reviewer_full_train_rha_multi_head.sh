@@ -198,7 +198,7 @@ for DS in "${PROCESS_DS[@]}"; do
     --hard_gamma 0.0 \
     --base_lr 1e-4 \
     --rla_lr 5e-4 \
-    --epochs 4 \
+    --epochs 3 \
     --train_file "$TRAIN_OUT" \
     --val_file "$VAL_OUT" \
     --test_file "$VAL_OUT" \
