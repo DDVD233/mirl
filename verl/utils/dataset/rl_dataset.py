@@ -47,10 +47,11 @@ def processor_supports_video(processor: ProcessorMixin) -> bool:
     Returns:
         True if the processor supports video parameter, False otherwise
     """
-    if processor is None:
-        return False
-    else:
-        return True
+    return False
+    # if processor is None:
+    #     return False
+    # else:
+    #     return True
 
     # try:
     #     sig = inspect.signature(processor.__call__)
