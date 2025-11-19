@@ -453,18 +453,22 @@ class RLHFDataset(Dataset):
 
             videos = None
             video_frames_as_images = None
-            videos_kwargs = {"video_metadata": video_metadata, "do_sample_frames": False}
+            videos_kwargs = None
             if self.video_key in row_dict and row_dict.get(self.video_key, None) is not None and len(row_dict[self.video_key]) > 0:
-                video = os.path.join(self.base_dir, row_dict.get(self.video_key)[0]) if isinstance(video, str) else video
-                videos, video_metadata = zip(
-                    *[
-                        process_video(video, image_patch_size=self.image_patch_size, return_video_metadata=True)
-                        for video in row_dict_videos
-                    ],
-                    strict=True,
-                )
-                videos = list(videos)
-                video_metadata = list(video_metadata)
+                row_dict_videos = row_dict.get(self.video_key)
+                for video in row_dict_videos:
+                    video = os.path.join(self.base_dir, video) if isinstance(video, str) else video
+                    video, video_metadata = process_video(video,
+                                                          image_patch_size=self.image_patch_size,
+                                                          return_video_metadata=True)
+                    if videos is None:
+                        videos = [video]
+                    else:
+                        videos.append(video)
+                    if videos_kwargs is None:
+                        videos_kwargs = {"video_metadata": [video_metadata], "do_sample_frames": False}
+                    else:
+                        videos_kwargs['video_metadata'].append(video_metadata)
 
                 # Check if processor supports video
                 if processor_supports_video(self.processor):
