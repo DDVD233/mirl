@@ -2,11 +2,11 @@ set -x
 
 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
-    data.train_files=/home/dvdai/multimodal/human_behaviour_data/qa_train.jsonl \
-    data.val_files=/home/dvdai/multimodal/human_behaviour_data/qa_test.jsonl \
+    data.train_files=/scratch/keane/human_behaviour_data/zs_train.jsonl \
+    data.val_files=/scratch/keane/human_behaviour_data/zs_test.jsonl \
     data.train_batch_size=512 \
     data.val_batch_size=128 \
-    data.max_prompt_length=4096 \
+    data.max_prompt_length=8192 \
     data.max_response_length=4096 \
     data.filter_overlong_prompts=False \
     data.truncation='right' \
@@ -14,14 +14,14 @@ python3 -m verl.trainer.main_ppo \
     data.video_key=videos \
     data.prompt_key=problem \
     data.dataloader_num_workers=8 \
-    data.modalities=\'audio,videos,images\' \
+    data.modalities=\'videos,images\' \
     data.train_modality_batching.enabled=True \
     data.train_modality_batching.drop_last=True \
     data.val_modality_batching.enabled=True \
     data.val_modality_batching.drop_last=False \
     data.format_prompt=examples/format_prompt/no_prompt.jinja \
-    actor_rollout_ref.model.path=Qwen/Qwen2.5-Omni-7B \
-    actor_rollout_ref.actor.optim.lr=1e-7 \
+    actor_rollout_ref.model.path=Qwen/Qwen2.5-VL-7B-Instruct \
+    actor_rollout_ref.actor.optim.lr=5e-7 \
     actor_rollout_ref.model.use_remove_padding=False \
     actor_rollout_ref.actor.ppo_mini_batch_size=256 \
     actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=2 \
@@ -44,8 +44,8 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.rollout.n=5 \
     actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=2 \
     actor_rollout_ref.ref.fsdp_config.param_offload=True \
-    actor_rollout_ref.rollout.max_model_len=8192 \
-    actor_rollout_ref.rollout.max_num_batched_tokens=8192 \
+    actor_rollout_ref.rollout.max_model_len=12288 \
+    actor_rollout_ref.rollout.max_num_batched_tokens=12288 \
     algorithm.use_kl_in_reward=False \
     custom_reward_function.path=examples/reward_function/human_behaviour.py \
     custom_reward_function.name=human_behaviour_compute_score_batch \
@@ -53,12 +53,12 @@ python3 -m verl.trainer.main_ppo \
     trainer.critic_warmup=0 \
     trainer.logger='["console","wandb"]' \
     trainer.project_name='verl_hb' \
-    trainer.experiment_name='omni_all_modalities_new_qa' \
+    trainer.experiment_name='omni_zero_shot_rl' \
     trainer.n_gpus_per_node=2 \
     trainer.nnodes=1 \
     trainer.save_freq=-1 \
     trainer.val_before_train=True \
-    trainer.validation_data_dir=/home/dvdai/multimodal/outputs \
-    trainer.val_only=True \
+    trainer.validation_data_dir=/scratch/dvdai/outputs \
+    trainer.val_only=False \
     trainer.test_freq=2 \
     trainer.total_epochs=10
