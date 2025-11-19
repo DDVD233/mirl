@@ -1,6 +1,6 @@
 #!/bin/bash
 echo "Starting LORA + RHA training..."
-export CUDA_VISIBLE_DEVICES="0,1,2,3"
+export CUDA_VISIBLE_DEVICES="2,3"
 export CUDA_LAUNCH_BLOCKING=1
 export TORCH_USE_CUDA_DSA=1
 
@@ -56,12 +56,13 @@ export TORCH_USE_CUDA_DSA=1
 # last_test_siq2_rha.jsonl
 
 DATA_DIR="/scratch/keane/human_behaviour/human_behaviour_data"
-BASE_SAVE_DIR="/scratch/keane/human_behaviour/last_rha_freeze_base_qa_multi_task_model"
+BASE_SAVE_DIR="/scratch/keane/human_behaviour/reviewer_expts_rha_qa_multi_task_model"
 BASE_LOAD_CKPT="/scratch/keane/human_behaviour/4_freeze_base_qa_multi_task_model/step_4578"
 LABEL_MAP="/home/keaneong/human-behavior/verl/multi_task_classification/unified_label_map_v6.json"
 
 # Datasets to iterate over
-TASKS=("mimeqa" "intentqa" "siq2")
+# TASKS=("mimeqa" "intentqa" "siq2")
+TASKS=("mimeqa")
 
 for TASK in "${TASKS[@]}"; do
   echo "============================================================"
