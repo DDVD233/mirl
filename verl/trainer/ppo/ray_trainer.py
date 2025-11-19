@@ -1126,6 +1126,8 @@ class RayPPOTrainer:
                         else curr_step_profile
                     )
                 batch: DataProto = DataProto.from_single_dict(batch_dict)
+                print("Non tensor", batch.non_tensor_batch)
+                print("tensor", batch.batch)
 
                 # add uid to batch
                 batch.non_tensor_batch["uid"] = np.array(
