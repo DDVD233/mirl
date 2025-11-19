@@ -461,6 +461,10 @@ class RLHFDataset(Dataset):
                     video, video_metadata = process_video(video,
                                                           image_patch_size=self.image_patch_size,
                                                           return_video_metadata=True)
+                    print("-----Video-----")
+                    print(video)
+                    print(video_metadata)
+                    print("-----Video-----")
                     if videos is None:
                         videos = [video]
                     else:
