@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-echo "Starting RHA profiling (per-dataset subset)…"
+echo "Starting RHA profiling (per-dataset subset, possibly multi-dataset)…"
 
 ########################
 # USER CONFIG
@@ -10,12 +10,13 @@ echo "Starting RHA profiling (per-dataset subset)…"
 # Full train JSONL (the big one)
 TRAIN_JSONL="/scratch/keane/human_behaviour/human_behaviour_data/w_feats_v6_train.jsonl"
 
-# Target dataset name (must match .dataset exactly, case-sensitive)
-TARGET_DATASET="urfunny"   # <- change this
+# One or more target dataset names (must match .dataset exactly, case-sensitive)
+# Example: DATASETS=("urfunny" "iemocap" "mosei_senti")
+DATASETS=("urfunny" "mosei_senti")    # <- edit this list
 
-# Number of examples to sample *within that dataset* for profiling
-# If PROFILE_SAMPLES >= number of lines in dataset, we just use all of them.
-PROFILE_SAMPLES=200        # <- change to anything between 100–500
+# Number of examples to sample *per dataset* for profiling.
+# If a dataset has <= PROFILE_SAMPLES_PER_DATASET, we just use all of its lines.
+PROFILE_SAMPLES_PER_DATASET=200   # <- change to anything between 100–500
 
 ACCEL_CFG="configs/accelerate_config_qwen.yaml"
 SCRIPT="train_rha_multi_head.py"
@@ -61,42 +62,55 @@ PY
 }
 
 ########################################
-# 1) Build per-dataset JSONL, then optional subset
+# 1) Build per-dataset JSONLs + per-dataset subsets
 ########################################
 
-DATASET_JSONL="${TMP_DIR}/rla_profile_${TARGET_DATASET}.jsonl"
-PROFILE_JSONL="${TMP_DIR}/rla_profile_${TARGET_DATASET}_subset_${PROFILE_SAMPLES}.jsonl"
+# Tag for the combined profile file (e.g. "urfunny" or "urfunny_mosei_senti")
+PROFILE_TAG="$(printf '%s_' "${DATASETS[@]}")"
+PROFILE_TAG="${PROFILE_TAG%_}"   # strip trailing underscore
 
-echo "Filtering dataset '${TARGET_DATASET}' from:"
+PROFILE_JSONL="${TMP_DIR}/rla_profile_${PROFILE_TAG}_subset_${PROFILE_SAMPLES_PER_DATASET}.jsonl"
+
+echo "Using datasets: ${DATASETS[*]}"
+echo "Filtering from:"
 echo "  ${TRAIN_JSONL}"
-echo "→ Writing filtered dataset to:"
-echo "  ${DATASET_JSONL}"
-
-filter_jsonl "${TRAIN_JSONL}" "${TARGET_DATASET}" "${DATASET_JSONL}"
-
-DATASET_LINES=$(wc -l < "${DATASET_JSONL}" || echo 0)
-if [[ "${DATASET_LINES}" -eq 0 ]]; then
-  echo "ERROR: No lines found for dataset='${TARGET_DATASET}' in ${TRAIN_JSONL}. Exiting."
-  exit 1
-fi
-
-echo "Found ${DATASET_LINES} lines for dataset='${TARGET_DATASET}'."
-
 echo
-echo "Building profiling subset of size ${PROFILE_SAMPLES} (or full dataset if smaller)…"
 
-# If dataset has fewer lines than PROFILE_SAMPLES, just use all of them.
-if (( DATASET_LINES <= PROFILE_SAMPLES )); then
-  echo "Dataset has ${DATASET_LINES} ≤ ${PROFILE_SAMPLES}; using all lines for profiling."
-  cp "${DATASET_JSONL}" "${PROFILE_JSONL}"
-else
-  echo "Sampling ${PROFILE_SAMPLES} lines from per-dataset JSONL."
-  if command -v shuf >/dev/null 2>&1; then
-    # Use shuf if available (memory-efficient)
-    shuf -n "${PROFILE_SAMPLES}" "${DATASET_JSONL}" > "${PROFILE_JSONL}"
+# Track all per-dataset subset files so we can concatenate them
+PER_DATASET_SUBSETS=()
+
+for TARGET_DATASET in "${DATASETS[@]}"; do
+  echo "----------------------------------------"
+  echo "Processing dataset '${TARGET_DATASET}'…"
+
+  DATASET_JSONL="${TMP_DIR}/rla_profile_${TARGET_DATASET}.jsonl"
+  DATASET_SUBSET_JSONL="${TMP_DIR}/rla_profile_${TARGET_DATASET}_subset_${PROFILE_SAMPLES_PER_DATASET}.jsonl"
+
+  echo "→ Filtering dataset '${TARGET_DATASET}' to:"
+  echo "   ${DATASET_JSONL}"
+
+  filter_jsonl "${TRAIN_JSONL}" "${TARGET_DATASET}" "${DATASET_JSONL}"
+
+  DATASET_LINES=$(wc -l < "${DATASET_JSONL}" || echo 0)
+  if [[ "${DATASET_LINES}" -eq 0 ]]; then
+    echo "WARNING: No lines found for dataset='${TARGET_DATASET}' in ${TRAIN_JSONL}. Skipping."
+    continue
+  fi
+
+  echo "Found ${DATASET_LINES} lines for dataset='${TARGET_DATASET}'."
+  echo "Building profiling subset of size ${PROFILE_SAMPLES_PER_DATASET} (or full dataset if smaller)…"
+
+  if (( DATASET_LINES <= PROFILE_SAMPLES_PER_DATASET )); then
+    echo "Dataset has ${DATASET_LINES} ≤ ${PROFILE_SAMPLES_PER_DATASET}; using all lines for profiling."
+    cp "${DATASET_JSONL}" "${DATASET_SUBSET_JSONL}"
   else
-    # Python fallback with reservoir sampling
-    python3 - "${DATASET_JSONL}" "${PROFILE_SAMPLES}" "${PROFILE_JSONL}" <<'PY'
+    echo "Sampling ${PROFILE_SAMPLES_PER_DATASET} lines from per-dataset JSONL."
+    if command -v shuf >/dev/null 2>&1; then
+      # Use shuf if available (memory-efficient)
+      shuf -n "${PROFILE_SAMPLES_PER_DATASET}" "${DATASET_JSONL}" > "${DATASET_SUBSET_JSONL}"
+    else
+      # Python fallback with reservoir sampling
+      python3 - "${DATASET_JSONL}" "${PROFILE_SAMPLES_PER_DATASET}" "${DATASET_SUBSET_JSONL}" <<'PY'
 import sys, random
 
 inp, n_str, outp = sys.argv[1], sys.argv[2], sys.argv[3]
@@ -118,30 +132,53 @@ with open(outp, 'w', encoding='utf-8') as g:
     for line in reservoir:
         g.write(line + "\n")
 PY
+    fi
   fi
-fi
 
-SUBSET_LINES=$(wc -l < "${PROFILE_JSONL}" || echo 0)
-if [[ "${SUBSET_LINES}" -eq 0 ]]; then
-  echo "ERROR: subset file ${PROFILE_JSONL} is empty. Exiting."
+  SUB_LINES=$(wc -l < "${DATASET_SUBSET_JSONL}" || echo 0)
+  if [[ "${SUB_LINES}" -eq 0 ]]; then
+    echo "WARNING: subset file ${DATASET_SUBSET_JSONL} is empty for dataset='${TARGET_DATASET}'. Skipping."
+    continue
+  fi
+
+  echo "Subset created with ${SUB_LINES} lines for dataset='${TARGET_DATASET}'."
+  PER_DATASET_SUBSETS+=("${DATASET_SUBSET_JSONL}")
+done
+
+# Combine all per-dataset subsets into one PROFILE_JSONL
+if [[ ${#PER_DATASET_SUBSETS[@]} -eq 0 ]]; then
+  echo "ERROR: No non-empty per-dataset subsets were created. Exiting."
   exit 1
 fi
 
-echo "Subset created with ${SUBSET_LINES} lines for dataset='${TARGET_DATASET}'."
+echo
+echo "Combining per-dataset subsets into single profiling file:"
+printf '  - %s\n' "${PER_DATASET_SUBSETS[@]}"
+cat "${PER_DATASET_SUBSETS[@]}" > "${PROFILE_JSONL}"
+
+SUBSET_LINES=$(wc -l < "${PROFILE_JSONL}" || echo 0)
+if [[ "${SUBSET_LINES}" -eq 0 ]]; then
+  echo "ERROR: combined subset file ${PROFILE_JSONL} is empty. Exiting."
+  exit 1
+fi
+
+echo
+echo "Combined profiling subset created with ${SUBSET_LINES} lines total."
+echo "  Datasets: ${DATASETS[*]}"
 echo "  Subset file: ${PROFILE_JSONL}"
 
 ########################################
 # 2) Profile BASE model (RLA flags OFF, but rla_stage still residual_and_head)
 ########################################
 
-SAVE_DIR_BASE="${BASE_SAVE_DIR}/profile_base_${TARGET_DATASET}_subset_${PROFILE_SAMPLES}"
+SAVE_DIR_BASE="${BASE_SAVE_DIR}/profile_base_${PROFILE_TAG}_subset_${PROFILE_SAMPLES_PER_DATASET}"
 VAL_DIR_BASE="${SAVE_DIR_BASE}/validation_results"
 mkdir -p "${SAVE_DIR_BASE}" "${VAL_DIR_BASE}"
 
 echo
 echo "========================================"
 echo "Profiling BASE-ONLY config (no use_rla_* flags)…"
-echo "  dataset:  ${TARGET_DATASET}"
+echo "  datasets: ${DATASETS[*]}"
 echo "  save_dir: ${SAVE_DIR_BASE}"
 echo "========================================"
 
@@ -186,18 +223,18 @@ accelerate launch --config_file "${ACCEL_CFG}" "${SCRIPT}" \
   --max_prompt_length 4096
 
 ########################################
-# 3) Profile model WITH RHA adapters
+# 3) (Optional) Profile model WITH RHA adapters
 #    (same rla_stage, but now use_rla_* flags ON)
 ########################################
 
-# SAVE_DIR_RHA="${BASE_SAVE_DIR}/profile_rha_${TARGET_DATASET}_subset_${PROFILE_SAMPLES}"
+# SAVE_DIR_RHA="${BASE_SAVE_DIR}/profile_rha_${PROFILE_TAG}_subset_${PROFILE_SAMPLES_PER_DATASET}"
 # VAL_DIR_RHA="${SAVE_DIR_RHA}/validation_results"
 # mkdir -p "${SAVE_DIR_RHA}" "${VAL_DIR_RHA}"
 
 # echo
 # echo "========================================"
 # echo "Profiling RHA config (use_rla_audio/use_rla_video ON)…"
-# echo "  dataset:  ${TARGET_DATASET}"
+# echo "  datasets: ${DATASETS[*]}"
 # echo "  save_dir: ${SAVE_DIR_RHA}"
 # echo "========================================"
 
@@ -246,5 +283,6 @@ accelerate launch --config_file "${ACCEL_CFG}" "${SCRIPT}" \
 #   --max_prompt_length 4096
 
 # echo
-# echo "Profiling runs completed on dataset='${TARGET_DATASET}' subset of ${SUBSET_LINES} examples."
+# echo "Profiling runs completed on datasets='${DATASETS[*]}' "
+# echo "  total subset size: ${SUBSET_LINES} examples."
 # echo "Compare the [PROFILE] logs from base vs RHA to get latency & VRAM overhead."
