@@ -65,6 +65,7 @@ def load_feat_or_none(path, kind: str, logfile: str = "/home/keaneong/human-beha
         return None
 # ----------------------------------------------
 
+# skip_dataset = ["intentqa", "mimeqa", "siq2"]
 
 class OmniClassifierDataset(RLHFDataset):
     def __init__(self, *args, label_key='answer', label_map=None, dataset_key='dataset', **kwargs):
@@ -104,11 +105,11 @@ class OmniClassifierDataset(RLHFDataset):
             self.label_map = {k.lower(): v for k, v in self.label_map.items()}
             label = self.label_map.get(full_label_key, 0)
 
-            if label == 0 and full_label_key not in self.label_map:
+            if label == 0 and full_label_key not in self.label_map: 
                 print(f"[WARN] Label key '{full_label_key}' not found in label map.")
                 print(f"[WARN] Raw label: '{raw_label}', Dataset: '{dataset_name}'")
                 print(f"[WARN] Available keys (first 10): {list(self.label_map.keys())[:10]}...")
-                raise ValueError(f"Label key '{full_label_key}' not found in label map.")
+                # raise ValueError(f"Label key '{full_label_key}' not found in label map.")
         else:
             raise ValueError(f"label_map must be provided for mapping raw labels {full_label_key} to class indices")
 
