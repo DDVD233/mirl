@@ -63,6 +63,7 @@ LABEL_MAP="/home/keaneong/human-behavior/verl/multi_task_classification/label_ma
 # Datasets to iterate over
 TASKS=("intentqa" "siq2")
 # NOTE: They all do not seem to have audio features; only video
+# REMAINING FOR HIDDEN DIM 512 LEFT
 # TASKS=("mimeqa")
 
 for TASK in "${TASKS[@]}"; do
