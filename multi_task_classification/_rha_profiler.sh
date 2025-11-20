@@ -194,9 +194,9 @@ mkdir -p "${SAVE_DIR_BASE}" "${VAL_DIR_BASE}"
 accelerate launch --config_file "${ACCEL_CFG}" "${SCRIPT}" \
   --mode profile \
   --training_strategy lora \
-  --train_batch_size 2 \
-  --val_batch_size 2 \
-  --test_batch_size 2 \
+  --train_batch_size 1 \
+  --val_batch_size 1 \
+  --test_batch_size 1 \
   --lr 1e-4 \
   --hard_gamma 0.0 \
   --base_lr 1e-4 \
@@ -251,9 +251,9 @@ mkdir -p "${SAVE_DIR_RHA}" "${VAL_DIR_RHA}"
 # accelerate launch --config_file "${ACCEL_CFG}" "${SCRIPT}" \
 #   --mode profile \
 #   --training_strategy lora \
-#   --train_batch_size 2 \
-#   --val_batch_size 2 \
-#   --test_batch_size 2 \
+#   --train_batch_size 1 \
+#   --val_batch_size 1 \
+#   --test_batch_size 1 \
 #   --lr 1e-4 \
 #   --hard_gamma 0.0 \
 #   --base_lr 1e-4 \
