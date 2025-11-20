@@ -1611,11 +1611,12 @@ def compute_tarpo_outcome_advantage(
     TARPO advantage/return computation (no per-prompt batch norm).
     Pipeline (modular; combine once at the end):
         A) Build q2rollouts/q2tasks/q2datasets/q2class and per-task/dataset stats
-        B) (Optional) GRPO-style intra-question normalization on rollouts
-        C) Task-adapter centering -> q2norm[qid][k]
-        D) Static inverse-frequency class weight -> q2w[qid] (scalar)
-        E) CVaR dynamic tail boost -> q2k[qid] (via per-task buffer)
-        F) Combine into final scalar advantages, log stats, and broadcast
+        B) (Optional) Global min-max scaling across all rollouts
+        C) (Optional) GRPO-style intra-question normalization (zero-mean/unit-variance per qid)
+        D) Task-adapter centering -> q2norm[qid][k]
+        E) Static inverse-frequency class weight -> q2w[qid] (scalar)
+        F) CVaR dynamic tail boost -> q2k[qid] (via per-task buffer)
+        G) Combine into final scalar advantages, log stats, and broadcast
     """
 
     device = token_level_rewards.device
@@ -1637,6 +1638,7 @@ def compute_tarpo_outcome_advantage(
     # which looks like [qid_1, qid_1, qid_1, qid_2, qid_2, qid_2] 
     # (for 2 questions, each with 3 rollouts)
     # we use qid to essentially delineate the different training examples
+    use_minmax_scaling: bool = True,    # Global min-max scaling before GRPO
     (
         q2rollouts,
         q2tasks,
@@ -1650,6 +1652,8 @@ def compute_tarpo_outcome_advantage(
         task_ids=task_ids,
         dataset_ids=dataset_ids,
         class_labels=class_labels,
+        use_minmax_scaling=use_minmax_scaling,
+        eps=eps,
     )
 
     # NOTE: the returns at the end of this function are essentially the 
@@ -1659,9 +1663,13 @@ def compute_tarpo_outcome_advantage(
     # [1.2], [0.5] --> [1.2, 1.2, 1.2], [0.5, 0.5, 0.5] (for response length of 3 for both responses)
 
     # -------------------------------------------------------------------------
-    # U1) Update per-task and per-dataset stats (ALWAYS, on raw rewards)
+    # U1) Update per-task and per-dataset stats
     #     - raw_batch_mu/raw_batch_sigma/raw_batch_count: non-EMA, for logging
     #     - ema_mu/ema_sigma/ema_count: EMA (used by task adapter)
+    #
+    # Note: These stats are updated AFTER optional min-max scaling (which
+    # happens in build_mappings), so if use_minmax_scaling=True, these stats
+    # reflect the scaled values.
     # -------------------------------------------------------------------------
     update_raw_stats(
         task_to_rollouts=task_to_rollouts,
@@ -1672,40 +1680,29 @@ def compute_tarpo_outcome_advantage(
     )
 
     # -------------------------------------------------------------------------
-    # B) GRPO-style intra-question normalization (NOW APPLIED FIRST IN PIPELINE)
+    # C) GRPO-style intra-question normalization (zero-mean/unit-variance)
     #
     # This step operates on q2rollouts (per-qid rollout lists) and is applied
-    # BEFORE task adapter, class weighting, and CVaR scaling so that those
-    # subsequent scalings are not neutralized.
+    # AFTER optional min-max scaling (in build_mappings) and BEFORE task
+    # adapter, class weighting, and CVaR scaling so that those subsequent
+    # scalings are not neutralized.
     #
-    # We allow two variants:
-    #   - Original GRPO-style: zero-mean / unit-variance per qid
-    #   - Min-max per qid:     (v - min) / (max - min + eps)
-    #
-    # Toggle is hardcoded below (not a function parameter).
+    # Standard GRPO normalization: (v - mean) / std per question
     # -------------------------------------------------------------------------
-    USE_MINMAX_GRPO: bool = False  # set to True to enable min-max GRPO scaling
     if use_grpo_group_norm:
         for qid, vals in q2rollouts.items():
             if len(vals) < 2:
                 # With a single rollout, GRPO normalization is ill-defined; keep as is.
                 continue
-
-            if USE_MINMAX_GRPO:
-                # Min-max scaling across this question's rollouts.
-                vmin = min(vals)
-                vmax = max(vals)
-                denom = max(vmax - vmin, eps)
-                q2rollouts[qid] = [(v - vmin) / denom for v in vals]
-            else:
-                # Original GRPO-style group normalization: (v - mean) / std
-                mu = float(np.mean(vals))
-                sd = float(np.std(vals, ddof=0))
-                sd = max(sd, eps)
-                q2rollouts[qid] = [(v - mu) / sd for v in vals]
+                
+            # Original GRPO-style group normalization: (v - mean) / std
+            mu = float(np.mean(vals))
+            sd = float(np.std(vals, ddof=0))
+            sd = max(sd, eps)
+            q2rollouts[qid] = [(v - mu) / sd for v in vals]
 
     # -------------------------------------------------------------------------
-    # C) Task-adapter centering
+    # D) Task-adapter centering
     #
     # Previously: (v - ema_mu) / ema_sigma
     # Now:        (v - ema_mu) ONLY (no division by ema_sigma).
@@ -1724,7 +1721,7 @@ def compute_tarpo_outcome_advantage(
         q2norm = {qid: list(vals) for qid, vals in q2rollouts.items()}
 
     # -------------------------------------------
-    # D) Static inverse-frequency class weights
+    # E) Static inverse-frequency class weights
     #     w_{d,c} = ((1/N_{d,c}) / sum_{c'∈C_d} 1/N_{d,c'}) * |C_d|
     # produce a single scalar q2w[qid]
     # -------------------------------------------
@@ -1818,7 +1815,7 @@ def compute_tarpo_outcome_advantage(
         q2w = {qid: 1.0 for qid in q2norm.keys()}
 
     # ----------------------------------------------------------
-    # E) CVaR×tail-frequency dynamic boost (per task) → q2k[qid]
+    # F) CVaR×tail-frequency dynamic boost (per task) → q2k[qid]
     #     Buffer uses per-question MEAN of (task-adapter + class-weighted) scores
     #     k_t = (mean_ema / (cvar_ema + ε)) * ((p_tail_ema / α) ** beta_tail)
     # ----------------------------------------------------------
@@ -1926,7 +1923,7 @@ def compute_tarpo_outcome_advantage(
     )
 
     # --------------------------------------------
-    # F) Combine once at the end, with ablations baked in:
+    # G) Combine once at the end, with ablations baked in:
     #    Let base = (norm_or_raw) * (weight_or_1)
     #    Effective lambda: λ_eff = λ_risk if CVaR enabled else 0
     #    Effective k:      k_eff = k_t     if CVaR enabled else 1

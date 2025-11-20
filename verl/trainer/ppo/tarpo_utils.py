@@ -110,6 +110,9 @@ def build_mappings(
     task_ids: List[Any],               # (B,)
     dataset_ids: List[Any],            # (B,)
     class_labels: List[Any],           # (B,)
+    *,
+    use_minmax_scaling: bool = False,  # Global min-max scaling
+    eps: float = 1e-8,
 ) -> Tuple[
     Dict[Any, List[float]],            # q2rollouts
     Dict[Any, Any],                    # q2tasks
@@ -120,15 +123,25 @@ def build_mappings(
 ]:
     """
     Single-pass construction of:
-        - q2rollouts:      qid -> list of raw scalar scores
+        - q2rollouts:      qid -> list of scalar scores (optionally min-max scaled)
         - q2tasks:         qid -> task id
         - q2datasets:      qid -> dataset id
         - q2class:         qid -> class label
-        - task_to_rollouts:    task_id    -> list of raw scalar scores in this batch
-        - dataset_to_rollouts: dataset_id -> list of raw scalar scores in this batch
+        - task_to_rollouts:    task_id    -> list of scalar scores in this batch
+        - dataset_to_rollouts: dataset_id -> list of scalar scores in this batch
+
+    If use_minmax_scaling=True, applies global min-max scaling to raw_scores
+    before building the mappings: (v - min) / (max - min + eps)
     """
 
     B = raw_scores.shape[0]
+
+    # Optional: Global min-max scaling
+    if use_minmax_scaling:
+        score_min = raw_scores.min()
+        score_max = raw_scores.max()
+        denom = max(float(score_max - score_min), eps)
+        raw_scores = (raw_scores - score_min) / denom
 
     q2rollouts: Dict[Any, List[float]] = defaultdict(list)
     q2tasks:    Dict[Any, Any]         = {}
