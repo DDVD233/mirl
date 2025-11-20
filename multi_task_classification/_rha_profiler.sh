@@ -230,16 +230,16 @@ echo "========================================"
 #    (same rla_stage, but now use_rla_* flags ON)
 ########################################
 
-# SAVE_DIR_RHA="${BASE_SAVE_DIR}/profile_rha_${PROFILE_TAG}_subset_${PROFILE_SAMPLES_PER_DATASET}"
-# VAL_DIR_RHA="${SAVE_DIR_RHA}/validation_results"
-# mkdir -p "${SAVE_DIR_RHA}" "${VAL_DIR_RHA}"
+SAVE_DIR_RHA="${BASE_SAVE_DIR}/profile_rha_${PROFILE_TAG}_subset_${PROFILE_SAMPLES_PER_DATASET}"
+VAL_DIR_RHA="${SAVE_DIR_RHA}/validation_results"
+mkdir -p "${SAVE_DIR_RHA}" "${VAL_DIR_RHA}"
 
-# echo
-# echo "========================================"
-# echo "Profiling RHA config (use_rla_audio/use_rla_video ON)…"
-# echo "  datasets: ${DATASETS[*]}"
-# echo "  save_dir: ${SAVE_DIR_RHA}"
-# echo "========================================"
+echo
+echo "========================================"
+echo "Profiling RHA config (use_rla_audio/use_rla_video ON)…"
+echo "  datasets: ${DATASETS[*]}"
+echo "  save_dir: ${SAVE_DIR_RHA}"
+echo "========================================"
 
 accelerate launch --config_file "${ACCEL_CFG}" "${SCRIPT}" \
   --mode profile \
