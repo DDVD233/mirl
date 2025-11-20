@@ -12,7 +12,9 @@ TRAIN_JSONL="/scratch/keane/human_behaviour/human_behaviour_data/w_feats_v6_trai
 
 # One or more target dataset names (must match .dataset exactly, case-sensitive)
 # Example: DATASETS=("urfunny" "iemocap" "mosei_senti")
-DATASETS=("urfunny" "mosei_senti")    # <- edit this list
+# DATASETS=("urfunny" "mosei_senti")    # <- edit this list
+
+DATASETS=("urfunny" "mosei_emotion" "mosei_senti" "meld_senti" "chsimsv2" "cremad" "meld_emotion" "ptsd_in_the_wild" "tess")
 
 # Number of examples to sample *per dataset* for profiling.
 # If a dataset has <= PROFILE_SAMPLES_PER_DATASET, we just use all of its lines.
