@@ -232,8 +232,9 @@ TMP_DIR="/scratch/keane/human_behaviour/human_behaviour_data"
 ########################################
 
 # SAVE_DIR_RHA="${BASE_SAVE_DIR}/profile_rha_${PROFILE_TAG}_subset_${PROFILE_SAMPLES_PER_DATASET}"
-# VAL_DIR_RHA="${SAVE_DIR_RHA}/validation_results"
-# mkdir -p "${SAVE_DIR_RHA}" "${VAL_DIR_RHA}"
+SAVE_DIR_RHA="${BASE_SAVE_DIR}/profile_rha_trial"
+VAL_DIR_RHA="${SAVE_DIR_RHA}/validation_results"
+mkdir -p "${SAVE_DIR_RHA}" "${VAL_DIR_RHA}"
 
 # echo
 # echo "========================================"
