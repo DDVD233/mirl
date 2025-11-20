@@ -122,9 +122,12 @@ class RHAMultiHeadOmniClassifierProfiler:
         for ds in dataset_names:
             if isinstance(ds, bytes):
                 ds = ds.decode("utf-8")
-            if ds not in self.dataset_to_domain_id:
+            if ds in ["intentqa", "siq2", "mimeqa"]:
+                ids.append(-1)
+            elif ds not in self.dataset_to_domain_id:
                 raise KeyError(f"Dataset '{ds}' not in label_map.meta.dataset_domain")
-            ids.append(self.dataset_to_domain_id[ds])
+            else:
+                ids.append(self.dataset_to_domain_id[ds])
         return torch.tensor(ids, dtype=torch.long, device=device)
 
     # -------------------------------------------------------------------------
