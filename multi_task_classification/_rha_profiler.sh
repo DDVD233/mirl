@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-echo "Starting RHA profiling (subset-based)…"
+echo "Starting RHA profiling (per-dataset subset)…"
 
 ########################
 # USER CONFIG
@@ -10,8 +10,12 @@ echo "Starting RHA profiling (subset-based)…"
 # Full train JSONL (the big one)
 TRAIN_JSONL="/scratch/keane/human_behaviour/human_behaviour_data/w_feats_v6_train.jsonl"
 
-# Number of examples to sample for profiling
-PROFILE_SAMPLES=200   # <- change to anything between 100–500
+# Target dataset name (must match .dataset exactly, case-sensitive)
+TARGET_DATASET="urfunny"   # <- change this
+
+# Number of examples to sample *within that dataset* for profiling
+# If PROFILE_SAMPLES >= number of lines in dataset, we just use all of them.
+PROFILE_SAMPLES=200        # <- change to anything between 100–500
 
 ACCEL_CFG="configs/accelerate_config_qwen.yaml"
 SCRIPT="train_rha_multi_head.py"
@@ -29,22 +33,70 @@ export TORCH_USE_CUDA_DSA=1
 TMP_DIR="/scratch/keane/human_behaviour/human_behaviour_data"
 
 ########################################
-# 1) Build random subset JSONL from TRAIN_JSONL
+# helper: filter a JSONL by dataset
+########################################
+filter_jsonl() {
+  local in_jsonl="$1"
+  local dataset="$2"
+  local out_jsonl="$3"
+  if command -v jq >/dev/null 2>&1; then
+    jq -c "select(.dataset? == \"$dataset\")" "$in_jsonl" > "$out_jsonl" || true
+  else
+    python3 - "$in_jsonl" "$dataset" "$out_jsonl" <<'PY'
+import sys, json
+inp, ds, outp = sys.argv[1], sys.argv[2], sys.argv[3]
+with open(inp, 'r', encoding='utf-8') as f, open(outp, 'w', encoding='utf-8') as g:
+    for line in f:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            obj = json.loads(line)
+        except Exception:
+            continue
+        if obj.get("dataset") == ds:
+            g.write(json.dumps(obj, ensure_ascii=False) + "\n")
+PY
+  fi
+}
+
+########################################
+# 1) Build per-dataset JSONL, then optional subset
 ########################################
 
-PROFILE_JSONL="${TMP_DIR}/rla_profile_subset_${PROFILE_SAMPLES}.jsonl"
+DATASET_JSONL="${TMP_DIR}/rla_profile_${TARGET_DATASET}.jsonl"
+PROFILE_JSONL="${TMP_DIR}/rla_profile_${TARGET_DATASET}_subset_${PROFILE_SAMPLES}.jsonl"
 
-echo "Sampling ${PROFILE_SAMPLES} lines from:"
+echo "Filtering dataset '${TARGET_DATASET}' from:"
 echo "  ${TRAIN_JSONL}"
-echo "→ Writing subset to:"
-echo "  ${PROFILE_JSONL}"
+echo "→ Writing filtered dataset to:"
+echo "  ${DATASET_JSONL}"
 
-if command -v shuf >/dev/null 2>&1; then
-  # Use shuf if available (memory-efficient)
-  shuf -n "${PROFILE_SAMPLES}" "${TRAIN_JSONL}" > "${PROFILE_JSONL}"
+filter_jsonl "${TRAIN_JSONL}" "${TARGET_DATASET}" "${DATASET_JSONL}"
+
+DATASET_LINES=$(wc -l < "${DATASET_JSONL}" || echo 0)
+if [[ "${DATASET_LINES}" -eq 0 ]]; then
+  echo "ERROR: No lines found for dataset='${TARGET_DATASET}' in ${TRAIN_JSONL}. Exiting."
+  exit 1
+fi
+
+echo "Found ${DATASET_LINES} lines for dataset='${TARGET_DATASET}'."
+
+echo
+echo "Building profiling subset of size ${PROFILE_SAMPLES} (or full dataset if smaller)…"
+
+# If dataset has fewer lines than PROFILE_SAMPLES, just use all of them.
+if (( DATASET_LINES <= PROFILE_SAMPLES )); then
+  echo "Dataset has ${DATASET_LINES} ≤ ${PROFILE_SAMPLES}; using all lines for profiling."
+  cp "${DATASET_JSONL}" "${PROFILE_JSONL}"
 else
-  # Python fallback with reservoir sampling (memory O(N), passes over entire file)
-  python3 - "${TRAIN_JSONL}" "${PROFILE_SAMPLES}" "${PROFILE_JSONL}" <<'PY'
+  echo "Sampling ${PROFILE_SAMPLES} lines from per-dataset JSONL."
+  if command -v shuf >/dev/null 2>&1; then
+    # Use shuf if available (memory-efficient)
+    shuf -n "${PROFILE_SAMPLES}" "${DATASET_JSONL}" > "${PROFILE_JSONL}"
+  else
+    # Python fallback with reservoir sampling
+    python3 - "${DATASET_JSONL}" "${PROFILE_SAMPLES}" "${PROFILE_JSONL}" <<'PY'
 import sys, random
 
 inp, n_str, outp = sys.argv[1], sys.argv[2], sys.argv[3]
@@ -66,6 +118,7 @@ with open(outp, 'w', encoding='utf-8') as g:
     for line in reservoir:
         g.write(line + "\n")
 PY
+  fi
 fi
 
 SUBSET_LINES=$(wc -l < "${PROFILE_JSONL}" || echo 0)
@@ -74,19 +127,21 @@ if [[ "${SUBSET_LINES}" -eq 0 ]]; then
   exit 1
 fi
 
-echo "Subset created with ${SUBSET_LINES} lines."
+echo "Subset created with ${SUBSET_LINES} lines for dataset='${TARGET_DATASET}'."
+echo "  Subset file: ${PROFILE_JSONL}"
 
 ########################################
 # 2) Profile BASE model (RLA flags OFF, but rla_stage still residual_and_head)
 ########################################
 
-SAVE_DIR_BASE="${BASE_SAVE_DIR}/profile_base_subset_${PROFILE_SAMPLES}"
+SAVE_DIR_BASE="${BASE_SAVE_DIR}/profile_base_${TARGET_DATASET}_subset_${PROFILE_SAMPLES}"
 VAL_DIR_BASE="${SAVE_DIR_BASE}/validation_results"
 mkdir -p "${SAVE_DIR_BASE}" "${VAL_DIR_BASE}"
 
 echo
 echo "========================================"
 echo "Profiling BASE-ONLY config (no use_rla_* flags)…"
+echo "  dataset:  ${TARGET_DATASET}"
 echo "  save_dir: ${SAVE_DIR_BASE}"
 echo "========================================"
 
@@ -135,13 +190,14 @@ accelerate launch --config_file "${ACCEL_CFG}" "${SCRIPT}" \
 #    (same rla_stage, but now use_rla_* flags ON)
 ########################################
 
-SAVE_DIR_RHA="${BASE_SAVE_DIR}/profile_rha_subset_${PROFILE_SAMPLES}"
+SAVE_DIR_RHA="${BASE_SAVE_DIR}/profile_rha_${TARGET_DATASET}_subset_${PROFILE_SAMPLES}"
 VAL_DIR_RHA="${SAVE_DIR_RHA}/validation_results"
 mkdir -p "${SAVE_DIR_RHA}" "${VAL_DIR_RHA}"
 
 echo
 echo "========================================"
 echo "Profiling RHA config (use_rla_audio/use_rla_video ON)…"
+echo "  dataset:  ${TARGET_DATASET}"
 echo "  save_dir: ${SAVE_DIR_RHA}"
 echo "========================================"
 
@@ -190,5 +246,5 @@ accelerate launch --config_file "${ACCEL_CFG}" "${SCRIPT}" \
   --max_prompt_length 4096
 
 echo
-echo "Profiling runs completed on subset of ${PROFILE_SAMPLES} examples."
+echo "Profiling runs completed on dataset='${TARGET_DATASET}' subset of ${SUBSET_LINES} examples."
 echo "Compare the [PROFILE] logs from base vs RHA to get latency & VRAM overhead."
