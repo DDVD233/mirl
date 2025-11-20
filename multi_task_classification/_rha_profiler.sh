@@ -19,7 +19,7 @@ DATASETS=("mimeqa")
 
 # Number of examples to sample *per dataset* for profiling.
 # If a dataset has <= PROFILE_SAMPLES_PER_DATASET, we just use all of its lines.
-PROFILE_SAMPLES_PER_DATASET=200   # <- change to anything between 100–500
+PROFILE_SAMPLES_PER_DATASET=100   # <- change to anything between 100–500
 
 ACCEL_CFG="configs/accelerate_config_qwen.yaml"
 SCRIPT="train_rha_multi_head.py"
