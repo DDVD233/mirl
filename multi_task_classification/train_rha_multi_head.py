@@ -706,26 +706,17 @@ def main():
         print("[INFO] Profiling computational cost...")
         profiler = RHAMultiHeadOmniClassifierProfiler(
         data_files=TRAIN_DATA_FILE,
-        val_data_files=VAL_DATA_FILE,
-        test_data_files=TEST_DATA_FILE,
         tokenizer=tokenizer,
         processor=processor,
         config=config,
         batch_size=TRAIN_BATCH_SIZE,
-        val_batch_size=VAL_BATCH_SIZE,
-        test_batch_size=TEST_BATCH_SIZE,
-        lr=LR,
-        epochs=EPOCHS,
-        save_checkpoint_dir=SAVE_CHECKPOINT_DIR,
-        load_checkpoint_path=LOAD_CHECKPOINT_PATH,
         model=model,
-        gradient_accumulation_steps=GRADIENT_ACCUMULATION_STEPS,
         num_workers=NUM_WORKERS,
         global_config=global_config
     )
         out = profiler.profile_forward_cost(num_batches=20, split="val")
         print(out)
-        
+
     else:
         raise ValueError(f"Invalid mode: {MODE}. Must be 'train' or 'test'.")
 
