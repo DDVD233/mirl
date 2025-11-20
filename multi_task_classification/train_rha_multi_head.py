@@ -153,7 +153,7 @@ def parse_parameters():
     parser.add_argument('--cuda_visible_devices', type=str, help='CUDA visible devices')
     
     # Mode parameter
-    parser.add_argument('--mode', type=str, choices=['train', 'test'], default='train',
+    parser.add_argument('--mode', type=str, choices=['train', 'test', 'profile'], default='train',
                        help='Mode: train or test')
     
     # Config file
