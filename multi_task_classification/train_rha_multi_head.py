@@ -714,9 +714,8 @@ def main():
         num_workers=NUM_WORKERS,
         global_config=global_config
     )
-        out = profiler.profile_forward_cost(num_batches=20, split="val")
-        print(out)
-
+        stats = profiler.profile_forward_cost(num_batches=20, description="rha_profile")
+        print(stats)
     else:
         raise ValueError(f"Invalid mode: {MODE}. Must be 'train' or 'test'.")
 
