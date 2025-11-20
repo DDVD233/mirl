@@ -704,7 +704,7 @@ def main():
         print(f"[INFO] Test results: {test_results}")
     elif MODE == 'profile':
         print("[INFO] Profiling computational cost...")
-        trainer = RHAMultiHeadOmniClassifierProfiler(
+        profiler = RHAMultiHeadOmniClassifierProfiler(
         data_files=TRAIN_DATA_FILE,
         val_data_files=VAL_DATA_FILE,
         test_data_files=TEST_DATA_FILE,
@@ -723,8 +723,9 @@ def main():
         num_workers=NUM_WORKERS,
         global_config=global_config
     )
-        out = trainer.profile_forward_cost(num_batches=20, split="val")
+        out = profiler.profile_forward_cost(num_batches=20, split="val")
         print(out)
+        
     else:
         raise ValueError(f"Invalid mode: {MODE}. Must be 'train' or 'test'.")
 

@@ -35,7 +35,6 @@ from models.rha_adapter_utils import (
     apply_hidden_adapters,
 )
 
-
 logger = get_logger(__name__)
 
 class RHAMultiHeadOmniClassifierAccelerateTrainer:
