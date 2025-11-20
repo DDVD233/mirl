@@ -190,61 +190,61 @@ accelerate launch --config_file "${ACCEL_CFG}" "${SCRIPT}" \
 #    (same rla_stage, but now use_rla_* flags ON)
 ########################################
 
-SAVE_DIR_RHA="${BASE_SAVE_DIR}/profile_rha_${TARGET_DATASET}_subset_${PROFILE_SAMPLES}"
-VAL_DIR_RHA="${SAVE_DIR_RHA}/validation_results"
-mkdir -p "${SAVE_DIR_RHA}" "${VAL_DIR_RHA}"
+# SAVE_DIR_RHA="${BASE_SAVE_DIR}/profile_rha_${TARGET_DATASET}_subset_${PROFILE_SAMPLES}"
+# VAL_DIR_RHA="${SAVE_DIR_RHA}/validation_results"
+# mkdir -p "${SAVE_DIR_RHA}" "${VAL_DIR_RHA}"
 
-echo
-echo "========================================"
-echo "Profiling RHA config (use_rla_audio/use_rla_video ON)…"
-echo "  dataset:  ${TARGET_DATASET}"
-echo "  save_dir: ${SAVE_DIR_RHA}"
-echo "========================================"
+# echo
+# echo "========================================"
+# echo "Profiling RHA config (use_rla_audio/use_rla_video ON)…"
+# echo "  dataset:  ${TARGET_DATASET}"
+# echo "  save_dir: ${SAVE_DIR_RHA}"
+# echo "========================================"
 
-accelerate launch --config_file "${ACCEL_CFG}" "${SCRIPT}" \
-  --mode profile \
-  --training_strategy lora \
-  --train_batch_size 2 \
-  --val_batch_size 2 \
-  --test_batch_size 2 \
-  --lr 1e-4 \
-  --hard_gamma 0.0 \
-  --base_lr 1e-4 \
-  --rla_lr 5e-4 \
-  --epochs 1 \
-  --train_file "${PROFILE_JSONL}" \
-  --val_file   "${PROFILE_JSONL}" \
-  --test_file  "${PROFILE_JSONL}" \
-  --label_map_path "${LABEL_MAP_PATH}" \
-  --save_every_n_epochs 9999999 \
-  --save_every_n_steps 9999999 \
-  --save_checkpoint_dir "${SAVE_DIR_RHA}" \
-  --validation_result_dir "${VAL_DIR_RHA}" \
-  --validate_every_n_epochs 1 \
-  --validate_every_n_steps 999999 \
-  --early_stopping_patience 99999 \
-  --project "${PROJECT_NAME}_rha_profiler" \
-  --gradient_accumulation_steps 8 \
-  --rla_stage residual_and_head \
-  --d_video_feat 3318 \
-  --d_audio_feat 6373 \
-  --rla_hidden_video 256 \
-  --rla_hidden_audio 512 \
-  --rla_p_moddrop_video 0.20 \
-  --rla_p_moddrop_audio 0.20 \
-  --rla_video_temporal meanstd \
-  --rla_video_norm none \
-  --rla_audio_norm l2 \
-  --rla_audio_temporal none \
-  --rla_video_alpha_init 4.0 \
-  --rla_audio_alpha_init 4.0 \
-  --use_rla_audio \
-  --use_rla_video \
-  --rla_video_use_ln \
-  --rla_audio_use_ln \
-  --format_prompt "" \
-  --max_prompt_length 4096
+# accelerate launch --config_file "${ACCEL_CFG}" "${SCRIPT}" \
+#   --mode profile \
+#   --training_strategy lora \
+#   --train_batch_size 2 \
+#   --val_batch_size 2 \
+#   --test_batch_size 2 \
+#   --lr 1e-4 \
+#   --hard_gamma 0.0 \
+#   --base_lr 1e-4 \
+#   --rla_lr 5e-4 \
+#   --epochs 1 \
+#   --train_file "${PROFILE_JSONL}" \
+#   --val_file   "${PROFILE_JSONL}" \
+#   --test_file  "${PROFILE_JSONL}" \
+#   --label_map_path "${LABEL_MAP_PATH}" \
+#   --save_every_n_epochs 9999999 \
+#   --save_every_n_steps 9999999 \
+#   --save_checkpoint_dir "${SAVE_DIR_RHA}" \
+#   --validation_result_dir "${VAL_DIR_RHA}" \
+#   --validate_every_n_epochs 1 \
+#   --validate_every_n_steps 999999 \
+#   --early_stopping_patience 99999 \
+#   --project "${PROJECT_NAME}_rha_profiler" \
+#   --gradient_accumulation_steps 8 \
+#   --rla_stage residual_and_head \
+#   --d_video_feat 3318 \
+#   --d_audio_feat 6373 \
+#   --rla_hidden_video 256 \
+#   --rla_hidden_audio 512 \
+#   --rla_p_moddrop_video 0.20 \
+#   --rla_p_moddrop_audio 0.20 \
+#   --rla_video_temporal meanstd \
+#   --rla_video_norm none \
+#   --rla_audio_norm l2 \
+#   --rla_audio_temporal none \
+#   --rla_video_alpha_init 4.0 \
+#   --rla_audio_alpha_init 4.0 \
+#   --use_rla_audio \
+#   --use_rla_video \
+#   --rla_video_use_ln \
+#   --rla_audio_use_ln \
+#   --format_prompt "" \
+#   --max_prompt_length 4096
 
-echo
-echo "Profiling runs completed on dataset='${TARGET_DATASET}' subset of ${SUBSET_LINES} examples."
-echo "Compare the [PROFILE] logs from base vs RHA to get latency & VRAM overhead."
+# echo
+# echo "Profiling runs completed on dataset='${TARGET_DATASET}' subset of ${SUBSET_LINES} examples."
+# echo "Compare the [PROFILE] logs from base vs RHA to get latency & VRAM overhead."
