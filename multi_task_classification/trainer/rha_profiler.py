@@ -16,6 +16,7 @@ from torch.utils.data import DataLoader
 from models.adapter_utils import build_video_feats_batch, build_audio_feats_batch
 from models.rha_adapter_utils import maybe_build_hidden_adapters, apply_hidden_adapters
 from mt_dataset.omni_classifier_dataset import OmniClassifierDataset, log_failed_path
+from verl.utils.dataset.rl_dataset import collate_fn
 
 
 class RHAMultiHeadOmniClassifierProfiler:
