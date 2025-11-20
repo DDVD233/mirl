@@ -56,7 +56,7 @@ export TORCH_USE_CUDA_DSA=1
 # last_test_siq2_rha.jsonl
 
 DATA_DIR="/scratch/keane/human_behaviour/human_behaviour_data"
-BASE_SAVE_DIR="/scratch/keane/human_behaviour/reviewer_expts_rha_qa_multi_task_model"
+BASE_SAVE_DIR="/scratch/keane/human_behaviour/reviewer_expts_rha_hidden512_qa_multi_task_model"
 BASE_LOAD_CKPT="/scratch/keane/human_behaviour/4_freeze_base_qa_multi_task_model/step_4578"
 LABEL_MAP="/home/keaneong/human-behavior/verl/multi_task_classification/label_maps/unified_label_map_v6.json"
 
@@ -114,13 +114,13 @@ for TASK in "${TASKS[@]}"; do
     --validate_every_n_epochs 1 \
     --validate_every_n_steps 999999 \
     --early_stopping_patience 99999 \
-    --project "reviewer_ablate_raw_modalities" \
+    --project "reviewer_ablate_hidden_dimensions_512" \
     --gradient_accumulation_steps 8 \
     --rla_stage residual_and_decoder \
     --d_video_feat 3318 \
     --d_audio_feat 6373 \
-    --rla_hidden_video 256 \
-    --rla_hidden_audio 256 \
+    --rla_hidden_video 512 \
+    --rla_hidden_audio 512 \
     --rla_p_moddrop_video 0.10 \
     --rla_p_moddrop_audio 0.10 \
     --rla_video_temporal meanstd \

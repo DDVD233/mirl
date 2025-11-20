@@ -11,9 +11,13 @@ SCRIPT="train_rha_multi_head.py"
 
 # BASE_SAVE_DIR="/scratch/keane/human_behaviour/v6_rha_remaining_no_conf_no_gamma"
 # PROJECT_NAME="v6-rha-nogamma_noconf_omni-classifier-multi-head-lora"
-BASE_SAVE_DIR="/scratch/keane/human_behaviour/reviewer_expts_rha_cls"
+BASE_SAVE_DIR="/scratch/keane/human_behaviour/reviewer_expts_rha_hidden512_cls"
 # PROJECT_NAME="v6-rha-omni-classifier-multi-head-lora"
-PROJECT_NAME="reviewer_ablate_raw_modalities"
+PROJECT_NAME="reviewer_ablate_hidden_dimensions_512"
+# Environment
+export CUDA_VISIBLE_DEVICES="0,1"
+export CUDA_LAUNCH_BLOCKING=1
+export TORCH_USE_CUDA_DSA=1
 
 # === NEW: Allowlist (exact match, case-sensitive). If non-empty, ONLY these run.
 # INCLUDE_DATASETS=("meld_senti")
@@ -54,10 +58,6 @@ INCLUDE_DATASETS=("urfunny" "mosei_emotion" "mosei_senti" "meld_senti" "chsimsv2
 # --train_file /scratch/keane/human_behaviour/human_behaviour_data/trunc_rla_fulltemp_train_daicwoz.jsonl
 # /scratch/keane/human_behaviour/human_behaviour_data/trunc_rla_fulltemp_train_daicwoz.jsonl (need to use this for daicwoz)
 #     --train_file "$TRAIN_OUT" \
-# Environment
-export CUDA_VISIBLE_DEVICES="0,1"
-export CUDA_LAUNCH_BLOCKING=1
-export TORCH_USE_CUDA_DSA=1
 
 # Temp directory for filtered JSONLs
 TMP_DIR="/scratch/keane/human_behaviour/human_behaviour_data/"
@@ -220,7 +220,7 @@ for DS in "${PROCESS_DS[@]}"; do
     --rla_stage residual_and_head \
     --d_video_feat 3318 \
     --d_audio_feat 6373 \
-    --rla_hidden_video 256 \
+    --rla_hidden_video 512 \
     --rla_hidden_audio 512 \
     --rla_p_moddrop_video 0.20 \
     --rla_p_moddrop_audio 0.20 \
