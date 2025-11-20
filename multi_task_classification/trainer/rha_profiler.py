@@ -6,13 +6,6 @@ from trainer.rha_multi_head_omni_classifier_trainer import RHAMultiHeadOmniClass
 from models.adapter_utils import build_video_feats_batch, build_audio_feats_batch
 from models.rha_adapter_utils import maybe_build_hidden_adapters, apply_hidden_adapters
 
-## TODO NOTES: Select about 100-500 samples only; discard the 1st batch as warmup and run for N batches
-# You MUST report:
-# 	•	GPU model (A100/H100 etc)
-# 	•	Batch size
-# 	•	Precision (fp16/bf16)
-# 	•	Seq length (if applicable)
-# 	•	Input resolution (if applicable)
 
 class RHAMultiHeadOmniClassifierProfiler(RHAMultiHeadOmniClassifierAccelerateTrainer):
     """
@@ -53,9 +46,13 @@ class RHAMultiHeadOmniClassifierProfiler(RHAMultiHeadOmniClassifierAccelerateTra
     # --- Profiling methods ---------------------------------------------------
     ###########################################################################
 
-    def profile_forward_cost(self, num_batches=10, split="val", description="profile"):
+    def profile_forward_cost(self, num_batches: int = 10, split: str = "val", description: str = "profile"):
         """
-        Measure forward latency + peak VRAM across num_batches.
+        Measure forward latency + peak VRAM across `num_batches` *timed* batches,
+        discarding the first batch as warmup.
+
+        This uses a SINGLE dataloader loop; the first iteration is warmup,
+        the next `num_batches` iterations are timed.
         """
         dataloader = (
             self.get_dataloader(self.val_data_files, self.val_batch_size)
@@ -63,7 +60,7 @@ class RHAMultiHeadOmniClassifierProfiler(RHAMultiHeadOmniClassifierAccelerateTra
             else self.get_dataloader(self.test_data_files, self.test_batch_size)
         )
 
-        # Prepare modules w/ Accelerate
+        # Prepare modules w/ Accelerate (same as train/validate)
         dataloader, _, _ = self._accelerate_prepare_modules(
             train_dataloader=dataloader,
             val_dataloader=dataloader,
@@ -73,36 +70,63 @@ class RHAMultiHeadOmniClassifierProfiler(RHAMultiHeadOmniClassifierAccelerateTra
 
         device = self.accelerator.device
 
-        # Warm-up
-        for b in dataloader:
-            self._profile_single_forward(b)
-            break
-
-        # Reset
-        if torch.cuda.is_available():
-            torch.cuda.reset_peak_memory_stats(device)
+        # Ensure eval + no grad for inference-style cost
+        self.model.eval()
+        if self.video_adapter is not None:
+            self.video_adapter.eval()
+        if self.audio_adapter is not None:
+            self.audio_adapter.eval()
 
         latencies = []
+
+        # Single loop: batch 0 = warmup; batches 1..num_batches = timed
         for step, batch in enumerate(dataloader):
-            if step >= num_batches:
+            # Move labels etc handled by dataset/collate; here we just profile
+            if step == 0:
+                # Warmup (no timing, no memory stats)
+                with torch.no_grad():
+                    self._profile_single_forward(batch)
+                # Reset peak memory *after* warmup
+                if torch.cuda.is_available():
+                    torch.cuda.reset_peak_memory_stats(device)
+                continue
+
+            if step > num_batches:
                 break
 
-            torch.cuda.synchronize(device)
+            # Timing
+            if torch.cuda.is_available():
+                torch.cuda.synchronize(device)
             start = time.perf_counter()
 
-            _ = self._profile_single_forward(batch)
+            with torch.no_grad():
+                _ = self._profile_single_forward(batch)
 
-            torch.cuda.synchronize(device)
+            if torch.cuda.is_available():
+                torch.cuda.synchronize(device)
             end = time.perf_counter()
 
             latencies.append(end - start)
 
+        if not latencies:
+            self.accelerator.print("[PROFILE] No batches were profiled (check num_batches / dataloader length).")
+            return {
+                "mean_latency_s": float("nan"),
+                "std_latency_s": float("nan"),
+                "peak_vram_mb": float("nan"),
+            }
+
         mean = float(np.mean(latencies))
-        std  = float(np.std(latencies))
-        peak_mb = torch.cuda.max_memory_allocated(device) / (1024**2)
+        std = float(np.std(latencies))
+        peak_mb = (
+            torch.cuda.max_memory_allocated(device) / (1024 ** 2)
+            if torch.cuda.is_available()
+            else float("nan")
+        )
 
         self.accelerator.print(
-            f"[PROFILE] {description}: mean {mean:.4f}s, std {std:.4f}s, peak VRAM {peak_mb:.1f} MB"
+            f"[PROFILE] {description}: mean {mean:.4f}s, std {std:.4f}s, peak VRAM {peak_mb:.1f} MB "
+            f"over {len(latencies)} batches (first batch used for warmup)."
         )
 
         return {
@@ -113,50 +137,87 @@ class RHAMultiHeadOmniClassifierProfiler(RHAMultiHeadOmniClassifierAccelerateTra
 
     def _profile_single_forward(self, batch):
         """
-       Executes EXACT same forward path as train/validate, without gradients or loss.
+        Execute the SAME forward path as in train()/validate, but:
+        - no gradients
+        - no loss/metrics
+        - no optimizer steps
+
+        Important: This still uses the two-step model interface
+        (base encoder -> pooled hidden, then head-only forward),
+        exactly like the training loop.
         """
+        # Required keys
         input_ids = batch["input_ids"]
         attention_mask = batch.get("attention_mask", None)
 
+        if "dataset" not in batch:
+            raise KeyError("Batch missing 'dataset' needed for domain routing.")
+
         domain_ids = self._datasets_to_domain_ids(batch["dataset"], input_ids.device)
 
-        # Audio feats
-        pooled_audio = None
-        if ("audio_feats" in batch) and self.use_rla_audio and (self.rla_stage != "base_only"):
-            pooled_audio = build_audio_feats_batch(
-                batch["audio_feats"], input_ids.device,
-                self.audio_temporal, self.audio_norm, self.d_audio_feat
+        # ---- Audio feats (mirrors training conditions) ----
+        pooled_audio_feats = None
+        if (
+            "audio_feats" in batch
+            and batch["audio_feats"] is not None
+            and (self.rla_stage in {"residual_only", "joint", "residual_and_head"})
+            and self.use_rla_audio
+        ):
+            pooled_audio_feats = build_audio_feats_batch(
+                batch["audio_feats"],
+                device=input_ids.device,
+                temporal_mode=self.audio_temporal,
+                norm=self.audio_norm,
+                target_dim=self.d_audio_feat,
             )
 
-        # Video feats
-        pooled_video = None
-        if ("video_feats" in batch) and self.use_rla_video and (self.rla_stage != "base_only"):
-            pooled_video = build_video_feats_batch(
-                batch["video_feats"], input_ids.device,
-                self.global_config.get("RLA_VIDEO_TEMPORAL", "meanstd"),
-                self.global_config.get("RLA_VIDEO_USE_CONF", True),
-                self.d_video_feat
+        # ---- Video feats (mirrors training conditions) ----
+        pooled_video_feats = None
+        if (
+            "video_feats" in batch
+            and batch["video_feats"] is not None
+            and (self.rla_stage in {"residual_only", "joint", "residual_and_head"})
+            and self.use_rla_video
+        ):
+            pooled_video_feats = build_video_feats_batch(
+                batch["video_feats"],
+                device=input_ids.device,
+                temporal_mode=self.global_config.get("RLA_VIDEO_TEMPORAL", "meanstd"),
+                use_conf=self.global_config.get("RLA_VIDEO_USE_CONF", True),
+                norm=self.video_norm,
+                target_dim=self.d_video_feat,
             )
 
-        # Base model forward
-        prelim, pooled = self.model(
+        # ---- Base model forward (encoder + global head logits) ----
+        # This matches the training code:
+        #   prelim_logits, pooled = self.model(input_ids=..., attention_mask=..., domain_ids=...)
+        prelim_logits, pooled = self.model(
             input_ids=input_ids,
             attention_mask=attention_mask,
             domain_ids=domain_ids,
         )
 
-        # Apply adapters
-        if self.rla_stage != "base_only" and (self.use_rla_audio or self.use_rla_video):
+        # ---- Hidden fusion (RHA) if enabled ----
+        if (self.rla_stage in {"residual_only", "joint", "residual_and_head"}) and (
+            self.use_rla_video or self.use_rla_audio
+        ):
             pooled = apply_hidden_adapters(
                 h_base=pooled,
                 domain_ids=domain_ids,
-                prelim_global_logits=prelim,
+                prelim_global_logits=prelim_logits,
                 video_hidden_adapter=self.video_adapter,
                 audio_hidden_adapter=self.audio_adapter,
-                video_feats=pooled_video,
-                audio_feats=pooled_audio,
-                train_mode=False,
+                video_feats=pooled_video_feats,
+                audio_feats=pooled_audio_feats,
+                train_mode=False,  # profiling = inference-style
             )
 
-        logits, _ = self.model(domain_ids=domain_ids, pooled=pooled)
+        # ---- Final logits from pooled state (small head-only forward) ----
+        # Again, this directly mirrors the training loop:
+        #   logits, _ = self.model(domain_ids=domain_ids, pooled=pooled)
+        logits, _ = self.model(
+            domain_ids=domain_ids,
+            pooled=pooled,
+        )
+
         return logits
