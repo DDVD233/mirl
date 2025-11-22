@@ -11,11 +11,11 @@ SCRIPT="train_rha_multi_head.py"
 
 # BASE_SAVE_DIR="/scratch/keane/human_behaviour/v6_rha_remaining_no_conf_no_gamma"
 # PROJECT_NAME="v6-rha-nogamma_noconf_omni-classifier-multi-head-lora"
-BASE_SAVE_DIR="/scratch/keane/human_behaviour/reviewer_expts_rha_ablate_audio_cls"
+BASE_SAVE_DIR="/scratch/keane/human_behaviour/reviewer_expts_rha_ablate_video_cls"
 # PROJECT_NAME="v6-rha-omni-classifier-multi-head-lora"
-PROJECT_NAME="reviewer_ablate_bam_audio"
+PROJECT_NAME="reviewer_ablate_bam_video"
 # Environment
-export CUDA_VISIBLE_DEVICES="0,1"
+export CUDA_VISIBLE_DEVICES="2,3"
 export CUDA_LAUNCH_BLOCKING=1
 export TORCH_USE_CUDA_DSA=1
 
@@ -192,7 +192,7 @@ for DS in "${PROCESS_DS[@]}"; do
   # 32 for remaining
       # --use_rla_video \
           # --train_file "$TRAIN_OUT" \
-
+  # --use_rla_video \
     #  --use_rla_audio \
 
   accelerate launch --config_file "$ACCEL_CFG" "$SCRIPT" \
@@ -234,7 +234,7 @@ for DS in "${PROCESS_DS[@]}"; do
     --rla_audio_temporal none \
     --rla_video_alpha_init 4.0 \
     --rla_audio_alpha_init 4.0 \
-    --use_rla_video \
+    --use_rla_audio \
     --rla_video_use_ln \
     --rla_audio_use_ln \
     --format_prompt "" \
