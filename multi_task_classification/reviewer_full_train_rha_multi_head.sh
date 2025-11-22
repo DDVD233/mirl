@@ -30,12 +30,12 @@ export TORCH_USE_CUDA_DSA=1
 # FULL LIST (excl daicwoz which has to be separate):
 # INCLUDE_DATASETS=("mmsd" "urfunny" "mosei_emotion" "mosei_senti" "meld_senti" "chsimsv2" "cremad" "meld_emotion" "ptsd_in_the_wild" "tess")
 
-INCLUDE_DATASETS=("urfunny" "mosei_emotion" "mosei_senti" "meld_senti" "chsimsv2" "cremad" "meld_emotion" "ptsd_in_the_wild" "tess")
+# INCLUDE_DATASETS=("urfunny" "mosei_emotion" "mosei_senti" "meld_senti" "chsimsv2" "cremad" "meld_emotion" "ptsd_in_the_wild" "tess")
 #  "mmpsy_anxiety" "mmpsy_depression"
 # NOTE: daicwoz must use a different path instead : # /scratch/keane/human_behaviour/human_behaviour_data/trunc_rla_fulltemp_train_daicwoz.jsonl (need to use this for daicwoz)
     # --train_file /scratch/keane/human_behaviour/human_behaviour_data/trunc_rla_fulltemp_train_daicwoz.jsonl \
 # REMAINING FOR HIDDEN DIM 512 LEFT
-# INCLUDE_DATASETS=("mmsd")
+INCLUDE_DATASETS=("mmsd")
 # INCLUDE_DATASETS=("daicwoz")
 
 # FULL LIST (minus ravdess)
@@ -217,7 +217,7 @@ for DS in "${PROCESS_DS[@]}"; do
     --validate_every_n_steps 999999 \
     --early_stopping_patience 99999 \
     --project "${PROJECT_NAME}" \
-    --gradient_accumulation_steps 8 \
+    --gradient_accumulation_steps 4 \
     --rla_stage residual_and_head \
     --d_video_feat 3318 \
     --d_audio_feat 6373 \
