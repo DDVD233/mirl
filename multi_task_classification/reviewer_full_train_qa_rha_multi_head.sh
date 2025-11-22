@@ -61,10 +61,10 @@ BASE_LOAD_CKPT="/scratch/keane/human_behaviour/4_freeze_base_qa_multi_task_model
 LABEL_MAP="/home/keaneong/human-behavior/verl/multi_task_classification/label_maps/unified_label_map_v6.json"
 
 # Datasets to iterate over
-TASKS=("intentqa" "siq2")
+# TASKS=("intentqa" "siq2")
 # NOTE: They all do not seem to have audio features; only video
 # REMAINING FOR HIDDEN DIM 512 LEFT
-# TASKS=("mimeqa")
+TASKS=("mimeqa")
 
 for TASK in "${TASKS[@]}"; do
   echo "============================================================"
@@ -116,7 +116,7 @@ for TASK in "${TASKS[@]}"; do
     --validate_every_n_steps 999999 \
     --early_stopping_patience 99999 \
     --project "reviewer_ablate_hidden_dimensions_512" \
-    --gradient_accumulation_steps 8 \
+    --gradient_accumulation_steps 4 \
     --rla_stage residual_and_decoder \
     --d_video_feat 3318 \
     --d_audio_feat 6373 \
