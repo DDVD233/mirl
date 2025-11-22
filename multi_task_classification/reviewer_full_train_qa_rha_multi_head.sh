@@ -115,13 +115,13 @@ for TASK in "${TASKS[@]}"; do
     --validate_every_n_epochs 1 \
     --validate_every_n_steps 999999 \
     --early_stopping_patience 99999 \
-    --project "reviewer_ablate_hidden_dimensions_512" \
-    --gradient_accumulation_steps 4 \
+    --project "reviewer_ablate_bam_audio" \
+    --gradient_accumulation_steps 8 \
     --rla_stage residual_and_decoder \
     --d_video_feat 3318 \
     --d_audio_feat 6373 \
-    --rla_hidden_video 512 \
-    --rla_hidden_audio 512 \
+    --rla_hidden_video 256 \
+    --rla_hidden_audio 256 \
     --rla_p_moddrop_video 0.10 \
     --rla_p_moddrop_audio 0.10 \
     --rla_video_temporal meanstd \

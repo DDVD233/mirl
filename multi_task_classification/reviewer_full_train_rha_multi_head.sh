@@ -11,9 +11,9 @@ SCRIPT="train_rha_multi_head.py"
 
 # BASE_SAVE_DIR="/scratch/keane/human_behaviour/v6_rha_remaining_no_conf_no_gamma"
 # PROJECT_NAME="v6-rha-nogamma_noconf_omni-classifier-multi-head-lora"
-BASE_SAVE_DIR="/scratch/keane/human_behaviour/reviewer_expts_rha_hidden512_cls"
+BASE_SAVE_DIR="/scratch/keane/human_behaviour/reviewer_expts_rha_ablate_audio_cls"
 # PROJECT_NAME="v6-rha-omni-classifier-multi-head-lora"
-PROJECT_NAME="reviewer_ablate_hidden_dimensions_512"
+PROJECT_NAME="reviewer_ablate_bam_audio"
 # Environment
 export CUDA_VISIBLE_DEVICES="0,1"
 export CUDA_LAUNCH_BLOCKING=1
@@ -30,13 +30,13 @@ export TORCH_USE_CUDA_DSA=1
 # FULL LIST (excl daicwoz which has to be separate):
 # INCLUDE_DATASETS=("mmsd" "urfunny" "mosei_emotion" "mosei_senti" "meld_senti" "chsimsv2" "cremad" "meld_emotion" "ptsd_in_the_wild" "tess")
 
-# INCLUDE_DATASETS=("urfunny" "mosei_emotion" "mosei_senti" "meld_senti" "chsimsv2" "cremad" "meld_emotion" "ptsd_in_the_wild" "tess")
+INCLUDE_DATASETS=("urfunny" "mosei_emotion" "mosei_senti" "meld_senti" "chsimsv2" "cremad" "meld_emotion" "ptsd_in_the_wild" "tess")
 #  "mmpsy_anxiety" "mmpsy_depression"
 # NOTE: daicwoz must use a different path instead : # /scratch/keane/human_behaviour/human_behaviour_data/trunc_rla_fulltemp_train_daicwoz.jsonl (need to use this for daicwoz)
     # --train_file /scratch/keane/human_behaviour/human_behaviour_data/trunc_rla_fulltemp_train_daicwoz.jsonl \
 # REMAINING FOR HIDDEN DIM 512 LEFT
 # INCLUDE_DATASETS=("mmsd")
-INCLUDE_DATASETS=("daicwoz")
+# INCLUDE_DATASETS=("daicwoz")
 
 # FULL LIST (minus ravdess)
 # For old, with everything inside (conf, gamma):
@@ -193,6 +193,8 @@ for DS in "${PROCESS_DS[@]}"; do
       # --use_rla_video \
           # --train_file "$TRAIN_OUT" \
 
+    #  --use_rla_audio \
+
   accelerate launch --config_file "$ACCEL_CFG" "$SCRIPT" \
     --mode train \
     --rla_resume_diff_training_stage \
@@ -205,7 +207,7 @@ for DS in "${PROCESS_DS[@]}"; do
     --base_lr 1e-4 \
     --rla_lr 5e-4 \
     --epochs 3 \
-    --train_file /scratch/keane/human_behaviour/human_behaviour_data/trunc_rla_fulltemp_train_daicwoz.jsonl \
+    --train_file "$TRAIN_OUT" \
     --val_file "$VAL_OUT" \
     --test_file "$VAL_OUT" \
     --label_map_path "/home/keaneong/human-behavior/verl/multi_task_classification/label_maps/unified_label_map_v6.json" \
@@ -218,12 +220,12 @@ for DS in "${PROCESS_DS[@]}"; do
     --validate_every_n_steps 999999 \
     --early_stopping_patience 99999 \
     --project "${PROJECT_NAME}" \
-    --gradient_accumulation_steps 1 \
+    --gradient_accumulation_steps 8 \
     --rla_stage residual_and_head \
     --d_video_feat 3318 \
     --d_audio_feat 6373 \
-    --rla_hidden_video 512 \
-    --rla_hidden_audio 512 \
+    --rla_hidden_video 256 \
+    --rla_hidden_audio 256 \
     --rla_p_moddrop_video 0.20 \
     --rla_p_moddrop_audio 0.20 \
     --rla_video_temporal meanstd \
@@ -232,7 +234,6 @@ for DS in "${PROCESS_DS[@]}"; do
     --rla_audio_temporal none \
     --rla_video_alpha_init 4.0 \
     --rla_audio_alpha_init 4.0 \
-    --use_rla_audio \
     --use_rla_video \
     --rla_video_use_ln \
     --rla_audio_use_ln \
