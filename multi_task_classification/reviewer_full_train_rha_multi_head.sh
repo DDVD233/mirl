@@ -15,7 +15,7 @@ BASE_SAVE_DIR="/scratch/keane/human_behaviour/reviewer_expts_rha_ablate_video_cl
 # PROJECT_NAME="v6-rha-omni-classifier-multi-head-lora"
 PROJECT_NAME="reviewer_ablate_bam_video"
 # Environment
-export CUDA_VISIBLE_DEVICES="2,3"
+export CUDA_VISIBLE_DEVICES="0,1"
 export CUDA_LAUNCH_BLOCKING=1
 export TORCH_USE_CUDA_DSA=1
 
@@ -31,14 +31,17 @@ export TORCH_USE_CUDA_DSA=1
 # INCLUDE_DATASETS=("mmsd" "urfunny" "mosei_emotion" "mosei_senti" "meld_senti" "chsimsv2" "cremad" "meld_emotion" "ptsd_in_the_wild" "tess")
 
 # INCLUDE_DATASETS=("urfunny" "mosei_emotion" "mosei_senti" "meld_senti" "chsimsv2" "cremad" "meld_emotion" "ptsd_in_the_wild" "tess")
-INCLUDE_DATASETS=("tess")
+# INCLUDE_DATASETS=("tess")
+
 
 #  "mmpsy_anxiety" "mmpsy_depression"
 # NOTE: daicwoz must use a different path instead : # /scratch/keane/human_behaviour/human_behaviour_data/trunc_rla_fulltemp_train_daicwoz.jsonl (need to use this for daicwoz)
     # --train_file /scratch/keane/human_behaviour/human_behaviour_data/trunc_rla_fulltemp_train_daicwoz.jsonl \
 # REMAINING FOR HIDDEN DIM 512 LEFT
+# mmsd (effective batch size: 16)
+# daicwoz (effective batch size: 4)
 # INCLUDE_DATASETS=("mmsd")
-# INCLUDE_DATASETS=("daicwoz")
+INCLUDE_DATASETS=("daicwoz")
 
 # FULL LIST (minus ravdess)
 # For old, with everything inside (conf, gamma):
@@ -222,7 +225,7 @@ for DS in "${PROCESS_DS[@]}"; do
     --validate_every_n_steps 999999 \
     --early_stopping_patience 99999 \
     --project "${PROJECT_NAME}" \
-    --gradient_accumulation_steps 8 \
+    --gradient_accumulation_steps 1 \
     --rla_stage residual_and_head \
     --d_video_feat 3318 \
     --d_audio_feat 6373 \
