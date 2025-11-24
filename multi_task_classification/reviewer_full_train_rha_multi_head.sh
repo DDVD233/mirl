@@ -200,6 +200,7 @@ for DS in "${PROCESS_DS[@]}"; do
           # --train_file "$TRAIN_OUT" \
   # --use_rla_video \
     #  --use_rla_audio \
+        # --train_file "$TRAIN_OUT" \
 
   accelerate launch --config_file "$ACCEL_CFG" "$SCRIPT" \
     --mode train \
@@ -213,7 +214,7 @@ for DS in "${PROCESS_DS[@]}"; do
     --base_lr 1e-4 \
     --rla_lr 5e-4 \
     --epochs 3 \
-    --train_file "$TRAIN_OUT" \
+    --train_file /scratch/keane/human_behaviour/human_behaviour_data/trunc_rla_fulltemp_train_daicwoz.jsonl \
     --val_file "$VAL_OUT" \
     --test_file "$VAL_OUT" \
     --label_map_path "/home/keaneong/human-behavior/verl/multi_task_classification/label_maps/unified_label_map_v6.json" \
