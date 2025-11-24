@@ -15,7 +15,7 @@ BASE_SAVE_DIR="/scratch/keane/human_behaviour/reviewer_expts_rha_ablate_video_cl
 # PROJECT_NAME="v6-rha-omni-classifier-multi-head-lora"
 PROJECT_NAME="reviewer_ablate_bam_video"
 # Environment
-export CUDA_VISIBLE_DEVICES="0,1"
+export CUDA_VISIBLE_DEVICES="2,3"
 export CUDA_LAUNCH_BLOCKING=1
 export TORCH_USE_CUDA_DSA=1
 
