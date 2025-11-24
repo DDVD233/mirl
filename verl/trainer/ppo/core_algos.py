@@ -1705,7 +1705,7 @@ def compute_tarpo_outcome_advantage(
     # D) Task-adapter centering
     #
     # Previously: (v - ema_mu) / ema_sigma
-    # Now:        (v - ema_mu) ONLY (no division by ema_sigma).
+    # Now:        (v / ema_mu) ONLY (no division by ema_sigma).
     # -------------------------------------------------------------------------
     if use_task_adapter:
         # Center each qid’s rollouts with its task’s EMA mean (produce q2norm)
