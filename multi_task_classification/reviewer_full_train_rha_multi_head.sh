@@ -41,8 +41,8 @@ export TORCH_USE_CUDA_DSA=1
 # REMAINING FOR HIDDEN DIM 512 LEFT
 # mmsd (effective batch size: 16)
 # daicwoz (effective batch size: 4)
-INCLUDE_DATASETS=("mmsd")
-# INCLUDE_DATASETS=("daicwoz")
+# INCLUDE_DATASETS=("mmsd")
+INCLUDE_DATASETS=("daicwoz")
 
 # FULL LIST (minus ravdess)
 # For old, with everything inside (conf, gamma):
@@ -226,7 +226,7 @@ for DS in "${PROCESS_DS[@]}"; do
     --validate_every_n_steps 999999 \
     --early_stopping_patience 99999 \
     --project "${PROJECT_NAME}" \
-    --gradient_accumulation_steps 4 \
+    --gradient_accumulation_steps 1 \
     --rla_stage residual_and_head \
     --d_video_feat 3318 \
     --d_audio_feat 6373 \

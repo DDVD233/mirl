@@ -353,11 +353,7 @@ def compute_advantage(
             task_ids=data.non_tensor_batch.get("task", None),
             dataset_ids = data.non_tensor_batch.get("dataset", None),
             class_labels=data.non_tensor_batch.get("class_label", None),
-            use_task_adapter=False,
-            use_class_weights=False,
-            use_cvar_boost=False,
-            use_grpo_group_norm=True,
-            
+        
             # EMA decays
             beta_mu = 0.95,
             beta_sigma = 0.95,
@@ -1466,9 +1462,9 @@ class RayPPOTrainer:
             for batch_idx, batch_dict in enumerate(self.train_dataloader):
                 #--- DEBUG: log batch content into debug_file ---
 
-                if batch_idx == 7 or batch_idx == 19:
-                    print("skipping problematic batch")
-                    continue
+                # if batch_idx == 7 or batch_idx == 19:
+                #     print("skipping problematic batch")
+                #     continue
 
                 # log modality budgets                
                 log_modality_budgets(batch_dict, step=self.global_steps)

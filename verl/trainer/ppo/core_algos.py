@@ -1590,9 +1590,9 @@ def compute_tarpo_outcome_advantage(
     *,
     # --- Ablation toggles ---
     use_task_adapter:   bool = True,
-    use_class_weights:  bool = True,
-    use_cvar_boost:     bool = True,
-    use_grpo_group_norm: bool = False,
+    use_class_weights:  bool = False,
+    use_cvar_boost:     bool = False,
+    use_grpo_group_norm: bool = True,
     # --- Hyperparameters ---
     eps: float = EPS_DEFAULT,
     alpha: float = 0.2,                  # CVaR tail fraction
