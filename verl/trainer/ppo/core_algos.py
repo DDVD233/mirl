@@ -1708,15 +1708,38 @@ def compute_tarpo_outcome_advantage(
     # Now:        (v / ema_mu) ONLY (no division by ema_sigma).
     # -------------------------------------------------------------------------
     if use_task_adapter:
-        # Center each qid’s rollouts with its task’s EMA mean (produce q2norm)
+        # # Center each qid’s rollouts with its task’s EMA mean (produce q2norm)
+        # q2norm: Dict[Any, List[float]] = {}
+        # for qid, vals in q2rollouts.items():
+        #     task = q2tasks[qid]
+        #     mu_t = float(task_stats[task]["ema_mu"])
+        #     # Mean-only centering; no variance scaling.
+        #     # q2norm[qid] = [(v - mu_t) for v in vals]
+        #     # Rough Mean scaling (to downweight high-performing tasks)
+        #     q2norm[qid] = [(v / mu_t) for v in vals]
+
+        # 1) Compute a global reference mean across tasks
+        task_mus = [float(stats["ema_mu"]) for stats in task_stats.values()]
+        mu_ref = sum(task_mus) / max(len(task_mus), 1)
+
+        # 2) Reasonable bounds so we don't explode or vanish
+        MIN_SCALE = 0.5   # at most 2x downweight
+        MAX_SCALE = 3.0   # at most 2x upweight
+        EPS = 1e-6
+        SCALE_COEFF = 1.0
+
         q2norm: Dict[Any, List[float]] = {}
         for qid, vals in q2rollouts.items():
             task = q2tasks[qid]
             mu_t = float(task_stats[task]["ema_mu"])
-            # Mean-only centering; no variance scaling.
-            # q2norm[qid] = [(v - mu_t) for v in vals]
-            # Rough Mean scaling (to downweight high-performing tasks)
-            q2norm[qid] = [(v / mu_t) for v in vals]
+
+            # Relative scaling: >1 if task underperforms, <1 if overperforms
+            raw_scale = mu_ref / max(mu_t, EPS)
+            scale_t = max(MIN_SCALE, min(MAX_SCALE, raw_scale))
+
+            # Mean-centering keeps the scale reasonable; scale_t nudges tasks up/down
+            q2norm[qid] = [(v) * SCALE_COEFF * scale_t for v in vals]
+
     else:
         q2norm = {qid: list(vals) for qid, vals in q2rollouts.items()}
 
