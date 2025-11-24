@@ -1724,9 +1724,9 @@ def compute_tarpo_outcome_advantage(
 
         # 2) Reasonable bounds so we don't explode or vanish
         MIN_SCALE = 0.5   # at most 2x downweight
-        MAX_SCALE = 3.0   # at most 2x upweight
+        MAX_SCALE = 2.0   # at most 2x upweight
         EPS = 1e-6
-        SCALE_COEFF = 1.0
+        SCALE_COEFF = 1.5
 
         q2norm: Dict[Any, List[float]] = {}
         for qid, vals in q2rollouts.items():
@@ -1737,7 +1737,7 @@ def compute_tarpo_outcome_advantage(
             raw_scale = mu_ref / max(mu_t, EPS)
             scale_t = max(MIN_SCALE, min(MAX_SCALE, raw_scale))
 
-            # Mean-centering keeps the scale reasonable; scale_t nudges tasks up/down
+            # Scale_t nudges tasks up/down
             q2norm[qid] = [(v) * SCALE_COEFF * scale_t for v in vals]
 
     else:
