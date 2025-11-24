@@ -11,9 +11,9 @@ SCRIPT="train_rha_multi_head.py"
 
 # BASE_SAVE_DIR="/scratch/keane/human_behaviour/v6_rha_remaining_no_conf_no_gamma"
 # PROJECT_NAME="v6-rha-nogamma_noconf_omni-classifier-multi-head-lora"
-BASE_SAVE_DIR="/scratch/keane/human_behaviour/reviewer_expts_rha_ablate_audio_cls"
+BASE_SAVE_DIR="/scratch/keane/human_behaviour/reviewer_expts_rha_ablate_video_cls"
 # PROJECT_NAME="v6-rha-omni-classifier-multi-head-lora"
-PROJECT_NAME="reviewer_ablate_bam_audio"
+PROJECT_NAME="reviewer_ablate_bam_video"
 # Environment
 export CUDA_VISIBLE_DEVICES="0,1"
 export CUDA_LAUNCH_BLOCKING=1
@@ -32,7 +32,7 @@ export TORCH_USE_CUDA_DSA=1
 
 # All effective batch sizes here: 32
 # INCLUDE_DATASETS=("urfunny" "mosei_emotion" "mosei_senti" "meld_senti" "chsimsv2" "cremad" "meld_emotion" "ptsd_in_the_wild" "tess")
-INCLUDE_DATASETS=("tess")
+# INCLUDE_DATASETS=("tess")
 
 
 #  "mmpsy_anxiety" "mmpsy_depression"
@@ -41,7 +41,7 @@ INCLUDE_DATASETS=("tess")
 # REMAINING FOR HIDDEN DIM 512 LEFT
 # mmsd (effective batch size: 16)
 # daicwoz (effective batch size: 4)
-# INCLUDE_DATASETS=("mmsd")
+INCLUDE_DATASETS=("mmsd")
 # INCLUDE_DATASETS=("daicwoz")
 
 # FULL LIST (minus ravdess)
@@ -226,7 +226,7 @@ for DS in "${PROCESS_DS[@]}"; do
     --validate_every_n_steps 999999 \
     --early_stopping_patience 99999 \
     --project "${PROJECT_NAME}" \
-    --gradient_accumulation_steps 8 \
+    --gradient_accumulation_steps 4 \
     --rla_stage residual_and_head \
     --d_video_feat 3318 \
     --d_audio_feat 6373 \
@@ -240,7 +240,7 @@ for DS in "${PROCESS_DS[@]}"; do
     --rla_audio_temporal none \
     --rla_video_alpha_init 4.0 \
     --rla_audio_alpha_init 4.0 \
-    --use_rla_video \
+    --use_rla_audio \
     --rla_video_use_ln \
     --rla_audio_use_ln \
     --format_prompt "" \
