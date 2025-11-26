@@ -31,24 +31,24 @@ task_stats: Dict[Any, Dict[str, Any]] = defaultdict(lambda: {
     "adapter_final_scale": 1.0,
 
     # Post-GRPO (after group normalization) advantages
-    "post_grpo_batch_mu": 0.0,
-    "post_grpo_batch_sigma": 1.0,
-    "post_grpo_batch_abs_mean": 0.0,
-    "post_grpo_batch_frac_pos": 0.0,
-    "post_grpo_batch_frac_neg": 0.0,
-    "post_grpo_batch_skewness": 0.0,
-    "post_grpo_batch_p10": 0.0,
-    "post_grpo_batch_p50": 0.0,
-    "post_grpo_batch_p90": 0.0,
-    "post_grpo_ema_mu": 0.0,
-    "post_grpo_ema_sigma": 1.0,
-    "post_grpo_ema_abs_mean": 0.0,
-    "post_grpo_ema_frac_pos": 0.0,
-    "post_grpo_ema_frac_neg": 0.0,
-    "post_grpo_ema_skewness": 0.0,
-    "post_grpo_ema_p10": 0.0,
-    "post_grpo_ema_p50": 0.0,
-    "post_grpo_ema_p90": 0.0,
+    "post_grpo_advantage_batch_mu": 0.0,
+    "post_grpo_advantage_batch_sigma": 1.0,
+    "post_grpo_advantage_batch_abs_mean": 0.0,
+    "post_grpo_advantage_batch_frac_pos": 0.0,
+    "post_grpo_advantage_batch_frac_neg": 0.0,
+    "post_grpo_advantage_batch_skewness": 0.0,
+    "post_grpo_advantage_batch_p10": 0.0,
+    "post_grpo_advantage_batch_p50": 0.0,
+    "post_grpo_advantage_batch_p90": 0.0,
+    "post_grpo_advantage_ema_mu": 0.0,
+    "post_grpo_advantage_ema_sigma": 1.0,
+    "post_grpo_advantage_ema_abs_mean": 0.0,
+    "post_grpo_advantage_ema_frac_pos": 0.0,
+    "post_grpo_advantage_ema_frac_neg": 0.0,
+    "post_grpo_advantage_ema_skewness": 0.0,
+    "post_grpo_advantage_ema_p10": 0.0,
+    "post_grpo_advantage_ema_p50": 0.0,
+    "post_grpo_advantage_ema_p90": 0.0,
 
     # Final (post adapter, class weighting, CVaR, group norm) advantages
     "final_advantage_batch_mu": 0.0,
@@ -89,24 +89,24 @@ dataset_stats: Dict[Any, Dict[str, Any]] = defaultdict(lambda: {
     "k_ema": 1.0,
 
     # Post-GRPO (after group normalization) advantages
-    "post_grpo_batch_mu": 0.0,
-    "post_grpo_batch_sigma": 1.0,
-    "post_grpo_batch_abs_mean": 0.0,
-    "post_grpo_batch_frac_pos": 0.0,
-    "post_grpo_batch_frac_neg": 0.0,
-    "post_grpo_batch_skewness": 0.0,
-    "post_grpo_batch_p10": 0.0,
-    "post_grpo_batch_p50": 0.0,
-    "post_grpo_batch_p90": 0.0,
-    "post_grpo_ema_mu": 0.0,
-    "post_grpo_ema_sigma": 1.0,
-    "post_grpo_ema_abs_mean": 0.0,
-    "post_grpo_ema_frac_pos": 0.0,
-    "post_grpo_ema_frac_neg": 0.0,
-    "post_grpo_ema_skewness": 0.0,
-    "post_grpo_ema_p10": 0.0,
-    "post_grpo_ema_p50": 0.0,
-    "post_grpo_ema_p90": 0.0,
+    "post_grpo_advantage_batch_mu": 0.0,
+    "post_grpo_advantage_batch_sigma": 1.0,
+    "post_grpo_advantage_batch_abs_mean": 0.0,
+    "post_grpo_advantage_batch_frac_pos": 0.0,
+    "post_grpo_advantage_batch_frac_neg": 0.0,
+    "post_grpo_advantage_batch_skewness": 0.0,
+    "post_grpo_advantage_batch_p10": 0.0,
+    "post_grpo_advantage_batch_p50": 0.0,
+    "post_grpo_advantage_batch_p90": 0.0,
+    "post_grpo_advantage_ema_mu": 0.0,
+    "post_grpo_advantage_ema_sigma": 1.0,
+    "post_grpo_advantage_ema_abs_mean": 0.0,
+    "post_grpo_advantage_ema_frac_pos": 0.0,
+    "post_grpo_advantage_ema_frac_neg": 0.0,
+    "post_grpo_advantage_ema_skewness": 0.0,
+    "post_grpo_advantage_ema_p10": 0.0,
+    "post_grpo_advantage_ema_p50": 0.0,
+    "post_grpo_advantage_ema_p90": 0.0,
 
     # Final (post adapter, class weighting, CVaR, group norm) advantages
     "final_advantage_batch_mu": 0.0,
@@ -445,7 +445,7 @@ def _update_advantage_stats_general(
     task_to_vals: Dict[Any, List[float]],
     dataset_to_vals: Dict[Any, List[float]],
     *,
-    stat_prefix: str,  # e.g., "post_grpo" or "final_advantage"
+    stat_prefix: str,  # e.g., "post_grpo_advantage" or "final_advantage"
     beta_mu: float,
     beta_sigma: float,
     eps: float,
@@ -460,7 +460,7 @@ def _update_advantage_stats_general(
     Args:
         task_to_vals:    dict mapping task_id -> list of advantage values
         dataset_to_vals: dict mapping dataset_id -> list of advantage values
-        stat_prefix:     prefix for stat keys (e.g., "post_grpo" or "final_advantage")
+        stat_prefix:     prefix for stat keys (e.g., "post_grpo_advantage" or "final_advantage")
         beta_mu:         EMA decay for mean
         beta_sigma:      EMA decay for std
         eps:             small epsilon for numerical stability
@@ -561,7 +561,7 @@ def update_advantage_stats(
     q2tasks: Dict[Any, Any],              # qid -> task_id mapping
     q2datasets: Dict[Any, Any],           # qid -> dataset_id mapping
     *,
-    stat_prefix: str,                     # e.g., "post_grpo" or "final_advantage"
+    stat_prefix: str,                     # e.g., "post_grpo_advantage" or "final_advantage"
     beta_mu: float,
     beta_sigma: float,
     eps: float,
@@ -585,7 +585,7 @@ def update_advantage_stats(
         q2_values:   per-qid value lists (e.g., q2rollouts, q2_final)
         q2tasks:     qid -> task_id mapping
         q2datasets:  qid -> dataset_id mapping
-        stat_prefix: prefix for stat keys (e.g., "post_grpo", "final_advantage")
+        stat_prefix: prefix for stat keys (e.g., "post_grpo_advantage", "final_advantage")
         beta_mu:     EMA decay for mean
         beta_sigma:  EMA decay for std
         eps:         small epsilon for numerical stability

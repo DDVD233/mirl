@@ -1709,7 +1709,7 @@ def compute_tarpo_outcome_advantage(
             q2_advantages=q2rollouts,
             q2tasks=q2tasks,
             q2datasets=q2datasets,
-            stat_prefix="post_grpo",
+            stat_prefix="post_grpo_advantage",
             beta_mu=beta_mu,
             beta_sigma=beta_sigma,
             eps=eps,
@@ -1734,7 +1734,7 @@ def compute_tarpo_outcome_advantage(
 
         # 1) Compute global reference mean and sigma across tasks
         task_mus = [float(stats["ema_mu"]) for stats in task_stats.values()]
-        task_sigmas = [float(stats["post_grpo_ema_sigma"]) for stats in task_stats.values()]
+        task_sigmas = [float(stats["post_grpo_advantage_ema_sigma"]) for stats in task_stats.values()]
 
         mu_ref = sum(task_mus) / max(len(task_mus), 1)
         sigma_ref = sum(task_sigmas) / max(len(task_sigmas), 1)
@@ -1750,7 +1750,7 @@ def compute_tarpo_outcome_advantage(
         for qid, vals in q2rollouts.items():
             task = q2tasks[qid]
             mu_t = float(task_stats[task]["ema_mu"])
-            sigma_t = float(task_stats[task]["post_grpo_ema_sigma"])
+            sigma_t = float(task_stats[task]["post_grpo_advantage_ema_sigma"])
 
             # μ-based scaling: >1 if task underperforms, <1 if overperforms
             raw_mu_scale = mu_ref / max(mu_t, EPS)
