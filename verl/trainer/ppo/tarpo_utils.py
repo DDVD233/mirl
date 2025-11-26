@@ -594,9 +594,17 @@ def update_advantage_stats(
     task_to_vals: Dict[Any, List[float]] = defaultdict(list)
     dataset_to_vals: Dict[Any, List[float]] = defaultdict(list)
 
-    # CHECK IF STATS_PREFIX IN TASK STATS 
-    if not stat_prefix in task_stats or not stat_prefix in dataset_stats:
-        raise Exception(f"State Prefix: {stat_prefix} not in task or dataset tracking stats")
+    # CHECK IF STATS_PREFIX IN TASK STATS
+    check_stat_prefix = stat_prefix + "_ema_mu"
+
+    if not task_stats or not dataset_stats:
+        raise ValueError(f"task_stats or dataset_stats is empty")
+
+    sample_task = next(iter(task_stats.values()))
+    sample_dataset = next(iter(dataset_stats.values()))
+
+    if check_stat_prefix not in sample_task or check_stat_prefix not in sample_dataset:
+        raise KeyError(f"Required stat '{check_stat_prefix}' not found in tracking stats")
 
     for qid, vals in q2_advantages.items():
         t = q2tasks[qid]
