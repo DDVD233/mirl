@@ -25,11 +25,50 @@ task_stats: Dict[Any, Dict[str, Any]] = defaultdict(lambda: {
     "k_batch_sigma": 0.0,
     "k_ema": 1.0,
 
+    # Task adapter scaling factors
+    "adapter_mu_scale": 1.0,
+    "adapter_sigma_scale": 1.0,
+    "adapter_final_scale": 1.0,
+
+    # Post-GRPO (after group normalization) advantages
+    "post_grpo_batch_mu": 0.0,
+    "post_grpo_batch_sigma": 1.0,
+    "post_grpo_batch_abs_mean": 0.0,
+    "post_grpo_batch_frac_pos": 0.0,
+    "post_grpo_batch_frac_neg": 0.0,
+    "post_grpo_batch_skewness": 0.0,
+    "post_grpo_batch_p10": 0.0,
+    "post_grpo_batch_p50": 0.0,
+    "post_grpo_batch_p90": 0.0,
+    "post_grpo_ema_mu": 0.0,
+    "post_grpo_ema_sigma": 1.0,
+    "post_grpo_ema_abs_mean": 0.0,
+    "post_grpo_ema_frac_pos": 0.0,
+    "post_grpo_ema_frac_neg": 0.0,
+    "post_grpo_ema_skewness": 0.0,
+    "post_grpo_ema_p10": 0.0,
+    "post_grpo_ema_p50": 0.0,
+    "post_grpo_ema_p90": 0.0,
+
     # Final (post adapter, class weighting, CVaR, group norm) advantages
     "final_advantage_batch_mu": 0.0,
     "final_advantage_batch_sigma": 1.0,
+    "final_advantage_batch_abs_mean": 0.0,
+    "final_advantage_batch_frac_pos": 0.0,
+    "final_advantage_batch_frac_neg": 0.0,
+    "final_advantage_batch_skewness": 0.0,
+    "final_advantage_batch_p10": 0.0,
+    "final_advantage_batch_p50": 0.0,
+    "final_advantage_batch_p90": 0.0,
     "final_advantage_ema_mu": 0.0,
     "final_advantage_ema_sigma": 1.0,
+    "final_advantage_ema_abs_mean": 0.0,
+    "final_advantage_ema_frac_pos": 0.0,
+    "final_advantage_ema_frac_neg": 0.0,
+    "final_advantage_ema_skewness": 0.0,
+    "final_advantage_ema_p10": 0.0,
+    "final_advantage_ema_p50": 0.0,
+    "final_advantage_ema_p90": 0.0,
 })
 
 # Per-dataset running stats & buffers (logging only; mirrors task_stats)
@@ -49,11 +88,45 @@ dataset_stats: Dict[Any, Dict[str, Any]] = defaultdict(lambda: {
     "k_batch_sigma": 0.0,
     "k_ema": 1.0,
 
+    # Post-GRPO (after group normalization) advantages
+    "post_grpo_batch_mu": 0.0,
+    "post_grpo_batch_sigma": 1.0,
+    "post_grpo_batch_abs_mean": 0.0,
+    "post_grpo_batch_frac_pos": 0.0,
+    "post_grpo_batch_frac_neg": 0.0,
+    "post_grpo_batch_skewness": 0.0,
+    "post_grpo_batch_p10": 0.0,
+    "post_grpo_batch_p50": 0.0,
+    "post_grpo_batch_p90": 0.0,
+    "post_grpo_ema_mu": 0.0,
+    "post_grpo_ema_sigma": 1.0,
+    "post_grpo_ema_abs_mean": 0.0,
+    "post_grpo_ema_frac_pos": 0.0,
+    "post_grpo_ema_frac_neg": 0.0,
+    "post_grpo_ema_skewness": 0.0,
+    "post_grpo_ema_p10": 0.0,
+    "post_grpo_ema_p50": 0.0,
+    "post_grpo_ema_p90": 0.0,
+
     # Final (post adapter, class weighting, CVaR, group norm) advantages
     "final_advantage_batch_mu": 0.0,
     "final_advantage_batch_sigma": 1.0,
+    "final_advantage_batch_abs_mean": 0.0,
+    "final_advantage_batch_frac_pos": 0.0,
+    "final_advantage_batch_frac_neg": 0.0,
+    "final_advantage_batch_skewness": 0.0,
+    "final_advantage_batch_p10": 0.0,
+    "final_advantage_batch_p50": 0.0,
+    "final_advantage_batch_p90": 0.0,
     "final_advantage_ema_mu": 0.0,
     "final_advantage_ema_sigma": 1.0,
+    "final_advantage_ema_abs_mean": 0.0,
+    "final_advantage_ema_frac_pos": 0.0,
+    "final_advantage_ema_frac_neg": 0.0,
+    "final_advantage_ema_skewness": 0.0,
+    "final_advantage_ema_p10": 0.0,
+    "final_advantage_ema_p50": 0.0,
+    "final_advantage_ema_p90": 0.0,
 })
 
 
@@ -102,6 +175,90 @@ def _compute_sd_from_values(
     var = var_acc / n if n > 0 else 0.0
     sd = math.sqrt(max(var, 0.0) + 1e-12)
     return float(max(sd, eps))
+
+
+def _compute_skewness(values: List[float], *, mu: Optional[float] = None, sd: Optional[float] = None, eps: float = 1e-8) -> float:
+    """
+    Compute skewness from a list of floats.
+
+    Args:
+        values: list of scalar values
+        mu:     optional precomputed mean
+        sd:     optional precomputed standard deviation
+        eps:    small positive number for numerical stability
+
+    Returns:
+        skewness (0.0 if < 3 samples)
+    """
+    n = len(values)
+    if n < 3:
+        return 0.0
+
+    if mu is None:
+        mu = _compute_mu_from_values(values)
+    if sd is None:
+        sd = _compute_sd_from_values(values, mu=mu, eps=eps)
+
+    if sd < eps:
+        return 0.0
+
+    m3 = sum((v - mu) ** 3 for v in values) / n
+    skew = m3 / (sd ** 3)
+    return float(skew)
+
+
+def _compute_percentiles(values: List[float], percentiles: List[float] = [10, 50, 90]) -> Dict[str, float]:
+    """
+    Compute percentiles from a list of floats.
+
+    Args:
+        values: list of scalar values
+        percentiles: list of percentile values to compute (0-100)
+
+    Returns:
+        dict mapping 'p{percentile}' to computed value
+    """
+    if len(values) == 0:
+        return {f"p{int(p)}": 0.0 for p in percentiles}
+
+    sorted_vals = sorted(values)
+    n = len(sorted_vals)
+    result = {}
+
+    for p in percentiles:
+        # Linear interpolation for percentile
+        idx = (p / 100.0) * (n - 1)
+        lower_idx = int(math.floor(idx))
+        upper_idx = int(math.ceil(idx))
+
+        if lower_idx == upper_idx:
+            result[f"p{int(p)}"] = float(sorted_vals[lower_idx])
+        else:
+            weight = idx - lower_idx
+            result[f"p{int(p)}"] = float(sorted_vals[lower_idx] * (1 - weight) + sorted_vals[upper_idx] * weight)
+
+    return result
+
+
+def _compute_abs_mean(values: List[float]) -> float:
+    """Compute mean of absolute values."""
+    if len(values) == 0:
+        return 0.0
+    return float(sum(abs(v) for v in values) / len(values))
+
+
+def _compute_fraction_positive(values: List[float]) -> float:
+    """Compute fraction of positive values."""
+    if len(values) == 0:
+        return 0.0
+    return float(sum(1 for v in values if v > 0) / len(values))
+
+
+def _compute_fraction_negative(values: List[float]) -> float:
+    """Compute fraction of negative values."""
+    if len(values) == 0:
+        return 0.0
+    return float(sum(1 for v in values if v < 0) / len(values))
 
 
 def build_mappings(
@@ -284,68 +441,171 @@ def update_k_stats_from_q2k(
         dataset_stats[dataset]["k_ema"] = _ema_update(dataset_stats[dataset].get("k_ema", 1.0), float(mu), beta_mean)
 
 
-def update_final_advantages_stats(
-    final_scores: torch.Tensor,           # (B,)
-    task_ids: List[Any],                  # (B,)
-    dataset_ids: List[Any],               # (B,)
+def _update_advantage_stats_general(
+    task_to_vals: Dict[Any, List[float]],
+    dataset_to_vals: Dict[Any, List[float]],
     *,
+    stat_prefix: str,  # e.g., "post_grpo" or "final_advantage"
     beta_mu: float,
     beta_sigma: float,
     eps: float,
 ) -> None:
     """
-    Centralized logging for FINAL TARPO advantages.
+    General function to update advantage statistics for both tasks and datasets.
 
-    Uses the final scalar scores per rollout (after task adapter,
-    class weights, CVaR boost, and optional group norm) and records:
-        - per-task batch μ/σ and EMA μ/σ
-        - per-dataset batch μ/σ and EMA μ/σ
-    into `task_stats` and `dataset_stats`.
+    This function computes and updates:
+        - Batch stats: mu, sigma, abs_mean, frac_pos, frac_neg, skewness, p10/p50/p90
+        - EMA stats: mu, sigma, abs_mean, frac_pos, frac_neg
 
-    Purely logging; does not affect TARPO computation.
+    Args:
+        task_to_vals:    dict mapping task_id -> list of advantage values
+        dataset_to_vals: dict mapping dataset_id -> list of advantage values
+        stat_prefix:     prefix for stat keys (e.g., "post_grpo" or "final_advantage")
+        beta_mu:         EMA decay for mean
+        beta_sigma:      EMA decay for std
+        eps:             small epsilon for numerical stability
     """
-    B = final_scores.shape[0]
-
-    # Collect values per task / dataset
-    # have to collect again as these values are not rollouts
-    task_to_vals: Dict[Any, List[float]]    = defaultdict(list)
-    dataset_to_vals: Dict[Any, List[float]] = defaultdict(list)
-
-    for i in range(B):
-        v = float(final_scores[i].item())
-        t = task_ids[i]
-        d = dataset_ids[i]
-        task_to_vals[t].append(v)
-        dataset_to_vals[d].append(v)
-
-    # Per-task final advantage stats
+    # Per-task stats
     for t, vals in task_to_vals.items():
         if not vals:
             continue
 
         mu = _compute_mu_from_values(vals)
         sd = _compute_sd_from_values(vals, mu=mu, eps=eps)
+        abs_mean = _compute_abs_mean(vals)
+        frac_pos = _compute_fraction_positive(vals)
+        frac_neg = _compute_fraction_negative(vals)
+        skew = _compute_skewness(vals, mu=mu, sd=sd, eps=eps)
+        percentiles = _compute_percentiles(vals, percentiles=[10, 50, 90])
 
-        task_stats[t]["final_advantage_batch_mu"]    = float(mu)
-        task_stats[t]["final_advantage_batch_sigma"] = float(sd)
+        # Batch stats
+        task_stats[t][f"{stat_prefix}_batch_mu"] = float(mu)
+        task_stats[t][f"{stat_prefix}_batch_sigma"] = float(sd)
+        task_stats[t][f"{stat_prefix}_batch_abs_mean"] = float(abs_mean)
+        task_stats[t][f"{stat_prefix}_batch_frac_pos"] = float(frac_pos)
+        task_stats[t][f"{stat_prefix}_batch_frac_neg"] = float(frac_neg)
+        task_stats[t][f"{stat_prefix}_batch_skewness"] = float(skew)
+        task_stats[t][f"{stat_prefix}_batch_p10"] = percentiles["p10"]
+        task_stats[t][f"{stat_prefix}_batch_p50"] = percentiles["p50"]
+        task_stats[t][f"{stat_prefix}_batch_p90"] = percentiles["p90"]
 
-        prev_mu    = task_stats[t].get("final_advantage_ema_mu", 0.0)
-        prev_sigma = task_stats[t].get("final_advantage_ema_sigma", 1.0)
-        task_stats[t]["final_advantage_ema_mu"]    = _ema_update(prev_mu,    float(mu), beta_mu)
-        task_stats[t]["final_advantage_ema_sigma"] = _ema_update(prev_sigma, float(sd),  beta_sigma)
+        # EMA stats
+        prev_mu = task_stats[t].get(f"{stat_prefix}_ema_mu", 0.0)
+        prev_sigma = task_stats[t].get(f"{stat_prefix}_ema_sigma", 1.0)
+        prev_abs_mean = task_stats[t].get(f"{stat_prefix}_ema_abs_mean", 0.0)
+        prev_frac_pos = task_stats[t].get(f"{stat_prefix}_ema_frac_pos", 0.0)
+        prev_frac_neg = task_stats[t].get(f"{stat_prefix}_ema_frac_neg", 0.0)
+        prev_skewness = task_stats[t].get(f"{stat_prefix}_ema_skewness", 0.0)
+        prev_p10 = task_stats[t].get(f"{stat_prefix}_ema_p10", 0.0)
+        prev_p50 = task_stats[t].get(f"{stat_prefix}_ema_p50", 0.0)
+        prev_p90 = task_stats[t].get(f"{stat_prefix}_ema_p90", 0.0)
 
-    # Per-dataset final advantage stats
+        task_stats[t][f"{stat_prefix}_ema_mu"] = _ema_update(prev_mu, float(mu), beta_mu)
+        task_stats[t][f"{stat_prefix}_ema_sigma"] = _ema_update(prev_sigma, float(sd), beta_sigma)
+        task_stats[t][f"{stat_prefix}_ema_abs_mean"] = _ema_update(prev_abs_mean, float(abs_mean), beta_mu)
+        task_stats[t][f"{stat_prefix}_ema_frac_pos"] = _ema_update(prev_frac_pos, float(frac_pos), beta_mu)
+        task_stats[t][f"{stat_prefix}_ema_frac_neg"] = _ema_update(prev_frac_neg, float(frac_neg), beta_mu)
+        task_stats[t][f"{stat_prefix}_ema_skewness"] = _ema_update(prev_skewness, float(skew), beta_mu)
+        task_stats[t][f"{stat_prefix}_ema_p10"] = _ema_update(prev_p10, percentiles["p10"], beta_mu)
+        task_stats[t][f"{stat_prefix}_ema_p50"] = _ema_update(prev_p50, percentiles["p50"], beta_mu)
+        task_stats[t][f"{stat_prefix}_ema_p90"] = _ema_update(prev_p90, percentiles["p90"], beta_mu)
+
+    # Per-dataset stats
     for d, vals in dataset_to_vals.items():
         if not vals:
             continue
 
         mu = _compute_mu_from_values(vals)
         sd = _compute_sd_from_values(vals, mu=mu, eps=eps)
+        abs_mean = _compute_abs_mean(vals)
+        frac_pos = _compute_fraction_positive(vals)
+        frac_neg = _compute_fraction_negative(vals)
+        skew = _compute_skewness(vals, mu=mu, sd=sd, eps=eps)
+        percentiles = _compute_percentiles(vals, percentiles=[10, 50, 90])
 
-        dataset_stats[d]["final_advantage_batch_mu"]    = float(mu)
-        dataset_stats[d]["final_advantage_batch_sigma"] = float(sd)
+        # Batch stats
+        dataset_stats[d][f"{stat_prefix}_batch_mu"] = float(mu)
+        dataset_stats[d][f"{stat_prefix}_batch_sigma"] = float(sd)
+        dataset_stats[d][f"{stat_prefix}_batch_abs_mean"] = float(abs_mean)
+        dataset_stats[d][f"{stat_prefix}_batch_frac_pos"] = float(frac_pos)
+        dataset_stats[d][f"{stat_prefix}_batch_frac_neg"] = float(frac_neg)
+        dataset_stats[d][f"{stat_prefix}_batch_skewness"] = float(skew)
+        dataset_stats[d][f"{stat_prefix}_batch_p10"] = percentiles["p10"]
+        dataset_stats[d][f"{stat_prefix}_batch_p50"] = percentiles["p50"]
+        dataset_stats[d][f"{stat_prefix}_batch_p90"] = percentiles["p90"]
 
-        prev_mu    = dataset_stats[d].get("final_advantage_ema_mu", 0.0)
-        prev_sigma = dataset_stats[d].get("final_advantage_ema_sigma", 1.0)
-        dataset_stats[d]["final_advantage_ema_mu"]    = _ema_update(prev_mu,    float(mu), beta_mu)
-        dataset_stats[d]["final_advantage_ema_sigma"] = _ema_update(prev_sigma, float(sd),  beta_sigma)
+        # EMA stats
+        prev_mu = dataset_stats[d].get(f"{stat_prefix}_ema_mu", 0.0)
+        prev_sigma = dataset_stats[d].get(f"{stat_prefix}_ema_sigma", 1.0)
+        prev_abs_mean = dataset_stats[d].get(f"{stat_prefix}_ema_abs_mean", 0.0)
+        prev_frac_pos = dataset_stats[d].get(f"{stat_prefix}_ema_frac_pos", 0.0)
+        prev_frac_neg = dataset_stats[d].get(f"{stat_prefix}_ema_frac_neg", 0.0)
+        prev_skewness = dataset_stats[d].get(f"{stat_prefix}_ema_skewness", 0.0)
+        prev_p10 = dataset_stats[d].get(f"{stat_prefix}_ema_p10", 0.0)
+        prev_p50 = dataset_stats[d].get(f"{stat_prefix}_ema_p50", 0.0)
+        prev_p90 = dataset_stats[d].get(f"{stat_prefix}_ema_p90", 0.0)
+
+        dataset_stats[d][f"{stat_prefix}_ema_mu"] = _ema_update(prev_mu, float(mu), beta_mu)
+        dataset_stats[d][f"{stat_prefix}_ema_sigma"] = _ema_update(prev_sigma, float(sd), beta_sigma)
+        dataset_stats[d][f"{stat_prefix}_ema_abs_mean"] = _ema_update(prev_abs_mean, float(abs_mean), beta_mu)
+        dataset_stats[d][f"{stat_prefix}_ema_frac_pos"] = _ema_update(prev_frac_pos, float(frac_pos), beta_mu)
+        dataset_stats[d][f"{stat_prefix}_ema_frac_neg"] = _ema_update(prev_frac_neg, float(frac_neg), beta_mu)
+        dataset_stats[d][f"{stat_prefix}_ema_skewness"] = _ema_update(prev_skewness, float(skew), beta_mu)
+        dataset_stats[d][f"{stat_prefix}_ema_p10"] = _ema_update(prev_p10, percentiles["p10"], beta_mu)
+        dataset_stats[d][f"{stat_prefix}_ema_p50"] = _ema_update(prev_p50, percentiles["p50"], beta_mu)
+        dataset_stats[d][f"{stat_prefix}_ema_p90"] = _ema_update(prev_p90, percentiles["p90"], beta_mu)
+
+
+def update_advantage_stats(
+    q2_values: Dict[Any, List[float]],   # per-qid value lists
+    q2tasks: Dict[Any, Any],              # qid -> task_id mapping
+    q2datasets: Dict[Any, Any],           # qid -> dataset_id mapping
+    *,
+    stat_prefix: str,                     # e.g., "post_grpo" or "final_advantage"
+    beta_mu: float,
+    beta_sigma: float,
+    eps: float,
+) -> None:
+    """
+    Track advantage statistics from per-qid value dictionaries.
+
+    This is a general function that can be used to track advantages at any stage:
+        - Post-GRPO (after group normalization)
+        - Final advantages (after all transformations)
+        - Or any other intermediate stage
+
+    Computes and logs:
+        - Batch & EMA mean/std
+        - Absolute mean
+        - Fraction positive/negative
+        - Skewness
+        - Percentiles (p10, p50, p90)
+
+    Args:
+        q2_values:   per-qid value lists (e.g., q2rollouts, q2_final)
+        q2tasks:     qid -> task_id mapping
+        q2datasets:  qid -> dataset_id mapping
+        stat_prefix: prefix for stat keys (e.g., "post_grpo", "final_advantage")
+        beta_mu:     EMA decay for mean
+        beta_sigma:  EMA decay for std
+        eps:         small epsilon for numerical stability
+    """
+    # Collect values per task / dataset
+    task_to_vals: Dict[Any, List[float]] = defaultdict(list)
+    dataset_to_vals: Dict[Any, List[float]] = defaultdict(list)
+
+    for qid, vals in q2_values.items():
+        t = q2tasks[qid]
+        d = q2datasets[qid]
+        task_to_vals[t].extend(vals)
+        dataset_to_vals[d].extend(vals)
+
+    # Use general update function
+    _update_advantage_stats_general(
+        task_to_vals=task_to_vals,
+        dataset_to_vals=dataset_to_vals,
+        stat_prefix=stat_prefix,
+        beta_mu=beta_mu,
+        beta_sigma=beta_sigma,
+        eps=eps,
+    )

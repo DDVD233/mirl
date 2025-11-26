@@ -1576,7 +1576,7 @@ from .tarpo_utils import (
     build_mappings,
     update_raw_stats,    # U1
     update_k_stats_from_q2k,        # U2
-    update_final_advantages_stats,  # U3
+    update_advantage_stats
 )
 
 @register_adv_est(AdvantageEstimator.TARPO)
@@ -1694,12 +1694,26 @@ def compute_tarpo_outcome_advantage(
             if len(vals) < 2:
                 # With a single rollout, GRPO normalization is ill-defined; keep as is.
                 continue
-                
+
             # Original GRPO-style group normalization: (v - mean) / std
             mu = float(np.mean(vals))
             sd = float(np.std(vals, ddof=0))
             sd = max(sd, eps)
             q2rollouts[qid] = [(v - mu) / sd for v in vals]
+
+        # ---------------------------------------------------------------------
+        # U2.5) Track POST-GRPO advantages per task and per dataset
+        #       (after GRPO group normalization, before task adapter)
+        # ---------------------------------------------------------------------
+        update_advantage_stats(
+            q2rollouts=q2rollouts,
+            q2tasks=q2tasks,
+            q2datasets=q2datasets,
+            stat_prefix="post_grpo_advantages",
+            beta_mu=beta_mu,
+            beta_sigma=beta_sigma,
+            eps=eps,
+        )
 
     # -------------------------------------------------------------------------
     # D) Task-adapter centering
@@ -1718,27 +1732,47 @@ def compute_tarpo_outcome_advantage(
         #     # Rough Mean scaling (to downweight high-performing tasks)
         #     q2norm[qid] = [(v / mu_t) for v in vals]
 
-        # 1) Compute a global reference mean across tasks
+        # 1) Compute global reference mean and sigma across tasks
         task_mus = [float(stats["ema_mu"]) for stats in task_stats.values()]
+        task_sigmas = [float(stats["post_grpo_ema_sigma"]) for stats in task_stats.values()]
+
         mu_ref = sum(task_mus) / max(len(task_mus), 1)
+        sigma_ref = sum(task_sigmas) / max(len(task_sigmas), 1)
 
         # 2) Reasonable bounds so we don't explode or vanish
-        MIN_SCALE = 0.5   # at most 2x downweight
-        MAX_SCALE = 2.0   # at most 2x upweight
+        MIN_SCALE = 0.3     # at most 3x downweight
+        MAX_SCALE = 3.0      # at most 3x upweight
         EPS = 1e-6
-        SCALE_COEFF = 1.5
+        SCALE_COEFF = 2.0
+        SIGMA_WEIGHT = 0.8   # 0 = pure μ scaling, 1 = pure σ scaling, 0.5 = balanced
 
         q2norm: Dict[Any, List[float]] = {}
         for qid, vals in q2rollouts.items():
             task = q2tasks[qid]
             mu_t = float(task_stats[task]["ema_mu"])
+            sigma_t = float(task_stats[task]["post_grpo_ema_sigma"])
 
-            # Relative scaling: >1 if task underperforms, <1 if overperforms
-            raw_scale = mu_ref / max(mu_t, EPS)
+            # μ-based scaling: >1 if task underperforms, <1 if overperforms
+            raw_mu_scale = mu_ref / max(mu_t, EPS)
+
+            # σ-based scaling: >1 if "too quiet" (low variance), <1 if "too loud" (high variance)
+            raw_sigma_scale = sigma_ref / max(sigma_t, EPS)
+
+            # Blend: SIGMA_WEIGHT interpolates between mu-only (0) and sigma-only (1)
+            # raw_scale = (1 - SIGMA_WEIGHT) * raw_mu_scale + SIGMA_WEIGHT * raw_sigma_scale
+            # But multiplicative blend is more stable:
+            raw_scale = ((raw_mu_scale ** (1 - SIGMA_WEIGHT)) * (raw_sigma_scale ** SIGMA_WEIGHT)) ** SCALE_COEFF
+            
+            # Clamp overall scale
             scale_t = max(MIN_SCALE, min(MAX_SCALE, raw_scale))
 
+            # Track scaling factors for this task
+            task_stats[task]["adapter_mu_scale"] = float(raw_mu_scale)
+            task_stats[task]["adapter_sigma_scale"] = float(raw_sigma_scale)
+            task_stats[task]["adapter_final_scale"] = float(scale_t)
+
             # Scale_t nudges tasks up/down
-            q2norm[qid] = [(v) * SCALE_COEFF * scale_t for v in vals]
+            q2norm[qid] = [(v) * scale_t for v in vals]
 
     else:
         q2norm = {qid: list(vals) for qid, vals in q2rollouts.items()}
@@ -1996,10 +2030,11 @@ def compute_tarpo_outcome_advantage(
     # --------------------------------------------
     # U3) Update FINAL TARPO advantages per task and per dataset
     # --------------------------------------------
-    update_final_advantages_stats(
-        final_scores=final_scores,
-        task_ids=task_ids,
-        dataset_ids=dataset_ids,
+    update_advantage_stats(
+        q2_final=q2_final,
+        q2tasks=q2tasks,
+        q2datasets=q2datasets,
+        stat_prefix="final_advantages",
         beta_mu=beta_mu,
         beta_sigma=beta_sigma,
         eps=eps,
