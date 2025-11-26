@@ -594,6 +594,10 @@ def update_advantage_stats(
     task_to_vals: Dict[Any, List[float]] = defaultdict(list)
     dataset_to_vals: Dict[Any, List[float]] = defaultdict(list)
 
+    # CHECK IF STATS_PREFIX IN TASK STATS 
+    if not stat_prefix in task_stats or not stat_prefix in dataset_stats:
+        raise Exception(f"State Prefix: {stat_prefix} not in task or dataset tracking stats")
+
     for qid, vals in q2_advantages.items():
         t = q2tasks[qid]
         d = q2datasets[qid]
