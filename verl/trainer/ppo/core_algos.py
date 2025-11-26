@@ -1706,7 +1706,7 @@ def compute_tarpo_outcome_advantage(
         #       (after GRPO group normalization, before task adapter)
         # ---------------------------------------------------------------------
         update_advantage_stats(
-            q2rollouts=q2rollouts,
+            q2_values=q2rollouts,
             q2tasks=q2tasks,
             q2datasets=q2datasets,
             stat_prefix="post_grpo_advantages",
@@ -2031,7 +2031,7 @@ def compute_tarpo_outcome_advantage(
     # U3) Update FINAL TARPO advantages per task and per dataset
     # --------------------------------------------
     update_advantage_stats(
-        q2_final=q2_final,
+        q2_values=q2_final,
         q2tasks=q2tasks,
         q2datasets=q2datasets,
         stat_prefix="final_advantages",
