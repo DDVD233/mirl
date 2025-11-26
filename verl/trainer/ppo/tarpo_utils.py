@@ -557,7 +557,7 @@ def _update_advantage_stats_general(
 
 
 def update_advantage_stats(
-    q2_values: Dict[Any, List[float]],   # per-qid value lists
+    q2_advantages: Dict[Any, List[float]],   # per-qid value lists
     q2tasks: Dict[Any, Any],              # qid -> task_id mapping
     q2datasets: Dict[Any, Any],           # qid -> dataset_id mapping
     *,
@@ -594,7 +594,7 @@ def update_advantage_stats(
     task_to_vals: Dict[Any, List[float]] = defaultdict(list)
     dataset_to_vals: Dict[Any, List[float]] = defaultdict(list)
 
-    for qid, vals in q2_values.items():
+    for qid, vals in q2_advantages.items():
         t = q2tasks[qid]
         d = q2datasets[qid]
         task_to_vals[t].extend(vals)
