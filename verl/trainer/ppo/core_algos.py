@@ -1807,7 +1807,7 @@ def compute_tarpo_outcome_advantage(
         log_rho_ref = sum(log_rhos) / len(log_rhos)
         rho_ref     = math.exp(log_rho_ref)  # mostly for logging / inspection
 
-        LOG_RHO_MAX = 2.0   # clamp log-ratio (~ up to ~7.4x)
+        # LOG_RHO_MAX = 2.0   # clamp log-ratio (~ up to ~7.4x)
         SCALE_COEFF = 1.0
         MIN_SCALE   = 0.25
         MAX_SCALE   = 8.0
@@ -1822,7 +1822,7 @@ def compute_tarpo_outcome_advantage(
             log_rho_t = math.log(rho_t)
             # >0 ⇒ task is sparser (lower density) than reference ⇒ boost
             log_sparsity_ratio = log_rho_ref - log_rho_t
-            log_sparsity_ratio = max(-LOG_RHO_MAX, min(LOG_RHO_MAX, log_sparsity_ratio))
+            # log_sparsity_ratio = max(-LOG_RHO_MAX, min(LOG_RHO_MAX, log_sparsity_ratio))
 
             log_scale = SCALE_COEFF * log_sparsity_ratio
             raw_scale = math.exp(log_scale)
