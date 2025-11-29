@@ -1589,7 +1589,8 @@ def compute_tarpo_outcome_advantage(
     class_labels:       List[Any],       # (B,) class label per sample (for weighting)
     *,
     # --- Ablation toggles ---
-    use_task_adapter:   bool = True,
+    use_task_adapter:   bool = False,
+    use_task_mixture_adapter: bool = True, 
     use_class_weights:  bool = False,
     use_cvar_boost:     bool = False,
     use_grpo_group_norm: bool = True,
@@ -1775,6 +1776,68 @@ def compute_tarpo_outcome_advantage(
             q2norm[qid] = [(v) * scale_t for v in vals]
 
     else:
+        q2norm = {qid: list(vals) for qid, vals in q2rollouts.items()}
+
+    if use_task_mixture_adapter:
+        # --- Mixture-based sparsity adapter (simple version) ---
+        # For each task t:
+        #   ρ_t ≈ post_grpo_advantage_ema_abs_mean / |post_grpo_advantage_ema_p90|
+        # Then scale advantages by exp( log(ρ_ref) − log(ρ_t) ), clamped.
+
+        task_to_density: Dict[Any, float] = {}
+        densities: List[float] = []
+
+        # 1) Compute ρ_t for every task from EMA stats
+        for task, stats in task_stats.items():
+            abs_mean_ema = float(stats.get("post_grpo_advantage_ema_abs_mean", 0.0))
+            p90_ema      = float(stats.get("post_grpo_advantage_ema_p90", 0.0))
+
+            tail_scale = max(abs(p90_ema), eps)
+            if tail_scale > 0.0:
+                rho_t = abs_mean_ema / tail_scale
+            else:
+                rho_t = 0.0
+
+            task_to_density[task] = rho_t
+            densities.append(rho_t)
+
+        # Assume we always have at least one task; use all densities to define reference.
+        # 2) Global reference density (geometric mean)
+        log_rhos    = [math.log(r + eps) for r in densities]
+        log_rho_ref = sum(log_rhos) / len(log_rhos)
+        rho_ref     = math.exp(log_rho_ref)  # mostly for logging / inspection
+
+        LOG_RHO_MAX = 2.0   # clamp log-ratio (~ up to ~7.4x)
+        SCALE_COEFF = 1.0
+        MIN_SCALE   = 0.25
+        MAX_SCALE   = 8.0
+
+        q2norm = {}
+        for qid, vals in q2rollouts.items():
+            task  = q2tasks[qid]
+
+            rho_t = task_to_density.get(task, 0.0)
+            rho_t = max(rho_t, eps)  # avoid log(0)
+
+            log_rho_t = math.log(rho_t)
+            # >0 ⇒ task is sparser (lower density) than reference ⇒ boost
+            log_sparsity_ratio = log_rho_ref - log_rho_t
+            log_sparsity_ratio = max(-LOG_RHO_MAX, min(LOG_RHO_MAX, log_sparsity_ratio))
+
+            log_scale = SCALE_COEFF * log_sparsity_ratio
+            raw_scale = math.exp(log_scale)
+            scale_t   = max(MIN_SCALE, min(MAX_SCALE, raw_scale))
+
+            # Optional logging for analysis
+            task_stats[task]["mixture_density"]     = float(rho_t)
+            task_stats[task]["mixture_rho_ref"]     = float(rho_ref)
+            task_stats[task]["mixture_log_scale"]   = float(log_scale)
+            task_stats[task]["mixture_final_scale"] = float(scale_t)
+
+            q2norm[qid] = [v * scale_t for v in vals]
+
+    else:
+        # No task adapter at all
         q2norm = {qid: list(vals) for qid, vals in q2rollouts.items()}
 
     # -------------------------------------------

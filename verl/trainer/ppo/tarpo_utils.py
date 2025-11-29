@@ -50,6 +50,12 @@ task_stats: Dict[Any, Dict[str, Any]] = defaultdict(lambda: {
     "post_grpo_advantage_ema_p50": 0.0,
     "post_grpo_advantage_ema_p90": 0.0,
 
+    # Mixture model parameters
+    "mixture_density": 0.0,
+    "mixture_rho_ref": 0.0,
+    "mixture_log_scale": 0.0,
+    "mixture_final_scale": 1.0,
+
     # Final (post adapter, class weighting, CVaR, group norm) advantages
     "final_advantage_batch_mu": 0.0,
     "final_advantage_batch_sigma": 1.0,
@@ -107,7 +113,7 @@ dataset_stats: Dict[Any, Dict[str, Any]] = defaultdict(lambda: {
     "post_grpo_advantage_ema_p10": 0.0,
     "post_grpo_advantage_ema_p50": 0.0,
     "post_grpo_advantage_ema_p90": 0.0,
-
+    
     # Final (post adapter, class weighting, CVaR, group norm) advantages
     "final_advantage_batch_mu": 0.0,
     "final_advantage_batch_sigma": 1.0,
@@ -509,6 +515,7 @@ def _update_advantage_stats_general(
         task_stats[t][f"{stat_prefix}_ema_p10"] = _ema_update(prev_p10, percentiles["p10"], beta_mu)
         task_stats[t][f"{stat_prefix}_ema_p50"] = _ema_update(prev_p50, percentiles["p50"], beta_mu)
         task_stats[t][f"{stat_prefix}_ema_p90"] = _ema_update(prev_p90, percentiles["p90"], beta_mu)
+
 
     # Per-dataset stats
     for d, vals in dataset_to_vals.items():

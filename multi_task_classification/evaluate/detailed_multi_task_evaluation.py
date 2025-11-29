@@ -187,7 +187,7 @@ def compute_metrics_by_dataset(
                     "datasets": datasets,
                 }
         payload = to_jsonable(payload)
-        with open(os.path.join(save_path, f"val_generations_{global_steps}.json"), "w") as f:
+        with open(os.path.join(save_path, f"cls_val_generations_{global_steps}.json"), "w") as f:
             json.dump(payload, f, indent=2, ensure_ascii=False)
 
     # DOMAIN SHOULD ALREADY BE DEFINED IN THE META DATA; we need to be careful about the meta file though; as it has strict format
