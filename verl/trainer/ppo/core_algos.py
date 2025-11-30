@@ -1793,6 +1793,10 @@ def compute_tarpo_outcome_advantage(
             p90_ema      = float(stats.get("post_grpo_advantage_ema_p90", 0.0))
 
             tail_scale = max(abs(p90_ema), eps)
+
+            # RHO_T is actually that of sparsity.
+            # Greater rho_t greater sparsity.
+
             if tail_scale > 0.0:
                 rho_t = abs_mean_ema / tail_scale
             else:
@@ -1818,7 +1822,7 @@ def compute_tarpo_outcome_advantage(
 
             log_rho_t = math.log(rho_t)
             # >0 ⇒ task is sparser (lower density) than reference ⇒ boost
-            log_sparsity_ratio = log_rho_ref - log_rho_t
+            log_sparsity_ratio = log_rho_t - log_rho_ref
 
             log_scale = SCALE_COEFF * log_sparsity_ratio
             raw_scale = math.exp(log_scale)
