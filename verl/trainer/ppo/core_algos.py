@@ -1812,28 +1812,29 @@ def compute_tarpo_outcome_advantage(
         MIN_SCALE   = 0.25
         MAX_SCALE   = 8.0
 
-        q2norm = {}
-        for qid, vals in q2rollouts.items():
-            task  = q2tasks[qid]
-
-            rho_t = task_to_density.get(task, 0.0)
+        # 3) Compute and log mixture params for ALL tasks
+        for task, rho_t in task_to_density.items():
             rho_t = max(rho_t, eps)  # avoid log(0)
 
             log_rho_t = math.log(rho_t)
             # >0 ⇒ task is sparser (lower density) than reference ⇒ boost
             log_sparsity_ratio = log_rho_ref - log_rho_t
-            # log_sparsity_ratio = max(-LOG_RHO_MAX, min(LOG_RHO_MAX, log_sparsity_ratio))
 
             log_scale = SCALE_COEFF * log_sparsity_ratio
             raw_scale = math.exp(log_scale)
-            scale_t   = max(MIN_SCALE, min(MAX_SCALE, raw_scale))
+            scale_t = max(MIN_SCALE, min(MAX_SCALE, raw_scale))
 
-            # Optional logging for analysis
-            task_stats[task]["mixture_density"]     = float(rho_t)
-            task_stats[task]["mixture_rho_ref"]     = float(rho_ref)
-            task_stats[task]["mixture_log_scale"]   = float(log_scale)
+            # Store mixture params for this task
+            task_stats[task]["mixture_density"] = float(rho_t)
+            task_stats[task]["mixture_rho_ref"] = float(rho_ref)
+            task_stats[task]["mixture_log_scale"] = float(log_scale)
             task_stats[task]["mixture_final_scale"] = float(scale_t)
 
+        # 4) Apply pre-computed scaling to queries
+        q2norm = {}
+        for qid, vals in q2rollouts.items():
+            task = q2tasks[qid]
+            scale_t = task_stats[task]["mixture_final_scale"]
             q2norm[qid] = [v * scale_t for v in vals]
 
     else:
