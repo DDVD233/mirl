@@ -759,6 +759,8 @@ def compute_metrics_by_data_source(
             print(f"{key}/{result[key]:.4f}")
     except KeyError:
         print("No fairness metrics computed.")
+    except ZeroDivisionError:
+        print("Division by zero, no fairness metrics computed.")
 
     return result
 
