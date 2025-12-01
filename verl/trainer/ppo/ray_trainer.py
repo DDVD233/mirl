@@ -63,6 +63,7 @@ from verl.utils.seqlen_balancing import calculate_workload, get_seqlen_balanced_
 from verl.utils.torch_functional import masked_mean
 from verl.utils.tracking import ValidationGenerationsLogger
 from examples.reward_function.evaluation import compute_metrics_by_data_source
+import traceback
 
 
 @dataclass
@@ -696,6 +697,7 @@ class RayPPOTrainer:
             wandb.log(metrics, step=self.global_steps)
         except Exception as e:
             logging.warning(f"Warning: Could not compute data source metrics. Error: {e}")
+            print(traceback.format_exc())
 
         for key_info, lst in reward_extra_infos_dict.items():
             assert len(lst) == 0 or len(lst) == len(sample_scores), f"{key_info}: {len(lst)=}, {len(sample_scores)=}"
