@@ -1321,7 +1321,7 @@ class RayPPOTrainer:
             out[f"{prefix}/post_grpo_advantage_ema_p90"]          = float(st.get("post_grpo_advantage_ema_p90", 0.0))
 
             # --- Mixture model parameters ---
-            out[f"{prefix}/mixture_density"]     = float(st.get("mixture_density", 0.0))
+            out[f"{prefix}/mixture_rho_t"]     = float(st.get("mixture_rho_t", 0.0))
             out[f"{prefix}/mixture_rho_ref"]     = float(st.get("mixture_rho_ref", 0.0))
             out[f"{prefix}/mixture_log_scale"]   = float(st.get("mixture_log_scale", 0.0))
             out[f"{prefix}/mixture_final_scale"] = float(st.get("mixture_final_scale", 1.0))
@@ -1412,10 +1412,10 @@ class RayPPOTrainer:
             out[f"{prefix}/post_grpo_advantage_ema_p90"]          = float(st.get("post_grpo_advantage_ema_p90", 0.0))
 
             # --- Mixture model parameters ---
-            out[f"{prefix}/mixture_density"]     = float(st.get("mixture_density", 0.0))
-            out[f"{prefix}/mixture_rho_ref"]     = float(st.get("mixture_rho_ref", 0.0))
-            out[f"{prefix}/mixture_log_scale"]   = float(st.get("mixture_log_scale", 0.0))
-            out[f"{prefix}/mixture_final_scale"] = float(st.get("mixture_final_scale", 1.0))
+            # out[f"{prefix}/mixture_density"]     = float(st.get("mixture_density", 0.0))
+            # out[f"{prefix}/mixture_rho_ref"]     = float(st.get("mixture_rho_ref", 0.0))
+            # out[f"{prefix}/mixture_log_scale"]   = float(st.get("mixture_log_scale", 0.0))
+            # out[f"{prefix}/mixture_final_scale"] = float(st.get("mixture_final_scale", 1.0))
 
             # --- Final TARPO advantages (after all transformations) ---
             out[f"{prefix}/final_advantage_batch_mu"]         = float(st.get("final_advantage_batch_mu", 0.0))

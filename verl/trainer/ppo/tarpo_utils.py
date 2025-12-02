@@ -51,7 +51,7 @@ task_stats: Dict[Any, Dict[str, Any]] = defaultdict(lambda: {
     "post_grpo_advantage_ema_p90": 0.0,
 
     # Mixture model parameters
-    "mixture_density": 0.0,
+    "mixture_rho_t": 0.0,
     "mixture_rho_ref": 0.0,
     "mixture_log_scale": 0.0,
     "mixture_final_scale": 1.0,
