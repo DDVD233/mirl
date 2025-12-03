@@ -1590,11 +1590,11 @@ def compute_tarpo_outcome_advantage(
     *,
     # --- Ablation toggles ---
     use_task_adapter:   bool = False,
-    use_task_mixture_adapter: bool = True, 
+    use_task_mixture_adapter: bool = False, 
     use_class_weights:  bool = False,
     use_cvar_boost:     bool = False,
     use_grpo_group_norm: bool = True,
-    use_task_mixture_density_adapter: bool = False,
+    use_task_mixture_density_adapter: bool = True,
     # --- Hyperparameters ---
     eps: float = EPS_DEFAULT,
     alpha: float = 0.2,                  # CVaR tail fraction
@@ -1847,8 +1847,8 @@ def compute_tarpo_outcome_advantage(
     if use_task_mixture_density_adapter:
 
         # Hyperparams for mixture responsibilities
-        BETA_R    = 4.0     # how sharp the signal/background decision is
-        DELTA_R   = 0.25    # cutoff threshold for z
+        BETA_R    = 4.0     # how sharp the signal/background decision is; how crisp the cut between background and tail-signal is.
+        DELTA_R   = 0.25    # cutoff threshold for z;  how far into the tail you must go before a sample is treated as “signal.”
         GAMMA     = 1.0     # how strongly density ratios affect scale
         MIN_SCALE = 0.25
         MAX_SCALE = 8.0
