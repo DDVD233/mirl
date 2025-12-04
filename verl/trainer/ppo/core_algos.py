@@ -1889,15 +1889,18 @@ def compute_tarpo_outcome_advantage(
 
             q2rvalues[qid] = r_list
 
-        # Step 2 — compute task-level "densities" ρ_t as total signal mass
+        # Step 2 — compute task-level "densities" ρ_t as *average* signal mass
         task_densities = {}
         density_list   = []
 
         for task, mass in task_signal_mass.items():
-            # No normalization by count: rho_t is total signal mass
-            rho_t = max(mass, eps)
+            count = max(task_count[task], 1)
+            
+            # NORMALIZE BY COUNT
+            rho_t = max(mass / count, eps)
+
             task_densities[task] = rho_t
-            density_list.append(rho_t)
+            density_list.append(rho_t)    
 
         # Step 3 — reference density (geometric mean across tasks)
         log_rhos    = [math.log(r) for r in density_list]
