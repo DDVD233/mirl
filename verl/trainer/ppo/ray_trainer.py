@@ -476,6 +476,7 @@ class RayPPOTrainer:
         """Dump rollout/validation samples as JSONL."""
         os.makedirs(dump_path, exist_ok=True)
         filename = os.path.join(dump_path, f"{self.global_steps}.jsonl")
+        print(f"Dumping rollout/validation samples to {filename}")
 
         n = len(inputs)
         base_data = {
