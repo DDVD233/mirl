@@ -167,6 +167,7 @@ class vLLMRollout(vLLMRolloutBase):
             enable_prefix_caching=False,
             trust_remote_code=trust_remote_code,
             seed=config.get("seed", 0),
+            mm_processor_cache_gb=0,  # disable mm processor cache
             # NPU-ADAPTATION: Enable graph mode and configure the parameters.
             additional_config={
                 "torchair_graph_config": {
