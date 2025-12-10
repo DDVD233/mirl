@@ -24,3 +24,6 @@ fastapi
 latex2sympy2_extended
 math_verify
 tensorboard
+ujson
+scikit-learn
+qwen_vl_utils

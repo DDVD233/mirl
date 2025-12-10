@@ -1,0 +1,84 @@
+import os
+import ujson as json
+import tqdm
+
+
+def consolidate_mimic_qa():
+    base_path = '/scratch/high_modality/multimodal/mimiciv/temporal_splits/'
+    out_path = '/scratch/high_modality/multimodal/mimiciv/'
+
+    qa_types = [f'qa_type_{k}' for k in [3,5,6]]
+    splits = ['train', 'val', 'test']
+    no_question_count = 0
+
+    # Put them in one annotation per split, under basepath
+    for split in splits:
+        out_data = []
+        for qa_type in qa_types:
+            annotation_file = os.path.join(base_path, qa_type, split + '.jsonl')
+            data = []
+            with open(annotation_file, 'r') as f:
+                for line in f:
+                    data.append(json.loads(line))
+
+            for sample in tqdm.tqdm(data, desc=f'Processing {qa_type} {split}'):
+                # replace ..\/ with empty exactly twice
+                for index, image in enumerate(sample['images']):
+                    sample['images'][index] = image.replace('../', '', 2)
+                for index, time_series in enumerate(sample['time-series']):
+                    sample['time-series'][index] = time_series.replace('../', '', 2)
+                # add data_source, dataset
+                sample['data_source'] = 'mimic_qa'
+                sample['dataset'] = qa_type
+                sample['answer'] = sample['correct_choice']
+                if 'question' not in sample or sample['question'] is None or not sample['question'].strip():
+                    no_question_count += 1
+                    continue
+                if qa_type == 'qa_type_3':
+                    sample['question'] = sample['question'] + 'Include the answer in \\boxed{} with a single letter'
+                elif qa_type == 'qa_type_5':
+                    sample['question'] = sample['question'] + 'Include the answer in \\boxed{}.'
+                elif qa_type == 'qa_type_6':
+                    sample['question'] = sample['question'] + 'Include the answer in \\boxed{} with a single letter'
+
+                images_count = len(sample['images'])
+                image_tag_count = sample['question'].count('<image>')
+                # Make sure number of <image> tags matches number of images
+                if images_count > image_tag_count:
+                    # append missing <image> tags at the end
+                    sample['question'] = '<image>' * (images_count - image_tag_count) + ' ' + sample['question']
+                elif images_count < image_tag_count:
+                    # remove extra <image> tags from the end
+                    for _ in range(image_tag_count - images_count):
+                        last_index = sample['question'].rfind('<image>')
+                        if last_index != -1:
+                            sample['question'] = sample['question'][:last_index] + sample['question'][last_index + len('<image>'):]
+                sample['problem'] = sample['question']
+                out_data.append(sample)
+
+        out_file = os.path.join(out_path, f'qa_{split}.jsonl')
+        with open(out_file, 'w') as f:
+            for sample in out_data:
+                f.write(json.dumps(sample) + '\n')
+        print(f'Wrote {len(out_data)} samples to {out_file}')
+        print('Number of samples with no question:', no_question_count)
+
+        # for test set, also make a test_mini with 1007 samples per qa_type
+        if split == 'test':
+            mini_data = []
+            counts = {qa_type: 0 for qa_type in qa_types}
+            # shuffle out_data
+            import random
+            random.shuffle(out_data)
+            for sample in out_data:
+                if counts[sample['dataset']] < 1007:
+                    mini_data.append(sample)
+                    counts[sample['dataset']] += 1
+            out_file_mini = os.path.join(out_path, f'qa_{split}_mini.jsonl')
+            with open(out_file_mini, 'w') as f:
+                for sample in mini_data:
+                    f.write(json.dumps(sample) + '\n')
+            print(f'Wrote {len(mini_data)} samples to {out_file_mini}')
+
+if __name__ == '__main__':
+    consolidate_mimic_qa()
