@@ -41,6 +41,11 @@ def consolidate_mimic_qa():
                 elif qa_type == 'qa_type_6':
                     sample['question'] = sample['question'] + 'Include the answer in \\boxed{} with a single letter'
 
+                # cap at 8000 letters, clip middle part if too long
+                if len(sample['question']) > 8000:
+                    half_len = 8000 // 2
+                    sample['question'] = sample['question'][:half_len] + ' ... ' + sample['question'][-half_len:]
+
                 images_count = len(sample['images'])
                 image_tag_count = sample['question'].count('<image>')
                 # Make sure number of <image> tags matches number of images
