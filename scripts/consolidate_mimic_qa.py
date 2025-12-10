@@ -44,7 +44,6 @@ def consolidate_mimic_qa():
                 # cap at 8000 letters, clip middle part if too long
                 if len(sample['question']) > 5000:
                     half_len = 5000 // 2
-                    print('Truncating question:', sample['question'])
                     sample['question'] = sample['question'][:half_len] + ' ... ' + sample['question'][-half_len:]
 
                 images_count = len(sample['images'])
