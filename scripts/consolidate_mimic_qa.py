@@ -42,8 +42,9 @@ def consolidate_mimic_qa():
                     sample['question'] = sample['question'] + 'Include the answer in \\boxed{} with a single letter'
 
                 # cap at 8000 letters, clip middle part if too long
-                if len(sample['question']) > 6000:
-                    half_len = 6000 // 2
+                if len(sample['question']) > 5000:
+                    half_len = 5000 // 2
+                    print('Truncating question:', sample['question'])
                     sample['question'] = sample['question'][:half_len] + ' ... ' + sample['question'][-half_len:]
 
                 images_count = len(sample['images'])
