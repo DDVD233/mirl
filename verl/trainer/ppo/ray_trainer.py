@@ -499,9 +499,26 @@ class RayPPOTrainer:
             else:
                 base_data[k] = v
 
+        def sanitize_for_json(obj):
+            """Convert numpy types to Python native types for JSON serialization."""
+            if isinstance(obj, dict):
+                return {k: sanitize_for_json(v) for k, v in obj.items()}
+            elif isinstance(obj, (list, tuple)):
+                return [sanitize_for_json(item) for item in obj]
+            elif isinstance(obj, np.ndarray):
+                return obj.tolist()
+            elif isinstance(obj, (np.integer, np.int64, np.int32)):
+                return int(obj)
+            elif isinstance(obj, (np.floating, np.float64, np.float32)):
+                return float(obj)
+            elif isinstance(obj, np.bool_):
+                return bool(obj)
+            return obj
+
         lines = []
         for i in range(n):
             entry = {k: v[i] for k, v in base_data.items()}
+            entry = sanitize_for_json(entry)
             lines.append(json.dumps(entry, ensure_ascii=False))
 
         with open(filename, "w") as f:
