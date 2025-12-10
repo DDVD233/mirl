@@ -45,6 +45,9 @@ def consolidate_mimic_qa():
                 if len(sample['question']) > 5000:
                     half_len = 5000 // 2
                     sample['question'] = sample['question'][:half_len] + ' ... ' + sample['question'][-half_len:]
+                # cap number of images at 2
+                if len(sample['images']) > 2:
+                    sample['images'] = sample['images'][:2]
 
                 images_count = len(sample['images'])
                 image_tag_count = sample['question'].count('<image>')
