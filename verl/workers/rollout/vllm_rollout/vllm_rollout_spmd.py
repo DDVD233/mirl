@@ -253,6 +253,7 @@ class vLLMRollout(BaseRollout):
             enable_chunked_prefill=config.enable_chunked_prefill,
             enable_prefix_caching=config.enable_prefix_caching,
             trust_remote_code=trust_remote_code,
+            mm_processor_cache_gb=0,
             seed=config.get("seed", 0),
             **compilation_config,
             **self.lora_kwargs,
