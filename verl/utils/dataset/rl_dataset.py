@@ -423,6 +423,8 @@ class RLHFDataset(Dataset):
 
         if "demo" in row_dict:
             row_dict["demo_group"] = self._process_demographic_info(row_dict["demo"])
+        elif "insurance_type" in row_dict:
+            row_dict["demo_group"] = row_dict["insurance_type"]
         else:
             row_dict["demo_group"] = "UNK"
 
@@ -633,6 +635,15 @@ class RLHFDataset(Dataset):
         # add index for each prompt
         if "extra_info" not in row_dict or row_dict["extra_info"] is None:
             row_dict["extra_info"] = dict()
+
+        # dump all keys in row_dict that has numerical or string values or list of strings in extra info
+        for key, value in row_dict.items():
+            if key not in row_dict["extra_info"]:
+                if isinstance(value, (int, float, str)):
+                    row_dict["extra_info"][key] = value
+                elif isinstance(value, list) and all(isinstance(item, str) for item in value):
+                    row_dict["extra_info"][key] = value
+
         index = row_dict.get("extra_info", {}).get("index", 0)
         tools_kwargs = row_dict.get("extra_info", {}).get("tools_kwargs", {})
         interaction_kwargs = row_dict.get("extra_info", {}).get("interaction_kwargs", {})

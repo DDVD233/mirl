@@ -615,6 +615,7 @@ class RayPPOTrainer:
         all_data_sources = []
         all_demographics = []
         all_datasets = []
+        all_extra_infos = []
         data_source_lst = []
 
         for test_data in self.val_dataloader:
@@ -641,7 +642,8 @@ class RayPPOTrainer:
             sample_gts.extend(ground_truths)
             data_sources = test_batch.non_tensor_batch.get("data_source", ["unknown"] * len(input_texts))
             datasets = test_batch.non_tensor_batch.get("dataset", ["unknown"] * len(input_texts))
-            demographics = test_batch.non_tensor_batch.get("demo", ["unknown"] * len(input_texts))
+            demographics = test_batch.non_tensor_batch.get("demo_group", ["unknown"] * len(input_texts))
+            extra_infos = test_batch.non_tensor_batch.get("extra_info", [dict()] * len(input_texts))
 
             test_gen_batch = self._get_gen_batch(test_batch)
             test_gen_batch.meta_info = {
@@ -682,6 +684,7 @@ class RayPPOTrainer:
             all_data_sources.extend(data_sources)
             all_datasets.extend(datasets)
             all_demographics.extend(demographics)
+            all_extra_infos.extend(extra_infos)
             data_source_lst.append(
                 test_batch.non_tensor_batch.get("data_source", ["unknown"] * len(input_texts))
             )
@@ -756,8 +759,9 @@ class RayPPOTrainer:
                 reward_extra_infos_dict=reward_extra_infos_dict,
                 dump_path=val_data_dir,
                 datasets=all_datasets,
-                data_paths=data_sources,
+                data_sources=data_sources,
                 demographics=all_demographics,
+                extra_infos=all_extra_infos,
             )
 
         if len(sample_turns) > 0:
