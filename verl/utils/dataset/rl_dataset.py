@@ -509,27 +509,35 @@ class RLHFDataset(Dataset):
                     videos = None
 
             # Call processor with appropriate parameters
-            if processor_supports_video(self.processor):
-                # Build kwargs dict and filter out None values
-                kwargs = {
-                    "text": [raw_prompt],
-                    "images": images,
-                    "videos": videos,
-                    "videos_kwargs": videos_kwargs,
-                    "return_tensors": "pt"
-                }
-                kwargs = {k: v for k, v in kwargs.items() if v is not None}
-                model_inputs = self.processor(**kwargs)
-            else:
-                # Only pass images parameter if processor doesn't support video
-                # Build kwargs dict and filter out None values
-                kwargs = {
-                    "text": [raw_prompt],
-                    "images": images,
-                    "return_tensors": "pt"
-                }
-                kwargs = {k: v for k, v in kwargs.items() if v is not None}
-                model_inputs = self.processor(**kwargs)
+            try:
+                if processor_supports_video(self.processor):
+                    # Build kwargs dict and filter out None values
+                    kwargs = {
+                        "text": [raw_prompt],
+                        "images": images,
+                        "videos": videos,
+                        "videos_kwargs": videos_kwargs,
+                        "return_tensors": "pt"
+                    }
+                    kwargs = {k: v for k, v in kwargs.items() if v is not None}
+                    model_inputs = self.processor(**kwargs)
+                else:
+                    # Only pass images parameter if processor doesn't support video
+                    # Build kwargs dict and filter out None values
+                    kwargs = {
+                        "text": [raw_prompt],
+                        "images": images,
+                        "return_tensors": "pt"
+                    }
+                    kwargs = {k: v for k, v in kwargs.items() if v is not None}
+                    model_inputs = self.processor(**kwargs)
+            except Exception as e:
+                logger.error("Error processing multi-modal data for item %d: %s", item, e)
+                traceback.print_exc()
+                # Process as text only
+                model_inputs = self.tokenizer(raw_prompt, return_tensors="pt", add_special_tokens=False)
+                # drop multi_modal_data
+                multi_modal_data = {}
 
             input_ids = model_inputs.pop("input_ids")
             attention_mask = model_inputs.pop("attention_mask")
