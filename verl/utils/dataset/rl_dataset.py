@@ -534,20 +534,32 @@ class RLHFDataset(Dataset):
             except Exception as e:
                 logger.error("Error processing multi-modal data for item %d: %s", item, e)
                 traceback.print_exc()
-                # Process as text only - rebuild messages without multimodal content
-                text_only_messages = []
-                for msg in messages:
-                    new_msg = {"role": msg["role"]}
-                    content = msg["content"]
-                    if isinstance(content, list):
-                        # Filter out image/video content, keep only text
-                        text_parts = [c["text"] for c in content if c.get("type") == "text"]
-                        new_msg["content"] = "".join(text_parts)
-                    else:
-                        new_msg["content"] = content
-                    text_only_messages.append(new_msg)
+                # Process as text only - remove multimodal tags and data from row_dict
+                original_prompt = row_dict.get(self.prompt_key)
+                if isinstance(original_prompt, str):
+                    # Remove <image> and <video> tags from string prompt
+                    row_dict[self.prompt_key] = re.sub(r'<image>|<video>', '', original_prompt)
+                elif isinstance(original_prompt, list):
+                    # Handle list of messages - remove tags from content
+                    cleaned_prompt = []
+                    for msg in original_prompt:
+                        if isinstance(msg, dict):
+                            new_msg = copy.deepcopy(msg)
+                            if isinstance(new_msg.get("content"), str):
+                                new_msg["content"] = re.sub(r'<image>|<video>', '', new_msg["content"])
+                            cleaned_prompt.append(new_msg)
+                        elif isinstance(msg, str):
+                            cleaned_prompt.append(re.sub(r'<image>|<video>', '', msg))
+                        else:
+                            cleaned_prompt.append(msg)
+                    row_dict[self.prompt_key] = cleaned_prompt
+                # Clear multimodal data
+                row_dict[self.image_key] = []
+                row_dict[self.video_key] = []
+                # Rebuild messages without multimodal content
+                messages = self._build_messages(row_dict, convert_video_to_images=False)
                 text_only_prompt = self.tokenizer.apply_chat_template(
-                    text_only_messages, add_generation_prompt=True, tokenize=False, **self.apply_chat_template_kwargs
+                    messages, add_generation_prompt=True, tokenize=False, **self.apply_chat_template_kwargs
                 )
                 model_inputs = self.tokenizer(text_only_prompt, return_tensors="pt", add_special_tokens=False)
                 # drop multi_modal_data
