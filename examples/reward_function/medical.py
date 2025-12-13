@@ -8,6 +8,13 @@ import numpy as np
 from mathruler.grader import extract_boxed_content
 import wandb
 import random
+def strip_thinking_tags(text: str) -> str:
+    """Remove <think>...</think> tags and return the content after."""
+    # Remove everything within <think>...</think> tags
+    cleaned = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL)
+    return cleaned.strip()
+
+
 def jaccard_similarity(pred_label: str, ground_truth: str) -> float:
     """
     Compute Jaccard similarity (token overlap) between predicted label and ground truth.
@@ -19,6 +26,9 @@ def jaccard_similarity(pred_label: str, ground_truth: str) -> float:
     Returns:
         Jaccard similarity score between 0 and 1
     """
+    # Strip thinking tags from prediction
+    pred_label = strip_thinking_tags(pred_label)
+
     pred_tokens = set(pred_label.lower().split())
     gt_tokens = set(ground_truth.lower().split())
 
