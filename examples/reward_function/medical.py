@@ -8,6 +8,49 @@ import numpy as np
 from mathruler.grader import extract_boxed_content
 import wandb
 import random
+from sentence_transformers import SentenceTransformer
+
+# Initialize embedding model globally for efficiency (loaded once)
+_embedding_model = None
+
+
+def get_embedding_model():
+    """Get or initialize the embedding model (singleton pattern)."""
+    global _embedding_model
+    if _embedding_model is None:
+        _embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
+    return _embedding_model
+
+
+def cosine_similarity_reward(pred_label: str, ground_truth: str) -> float:
+    """
+    Compute cosine similarity between predicted label and ground truth using embeddings.
+
+    Args:
+        pred_label: Predicted label string
+        ground_truth: Ground truth string
+
+    Returns:
+        Cosine similarity score between 0 and 1
+    """
+    model = get_embedding_model()
+
+    # Get embeddings for both strings
+    embeddings = model.encode([pred_label, ground_truth], convert_to_numpy=True)
+
+    # Compute cosine similarity
+    pred_emb = embeddings[0]
+    gt_emb = embeddings[1]
+
+    # Normalize vectors
+    pred_norm = pred_emb / np.linalg.norm(pred_emb)
+    gt_norm = gt_emb / np.linalg.norm(gt_emb)
+
+    # Compute cosine similarity
+    cos_sim = np.dot(pred_norm, gt_norm)
+
+    # Ensure the value is between 0 and 1
+    return max(0.0, min(1.0, float(cos_sim)))
 
 
 def parse_conditions(text):
@@ -323,6 +366,12 @@ def medical_compute_score(solution_str: str, ground_truth: str, **kwargs) -> Dic
     # Calculate format score (how well the JSON follows the expected format)
     format_score = evaluate_bbox_format(solution_str)
 
+    # Calculate semantic similarity score
+    if answer == "None":
+        similarity_score = 0.0
+    else:
+        similarity_score = cosine_similarity_reward(answer, ground_truth)
+
     # length score
     if len(solution_str) > 600:  # ~200 words
         length_score = 1
@@ -360,104 +409,11 @@ def medical_compute_score(solution_str: str, ground_truth: str, **kwargs) -> Dic
             pass
 
     scores = {
-        "score": 0.5 * standard_score + 0.3 * iou_score + 0.1 * format_score,
+        "score": 0.5 * standard_score + 0.2 * iou_score + 0.1 * format_score + 0.2 * similarity_score,
         "standard_score": standard_score,
         "iou_score": iou_score,
         "format_score": format_score,
+        "similarity_score": similarity_score,
         "length_score": length_score,
     }
     return scores
-
-
-def medical_compute_score_batch(data_sources: List[str], solution_strs: List[str], ground_truths: List[str], extra_infos: List[str], **kwargs) -> List[Dict[str, float]]:
-    """
-    Compute medical scoring for batch inputs including standard score, bounding box IoU, and format score.
-
-    Args:
-        data_sources: List of data sources (e.g., file paths or identifiers)
-        solution_strs: List of model prediction strings
-        ground_truths: List of ground truth strings
-        extra_infos: List of extra information (e.g., segmentation masks, bounding boxes)
-
-    Returns:
-        List of score dictionaries
-    """
-    batch_scores = []
-
-    for data_source, predict_str, ground_truth, extra_info in zip(data_sources, solution_strs, ground_truths, extra_infos):
-        segmentation_mask = None
-        bbox = None
-
-        # Calculate standard score
-        answer = extract_boxed_content(predict_str)
-        if answer == "None":
-            standard_score = 0.0  # no answer
-        else:
-            # Parse both prediction and ground truth into sets of conditions
-            predicted_conditions = parse_conditions(answer)
-            ground_truth_conditions = parse_conditions(ground_truth)
-
-            # Calculate true positives, false positives, and false negatives
-            true_positives = len(predicted_conditions.intersection(ground_truth_conditions))
-            false_positives = len(predicted_conditions - ground_truth_conditions)
-            false_negatives = len(ground_truth_conditions - predicted_conditions)
-
-            # Calculate F1 score components
-            precision = (
-                true_positives / (true_positives + false_positives) if (true_positives + false_positives) > 0 else 0
-            )
-            recall = true_positives / (true_positives + false_negatives) if (
-                                                                                        true_positives + false_negatives) > 0 else 0
-
-            # Calculate F1 score (harmonic mean of precision and recall)
-            standard_score = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0
-
-        # Calculate format score (how well the JSON follows the expected format)
-        format_score = evaluate_bbox_format(predict_str)
-
-        # length score
-        if len(predict_str) > 600:  # ~200 words
-            length_score = 1
-        else:
-            length_score = len(predict_str) * 0.001
-
-        # Calculate bounding box IoU score
-        iou_score = 0.0
-        # Extract predicted bounding boxes from the response
-        json_data = extract_json_from_response(predict_str)
-        if json_data:
-            # Extract bounding boxes from the JSON
-            try:
-                pred_bboxes = []
-                if isinstance(json_data, list):
-                    for item in json_data:
-                        if isinstance(item, dict) and "bbox_2d" in item:
-                            pred_bboxes.append(item["bbox_2d"])
-                elif isinstance(json_data, dict) and "bbox_2d" in json_data:
-                    pred_bboxes.append(json_data["bbox_2d"])
-                elif isinstance(json_data, dict) and "objects_of_interest" in json_data:
-                    for item in json_data["objects_of_interest"]:
-                        if isinstance(item, dict) and "bbox_2d" in item:
-                            pred_bboxes.append(item["bbox_2d"])
-
-                if random.random() < 0.005:  # print every 0.5%
-                    print("[Bounding Box] ", json_data)
-                    print("[Formatted Bounding Box] ", pred_bboxes)
-                    print("[GT Bounding Box] ", bbox)
-
-                # Calculate IoU between predicted boxes and ground truth
-                if pred_bboxes:
-                    iou_score = calculate_bbox_iou(pred_bboxes, segmentation_mask, bbox)
-            except:
-                pass
-
-        scores = {
-            "score": 0.5 * standard_score + 0.3 * iou_score + 0.1 * format_score,
-            "standard_score": standard_score,
-            "iou_score": iou_score,
-            "format_score": format_score,
-            "length_score": length_score,
-        }
-        batch_scores.append(scores)
-
-    return batch_scores

@@ -7,7 +7,7 @@ def consolidate_mimic_qa():
     base_path = '/scratch/high_modality/multimodal/mimiciv/temporal_splits/'
     out_path = '/scratch/high_modality/multimodal/mimiciv/'
 
-    qa_types = [f'qa_type_{k}' for k in [3,5,6]]
+    qa_types = [f'qa_type_{k}' for k in range(1, 7)]
     splits = ['train', 'val', 'test']
     no_question_count = 0
 
@@ -30,11 +30,18 @@ def consolidate_mimic_qa():
                 # add data_source, dataset
                 sample['data_source'] = 'mimic_qa'
                 sample['dataset'] = qa_type
-                sample['answer'] = sample['correct_choice']
+                if qa_type in ['qa_type_3', 'qa_type_5', 'qa_type_6']:
+                    sample['answer'] = sample['correct_choice']
+                elif qa_type in ['qa_type_1', 'qa_type_2', 'qa_type_4']:
+                    sample['answer'] = sample['answer']
                 if 'question' not in sample or sample['question'] is None or not sample['question'].strip():
                     no_question_count += 1
                     continue
-                if qa_type == 'qa_type_3':
+                if qa_type == 'qa_type_1':
+                    sample['question'] = sample['question'] + 'The answer should start with "All diagnoses from this admission: "'
+                elif qa_type == 'qa_type_2':
+                    sample['question'] = sample['question'] + 'The answer should start with "The primary diagnosis of this admission is "'
+                elif qa_type == 'qa_type_3':
                     sample['question'] = sample['question'] + 'Include the answer in \\boxed{} with a single letter'
                 elif qa_type == 'qa_type_5':
                     sample['question'] = sample['question'] + 'Include the answer in \\boxed{}.'

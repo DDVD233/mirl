@@ -4,6 +4,72 @@ import os
 from collections import defaultdict
 from typing import Dict, List, Set
 import statistics
+import numpy as np
+from sentence_transformers import SentenceTransformer
+
+# Initialize embedding model globally for efficiency (loaded once)
+_embedding_model = None
+
+
+def get_embedding_model():
+    """Get or initialize the embedding model (singleton pattern)."""
+    global _embedding_model
+    if _embedding_model is None:
+        _embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
+    return _embedding_model
+
+
+def cosine_similarity_reward(pred_label: str, ground_truth: str) -> float:
+    """
+    Compute cosine similarity between predicted label and ground truth using embeddings.
+
+    Args:
+        pred_label: Predicted label string
+        ground_truth: Ground truth string
+
+    Returns:
+        Cosine similarity score between 0 and 1
+    """
+    model = get_embedding_model()
+
+    # Get embeddings for both strings
+    embeddings = model.encode([pred_label, ground_truth], convert_to_numpy=True)
+
+    # Compute cosine similarity
+    pred_emb = embeddings[0]
+    gt_emb = embeddings[1]
+
+    # Normalize vectors
+    pred_norm = pred_emb / np.linalg.norm(pred_emb)
+    gt_norm = gt_emb / np.linalg.norm(gt_emb)
+
+    # Compute cosine similarity
+    cos_sim = np.dot(pred_norm, gt_norm)
+
+    # Ensure the value is between 0 and 1
+    return max(0.0, min(1.0, float(cos_sim)))
+
+
+def compute_pairwise_similarities(predictions: List[str], ground_truths: List[str]) -> List[float]:
+    """
+    Compute cosine similarity for each prediction-ground_truth pair.
+    This is computed once and reused for all aggregations.
+
+    Args:
+        predictions: List of model predictions
+        ground_truths: List of ground truth labels
+
+    Returns:
+        List of similarity scores for each pair
+    """
+    similarities = []
+    for pred, gt in zip(predictions, ground_truths):
+        pred_answer = extract_boxed_content(pred)
+        if pred_answer == "None" or pred_answer == "":
+            similarities.append(0.0)
+        else:
+            similarities.append(cosine_similarity_reward(pred_answer, gt))
+    return similarities
 
 def parse_conditions(text: str) -> Set[str]:
     """
@@ -96,20 +162,27 @@ def compute_class_metrics(class_name: str, confusion_matrix: Dict[str, int]) -> 
     }
 
 
-def gender(predictions: List[str], ground_truths: List[str], demographics: List[str]) -> Dict[str, float]:
-    groups = {"male": {"preds": [], "gts": []}, "female": {"preds": [], "gts": []}}
+def gender(predictions: List[str], ground_truths: List[str], demographics: List[str], similarities: List[float] = None) -> Dict[str, float]:
+    groups = {"male": {"preds": [], "gts": [], "sims": []}, "female": {"preds": [], "gts": [], "sims": []}}
 
-    for pred, gt, demo in zip(predictions, ground_truths, demographics):
+    # Compute similarities if not provided
+    if similarities is None:
+        similarities = compute_pairwise_similarities(predictions, ground_truths)
+
+    for pred, gt, demo, sim in zip(predictions, ground_truths, demographics, similarities):
         if demo is not None and "female" in demo.lower():
             groups["female"]["preds"].append(pred)
             groups["female"]["gts"].append(gt)
+            groups["female"]["sims"].append(sim)
         elif demo is not None and "male" in demo.lower():
             groups["male"]["preds"].append(pred)
             groups["male"]["gts"].append(gt)
+            groups["male"]["sims"].append(sim)
 
     results = {}
     acc_values = []
     f1_values = []
+    sim_values = []
     tpr_values = []
     fpr_values = []
     fdr_values = []
@@ -117,34 +190,39 @@ def gender(predictions: List[str], ground_truths: List[str], demographics: List[
     for sex in ["male", "female"]:
         preds = groups[sex]["preds"]
         gts = groups[sex]["gts"]
+        sims = groups[sex]["sims"]
         if len(preds) == 0:
             continue
-        metrics = compute_dataset_metrics(preds, gts)["dataset_metrics"]
+        metrics = compute_dataset_metrics(preds, gts, sims)["dataset_metrics"]
         acc = metrics["accuracy"]
         f1 = metrics["f1"]
+        sim = metrics["similarity"]
         tpr = metrics.get("tpr", metrics["sensitivity"])
         fdr = metrics.get("fdr", 1 - metrics["precision"])
         fpr = metrics.get("fpr", 1 - metrics["specificity"])
 
         results[f"{sex}/accuracy"] = acc
         results[f"{sex}/f1"] = f1
+        results[f"{sex}/similarity"] = sim
         results[f"{sex}/tpr"] = tpr
         results[f"{sex}/fdr"] = fdr
         results[f"{sex}/fpr"] = fpr
 
         acc_values.append(acc)
         f1_values.append(f1)
+        sim_values.append(sim)
         tpr_values.append(tpr)
         fdr_values.append(fdr)
         fpr_values.append(fpr)
 
     results["acc"] = sum(acc_values) / len(acc_values)
     results["f1"] = sum(f1_values) / len(f1_values)
+    results["similarity"] = sum(sim_values) / len(sim_values)
     results["tpr"] = sum(tpr_values) / len(tpr_values)
     results["fpr"] = sum(fpr_values) / len(fpr_values)
     results["fdr"] = sum(fdr_values) / len(fdr_values)
 
-    print(f"{sex}: accuracy = {acc:.4f}, f1 = {f1:.4f}, tpr = {tpr:.4f}, fdr = {fdr:.4f}")
+    print(f"{sex}: accuracy = {acc:.4f}, f1 = {f1:.4f}, similarity = {sim:.4f}, tpr = {tpr:.4f}, fdr = {fdr:.4f}")
 
     if len(acc_values) >= 2:
         acc_diff = abs(acc_values[0] - acc_values[1])
@@ -159,6 +237,13 @@ def gender(predictions: List[str], ground_truths: List[str], demographics: List[
         results["f1_std"] = statistics.stdev(f1_values)
         print(f"F1 max diff = {f1_diff:.4f}")
         print(f"std of f1 = {results['f1_std']:.4f}")
+
+    if len(sim_values) >= 2:
+        sim_diff = abs(sim_values[0] - sim_values[1])
+        results["similarity_diff"] = sim_diff
+        results["similarity_std"] = statistics.stdev(sim_values)
+        print(f"Similarity max diff = {sim_diff:.4f}")
+        print(f"std of similarity = {results['similarity_std']:.4f}")
 
     if len(tpr_values) >= 2:
         results["tpr_diff"] = abs(tpr_values[0] - tpr_values[1])
@@ -180,35 +265,35 @@ def gender(predictions: List[str], ground_truths: List[str], demographics: List[
     return results
 
 
-def parent(predictions: List[str], ground_truths: List[str], demographics: List[str]) -> Dict[str, float]:
+def parent(predictions: List[str], ground_truths: List[str], demographics: List[str], similarities: List[float] = None) -> Dict[str, float]:
     groups = {}
-    for pred, gt, demo in zip(predictions, ground_truths, demographics):
+
+    # Compute similarities if not provided
+    if similarities is None:
+        similarities = compute_pairwise_similarities(predictions, ground_truths)
+
+    for pred, gt, demo, sim in zip(predictions, ground_truths, demographics, similarities):
         if demo is not None and "father" in demo.lower():
-            if (
-                demo.split("father:")[1].strip().split()[0] not in groups
-                and demo.split("father:")[1].strip().split()[0] != "NAN"
-            ):
-                groups[demo.split("father:")[1].strip().split()[0]] = {"preds": [], "gts": []}
-                groups[demo.split("father:")[1].strip().split()[0]]["preds"].append(pred)
-                groups[demo.split("father:")[1].strip().split()[0]]["gts"].append(gt)
-            else:
-                groups[demo.split("father:")[1].strip().split()[0]]["preds"].append(pred)
-                groups[demo.split("father:")[1].strip().split()[0]]["gts"].append(gt)
+            key = demo.split("father:")[1].strip().split()[0]
+            if key not in groups and key != "NAN":
+                groups[key] = {"preds": [], "gts": [], "sims": []}
+            if key in groups:
+                groups[key]["preds"].append(pred)
+                groups[key]["gts"].append(gt)
+                groups[key]["sims"].append(sim)
         if demo is not None and "mother" in demo.lower():
-            if (
-                demo.split("mother:")[1].strip().split()[0] not in groups
-                and demo.split("mother:")[1].strip().split()[0] != "NAN"
-            ):
-                groups[demo.split("mother:")[1].strip().split()[0]] = {"preds": [], "gts": []}
-                groups[demo.split("mother:")[1].strip().split()[0]]["preds"].append(pred)
-                groups[demo.split("mother:")[1].strip().split()[0]]["gts"].append(gt)
-            else:
-                groups[demo.split("father:")[1].strip().split()[0]]["preds"].append(pred)
-                groups[demo.split("father:")[1].strip().split()[0]]["gts"].append(gt)
+            key = demo.split("mother:")[1].strip().split()[0]
+            if key not in groups and key != "NAN":
+                groups[key] = {"preds": [], "gts": [], "sims": []}
+            if key in groups:
+                groups[key]["preds"].append(pred)
+                groups[key]["gts"].append(gt)
+                groups[key]["sims"].append(sim)
 
     results = {}
     acc_values = []
     f1_values = []
+    sim_values = []
     tpr_values = []
     fpr_values = []
     fdr_values = []
@@ -216,30 +301,35 @@ def parent(predictions: List[str], ground_truths: List[str], demographics: List[
     for race in groups:
         preds = groups[race]["preds"]
         gts = groups[race]["gts"]
+        sims = groups[race]["sims"]
         if len(preds) == 0:
             continue
-        metrics = compute_dataset_metrics(preds, gts)["dataset_metrics"]
+        metrics = compute_dataset_metrics(preds, gts, sims)["dataset_metrics"]
         acc = metrics["accuracy"]
         f1 = metrics["f1"]
+        sim = metrics["similarity"]
         tpr = metrics.get("tpr", metrics["sensitivity"])
         fpr = metrics.get("fpr", 1.0 - metrics["specificity"])
         fdr = metrics.get("fdr", 1.0 - metrics["precision"])
 
         results[f"{race}/accuracy"] = acc
         results[f"{race}/f1"] = f1
+        results[f"{race}/similarity"] = sim
         results[f"{race}/tpr"] = tpr
         results[f"{race}/fpr"] = fpr
         results[f"{race}/fdr"] = fdr
 
         acc_values.append(acc)
         f1_values.append(f1)
+        sim_values.append(sim)
         tpr_values.append(tpr)
         fpr_values.append(fpr)
         fdr_values.append(fdr)
-        print(f"{race}: accuracy = {acc:.4f}, f1 = {f1:.4f}, tpr = {tpr:.4f}, fpr = {fpr:.4f}, fdr = {fdr:.4f}")
+        print(f"{race}: accuracy = {acc:.4f}, f1 = {f1:.4f}, similarity = {sim:.4f}, tpr = {tpr:.4f}, fpr = {fpr:.4f}, fdr = {fdr:.4f}")
 
     results["acc"] = sum(acc_values) / len(acc_values)
     results["f1"] = sum(f1_values) / len(f1_values)
+    results["similarity"] = sum(sim_values) / len(sim_values)
     results["tpr"] = sum(tpr_values) / len(tpr_values)
     results["fpr"] = sum(fpr_values) / len(fpr_values)
     results["fdr"] = sum(fdr_values) / len(fdr_values)
@@ -259,6 +349,13 @@ def parent(predictions: List[str], ground_truths: List[str], demographics: List[
         f1_std = statistics.stdev(f1_values)
         results["f1_std"] = f1_std
         print(f"std of f1 for parent = {f1_std:.4f}")
+
+    if len(sim_values) >= 2:
+        sim_diff = max(sim_values) - min(sim_values)
+        results["similarity_diff for parent"] = sim_diff
+        results["similarity_std for parent"] = statistics.stdev(sim_values)
+        print(f"Similarity max diff for parent = {sim_diff:.4f}")
+        print(f"std of similarity for parent = {results['similarity_std for parent']:.4f}")
 
     if len(tpr_values) >= 2:
         results["tpr_diff for parent"] = max(tpr_values) - min(tpr_values)
@@ -281,15 +378,19 @@ def parent(predictions: List[str], ground_truths: List[str], demographics: List[
     return results
 
 
-def age(predictions: List[str], ground_truths: List[str], demographics: List[str]) -> Dict[str, float]:
+def age(predictions: List[str], ground_truths: List[str], demographics: List[str], similarities: List[float] = None) -> Dict[str, float]:
     groups = {
-        "a1": {"preds": [], "gts": []},
-        "a2": {"preds": [], "gts": []},
-        "a3": {"preds": [], "gts": []},
-        "a4": {"preds": [], "gts": []},
+        "a1": {"preds": [], "gts": [], "sims": []},
+        "a2": {"preds": [], "gts": [], "sims": []},
+        "a3": {"preds": [], "gts": [], "sims": []},
+        "a4": {"preds": [], "gts": [], "sims": []},
     }
 
-    for pred, gt, demo in zip(predictions, ground_truths, demographics):
+    # Compute similarities if not provided
+    if similarities is None:
+        similarities = compute_pairwise_similarities(predictions, ground_truths)
+
+    for pred, gt, demo, sim in zip(predictions, ground_truths, demographics, similarities):
         if demo is not None and "age" in demo.lower():
             try:
                 age_str = demo.split("age:")[1].strip().split()[0].replace(",", "")
@@ -300,19 +401,24 @@ def age(predictions: List[str], ground_truths: List[str], demographics: List[str
             if age_val <= 25:
                 groups["a1"]["preds"].append(pred)
                 groups["a1"]["gts"].append(gt)
+                groups["a1"]["sims"].append(sim)
             elif 25 < age_val <= 50:
                 groups["a2"]["preds"].append(pred)
                 groups["a2"]["gts"].append(gt)
+                groups["a2"]["sims"].append(sim)
             elif 50 < age_val <= 75:
                 groups["a3"]["preds"].append(pred)
                 groups["a3"]["gts"].append(gt)
+                groups["a3"]["sims"].append(sim)
             elif 75 < age_val:
                 groups["a4"]["preds"].append(pred)
                 groups["a4"]["gts"].append(gt)
+                groups["a4"]["sims"].append(sim)
 
     results = {}
     acc_values = []
     f1_values = []
+    sim_values = []
     tpr_values = []
     fpr_values = []
     fdr_values = []
@@ -320,29 +426,34 @@ def age(predictions: List[str], ground_truths: List[str], demographics: List[str
     for group in ["a1", "a2", "a3", "a4"]:
         preds = groups[group]["preds"]
         gts = groups[group]["gts"]
+        sims = groups[group]["sims"]
         if len(preds) == 0:
             continue
-        metrics = compute_dataset_metrics(preds, gts)["dataset_metrics"]
+        metrics = compute_dataset_metrics(preds, gts, sims)["dataset_metrics"]
         acc = metrics["accuracy"]
         f1 = metrics["f1"]
+        sim = metrics["similarity"]
         tpr = metrics.get("tpr", metrics["sensitivity"])
         fpr = metrics.get("fpr", 1.0 - metrics["specificity"])
         fdr = metrics.get("fdr", 1.0 - metrics["precision"])
 
         results[f"{group}/accuracy"] = acc
         results[f"{group}/f1"] = f1
+        results[f"{group}/similarity"] = sim
         results[f"{group}/tpr"] = tpr
         results[f"{group}/fpr"] = fpr
         results[f"{group}/fdr"] = fdr
 
         acc_values.append(acc)
         f1_values.append(f1)
+        sim_values.append(sim)
         tpr_values.append(tpr)
         fpr_values.append(fpr)
         fdr_values.append(fdr)
 
     results["acc"] = sum(acc_values) / len(acc_values)
     results["f1"] = sum(f1_values) / len(f1_values)
+    results["similarity"] = sum(sim_values) / len(sim_values)
     results["tpr"] = sum(tpr_values) / len(tpr_values)
     results["fpr"] = sum(fpr_values) / len(fpr_values)
     results["fdr"] = sum(fdr_values) / len(fdr_values)
@@ -357,6 +468,11 @@ def age(predictions: List[str], ground_truths: List[str], demographics: List[str
         results["f1_std"] = statistics.stdev(f1_values)
         print(f"F1 max diff = {results['f1_diff']:.4f}")
         print(f"std of f1 for age = {results['f1_std']:.4f}")
+    if len(sim_values) >= 2:
+        results["similarity_diff"] = max(sim_values) - min(sim_values)
+        results["similarity_std"] = statistics.stdev(sim_values)
+        print(f"Similarity max diff = {results['similarity_diff']:.4f}")
+        print(f"std of similarity for age = {results['similarity_std']:.4f}")
     if len(tpr_values) >= 2:
         results["tpr_diff"] = max(tpr_values) - min(tpr_values)
         results["std_tpr"] = statistics.stdev(tpr_values)
@@ -434,13 +550,14 @@ def compute_confusion_matrices(predictions: List[str], ground_truths: List[str])
     return condition_matrices
 
 
-def compute_dataset_metrics(predictions: List[str], ground_truths: List[str]) -> Dict[str, Dict]:
+def compute_dataset_metrics(predictions: List[str], ground_truths: List[str], similarities: List[float] = None) -> Dict[str, Dict]:
     """
     Compute metrics for a single dataset, with class-wise averaging.
 
     Args:
         predictions (List[str]): List of model predictions for this dataset.
         ground_truths (List[str]): List of ground truth labels for this dataset.
+        similarities (List[float]): Optional precomputed similarity scores for each pair.
 
     Returns:
         Dict[str, Dict]: Class metrics and averaged dataset metrics.
@@ -483,6 +600,14 @@ def compute_dataset_metrics(predictions: List[str], ground_truths: List[str]) ->
     if active_classes > 0:
         for metric_name in dataset_metrics.keys():
             dataset_metrics[metric_name] /= active_classes
+
+    # Compute similarity score (average of precomputed pairwise similarities)
+    if similarities is not None and len(similarities) > 0:
+        dataset_metrics["similarity"] = sum(similarities) / len(similarities)
+    else:
+        # Compute similarities if not provided
+        sims = compute_pairwise_similarities(predictions, ground_truths)
+        dataset_metrics["similarity"] = sum(sims) / len(sims) if sims else 0.0
 
     # Add class metrics to the result
     result = {"class_metrics": class_metrics, "dataset_metrics": dataset_metrics, "active_classes": active_classes}
@@ -557,16 +682,19 @@ def compute_metrics_by_data_source(
 
     overall_acc = []
     overall_f1 = []
+    overall_similarity = []
     overall_tpr = []
     overall_fpr = []
     overall_fdr = []
     overall_acc_diff = []
     overall_f1_diff = []
+    overall_similarity_diff = []
     overall_tpr_diff = []
     overall_fpr_diff = []
     overall_fdr_diff = []
     overall_acc_std = []
     overall_f1_std = []
+    overall_similarity_std = []
 
     for source_name, source_datasets in grouped_data.items():
         # Initialize metrics accumulators for this data source
@@ -609,24 +737,29 @@ def compute_metrics_by_data_source(
 
             acc_diffs = []
             f1_diffs = []
+            similarity_diffs = []
             tpr_diffs = []
             fpr_diffs = []
             fdr_diffs = []
             acc_stds = []
             f1_stds = []
-            accs, f1s, tprs, fprs, fdrs = [], [], [], [], []
+            similarity_stds = []
+            accs, f1s, similarities, tprs, fprs, fdrs = [], [], [], [], [], []
 
             try:
                 gender_results = gender(dataset_predictions, dataset_ground_truths, dataset_demographics)
                 acc_diffs.append(gender_results["acc_diff"])
                 f1_diffs.append(gender_results["f1_diff"])
+                similarity_diffs.append(gender_results.get("similarity_diff", 0.0))
                 tpr_diffs.append(gender_results["tpr_diff"])
                 fpr_diffs.append(gender_results["fpr_diff"])
                 fdr_diffs.append(gender_results["fdr_diff"])
                 acc_stds.append(gender_results["acc_std"])
                 f1_stds.append(gender_results["f1_std"])
+                similarity_stds.append(gender_results.get("similarity_std", 0.0))
                 accs.append(gender_results["acc"])
                 f1s.append(gender_results["f1"])
+                similarities.append(gender_results.get("similarity", 0.0))
                 tprs.append(gender_results["tpr"])
                 fprs.append(gender_results["fpr"])
                 fdrs.append(gender_results["fdr"])
@@ -639,13 +772,16 @@ def compute_metrics_by_data_source(
                 age_results = age(dataset_predictions, dataset_ground_truths, dataset_demographics)
                 acc_diffs.append(age_results["acc_diff"])
                 f1_diffs.append(age_results["f1_diff"])
+                similarity_diffs.append(age_results.get("similarity_diff", 0.0))
                 tpr_diffs.append(age_results["tpr_diff"])
                 fpr_diffs.append(age_results["fpr_diff"])
                 fdr_diffs.append(age_results["fdr_diff"])
                 acc_stds.append(age_results["acc_std"])
                 f1_stds.append(age_results["f1_std"])
+                similarity_stds.append(age_results.get("similarity_std", 0.0))
                 accs.append(age_results["acc"])
                 f1s.append(age_results["f1"])
+                similarities.append(age_results.get("similarity", 0.0))
                 tprs.append(age_results["tpr"])
                 fprs.append(age_results["fpr"])
                 fdrs.append(age_results["fdr"])
@@ -661,6 +797,9 @@ def compute_metrics_by_data_source(
                 avg_f1 = sum(f1s) / len(f1s)
                 result[f"fairness/{dataset_name}/avg_f1"] = avg_f1
                 overall_f1.append(avg_f1)
+                avg_similarity = sum(similarities) / len(similarities)
+                result[f"fairness/{dataset_name}/avg_similarity"] = avg_similarity
+                overall_similarity.append(avg_similarity)
                 avg_tpr = sum(tprs) / len(tprs)
                 result[f"fairness/{dataset_name}/avg_tpr"] = avg_tpr
                 overall_tpr.append(avg_tpr)
@@ -688,6 +827,15 @@ def compute_metrics_by_data_source(
                 print(f"[fairness/{dataset_name}] f1_std = {std:.4f}")
                 overall_f1_std.append(std)
                 overall_f1_diff.append(avg)
+
+                avg = sum(similarity_diffs) / len(similarity_diffs) if similarity_diffs else 0.0
+                result[f"fairness/{dataset_name}/avg_similarity_diff"] = avg
+                print(f"[fairness/{dataset_name}] avg_similarity_diff = {avg:.4f}")
+                std = sum(similarity_stds) / len(similarity_stds) if similarity_stds else 0.0
+                result[f"fairness/{dataset_name}/similarity_std"] = std
+                print(f"[fairness/{dataset_name}] similarity_std = {std:.4f}")
+                overall_similarity_std.append(std)
+                overall_similarity_diff.append(avg)
 
                 avg = sum(tpr_diffs) / len(tpr_diffs)
                 result[f"fairness/{dataset_name}/avg_tpr_diff"] = avg
@@ -732,29 +880,35 @@ def compute_metrics_by_data_source(
     try:
         result[f"overall/overall_acc"] = sum(overall_acc) / len(overall_acc)
         result[f"overall/overall_f1"] = sum(overall_f1) / len(overall_f1)
+        result[f"overall/overall_similarity"] = sum(overall_similarity) / len(overall_similarity) if overall_similarity else 0.0
         result[f"overall/overall_tpr"] = sum(overall_tpr) / len(overall_tpr)
         result[f"overall/overall_fpr"] = sum(overall_fpr) / len(overall_fpr)
         result[f"overall/overall_fdr"] = sum(overall_fdr) / len(overall_fdr)
         result[f"overall/overall_acc_diff"] = sum(overall_acc_diff) / len(overall_acc_diff)
         result[f"overall/overall_f1_diff"] = sum(overall_f1_diff) / len(overall_f1_diff)
+        result[f"overall/overall_similarity_diff"] = sum(overall_similarity_diff) / len(overall_similarity_diff) if overall_similarity_diff else 0.0
         result[f"overall/overall_tpr_diff"] = sum(overall_tpr_diff) / len(overall_tpr_diff)
         result[f"overall/overall_fpr_diff"] = sum(overall_fpr_diff) / len(overall_fpr_diff)
         result[f"overall/overall_fdr_diff"] = sum(overall_fdr_diff) / len(overall_fdr_diff)
         result[f"overall/overall_acc_std"] = sum(overall_acc_std) / len(overall_acc_std)
         result[f"overall/overall_f1_std"] = sum(overall_f1_std) / len(overall_f1_std)
+        result[f"overall/overall_similarity_std"] = sum(overall_similarity_std) / len(overall_similarity_std) if overall_similarity_std else 0.0
         result[f"overall/acc_es"] = result[f"overall/overall_acc"] / (1 + result[f"overall/overall_acc_std"])
         result[f"overall/f1_es"] = result[f"overall/overall_f1"] / (1 + result[f"overall/overall_f1_std"])
+        result[f"overall/similarity_es"] = result[f"overall/overall_similarity"] / (1 + result[f"overall/overall_similarity_std"]) if result[f"overall/overall_similarity_std"] > 0 else result[f"overall/overall_similarity"]
         for key in [
             "overall/overall_tpr",
             "overall/overall_fpr",
             "overall/overall_fdr",
             "overall/overall_acc_diff",
             "overall/overall_f1_diff",
+            "overall/overall_similarity_diff",
             "overall/overall_tpr_diff",
             "overall/overall_fpr_diff",
             "overall/overall_fdr_diff",
             "overall/overall_acc_std",
             "overall/overall_f1_std",
+            "overall/overall_similarity_std",
         ]:
             print(f"{key}/{result[key]:.4f}")
     except KeyError:
