@@ -75,7 +75,7 @@ def consolidate_mimic_qa():
                 for key in sample:
                     if sample[key] is None:
                         sample[key] = ''
-                    else:
+                    elif isinstance(sample[key], int) or isinstance(sample[key], float):
                         sample[key] = str(sample[key])
 
                 out_data.append(sample)
