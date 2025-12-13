@@ -7,7 +7,7 @@ def consolidate_mimic_qa():
     base_path = '/scratch/high_modality/multimodal/mimiciv/temporal_splits/'
     out_path = '/scratch/high_modality/multimodal/mimiciv/'
 
-    qa_types = [f'qa_type_{k}' for k in range(1, 7)]
+    qa_types = [f'qa_type_{k}' for k in [1, 2, 3, 5, 6]]
     splits = ['train', 'val', 'test']
     no_question_count = 0
 
@@ -86,7 +86,7 @@ def consolidate_mimic_qa():
             import random
             random.shuffle(out_data)
             for sample in out_data:
-                if counts[sample['dataset']] < 1007:
+                if counts[sample['dataset']] < 513:
                     mini_data.append(sample)
                     counts[sample['dataset']] += 1
             out_file_mini = os.path.join(out_path, f'qa_{split}_mini.jsonl')
