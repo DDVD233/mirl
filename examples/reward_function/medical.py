@@ -17,7 +17,7 @@ def get_embedding_model():
     return _embedding_model
 
 
-def cosine_similarity_reward(pred_label: str, ground_truth: str) -> float:
+def cosine_similarity_reward(pred_label: str, ground_truth: str, model) -> float:
     """
     Compute cosine similarity between predicted label and ground truth using embeddings.
 
@@ -28,8 +28,6 @@ def cosine_similarity_reward(pred_label: str, ground_truth: str) -> float:
     Returns:
         Cosine similarity score between 0 and 1
     """
-    model = get_embedding_model()
-
     # Get embeddings for both strings
     embeddings = model.encode([pred_label, ground_truth], convert_to_numpy=True)
 
@@ -335,6 +333,8 @@ def medical_compute_score(solution_str: str, ground_truth: str, **kwargs) -> Dic
     segmentation_mask = None
     bbox = None
 
+    model = get_embedding_model()
+
     # Calculate standard score
     answer = extract_boxed_content(solution_str)
     if answer == "None":
@@ -365,7 +365,7 @@ def medical_compute_score(solution_str: str, ground_truth: str, **kwargs) -> Dic
     if answer == "None":
         similarity_score = 0.0
     else:
-        similarity_score = cosine_similarity_reward(answer, ground_truth)
+        similarity_score = cosine_similarity_reward(answer, ground_truth, model)
 
     # length score
     if len(solution_str) > 600:  # ~200 words

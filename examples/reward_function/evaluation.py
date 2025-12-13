@@ -14,7 +14,7 @@ def get_embedding_model():
     return _embedding_model
 
 
-def cosine_similarity_reward(pred_label: str, ground_truth: str) -> float:
+def cosine_similarity_reward(pred_label: str, ground_truth: str, model) -> float:
     """
     Compute cosine similarity between predicted label and ground truth using embeddings.
 
@@ -25,7 +25,6 @@ def cosine_similarity_reward(pred_label: str, ground_truth: str) -> float:
     Returns:
         Cosine similarity score between 0 and 1
     """
-    model = get_embedding_model()
 
     # Get embeddings for both strings
     embeddings = model.encode([pred_label, ground_truth], convert_to_numpy=True)
@@ -58,12 +57,13 @@ def compute_pairwise_similarities(predictions: List[str], ground_truths: List[st
         List of similarity scores for each pair
     """
     similarities = []
+    model = get_embedding_model()
     for pred, gt in zip(predictions, ground_truths):
         pred_answer = extract_boxed_content(pred)
         if pred_answer == "None" or pred_answer == "":
             similarities.append(0.0)
         else:
-            similarities.append(cosine_similarity_reward(pred_answer, gt))
+            similarities.append(cosine_similarity_reward(pred_answer, gt, model))
     return similarities
 
 def parse_conditions(text: str) -> Set[str]:
