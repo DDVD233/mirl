@@ -3,8 +3,8 @@ ENGINE=${1:-vllm}
 
 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=drpo \
-    data.train_files=/home/dvdai/orcd/scratch/high_modality/geom_train.jsonl \
-    data.val_files=/home/dvdai/orcd/scratch/high_modality/geom_valid_demo_only.jsonl \
+    data.train_files=/scratch/high_modality/geom_train.jsonl \
+    data.val_files=/scratch/high_modality/geom_valid_demo_only.jsonl \
     data.train_batch_size=512 \
     data.max_prompt_length=4096 \
     data.max_response_length=4096 \
@@ -29,8 +29,7 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.actor.fsdp_config.optimizer_offload=False \
     actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=4 \
     actor_rollout_ref.rollout.tensor_model_parallel_size=2 \
-    actor_rollout_ref.rollout.name=$ENGINE \
-    actor_rollout_ref.rollout.engine_kwargs.vllm.disable_mm_preprocessor_cache=True \
+    actor_rollout_ref.rollout.name=vllm \
     actor_rollout_ref.rollout.gpu_memory_utilization=0.6 \
     actor_rollout_ref.rollout.enable_chunked_prefill=False \
     actor_rollout_ref.rollout.enforce_eager=False \
@@ -46,6 +45,7 @@ python3 -m verl.trainer.main_ppo \
     trainer.logger='["console","wandb"]' \
     trainer.project_name='verl_climb' \
     trainer.experiment_name='qwen_evalonly' \
+    trainer.validation_data_dir='outputs/qwen3_mimic' \
     trainer.n_gpus_per_node=4 \
     trainer.nnodes=1 \
     trainer.save_freq=20 \
