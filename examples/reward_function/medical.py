@@ -8,12 +8,34 @@ import numpy as np
 from mathruler.grader import extract_boxed_content
 import wandb
 import random
-from sentence_transformers import SentenceTransformer
-
-
 def get_embedding_model():
     """Get or initialize the embedding model (singleton pattern)."""
-    _embedding_model = SentenceTransformer('all-MiniLM-L6-v2', device='cpu')
+    from sentence_transformers import SentenceTransformer
+
+    # Save and reset default device to avoid meta tensor issues in FSDP context
+    old_default = torch.get_default_device() if hasattr(torch, 'get_default_device') else None
+    try:
+        if hasattr(torch, 'set_default_device'):
+            torch.set_default_device('cpu')
+
+        # Disable any accelerate device placement
+        import os
+        old_device_map = os.environ.get('ACCELERATE_TORCH_DEVICE', None)
+        os.environ['ACCELERATE_TORCH_DEVICE'] = 'cpu'
+
+        try:
+            _embedding_model = SentenceTransformer('all-MiniLM-L6-v2', device='cpu')
+        finally:
+            # Restore environment
+            if old_device_map is not None:
+                os.environ['ACCELERATE_TORCH_DEVICE'] = old_device_map
+            elif 'ACCELERATE_TORCH_DEVICE' in os.environ:
+                del os.environ['ACCELERATE_TORCH_DEVICE']
+    finally:
+        # Restore default device
+        if old_default is not None and hasattr(torch, 'set_default_device'):
+            torch.set_default_device(old_default)
+
     return _embedding_model
 
 
