@@ -47,13 +47,13 @@ python3 -m verl.trainer.main_ppo \
     trainer.critic_warmup=0 \
     trainer.logger='["console","wandb"]' \
     trainer.project_name='verl_mimic' \
-    trainer.experiment_name='qwen3_8b_training_grpo' \
+    trainer.experiment_name='qwen3_8b_training_grpo_full' \
     trainer.n_gpus_per_node=4 \
     trainer.nnodes=1 \
     trainer.save_freq=20 \
     trainer.val_before_train=True \
     trainer.test_freq=15 \
-    trainer.validation_data_dir='outputs/qwen3_mimic' \
+    trainer.validation_data_dir='outputs/qwen3_mimic_full' \
     trainer.total_epochs=15 $@
 
 

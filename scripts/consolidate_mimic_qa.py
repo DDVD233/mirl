@@ -32,9 +32,10 @@ def consolidate_mimic_qa():
                 sample['dataset'] = qa_type
                 if qa_type in ['qa_type_3', 'qa_type_5', 'qa_type_6']:
                     sample['answer'] = sample['correct_choice']
-                elif qa_type in ['qa_type_1', 'qa_type_2', 'qa_type_4']:
-                    sample['answer'] = sample['answer']
                 if 'question' not in sample or sample['question'] is None or not sample['question'].strip():
+                    no_question_count += 1
+                    continue
+                if 'answer' not in sample or sample['answer'] is None or not sample['answer'].strip():
                     no_question_count += 1
                     continue
                 if qa_type == 'qa_type_1':
