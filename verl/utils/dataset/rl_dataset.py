@@ -534,8 +534,22 @@ class RLHFDataset(Dataset):
             except Exception as e:
                 logger.error("Error processing multi-modal data for item %d: %s", item, e)
                 traceback.print_exc()
-                # Process as text only
-                model_inputs = self.tokenizer(raw_prompt, return_tensors="pt", add_special_tokens=False)
+                # Process as text only - rebuild messages without multimodal content
+                text_only_messages = []
+                for msg in messages:
+                    new_msg = {"role": msg["role"]}
+                    content = msg["content"]
+                    if isinstance(content, list):
+                        # Filter out image/video content, keep only text
+                        text_parts = [c["text"] for c in content if c.get("type") == "text"]
+                        new_msg["content"] = "".join(text_parts)
+                    else:
+                        new_msg["content"] = content
+                    text_only_messages.append(new_msg)
+                text_only_prompt = self.tokenizer.apply_chat_template(
+                    text_only_messages, add_generation_prompt=True, tokenize=False, **self.apply_chat_template_kwargs
+                )
+                model_inputs = self.tokenizer(text_only_prompt, return_tensors="pt", add_special_tokens=False)
                 # drop multi_modal_data
                 multi_modal_data = {}
 
