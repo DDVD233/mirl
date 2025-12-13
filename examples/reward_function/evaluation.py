@@ -4,75 +4,35 @@ import os
 from collections import defaultdict
 from typing import Dict, List, Set
 import statistics
-import numpy as np
-from sentence_transformers import SentenceTransformer
-import torch
 
 
-def get_embedding_model():
-    """Get or initialize the embedding model (singleton pattern)."""
-    from sentence_transformers import SentenceTransformer
-
-    # Save and reset default device to avoid meta tensor issues in FSDP context
-    old_default = torch.get_default_device() if hasattr(torch, 'get_default_device') else None
-    try:
-        if hasattr(torch, 'set_default_device'):
-            torch.set_default_device('cpu')
-
-        # Disable any accelerate device placement
-        import os
-        old_device_map = os.environ.get('ACCELERATE_TORCH_DEVICE', None)
-        os.environ['ACCELERATE_TORCH_DEVICE'] = 'cpu'
-
-        try:
-            _embedding_model = SentenceTransformer('all-MiniLM-L6-v2', device='cpu')
-        finally:
-            # Restore environment
-            if old_device_map is not None:
-                os.environ['ACCELERATE_TORCH_DEVICE'] = old_device_map
-            elif 'ACCELERATE_TORCH_DEVICE' in os.environ:
-                del os.environ['ACCELERATE_TORCH_DEVICE']
-    finally:
-        # Restore default device
-        if old_default is not None and hasattr(torch, 'set_default_device'):
-            torch.set_default_device(old_default)
-
-    return _embedding_model
-
-
-def cosine_similarity_reward(pred_label: str, ground_truth: str, model) -> float:
+def jaccard_similarity(pred_label: str, ground_truth: str) -> float:
     """
-    Compute cosine similarity between predicted label and ground truth using embeddings.
+    Compute Jaccard similarity (token overlap) between predicted label and ground truth.
 
     Args:
         pred_label: Predicted label string
         ground_truth: Ground truth string
 
     Returns:
-        Cosine similarity score between 0 and 1
+        Jaccard similarity score between 0 and 1
     """
+    pred_tokens = set(pred_label.lower().split())
+    gt_tokens = set(ground_truth.lower().split())
 
-    # Get embeddings for both strings
-    embeddings = model.encode([pred_label, ground_truth], convert_to_numpy=True)
+    if not pred_tokens and not gt_tokens:
+        return 1.0
+    if not pred_tokens or not gt_tokens:
+        return 0.0
 
-    # Compute cosine similarity
-    pred_emb = embeddings[0]
-    gt_emb = embeddings[1]
-
-    # Normalize vectors
-    pred_norm = pred_emb / np.linalg.norm(pred_emb)
-    gt_norm = gt_emb / np.linalg.norm(gt_emb)
-
-    # Compute cosine similarity
-    cos_sim = np.dot(pred_norm, gt_norm)
-
-    # Ensure the value is between 0 and 1
-    return max(0.0, min(1.0, float(cos_sim)))
+    intersection = len(pred_tokens & gt_tokens)
+    union = len(pred_tokens | gt_tokens)
+    return intersection / union if union > 0 else 0.0
 
 
 def compute_pairwise_similarities(predictions: List[str], ground_truths: List[str]) -> List[float]:
     """
-    Compute cosine similarity for each prediction-ground_truth pair.
+    Compute Jaccard similarity for each prediction-ground_truth pair.
     This is computed once and reused for all aggregations.
 
     Args:
@@ -83,13 +43,12 @@ def compute_pairwise_similarities(predictions: List[str], ground_truths: List[st
         List of similarity scores for each pair
     """
     similarities = []
-    model = get_embedding_model()
     for pred, gt in zip(predictions, ground_truths):
         pred_answer = extract_boxed_content(pred)
         if pred_answer == "None" or pred_answer == "":
             similarities.append(0.0)
         else:
-            similarities.append(cosine_similarity_reward(pred_answer, gt, model))
+            similarities.append(jaccard_similarity(pred_answer, gt))
     return similarities
 
 def parse_conditions(text: str) -> Set[str]:

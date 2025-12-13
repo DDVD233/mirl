@@ -8,64 +8,28 @@ import numpy as np
 from mathruler.grader import extract_boxed_content
 import wandb
 import random
-def get_embedding_model():
-    """Get or initialize the embedding model (singleton pattern)."""
-    from sentence_transformers import SentenceTransformer
-
-    # Save and reset default device to avoid meta tensor issues in FSDP context
-    old_default = torch.get_default_device() if hasattr(torch, 'get_default_device') else None
-    try:
-        if hasattr(torch, 'set_default_device'):
-            torch.set_default_device('cpu')
-
-        # Disable any accelerate device placement
-        import os
-        old_device_map = os.environ.get('ACCELERATE_TORCH_DEVICE', None)
-        os.environ['ACCELERATE_TORCH_DEVICE'] = 'cpu'
-
-        try:
-            _embedding_model = SentenceTransformer('all-MiniLM-L6-v2', device='cpu')
-        finally:
-            # Restore environment
-            if old_device_map is not None:
-                os.environ['ACCELERATE_TORCH_DEVICE'] = old_device_map
-            elif 'ACCELERATE_TORCH_DEVICE' in os.environ:
-                del os.environ['ACCELERATE_TORCH_DEVICE']
-    finally:
-        # Restore default device
-        if old_default is not None and hasattr(torch, 'set_default_device'):
-            torch.set_default_device(old_default)
-
-    return _embedding_model
-
-
-def cosine_similarity_reward(pred_label: str, ground_truth: str, model) -> float:
+def jaccard_similarity(pred_label: str, ground_truth: str) -> float:
     """
-    Compute cosine similarity between predicted label and ground truth using embeddings.
+    Compute Jaccard similarity (token overlap) between predicted label and ground truth.
 
     Args:
         pred_label: Predicted label string
         ground_truth: Ground truth string
 
     Returns:
-        Cosine similarity score between 0 and 1
+        Jaccard similarity score between 0 and 1
     """
-    # Get embeddings for both strings
-    embeddings = model.encode([pred_label, ground_truth], convert_to_numpy=True)
+    pred_tokens = set(pred_label.lower().split())
+    gt_tokens = set(ground_truth.lower().split())
 
-    # Compute cosine similarity
-    pred_emb = embeddings[0]
-    gt_emb = embeddings[1]
+    if not pred_tokens and not gt_tokens:
+        return 1.0
+    if not pred_tokens or not gt_tokens:
+        return 0.0
 
-    # Normalize vectors
-    pred_norm = pred_emb / np.linalg.norm(pred_emb)
-    gt_norm = gt_emb / np.linalg.norm(gt_emb)
-
-    # Compute cosine similarity
-    cos_sim = np.dot(pred_norm, gt_norm)
-
-    # Ensure the value is between 0 and 1
-    return max(0.0, min(1.0, float(cos_sim)))
+    intersection = len(pred_tokens & gt_tokens)
+    union = len(pred_tokens | gt_tokens)
+    return intersection / union if union > 0 else 0.0
 
 
 def parse_conditions(text):
@@ -355,8 +319,6 @@ def medical_compute_score(solution_str: str, ground_truth: str, **kwargs) -> Dic
     segmentation_mask = None
     bbox = None
 
-    model = get_embedding_model()
-
     # Calculate standard score
     answer = extract_boxed_content(solution_str)
     if answer == "None":
@@ -383,11 +345,11 @@ def medical_compute_score(solution_str: str, ground_truth: str, **kwargs) -> Dic
     # Calculate format score (how well the JSON follows the expected format)
     format_score = evaluate_bbox_format(solution_str)
 
-    # Calculate semantic similarity score
+    # Calculate similarity score using Jaccard similarity
     if answer == "None":
         similarity_score = 0.0
     else:
-        similarity_score = cosine_similarity_reward(answer, ground_truth, model)
+        similarity_score = jaccard_similarity(answer, ground_truth)
 
     # length score
     if len(solution_str) > 600:  # ~200 words
