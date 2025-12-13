@@ -8,8 +8,6 @@ import numpy as np
 from mathruler.grader import extract_boxed_content
 import wandb
 import random
-from sentence_transformers import SentenceTransformer
-
 # Initialize embedding model globally for efficiency (loaded once)
 _embedding_model = None
 
@@ -18,7 +16,9 @@ def get_embedding_model():
     """Get or initialize the embedding model (singleton pattern)."""
     global _embedding_model
     if _embedding_model is None:
-        _embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
+        from sentence_transformers import SentenceTransformer
+        # Force loading on CPU to avoid meta tensor issues in distributed training
+        _embedding_model = SentenceTransformer('all-MiniLM-L6-v2', device='cpu')
     return _embedding_model
 
 
