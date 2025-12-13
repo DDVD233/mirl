@@ -70,6 +70,12 @@ def consolidate_mimic_qa():
                         if last_index != -1:
                             sample['question'] = sample['question'][:last_index] + sample['question'][last_index + len('<image>'):]
                 sample['problem'] = sample['question']
+
+                # Make all None values to empty strings
+                for key in sample:
+                    if sample[key] is None:
+                        sample[key] = ''
+
                 out_data.append(sample)
 
         out_file = os.path.join(out_path, f'qa_{split}.jsonl')
