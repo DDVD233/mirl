@@ -73,7 +73,9 @@ def consolidate_mimic_qa():
 
                 # Make all None values to empty strings
                 for key in sample:
-                    if sample[key] is None:
+                    if sample[key] is None and key == 'choices':
+                        sample[key] = []
+                    elif sample[key] is None:
                         sample[key] = ''
                     elif isinstance(sample[key], int) or isinstance(sample[key], float):
                         sample[key] = str(sample[key])
