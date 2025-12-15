@@ -43,6 +43,7 @@ task_stats: Dict[Any, Dict[str, Any]] = defaultdict(lambda: {
     "post_grpo_advantage_ema_mu": 0.0,
     "post_grpo_advantage_ema_sigma": 1.0,
     "post_grpo_advantage_ema_abs_mean": 0.0,
+    "post_grpo_advantage_ema_abs_sigma": 1.0,
     "post_grpo_advantage_ema_frac_pos": 0.0,
     "post_grpo_advantage_ema_frac_neg": 0.0,
     "post_grpo_advantage_ema_skewness": 0.0,
@@ -50,11 +51,25 @@ task_stats: Dict[Any, Dict[str, Any]] = defaultdict(lambda: {
     "post_grpo_advantage_ema_p50": 0.0,
     "post_grpo_advantage_ema_p90": 0.0,
 
-    # Mixture model parameters
+    # Mixture model parameters (simple mixture adapter)
     "mixture_rho_t": 0.0,
     "mixture_rho_ref": 0.0,
     "mixture_log_scale": 0.0,
     "mixture_final_scale": 1.0,
+
+    # Mixture density adapter parameters (signal-based)
+    "mixture_rho_ema": 0.0,
+    "mixture_sig_count": 0.0,
+    "mixture_sig_ref": 0.0,
+    "mixture_log_rarity_raw": 0.0,
+    "mixture_log_rarity_pos": 0.0,
+    "mixture_k_t": 1.0,
+    "mixture_log_ratio": 0.0,
+    "mixture_log_mult_inst": 0.0,
+    "mixture_log_mult_ema": 0.0,
+    "mixture_signal_mass": 0.0,
+    "mixture_batch_count": 0,
+    "mixture_sig_count_batch": 0.0,
 
     # Final (post adapter, class weighting, CVaR, group norm) advantages
     "final_advantage_batch_mu": 0.0,
@@ -69,6 +84,7 @@ task_stats: Dict[Any, Dict[str, Any]] = defaultdict(lambda: {
     "final_advantage_ema_mu": 0.0,
     "final_advantage_ema_sigma": 1.0,
     "final_advantage_ema_abs_mean": 0.0,
+    "final_advantage_ema_abs_sigma": 1.0,
     "final_advantage_ema_frac_pos": 0.0,
     "final_advantage_ema_frac_neg": 0.0,
     "final_advantage_ema_skewness": 0.0,
@@ -107,13 +123,34 @@ dataset_stats: Dict[Any, Dict[str, Any]] = defaultdict(lambda: {
     "post_grpo_advantage_ema_mu": 0.0,
     "post_grpo_advantage_ema_sigma": 1.0,
     "post_grpo_advantage_ema_abs_mean": 0.0,
+    "post_grpo_advantage_ema_abs_sigma": 1.0,
     "post_grpo_advantage_ema_frac_pos": 0.0,
     "post_grpo_advantage_ema_frac_neg": 0.0,
     "post_grpo_advantage_ema_skewness": 0.0,
     "post_grpo_advantage_ema_p10": 0.0,
     "post_grpo_advantage_ema_p50": 0.0,
     "post_grpo_advantage_ema_p90": 0.0,
-    
+
+    # Mixture model parameters (simple mixture adapter) - mirroring task-level for logging
+    "mixture_rho_t": 0.0,
+    "mixture_rho_ref": 0.0,
+    "mixture_log_scale": 0.0,
+    "mixture_final_scale": 1.0,
+
+    # Mixture density adapter parameters (signal-based) - mirroring task-level for logging
+    "mixture_rho_ema": 0.0,
+    "mixture_sig_count": 0.0,
+    "mixture_sig_ref": 0.0,
+    "mixture_log_rarity_raw": 0.0,
+    "mixture_log_rarity_pos": 0.0,
+    "mixture_k_t": 1.0,
+    "mixture_log_ratio": 0.0,
+    "mixture_log_mult_inst": 0.0,
+    "mixture_log_mult_ema": 0.0,
+    "mixture_signal_mass": 0.0,
+    "mixture_batch_count": 0,
+    "mixture_sig_count_batch": 0.0,
+
     # Final (post adapter, class weighting, CVaR, group norm) advantages
     "final_advantage_batch_mu": 0.0,
     "final_advantage_batch_sigma": 1.0,
@@ -127,6 +164,7 @@ dataset_stats: Dict[Any, Dict[str, Any]] = defaultdict(lambda: {
     "final_advantage_ema_mu": 0.0,
     "final_advantage_ema_sigma": 1.0,
     "final_advantage_ema_abs_mean": 0.0,
+    "final_advantage_ema_abs_sigma": 1.0,
     "final_advantage_ema_frac_pos": 0.0,
     "final_advantage_ema_frac_neg": 0.0,
     "final_advantage_ema_skewness": 0.0,
@@ -251,6 +289,35 @@ def _compute_abs_mean(values: List[float]) -> float:
     if len(values) == 0:
         return 0.0
     return float(sum(abs(v) for v in values) / len(values))
+
+
+def _compute_abs_sigma(values: List[float], *, mu_abs: Optional[float] = None, eps: float = 1e-8) -> float:
+    """
+    Compute standard deviation of absolute values.
+
+    Args:
+        values: list of scalar values
+        mu_abs: optional precomputed mean of absolute values; if None, it will be recomputed
+        eps:    small positive number for numerical stability and clamp
+
+    Returns:
+        sd >= eps (standard deviation of |values|)
+    """
+    n = len(values)
+    if n == 0:
+        return float(eps)
+
+    if mu_abs is None:
+        mu_abs = _compute_abs_mean(values)
+
+    abs_vals = [abs(v) for v in values]
+    var_acc = 0.0
+    for av in abs_vals:
+        diff = av - mu_abs
+        var_acc += diff * diff
+    var = var_acc / n if n > 0 else 0.0
+    sd = math.sqrt(max(var, 0.0) + 1e-12)
+    return float(max(sd, eps))
 
 
 def _compute_fraction_positive(values: List[float]) -> float:
@@ -479,6 +546,7 @@ def _update_advantage_stats_general(
         mu = _compute_mu_from_values(vals)
         sd = _compute_sd_from_values(vals, mu=mu, eps=eps)
         abs_mean = _compute_abs_mean(vals)
+        abs_sigma = _compute_abs_sigma(vals, mu_abs=abs_mean, eps=eps)
         frac_pos = _compute_fraction_positive(vals)
         frac_neg = _compute_fraction_negative(vals)
         skew = _compute_skewness(vals, mu=mu, sd=sd, eps=eps)
@@ -488,6 +556,7 @@ def _update_advantage_stats_general(
         task_stats[t][f"{stat_prefix}_batch_mu"] = float(mu)
         task_stats[t][f"{stat_prefix}_batch_sigma"] = float(sd)
         task_stats[t][f"{stat_prefix}_batch_abs_mean"] = float(abs_mean)
+        task_stats[t][f"{stat_prefix}_batch_abs_sigma"] = float(abs_sigma)
         task_stats[t][f"{stat_prefix}_batch_frac_pos"] = float(frac_pos)
         task_stats[t][f"{stat_prefix}_batch_frac_neg"] = float(frac_neg)
         task_stats[t][f"{stat_prefix}_batch_skewness"] = float(skew)
@@ -499,6 +568,7 @@ def _update_advantage_stats_general(
         prev_mu = task_stats[t].get(f"{stat_prefix}_ema_mu", 0.0)
         prev_sigma = task_stats[t].get(f"{stat_prefix}_ema_sigma", 1.0)
         prev_abs_mean = task_stats[t].get(f"{stat_prefix}_ema_abs_mean", 0.0)
+        prev_abs_sigma = task_stats[t].get(f"{stat_prefix}_ema_abs_sigma", 1.0)
         prev_frac_pos = task_stats[t].get(f"{stat_prefix}_ema_frac_pos", 0.0)
         prev_frac_neg = task_stats[t].get(f"{stat_prefix}_ema_frac_neg", 0.0)
         prev_skewness = task_stats[t].get(f"{stat_prefix}_ema_skewness", 0.0)
@@ -509,6 +579,7 @@ def _update_advantage_stats_general(
         task_stats[t][f"{stat_prefix}_ema_mu"] = _ema_update(prev_mu, float(mu), beta_mu)
         task_stats[t][f"{stat_prefix}_ema_sigma"] = _ema_update(prev_sigma, float(sd), beta_sigma)
         task_stats[t][f"{stat_prefix}_ema_abs_mean"] = _ema_update(prev_abs_mean, float(abs_mean), beta_mu)
+        task_stats[t][f"{stat_prefix}_ema_abs_sigma"] = _ema_update(prev_abs_sigma, float(abs_sigma), beta_sigma)
         task_stats[t][f"{stat_prefix}_ema_frac_pos"] = _ema_update(prev_frac_pos, float(frac_pos), beta_mu)
         task_stats[t][f"{stat_prefix}_ema_frac_neg"] = _ema_update(prev_frac_neg, float(frac_neg), beta_mu)
         task_stats[t][f"{stat_prefix}_ema_skewness"] = _ema_update(prev_skewness, float(skew), beta_mu)
@@ -525,6 +596,7 @@ def _update_advantage_stats_general(
         mu = _compute_mu_from_values(vals)
         sd = _compute_sd_from_values(vals, mu=mu, eps=eps)
         abs_mean = _compute_abs_mean(vals)
+        abs_sigma = _compute_abs_sigma(vals, mu_abs=abs_mean, eps=eps)
         frac_pos = _compute_fraction_positive(vals)
         frac_neg = _compute_fraction_negative(vals)
         skew = _compute_skewness(vals, mu=mu, sd=sd, eps=eps)
@@ -534,6 +606,7 @@ def _update_advantage_stats_general(
         dataset_stats[d][f"{stat_prefix}_batch_mu"] = float(mu)
         dataset_stats[d][f"{stat_prefix}_batch_sigma"] = float(sd)
         dataset_stats[d][f"{stat_prefix}_batch_abs_mean"] = float(abs_mean)
+        dataset_stats[d][f"{stat_prefix}_batch_abs_sigma"] = float(abs_sigma)
         dataset_stats[d][f"{stat_prefix}_batch_frac_pos"] = float(frac_pos)
         dataset_stats[d][f"{stat_prefix}_batch_frac_neg"] = float(frac_neg)
         dataset_stats[d][f"{stat_prefix}_batch_skewness"] = float(skew)
@@ -545,6 +618,7 @@ def _update_advantage_stats_general(
         prev_mu = dataset_stats[d].get(f"{stat_prefix}_ema_mu", 0.0)
         prev_sigma = dataset_stats[d].get(f"{stat_prefix}_ema_sigma", 1.0)
         prev_abs_mean = dataset_stats[d].get(f"{stat_prefix}_ema_abs_mean", 0.0)
+        prev_abs_sigma = dataset_stats[d].get(f"{stat_prefix}_ema_abs_sigma", 1.0)
         prev_frac_pos = dataset_stats[d].get(f"{stat_prefix}_ema_frac_pos", 0.0)
         prev_frac_neg = dataset_stats[d].get(f"{stat_prefix}_ema_frac_neg", 0.0)
         prev_skewness = dataset_stats[d].get(f"{stat_prefix}_ema_skewness", 0.0)
@@ -555,6 +629,7 @@ def _update_advantage_stats_general(
         dataset_stats[d][f"{stat_prefix}_ema_mu"] = _ema_update(prev_mu, float(mu), beta_mu)
         dataset_stats[d][f"{stat_prefix}_ema_sigma"] = _ema_update(prev_sigma, float(sd), beta_sigma)
         dataset_stats[d][f"{stat_prefix}_ema_abs_mean"] = _ema_update(prev_abs_mean, float(abs_mean), beta_mu)
+        dataset_stats[d][f"{stat_prefix}_ema_abs_sigma"] = _ema_update(prev_abs_sigma, float(abs_sigma), beta_sigma)
         dataset_stats[d][f"{stat_prefix}_ema_frac_pos"] = _ema_update(prev_frac_pos, float(frac_pos), beta_mu)
         dataset_stats[d][f"{stat_prefix}_ema_frac_neg"] = _ema_update(prev_frac_neg, float(frac_neg), beta_mu)
         dataset_stats[d][f"{stat_prefix}_ema_skewness"] = _ema_update(prev_skewness, float(skew), beta_mu)
