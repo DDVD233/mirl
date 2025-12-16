@@ -95,16 +95,45 @@ def consolidate_mimic_qa():
             counts = {qa_type: 0 for qa_type in qa_types}
             # shuffle out_data
             import random
+            random.seed(0)
             random.shuffle(out_data)
+            # for sample in out_data:
+            #     if counts[sample['dataset']] < 513:
+            #         mini_data.append(sample)
+            #         counts[sample['dataset']] += 1
+            # out_file_mini = os.path.join(out_path, f'qa_{split}_mini.jsonl')
+            # with open(out_file_mini, 'w') as f:
+            #     for sample in mini_data:
+            #         f.write(json.dumps(sample) + '\n')
+            # print(f'Wrote {len(mini_data)} samples to {out_file_mini}')
+
+            # Make another mini with only multimodal samples (samples with images)
+            mini_data_mm = []
+            counts_mm = {qa_type: 0 for qa_type in qa_types}
             for sample in out_data:
-                if counts[sample['dataset']] < 513:
-                    mini_data.append(sample)
-                    counts[sample['dataset']] += 1
-            out_file_mini = os.path.join(out_path, f'qa_{split}_mini.jsonl')
-            with open(out_file_mini, 'w') as f:
-                for sample in mini_data:
+                if len(sample['images']) > 0 and counts_mm[sample['dataset']] < 513:
+                    mini_data_mm.append(sample)
+                    counts_mm[sample['dataset']] += 1
+            out_file_mini_mm = os.path.join(out_path, f'qa_{split}_mini_mm.jsonl')
+
+            with open(out_file_mini_mm, 'w') as f:
+                for sample in mini_data_mm:
                     f.write(json.dumps(sample) + '\n')
-            print(f'Wrote {len(mini_data)} samples to {out_file_mini}')
+
+            print(f'Wrote {len(mini_data_mm)} samples to {out_file_mini_mm}')
+
+            # Make the same mini but remove images and time-series to make it unimodal
+            mini_data_um = []
+            for sample in mini_data_mm:
+                sample_um = sample.copy()
+                sample_um['images'] = []
+                sample_um['time-series'] = []
+                mini_data_um.append(sample_um)
+            out_file_mini_um = os.path.join(out_path, f'qa_{split}_mini_um.jsonl')
+            with open(out_file_mini_um, 'w') as f:
+                for sample in mini_data_um:
+                    f.write(json.dumps(sample) + '\n')
+            print(f'Wrote {len(mini_data_um)} samples to {out_file_mini_um}')
 
 if __name__ == '__main__':
     consolidate_mimic_qa()
