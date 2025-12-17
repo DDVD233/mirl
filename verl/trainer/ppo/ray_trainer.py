@@ -1823,12 +1823,6 @@ class RayPPOTrainer:
                             plot_freq = self.config.trainer.get("advantage_plot_freq", 10)
                             if plot_freq and self.global_steps % plot_freq == 0 :
                                 try:
-                                    # Import plotting function
-                                    import sys
-                                    from pathlib import Path
-                                    visuals_path = Path(__file__).parent.parent.parent.parent / "visuals"
-                                    if str(visuals_path) not in sys.path:
-                                        sys.path.insert(0, str(visuals_path))
 
                                     from verl.trainer.ppo.utils.plot_advantage_distributions import plot_advantage_distributions
 

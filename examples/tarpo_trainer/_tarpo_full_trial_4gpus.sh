@@ -91,5 +91,5 @@ export NCCL_ASYNC_ERROR_HANDLING=1
         trainer.test_freq=50 \
         trainer.total_epochs=5 \
         trainer.advantage_save_dir=/scratch/keane/human_behaviour/tarpo_iter_10_mixtures_densities/advantages \
-        trainer.advantage_plot_freq=1 $@ \
+        trainer.advantage_plot_freq=15 $@ \
         trainer.default_local_dir=/scratch/keane/human_behaviour/tarpo_iter_10_mixtures_densities
