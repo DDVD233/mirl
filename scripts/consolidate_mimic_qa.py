@@ -128,6 +128,9 @@ def consolidate_mimic_qa():
                 sample_um = sample.copy()
                 sample_um['images'] = []
                 sample_um['time-series'] = []
+                # remove any <image> tags in the question
+                sample_um['question'] = sample_um['question'].replace('<image>', '')
+                sample_um['problem'] = sample_um['question']
                 mini_data_um.append(sample_um)
             out_file_mini_um = os.path.join(out_path, f'qa_{split}_mini_um.jsonl')
             with open(out_file_mini_um, 'w') as f:
