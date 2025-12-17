@@ -86,7 +86,7 @@ export NCCL_ASYNC_ERROR_HANDLING=1
         trainer.nnodes=1 \
         trainer.save_freq=50 \
         trainer.val_before_train=True \
-        trainer.resume_mode==resume_path \
+        trainer.resume_mode=resume_path \
         trainer.resume_from_path=/scratch/keane/human_behaviour/tarpo_iter_8_mixtures_densities/global_step_350 \
         trainer.val_only=True \
         trainer.validation_data_dir=/scratch/keane/human_behaviour/tarpo_iter_8_mixtures_densities/global_step_350_test \
