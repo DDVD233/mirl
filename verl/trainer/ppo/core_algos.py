@@ -1576,7 +1576,10 @@ from .tarpo_utils import (
     build_mappings,
     update_raw_stats,    # U1
     update_k_stats_from_q2k,        # U2
-    update_advantage_stats
+    update_advantage_stats,
+    store_advantage_data,
+    get_latest_advantage_data,
+    save_advantages_to_json
 )
 
 @register_adv_est(AdvantageEstimator.TARPO)
@@ -1715,6 +1718,14 @@ def compute_tarpo_outcome_advantage(
             beta_mu=beta_mu,
             beta_sigma=beta_sigma,
             eps=eps,
+        )
+
+        # Store post-GRPO advantages for saving to JSON
+        store_advantage_data(
+            advantage_type="post_grpo",
+            q2_advantages=q2rollouts,
+            q2tasks=q2tasks,
+            q2datasets=q2datasets
         )
 
     # -------------------------------------------------------------------------
@@ -2287,6 +2298,14 @@ def compute_tarpo_outcome_advantage(
         beta_mu=beta_mu,
         beta_sigma=beta_sigma,
         eps=eps,
+    )
+
+    # Store final advantages for saving to JSON
+    store_advantage_data(
+        advantage_type="final",
+        q2_advantages=q2_final,
+        q2tasks=q2tasks,
+        q2datasets=q2datasets
     )
 
     # --------------------------------------------

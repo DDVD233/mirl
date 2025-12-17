@@ -55,6 +55,10 @@ from verl.trainer.ppo.metric_utils import (
     process_validation_metrics,
 )
 from verl.trainer.ppo.reward import compute_reward, compute_reward_async
+from verl.trainer.ppo.tarpo_utils import (
+    get_latest_advantage_data,
+    save_advantages_to_json
+)
 from verl.utils.checkpoint.checkpoint_manager import find_latest_ckpt_path, should_save_ckpt_esi
 from verl.utils.config import omega_conf_to_dataclass
 from verl.utils.debug import marked_timer
@@ -1790,6 +1794,84 @@ class RayPPOTrainer:
                             metrics.update(tarpo_metrics)
                     except Exception as e:
                         print(f"[WARN] TARPO metrics logging failed: {e}")
+
+                    # Save advantage distributions to JSON and plot (TARPO only)
+                    if self.config.algorithm.adv_estimator == AdvantageEstimator.TARPO:
+                        try:
+                            # Get advantage save directory from config
+                            # Can be set in shell script with: trainer.advantage_save_dir=/path/to/dir
+                            advantage_save_dir = self.config.trainer.get(
+                                "advantage_save_dir",
+                                os.path.join(self.config.trainer.default_local_dir, "advantages")
+                            )
+
+                            # Save advantages to JSON every step
+                            adv_data = get_latest_advantage_data()
+                            for adv_type in ["post_grpo", "final"]:
+                                if adv_data[adv_type]["q2_advantages"]:
+                                    save_advantages_to_json(
+                                        q2_advantages=adv_data[adv_type]["q2_advantages"],
+                                        q2tasks=adv_data[adv_type]["q2tasks"],
+                                        q2datasets=adv_data[adv_type]["q2datasets"],
+                                        global_step=self.global_steps,
+                                        save_dir=advantage_save_dir,
+                                        advantage_type=adv_type
+                                    )
+
+                            # Generate and log plots every N steps
+                            # Can be set in shell script with: trainer.advantage_plot_freq=10
+                            plot_freq = self.config.trainer.get("advantage_plot_freq", 10)
+                            if self.global_steps % plot_freq == 0:
+                                try:
+                                    # Import plotting function
+                                    import sys
+                                    from pathlib import Path
+                                    visuals_path = Path(__file__).parent.parent.parent.parent / "visuals"
+                                    if str(visuals_path) not in sys.path:
+                                        sys.path.insert(0, str(visuals_path))
+
+                                    from plot_advantage_distributions import plot_advantage_distributions
+
+                                    # Generate plots for both advantage types
+                                    for adv_type in ["post_grpo", "final"]:
+                                        json_path = os.path.join(
+                                            advantage_save_dir,
+                                            f"step_{self.global_steps}_advantages_{adv_type}.json"
+                                        )
+
+                                        if os.path.exists(json_path):
+                                            # Create plot
+                                            fig = plot_advantage_distributions(
+                                                json_path,
+                                                save_path=None,  # Don't save to file, just create figure
+                                                title=f"{adv_type.replace('_', ' ').title()} Advantages (Step {self.global_steps})",
+                                                width=1400,
+                                                height=600
+                                            )
+
+                                            # Convert plotly figure to image for W&B
+                                            import plotly.io as pio
+                                            img_bytes = pio.to_image(fig, format='png', width=1400, height=600)
+
+                                            # Log to W&B
+                                            import PIL.Image
+                                            from io import BytesIO
+                                            img = PIL.Image.open(BytesIO(img_bytes))
+                                            wandb.log({
+                                                f"advantages/{adv_type}_distribution": wandb.Image(img)
+                                            }, step=self.global_steps)
+
+                                            print(f"Logged {adv_type} advantage plot to W&B at step {self.global_steps}")
+
+                                except Exception as plot_e:
+                                    print(f"[WARN] Advantage plotting failed: {plot_e}")
+                                    import traceback
+                                    traceback.print_exc()
+
+                        except Exception as e:
+                            print(f"[WARN] Advantage saving/plotting failed: {e}")
+                            import traceback
+                            traceback.print_exc()
 
                     # update critic
                     if self.use_critic:

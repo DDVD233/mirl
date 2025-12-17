@@ -269,6 +269,12 @@ trainer:
   # Directory for logging validation data; no dump if null
   validation_data_dir: null
 
+  # Directory for saving advantage distributions (TARPO only); defaults to {default_local_dir}/advantages if null
+  advantage_save_dir: null
+
+  # Frequency (in steps) for generating and logging advantage distribution plots to W&B (TARPO only)
+  advantage_plot_freq: 10
+
   # Number of nodes used in the training
   nnodes: 1
 

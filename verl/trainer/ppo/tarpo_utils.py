@@ -8,6 +8,48 @@ import torch
 
 # ---------------------------- TARPO GLOBAL STATE ---------------------------- #
 
+# Module-level storage for latest advantage data (for saving to JSON)
+_latest_advantage_data: Dict[str, Any] = {
+    "post_grpo": {"q2_advantages": {}, "q2tasks": {}, "q2datasets": {}},
+    "final": {"q2_advantages": {}, "q2tasks": {}, "q2datasets": {}}
+}
+
+
+def get_latest_advantage_data() -> Dict[str, Any]:
+    """
+    Retrieve the latest computed advantage data from TARPO.
+
+    Returns:
+        Dict with keys "post_grpo" and "final", each containing:
+            - q2_advantages: Dict[qid -> List[float]]
+            - q2tasks: Dict[qid -> task_id]
+            - q2datasets: Dict[qid -> dataset_id]
+    """
+    return _latest_advantage_data
+
+
+def store_advantage_data(
+    advantage_type: str,
+    q2_advantages: Dict[Any, List[float]],
+    q2tasks: Dict[Any, Any],
+    q2datasets: Dict[Any, Any]
+) -> None:
+    """
+    Store advantage data for later retrieval/saving.
+
+    Args:
+        advantage_type: Either "post_grpo" or "final"
+        q2_advantages: Dict mapping qid -> list of advantage values
+        q2tasks: Dict mapping qid -> task_id
+        q2datasets: Dict mapping qid -> dataset_id
+    """
+    _latest_advantage_data[advantage_type] = {
+        "q2_advantages": dict(q2_advantages),  # Make a copy
+        "q2tasks": dict(q2tasks),
+        "q2datasets": dict(q2datasets)
+    }
+
+
 # Per-task running stats & buffers
 task_stats: Dict[Any, Dict[str, Any]] = defaultdict(lambda: {
     "ema_mu": 0.0, "ema_sigma": 1.0,
@@ -705,3 +747,63 @@ def update_advantage_stats(
         beta_sigma=beta_sigma,
         eps=eps,
     )
+
+
+def save_advantages_to_json(
+    q2_advantages: Dict[Any, List[float]],
+    q2tasks: Dict[Any, Any],
+    q2datasets: Dict[Any, Any],
+    *,
+    global_step: int,
+    save_dir: str,
+    advantage_type: str = "final",
+) -> None:
+    """
+    Save per-sample advantages to JSON file organized by task.
+
+    Args:
+        q2_advantages: Dict mapping qid -> list of advantage values
+        q2tasks: Dict mapping qid -> task_id
+        q2datasets: Dict mapping qid -> dataset_id
+        global_step: Current training step number
+        save_dir: Directory to save JSON files
+        advantage_type: Type of advantage ("post_grpo" or "final")
+    """
+    import json
+    import os
+
+    # Organize by task
+    task_data: Dict[Any, Dict[str, List]] = defaultdict(lambda: {
+        "advantages": [],
+        "datasets": [],
+        "qids": []
+    })
+
+    for qid, adv_list in q2_advantages.items():
+        task = q2tasks[qid]
+        dataset = q2datasets[qid]
+
+        # Each qid can have multiple rollouts (advantages)
+        for adv_val in adv_list:
+            task_data[task]["advantages"].append(float(adv_val))
+            task_data[task]["datasets"].append(str(dataset))
+            task_data[task]["qids"].append(str(qid))
+
+    # Convert to regular dict for JSON serialization
+    output = {
+        "step": global_step,
+        "advantage_type": advantage_type,
+        "tasks": {str(task): data for task, data in task_data.items()}
+    }
+
+    # Create directory if it doesn't exist
+    os.makedirs(save_dir, exist_ok=True)
+
+    # Save to JSON file
+    filename = f"step_{global_step}_advantages_{advantage_type}.json"
+    filepath = os.path.join(save_dir, filename)
+
+    with open(filepath, 'w') as f:
+        json.dump(output, f, indent=2)
+
+    print(f"Saved {advantage_type} advantages to {filepath}")
