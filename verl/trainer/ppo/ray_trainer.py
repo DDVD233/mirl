@@ -1821,7 +1821,7 @@ class RayPPOTrainer:
                             # Generate and log plots every N steps
                             # Can be set in shell script with: trainer.advantage_plot_freq=10
                             plot_freq = self.config.trainer.get("advantage_plot_freq", 10)
-                            if self.global_steps % plot_freq == 0:
+                            if plot_freq and self.global_steps % plot_freq == 0 :
                                 try:
                                     # Import plotting function
                                     import sys
@@ -1830,7 +1830,7 @@ class RayPPOTrainer:
                                     if str(visuals_path) not in sys.path:
                                         sys.path.insert(0, str(visuals_path))
 
-                                    from plot_advantage_distributions import plot_advantage_distributions
+                                    from verl.trainer.ppo.utils.plot_advantage_distributions import plot_advantage_distributions
 
                                     # Generate plots for both advantage types
                                     for adv_type in ["post_grpo", "final"]:

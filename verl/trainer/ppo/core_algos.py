@@ -2045,7 +2045,7 @@ def compute_tarpo_outcome_advantage(
     if use_class_weights:
         if class_count_info == "import_from_dict":
             try:
-                from v7_class_counts import CLASS_COUNT_INFO_DATASET, CLASS_COUNT_INFO_TASK
+                from verl.trainer.ppo.utils.v7_class_counts import CLASS_COUNT_INFO_DATASET, CLASS_COUNT_INFO_TASK
             except Exception:
                 CLASS_COUNT_INFO_DATASET, CLASS_COUNT_INFO_TASK = {}, {}
             # Per-(dataset,class) EMA counts for inverse-frequency weights
