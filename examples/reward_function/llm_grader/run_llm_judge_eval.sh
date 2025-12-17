@@ -9,8 +9,8 @@
 # RESULTS_PATH="/Users/keane/Desktop/research/human-behavior/verl/examples/reward_function/temp/input_data_2025-11-28_11-53-44.json"
 # SAVE_PATH="/Users/keane/Desktop/research/human-behavior/verl/examples/reward_function/temp/results_temp.json"
 
-RESULTS_PATH="/scratch/keane/human_behaviour/tarpo_iter_6_mixtures/full_test_or_val_generation_outputs/step_200.json"
-SAVE_PATH="/scratch/keane/human_behaviour/tarpo_iter_6_mixtures/full_test_or_val_generation_outputs/step_200_results.json"
+RESULTS_PATH="/scratch/keane/human_behaviour/tarpo_iter_8_mixtures_densities/global_step_350_test/full_test_or_val_generation_outputs/step_350.json"
+SAVE_PATH="/scratch/keane/human_behaviour/tarpo_iter_8_mixtures_densities/global_step_350_test/full_test_or_val_generation_outputs/step_200_results.json"
 PROVIDER="openai"
 WANDB_PROJECT="llm_judge_eval"
 WANDB_RUN_NAME="experiment_$(date +%Y%m%d_%H%M%S)"
