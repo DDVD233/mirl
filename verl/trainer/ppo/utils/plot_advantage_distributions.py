@@ -167,100 +167,6 @@ def plot_advantage_distributions(
     return fig
 
 
-def plot_multiple_advantage_types(
-    json_paths_or_data: Dict[str, Union[str, Path, Dict]],
-    *,
-    save_path: Optional[str] = None,
-    width: int = 1600,
-    height: int = 800,
-) -> go.Figure:
-    """
-    Create side-by-side comparison plots for multiple advantage types (e.g., post_grpo vs final).
-
-    Args:
-        json_paths_or_data: Dict mapping advantage type name to JSON path or data
-                           e.g., {"post_grpo": "path1.json", "final": "path2.json"}
-        save_path: Optional path to save the plot
-        width: Figure width in pixels
-        height: Figure height in pixels
-
-    Returns:
-        plotly Figure object with subplots
-    """
-    from plotly.subplots import make_subplots
-
-    num_types = len(json_paths_or_data)
-    fig = make_subplots(
-        rows=1,
-        cols=num_types,
-        subplot_titles=list(json_paths_or_data.keys()),
-        horizontal_spacing=0.1
-    )
-
-    for col_idx, (adv_type, json_data) in enumerate(json_paths_or_data.items(), start=1):
-        # Load data
-        data = load_advantage_data(json_data)
-        tasks_data = data.get("tasks", {})
-        sorted_tasks = sorted(tasks_data.keys())
-
-        for task_name in sorted_tasks:
-            task_info = tasks_data[task_name]
-            advantages = task_info["advantages"]
-
-            # Add box plot
-            fig.add_trace(
-                go.Box(
-                    y=advantages,
-                    x=[task_name] * len(advantages),
-                    name=task_name,
-                    boxpoints=False,
-                    marker=dict(color="lightgray"),
-                    line=dict(color="black"),
-                    showlegend=False
-                ),
-                row=1, col=col_idx
-            )
-
-            # Add scatter plot
-            fig.add_trace(
-                go.Scatter(
-                    y=advantages,
-                    x=[task_name] * len(advantages),
-                    mode="markers",
-                    marker=dict(
-                        color="steelblue",
-                        size=6,
-                        symbol="circle",
-                        opacity=0.6,
-                        line=dict(color="darkblue", width=0.5)
-                    ),
-                    name=task_name,
-                    showlegend=False
-                ),
-                row=1, col=col_idx
-            )
-
-        # Update axes for this subplot
-        fig.update_xaxes(title_text="Task", tickangle=-45 if len(sorted_tasks) > 10 else 0, row=1, col=col_idx)
-        fig.update_yaxes(title_text="Advantage Value" if col_idx == 1 else "", row=1, col=col_idx)
-
-    fig.update_layout(
-        width=width,
-        height=height,
-        margin=dict(t=80, b=120, l=80, r=40),
-        plot_bgcolor="white",
-        paper_bgcolor="white",
-    )
-
-    if save_path:
-        save_path = Path(save_path)
-        save_path.parent.mkdir(parents=True, exist_ok=True)
-        fig.write_image(str(save_path), format='pdf' if save_path.suffix == '.pdf' else None)
-        print(f"Saved comparison plot to {save_path}")
-
-    return fig
-
-
 def main():
     """Command-line interface for standalone usage."""
     parser = argparse.ArgumentParser(
@@ -318,21 +224,7 @@ def main():
 
     args = parser.parse_args()
 
-    if args.compare:
-        if not args.json_paths or not args.advantage_types:
-            raise ValueError("--compare mode requires --json_paths and --advantage_types")
-        if len(args.json_paths) != len(args.advantage_types):
-            raise ValueError("Number of json_paths must match number of advantage_types")
-
-        json_data_dict = dict(zip(args.advantage_types, args.json_paths))
-        fig = plot_multiple_advantage_types(
-            json_data_dict,
-            save_path=args.output_path,
-            width=args.width,
-            height=args.height
-        )
-    else:
-        fig = plot_advantage_distributions(
+    fig = plot_advantage_distributions(
             args.json_path,
             save_path=args.output_path,
             title=args.title,
