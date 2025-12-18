@@ -1875,6 +1875,7 @@ def compute_tarpo_outcome_advantage(
         K_MAX       = 3.00    # only boosts up to this (never downweights common tasks)
 
         # EMA smoothing
+        BETA_RHO      = 0.95  # EMA for the per-task density (rho)
         BETA_LOGMULT  = 0.95  # EMA for the per-task log multiplier
 
         # Final scale clamp (applied directly to scale_t)
@@ -1937,11 +1938,18 @@ def compute_tarpo_outcome_advantage(
 
             for task, mass in task_signal_mass.items():
                 count = max(task_count[task], 1)
-                rho_t = max(mass / count, eps)
+                rho_batch = max(mass / count, eps)
 
-                task_stats[task]["mixture_rho_batch"] = float(rho_t)  # Log batch-level density
-                task_densities[task] = rho_t
-                log_rhos.append(math.log(rho_t))
+                # EMA update for the rho density for each task, which is essentially
+                # the signal mass per sample
+                prev_rho = float(task_stats[task].get("mixture_rho_ema", rho_batch))
+                rho_ema  = _ema_update(prev_rho, rho_batch, BETA_RHO)
+                rho_ema  = max(float(rho_ema), eps)
+
+                task_stats[task]["mixture_rho_batch"] = float(rho_batch)  # Log batch-level density
+                task_stats[task]["mixture_rho_ema"] = float(rho_ema)
+                task_densities[task] = rho_ema
+                log_rhos.append(math.log(rho_ema))
 
             # Reference density across tasks (geometric mean in log-space)
             log_rho_ref = sum(log_rhos) / max(len(log_rhos), 1)
