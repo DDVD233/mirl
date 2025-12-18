@@ -1876,7 +1876,6 @@ def compute_tarpo_outcome_advantage(
 
         # EMA smoothing
         BETA_RHO      = 0.9   # EMA for rho_t
-        BETA_K        = 0.9   # EMA for k_t (rarity boost)
         BETA_LOGMULT  = 0.95  # EMA for the per-task log multiplier
 
         # Final scale clamp (applied directly to scale_t)
@@ -1976,21 +1975,16 @@ def compute_tarpo_outcome_advantage(
                 log_k = ETA_K * log_rarity_pos
                 # clamp only the upper end; lower is 0 => k=1
                 log_k = min(math.log(K_MAX), log_k)
-                k_t_batch = math.exp(log_k)
+                k_t = math.exp(log_k)
 
-                # EMA smooth k_t to reduce fluctuations
-                prev_k_t = float(task_stats[task].get("mixture_k_t_ema", k_t_batch))
-                k_t_ema = _ema_update(prev_k_t, k_t_batch, BETA_K)
-
-                task_k[task] = float(k_t_ema)
+                task_k[task] = float(k_t)
 
                 # logging
                 task_stats[task]["mixture_sig_count"]       = float(task_sig_count[task])
                 task_stats[task]["mixture_sig_ref"]         = float(sig_ref)
                 task_stats[task]["mixture_log_rarity_raw"]  = float(log_rarity_ratio)
                 task_stats[task]["mixture_log_rarity_pos"]  = float(log_rarity_pos)
-                task_stats[task]["mixture_k_t_batch"]       = float(k_t_batch)
-                task_stats[task]["mixture_k_t_ema"]         = float(k_t_ema)
+                task_stats[task]["mixture_k_t"]             = float(k_t)
 
             # ----------------------------
             # Step 4 — compute per-task log multiplier, EMA it, apply, then clamp
