@@ -1333,7 +1333,7 @@ class RayPPOTrainer:
             out[f"{prefix}/mixture_final_scale"] = float(st.get("mixture_final_scale", 1.0))
 
             # --- Mixture density adapter parameters (signal-based) ---
-            out[f"{prefix}/mixture_density_rho_ema"]         = float(st.get("mixture_rho_ema", 0.0))
+            out[f"{prefix}/mixture_density_rho_batch"]       = float(st.get("mixture_rho_batch", 0.0))
             out[f"{prefix}/mixture_density_sig_count"]       = float(st.get("mixture_sig_count", 0.0))
             out[f"{prefix}/mixture_density_sig_ref"]         = float(st.get("mixture_sig_ref", 0.0))
             out[f"{prefix}/mixture_density_log_rarity_raw"]  = float(st.get("mixture_log_rarity_raw", 0.0))
@@ -1442,7 +1442,7 @@ class RayPPOTrainer:
             out[f"{prefix}/mixture_final_scale"] = float(st.get("mixture_final_scale", 1.0))
 
             # --- Mixture density adapter parameters (signal-based) - mirroring task-level for logging ---
-            out[f"{prefix}/mixture_density_rho_ema"]         = float(st.get("mixture_rho_ema", 0.0))
+            out[f"{prefix}/mixture_density_rho_batch"]       = float(st.get("mixture_rho_batch", 0.0))
             out[f"{prefix}/mixture_density_sig_count"]       = float(st.get("mixture_sig_count", 0.0))
             out[f"{prefix}/mixture_density_sig_ref"]         = float(st.get("mixture_sig_ref", 0.0))
             out[f"{prefix}/mixture_density_log_rarity_raw"]  = float(st.get("mixture_log_rarity_raw", 0.0))

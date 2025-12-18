@@ -100,7 +100,7 @@ task_stats: Dict[Any, Dict[str, Any]] = defaultdict(lambda: {
     "mixture_final_scale": 1.0,
 
     # Mixture density adapter parameters (signal-based)
-    "mixture_rho_ema": 0.0,
+    "mixture_rho_batch": 0.0,
     "mixture_sig_count": 0.0,
     "mixture_sig_ref": 0.0,
     "mixture_log_rarity_raw": 0.0,
@@ -180,7 +180,7 @@ dataset_stats: Dict[Any, Dict[str, Any]] = defaultdict(lambda: {
     "mixture_final_scale": 1.0,
 
     # Mixture density adapter parameters (signal-based) - mirroring task-level for logging
-    "mixture_rho_ema": 0.0,
+    "mixture_rho_batch": 0.0,
     "mixture_sig_count": 0.0,
     "mixture_sig_ref": 0.0,
     "mixture_log_rarity_raw": 0.0,
