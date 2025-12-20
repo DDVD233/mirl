@@ -1882,8 +1882,8 @@ def compute_tarpo_outcome_advantage(
         MIN_SCALE   = 0.5
         MAX_SCALE   = 8.0
 
-        # Optional: activate rarity boosting only when meaningfully rare
-        RARE_MARGIN = 0.0
+        # NEW: boost only if task is at least this many times rarer than reference
+        RARE_RATIO  = 20.0    # e.g., 20x rarer than reference => "super rare only"
 
         # ----------------------------
         # Step 1 — compute per-task signal mass and effective signal count
@@ -1956,36 +1956,55 @@ def compute_tarpo_outcome_advantage(
             rho_ref     = math.exp(log_rho_ref)
 
             # ----------------------------
-            # Step 3 — one-sided rarity boost k_t from effective signal counts
-            #         n_sig = sum r; only boost if rarer-than-reference
+            # Step 3 — one-sided rarity boost k_t from effective signal counts (intuitive)
+            #         boost only if (sig_ref / n_sig) >= RARE_RATIO
+            #         Uses EMA-smoothed signal counts for stability
             # ----------------------------
-            sig_counts  = [max(task_sig_count[t], eps) for t in task_signal_mass.keys()]
-            log_sig_ref = sum(math.log(x) for x in sig_counts) / max(len(sig_counts), 1)
+            # First pass: update EMA of signal counts
+            for task in task_signal_mass.keys():
+                sig_count_batch = max(task_sig_count[task], eps)
+                prev_ema = task_stats[task].get("mixture_sig_count_ema", 0.0)
+
+                if prev_ema == 0.0:
+                    # First time seeing this task - initialize EMA with batch value
+                    sig_count_ema = sig_count_batch
+                else:
+                    # EMA update with BETA_RHO (same as density EMA)
+                    sig_count_ema = _ema_update(prev_ema, sig_count_batch, BETA_RHO)
+
+                task_stats[task]["mixture_sig_count_ema"] = float(sig_count_ema)
+
+            # Compute reference using EMA values for smoothness
+            sig_counts_ema = [max(task_stats[t]["mixture_sig_count_ema"], eps) for t in task_signal_mass.keys()]
+            log_sig_ref = sum(math.log(x) for x in sig_counts_ema) / max(len(sig_counts_ema), 1)
             sig_ref     = math.exp(log_sig_ref)
 
             task_k = {}
             for task in task_signal_mass.keys():
-                n_sig = max(task_sig_count[task], eps)
+                # Use EMA for rarity computation (smoother than batch)
+                n_sig_ema = max(task_stats[task]["mixture_sig_count_ema"], eps)
 
-                # log rarity ratio: >0 means rarer than reference
-                log_rarity_ratio = log_sig_ref - math.log(n_sig)
+                # Intuitive rarity ratio in normal space:
+                # >1 means rarer-than-reference; 20 means 20x rarer.
+                rarity_ratio = sig_ref / n_sig_ema
 
-                # one-sided + optional margin: only boost rare tasks
-                log_rarity_pos = max(0.0, log_rarity_ratio - RARE_MARGIN)
+                # One-sided threshold: only boost if "super rare"
+                rarity_excess = max(0.0, rarity_ratio - RARE_RATIO)
 
-                log_k = ETA_K * log_rarity_pos
-                # clamp only the upper end; lower is 0 => k=1
+                # Smooth, saturating growth in log-space to avoid blow-ups for extreme rarity
+                # (0 if below threshold)
+                log_k = ETA_K * math.log1p(rarity_excess)
                 log_k = min(math.log(K_MAX), log_k)
-                k_t = math.exp(log_k)
+                k_t   = math.exp(log_k)
 
                 task_k[task] = float(k_t)
 
-                # logging
-                task_stats[task]["mixture_sig_count"]       = float(task_sig_count[task])
-                task_stats[task]["mixture_sig_ref"]         = float(sig_ref)
-                task_stats[task]["mixture_log_rarity_raw"]  = float(log_rarity_ratio)
-                task_stats[task]["mixture_log_rarity_pos"]  = float(log_rarity_pos)
-                task_stats[task]["mixture_k_t"]             = float(k_t)
+                # logging (batch count + EMA + computed values)
+                task_stats[task]["mixture_sig_count"]         = float(task_sig_count[task])  # batch value
+                task_stats[task]["mixture_sig_ref"]           = float(sig_ref)
+                task_stats[task]["mixture_rarity_ratio"]      = float(rarity_ratio)
+                task_stats[task]["mixture_rarity_excess"]     = float(rarity_excess)
+                task_stats[task]["mixture_k_t"]               = float(k_t)
 
             # ----------------------------
             # Step 4 — compute per-task log multiplier, EMA it, apply, then clamp
