@@ -1872,7 +1872,7 @@ def compute_tarpo_outcome_advantage(
 
         # Rarity boost (mixture-derived, one-sided)
         ETA_K       = 0.5     # rarity temperature
-        K_MAX       = 3.00    # only boosts up to this (never downweights common tasks)
+        K_MAX       = 1.25    # only boosts up to this (never downweights common tasks)
 
         # EMA smoothing
         BETA_RHO      = 0.95  # EMA for the per-task density (rho)
