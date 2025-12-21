@@ -1883,7 +1883,7 @@ def compute_tarpo_outcome_advantage(
         MAX_SCALE   = 8.0
 
         # NEW: boost only if task is at least this many times rarer than reference
-        RARE_RATIO  = 20.0    # e.g., 20x rarer than reference => "super rare only"
+        RARE_RATIO  = 2.5    # e.g., 20x rarer than reference => "super rare only"
 
         # ----------------------------
         # Step 1 — compute per-task signal mass and effective signal count
