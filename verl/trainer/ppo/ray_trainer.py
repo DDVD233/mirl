@@ -122,18 +122,18 @@ def _to_str(v):
     except Exception:
         return repr(v)
 
-class Role(Enum):
-    """
-    To create more roles dynamically, you can subclass Role and add new members
-    """
+# class Role(Enum):
+#     """
+#     To create more roles dynamically, you can subclass Role and add new members
+#     """
 
-    Actor = 0
-    Rollout = 1
-    ActorRollout = 2
-    Critic = 3
-    RefPolicy = 4
-    RewardModel = 5
-    ActorRolloutRef = 6
+#     Actor = 0
+#     Rollout = 1
+#     ActorRollout = 2
+#     Critic = 3
+#     RefPolicy = 4
+#     RewardModel = 5
+#     ActorRolloutRef = 6
 
 
 @dataclass
