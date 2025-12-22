@@ -642,6 +642,7 @@ class RLHFDataset(Dataset):
                     # link: https://github.com/vllm-project/vllm/blob/3c545c0c3b98ee642373a308197d750d0e449403/vllm/multimodal/parse.py#L205
                     multi_modal_data["video"] = [(video.numpy(), metadata) for video, metadata in zip(videos, videos_kwargs['video_metadata'], strict=True)]
                 else:
+                    # TODO_VERLADAPT: qwen3 vl utilizes these lines instead of processing the videos directly
                     # Processor doesn't support video, convert to images
                     video_frames_as_images = []
                     for video_tensor in videos:
