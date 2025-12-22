@@ -77,7 +77,7 @@ import os
 from datetime import datetime
 import torch.distributed as dist
 
-WorkerType = type[Worker]
+# WorkerType = type[Worker]
 
 debug_file = "/home/keaneong/human-behavior/verl/examples/grpo_trainer/debug_log.txt"
 # Create a timestamped log file in the same directory as this script
@@ -1984,7 +1984,7 @@ class RayPPOTrainer:
                         }
                         f.write(json.dumps(log_entry, ensure_ascii=False, default=lambda o: o.tolist() if isinstance(o, np.ndarray) else str(o)) + "\n")
                 batch_idx += 1
-                
+
                 metrics = {}
                 timing_raw = {}
 
