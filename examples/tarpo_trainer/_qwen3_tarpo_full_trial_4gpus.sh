@@ -49,6 +49,7 @@ export NCCL_ASYNC_ERROR_HANDLING=1
         data.modalities=\'audio,videos\' \
         data.train_modality_batching.enabled=True \
         data.train_modality_batching.drop_last=True \
+        data.seed=42 \
         data.val_modality_batching.enabled=True \
         data.val_modality_batching.drop_last=False \
         data.format_prompt=/home/keaneong/human-behavior/verl/examples/format_prompt/default.jinja \
