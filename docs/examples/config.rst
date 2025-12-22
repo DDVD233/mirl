@@ -17,6 +17,8 @@ Data
      tokenizer: null
      train_files: ~/data/rlhf/gsm8k/train.parquet
      val_files: ~/data/rlhf/gsm8k/test.parquet
+     train_max_samples: -1  # set to -1 to use full dataset
+     val_max_samples: -1  # set to -1 to use full dataset
      prompt_key: prompt
      max_prompt_length: 512
      max_response_length: 512
@@ -25,6 +27,7 @@ Data
      return_raw_chat: False
      return_full_prompt: False
      shuffle: True
+     seed: 42
      filter_overlong_prompts: False
      filter_overlong_prompts_workers: 1
      truncation: error
@@ -41,6 +44,10 @@ Data
   HDFS path to local path.
 - ``data.val_files``: Validation parquet. Can be a list or a single
   file.
+- ``data.train_max_samples``: Maximum number of samples to use from the
+  training dataset. Set to -1 to use the full dataset.
+- ``data.val_max_samples``: Maximum number of samples to use from the
+  validation dataset. Set to -1 to use the full dataset.
 - ``data.prompt_key``: The field in the dataset where the prompt is
   located. Default is 'prompt'.
 - ``data.max_prompt_length``: Maximum prompt length. All prompts will be
@@ -60,6 +67,8 @@ Data
   without applying chat template.
 - ``data.return_full_prompt``: Whether to return the full prompt with chat template
 - ``data.shuffle``: Whether to shuffle the data in the dataloader.
+- ``data.seed``: An integer seed to use when shuffling the data. If not set or set to
+  `null`, the data shuffling will not be seeded, resulting in a different data order on each run.
 - ``data.filter_overlong_prompts``: Default don't filter.
 - ``data.filter_overlong_prompts_workers``: For large-scale dataset, filtering
   overlong prompts could be timeconsuming. You cat set the ``filter_overlong_prompts_workers``
@@ -100,6 +109,7 @@ Actor/Rollout/Reference Policy
       path: ~/models/deepseek-llm-7b-chat
       external_lib: null
       override_config:
+        attn_implementation: flash_attention_2  # or eager, sdpa - attention implementation override
         model_config: {}
         moe_config:  # Megatron only, can adjust moe configuration
           freeze_moe_router: False  # Megatron only, can freeze moe router (no grad)
@@ -118,6 +128,14 @@ Actor/Rollout/Reference Policy
       clip_ratio: 0.2
       entropy_coeff: 0.0
       use_kl_loss: False # True for GRPO
+      # Rollout Correction (corrects distribution mismatch between rollout and training)
+      rollout_correction:
+        rollout_is: token # IS weights: token/sequence/null
+        rollout_is_threshold: 2.0 # Upper threshold for IS weights
+        rollout_rs: null # Rejection sampling: token/sequence/geometric/null
+        rollout_rs_threshold: null # RS upper threshold
+        rollout_rs_threshold_lower: null # RS lower threshold
+        rollout_token_veto_threshold: null # Per-token veto (null to disable)
       use_torch_compile: True # False to disable torch compile
       kl_loss_coef: 0.001 # for grpo
       kl_loss_type: low_var_kl # for grpo
@@ -131,7 +149,7 @@ Actor/Rollout/Reference Policy
         lr_warmup_steps_ratio: 0.  # the total steps will be injected during runtime
         min_lr_ratio: 0.0   # only used with cosine lr scheduler, default to 0.0
         num_cycles: 0.5     # only used with cosine lr scheduler, default to 0.5
-        warmup_style: constant  # select from constant/cosine
+        lr_scheduler_type: constant  # select from constant/cosine
         total_training_steps: -1  # must be override by program
       fsdp_config:
         wrap_policy:
@@ -180,14 +198,12 @@ Actor/Rollout/Reference Policy
       log_prob_max_token_len_per_gpu: ${actor_rollout_ref.actor.ppo_max_token_len_per_gpu}
       # for hf rollout
       do_sample: True
-      engine_kwargs: # inference engine parameters
-        vllm:
-          swap_space: null # null means "use the engine default value" (usually 4 GB), setting it to, e.g., 32 means 32 GB
-          disable_mm_preprocessor_cache: False # disable preprocessor cache for multimodel models
-        sglang:
-          attention_backend: null # null means use the engine default value, available options: flashinfer, triton, flashmla
+      engine_kwargs: # inference engine parameters, please refer vllm/sglang official doc for detail
+        vllm: {}
+        sglang: {}
 
       n: 1 # for each prompt, sample n responses (i.e. num sample times). set it to values > 1 for grpo, rloo
+      calculate_log_probs: False # set to True for computing log probs via rollouts
       val_kwargs:
         # sampling parameters for validation
         top_k: -1 # 0 for hf rollout, -1 for vllm rollout
@@ -212,7 +228,12 @@ Actor/Rollout/Reference Policy
   that need to be imported. Used to register models or tokenizers into
   the Huggingface system.
 - ``actor_rollout_ref.model.override_config``: Used to override some of
-  the model's original configurations, mainly dropout
+  the model's original configurations. Common overrides include:
+  
+  - ``attn_implementation``: Override the attention implementation. Default is ``flash_attention_2``.
+    Supported values: ``flash_attention_2``, ``eager``, ``sdpa``. Use ``eager`` for debugging or
+    compatibility issues. See :ref:`attention-implementation-override` for detailed usage.
+
 - ``actor_rollout_ref.model.enable_gradient_checkpointing``: FSDP only, decide
   Whether to enable gradient checkpointing for the actor,
   Megatron uses recompute options in ``override_transformer_config`` to set this
@@ -223,11 +244,13 @@ Actor/Rollout/Reference Policy
 - ``actor_rollout_ref.model.use_fused_kernels``: Whether to use fused
   kernels in the model. If set to True, the following parameters will be
   used.
+
   - ``actor_rollout_ref.model.fused_kernel_options.impl_backend``: The
-  implementation backend for fused kernels. Options: "triton" or
-  "torch". Default is "torch".
-  While in megatron, we only support "triton" as the
-  implementation backend, so there is no need for this option.
+    implementation backend for fused kernels. Options: "triton" or
+    "torch". Default is "torch".
+    While in megatron, we only support "triton" as the
+    implementation backend, so there is no need for this option.
+
 - ``actor_rollout_ref.model.use_remove_padding``: Whether to use remove
   padding in the model. If set to True, the model will remove padding
   tokens in the input_ids and response_ids. This helps a lot in improving model running efficiency.
@@ -289,7 +312,7 @@ Actor/Rollout/Reference Policy
 
 - ``actor_rollout_ref.actor.kl_loss_coef``: The coefficient of kl loss. Default is 0.001. 
 
-- ``actor_rollout_ref.actor.kl_loss_type``: Support ``kl`` (``k1``), ``abs``, ``mse`` (``k2``), ``low_var_kl`` (``k3``) and ``full``. How to calculate the kl divergence between actor and reference policy. For specific options, refer to `kl_penalty()` in `core_algos.py <https://github.com/volcengine/verl/blob/main/verl/trainer/ppo/core_algos.py>`_ . See this blog post for detailed analysis: http://joschu.net/blog/kl-approx.html
+- ``actor_rollout_ref.actor.kl_loss_type``: Support ``kl`` (``k1``), ``abs``, ``mse`` (``k2``), ``low_var_kl`` (``k3``) and ``full``. Appending ``+`` in the end (e.g., ``k1+`` and ``k3+``) would use straight-through to employ ``k2`` for unbiased gradient estimation, regardless of the kl value estimation (see https://github.com/volcengine/verl/pull/2953#issuecomment-3162113848 for more details). How to calculate the kl divergence between actor and reference policy. For specific options, refer to `kl_penalty()` in `core_algos.py <https://github.com/volcengine/verl/blob/main/verl/trainer/ppo/core_algos.py>`_ . See this blog post for detailed analysis: http://joschu.net/blog/kl-approx.html
 
 - ``actor_rollout_ref.actor.checkpoint``: The configurations of checkpoint function in actor
 
@@ -353,19 +376,9 @@ Reference model will be enabled when ``actor.use_kl_loss`` or/and ``algorithm.us
     deterministic outputs. When set to True, the rollout will use the ``actor_rollout_ref.rollout.val_kwargs`` parameters
     (top_k, top_p, temperature) to control the sampling behavior.
 
-- ``actor_rollout_ref.rollout.engine_kwargs.vllm``: extra vllm engine args
+- ``actor_rollout_ref.rollout.engine_kwargs.vllm``: extra vllm engine args, please refer vllm official doc for detail
 
-  - ``swap_space``: swap space in GB used by the inference engine. Positive integer, e.g., ``32`` means 32 GB. ``null``: means not setting and using the engine default value (usually, e.g., 4 GB for vLLM)
-  - ``disable_mm_preprocessor_cache``: Whether to disable preprocessor cache for multimodel models. 
-
-- ``actor_rollout_ref.rollout.engine_kwargs.sglang``: extra sglang engine args
-
-  - ``attention_backend``: The attention backend to use for the inference engine.
-
-    - ``null``: means not setting and using the engine default value (usually, e.g., ``fa3`` for SGLang)
-    - ``flashinfer``: Use flashinfer attention backend.
-    - ``triton``: Use triton attention backend.
-    - ``flashmla``: Use flashmla attention backend.
+- ``actor_rollout_ref.rollout.engine_kwargs.sglang``: extra sglang engine args, please refer sglang official doc for detail
 
 - ``actor_rollout_ref.rollout.ignore_eos``: Whether to ignore the EOS
   token and continue generating tokens after the EOS token is generated.
@@ -426,7 +439,7 @@ ____________________________________________________
 
 Notice that there are some differences in APIs between Megatron optimizer and FSDP optimizer.
 
-- Megatron optimizer scheduler names the period after lr_warmup as lr_decay_steps, so the ``warmup_style`` actually means the style of lr decay after warmup.
+- Megatron optimizer scheduler names the period after lr_warmup as lr_decay_steps, so the ``lr_scheduler_type`` actually means the style of lr decay after warmup.
 - Megatron optimizer also support weight decay decay mechanism
 - ``use_checkpoint_opt_param_scheduler`` determines whether to use the checkpoint optimizer parameter scheduler. If set to True, the optimizer parameter scheduler will be saved in the checkpoint and loaded from the checkpoint during resuming training.
 
@@ -509,18 +522,39 @@ Algorithm
        kl_coef: 0.005
        horizon: 10000
        target_kl: 0.1
+     # Rollout Correction
+     rollout_correction:
+       rollout_is: null  # IS weights: token/sequence/null
+       rollout_is_threshold: 2.0  # Upper threshold for IS weights
+       rollout_rs: null  # Rejection sampling: token/sequence/geometric/null
+       rollout_rs_threshold: null  # RS upper threshold
+       rollout_rs_threshold_lower: null  # RS lower threshold
+       rollout_token_veto_threshold: null  # Per-token veto (null to disable)
 
 - ``gamma``: discount factor
 - ``lam``: Trade-off between bias and variance in the GAE estimator
-- ``adv_estimator``: Support ``gae``, ``grpo``, ``reinforce_plus_plus``, ``reinforce_plus_plus_baseline``, ``rloo``
+- ``adv_estimator``: Support ``gae``, ``grpo``, ``reinforce_plus_plus``, ``reinforce_plus_plus_baseline``, ``rloo``, ``rloo_vectorized``, ``grpo_vectorized``
 - ``use_kl_in_reward``: Whether to enable in-reward kl penalty. Default is False.
 - ``kl_penalty``: Support ``kl``, ``abs``, ``mse``, ``low_var_kl`` and ``full``. How to
   calculate the kl divergence between actor and reference policy. For
   specific options, refer to `kl_penalty()` in `core_algos.py <https://github.com/volcengine/verl/blob/main/verl/trainer/ppo/core_algos.py>`_ .
 - ``kl_ctrl``: Config for in-reward kl_penalty controller
+
   - ``kl_coef``: The (initial) coefficient of in-reward kl_penalty. Default is 0.001.
   - ``type``: 'fixed' for FixedKLController and 'adaptive' for AdaptiveKLController.
   - ``horizon`` and ``target_kl``: See source code of AdaptiveKLController for details.
+
+- ``rollout_correction``: Rollout Correction configuration (nested dict). Set to ``null`` to disable.
+  When enabled, contains:
+
+  - ``rollout_is``: IS weights aggregation level: ``token``, ``sequence``, or ``null`` to disable IS weights.
+  - ``rollout_is_threshold``: Upper threshold for IS weights (e.g., 2.0).
+  - ``rollout_rs``: Rejection sampling mode: ``token``, ``sequence``, ``geometric``, or ``null`` to disable RS.
+  - ``rollout_rs_threshold``: RS upper threshold.
+  - ``rollout_rs_threshold_lower``: RS lower threshold (null = auto-reciprocal).
+  - ``rollout_token_veto_threshold``: Per-token veto threshold for catastrophic outliers (null = disabled).
+
+  Note: Rollout Correction requires setting ``actor_rollout_ref.rollout.calculate_log_probs=True``.
 
 Trainer
 ~~~~~~~
@@ -550,7 +584,7 @@ Trainer
 - ``trainer.total_epochs``: Number of epochs in training.
 - ``trainer.project_name``: For wandb, swanlab, mlflow
 - ``trainer.experiment_name``: For wandb, swanlab, mlflow
-- ``trainer.logger``: Support console and wandb, swanlab, mlflow, tensorboard
+- ``trainer.logger``: Support console and wandb, swanlab, mlflow, tensorboard, trackio
 - ``trainer.log_val_generations``: The number of logged generation during validation (default ``0``)
 - ``trainer.nnodes``: Number of nodes used in the training.
 - ``trainer.n_gpus_per_node``: Number of GPUs per node.
@@ -625,20 +659,27 @@ Optim
 .. code:: yaml
 
    optim:
+     optimizer: AdamW
+     optimizer_impl: torch.optim
      lr: 1e-5
      weight_decay: 0.01
-     warmup_steps_ratio: 0.1
+     lr_warmup_steps_ratio: 0.1
      clip_grad: 1.0
      lr_scheduler: cosine
+     override_optimizer_config: null
 
+- ``optimizer``: Optimizer class name (e.g., ``"AdamW"``, ``"AdamW8bit"``, ``"_AdamW"``). The class name as it appears in the module.
+- ``optimizer_impl``: Module path to import optimizer from (e.g., ``"torch.optim"``, ``"torchao.optim"``, ``"bitsandbytes.optim"``).
 - ``optim.lr``: Learning rate for the optimizer.
 - ``optim.weight_decay``: Weight decay for the optimizer.
-- ``optim.warmup_steps_ratio``: Ratio of warmup steps to total training steps.
+- ``optim.lr_warmup_steps_ratio``: Ratio of warmup steps to total training steps.
 - ``optim.clip_grad``: Gradient clipping value.
 - ``optim.lr_scheduler``: Learning rate scheduler type. Options:
 
   - ``cosine``: Cosine learning rate scheduler with warmup (default).
   - ``wsd``: Warmup-Stable-Decay scheduler that provides a stable learning rate phase between warmup and decay phases.
+
+- ``override_optimizer_config``: Dictionary of additional optimizer-specific keyword arguments. For example, to use ``torchao.optim``'s ``_AdamW`` with BF16 stochastic rounding: ``{"bf16_stochastic_round": true}``
 
 Model
 ~~~~~~~~~~~~

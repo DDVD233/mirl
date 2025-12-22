@@ -32,6 +32,14 @@ repos:
     hooks:
       - id: check-license
         name: Check license
-        entry: python3 tests/special_sanity/check_license.py --directory .
+        entry: python3 tests/special_sanity/check_license.py --directories examples recipe scripts tests verl setup.py
+        language: python
+        pass_filenames: false
+
+  - repo: local
+    hooks:
+      - id: compileall
+        name: Compile all python files
+        entry: sh -c 'PYTHONWARNINGS=error python3 -m compileall -q .'
         language: python
         pass_filenames: false

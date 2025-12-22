@@ -1,6 +1,12 @@
 # defaults specify the default config from each component
 defaults:
 
+  # megatron optimizer config
+  - ../optim@optim: megatron
+
+  # megatron engine config
+  - ../engine@megatron: megatron
+
   # dp actor config, inheriting from trainer/config/critic/critic.yaml
   - critic
 
@@ -14,44 +20,6 @@ strategy: megatron
 
 # seconds, default is 10 minutes for torch, you can set it to a larger value if you have long-running operations like 32B or 72B model using megatron
 nccl_timeout: 600
-
-# optimizer configs
-optim:
-
-  # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
-  _target_: verl.workers.config.McoreOptimizerConfig
-
-  # select optimizer, default is Adam
-  optimizer: adam
-
-  # Clip gradients norm
-  clip_grad: 1.0
-
-  # initial learning rate for warmup, default to 0.0
-  lr_warmup_init: 0.0
-
-  lr_decay_steps: null
-
-  # select from constant/linear/cosine/inverse_square_root
-  lr_decay_style: linear
-
-  # minimum learning rate, default to 0.0
-  min_lr: 0.0
-
-  # select from constant/linear/cosine
-  weight_decay_incr_style: constant
-
-  # select from constant/exponential/cosine
-  lr_wsd_decay_style: exponential
-
-  # number of steps for weight std decay
-  lr_wsd_decay_steps: null
-
-  # use checkpoint optimizer parameter scheduler
-  use_checkpoint_opt_param_scheduler: False
-
-  # override optimizer config, e.g. enable cpu adam
-  override_optimizer_config: {}
 
 # model config for the critic
 model:
@@ -68,62 +36,63 @@ model:
 
       freeze_moe_router: False
 
-# megatron-specific parallelism settings
-megatron:
+  # LoRA (Low-Rank Adaptation) configuration for parameter-efficient fine-tuning
+  lora:
+      # LoRA type: "lora", "vlm_lora", "canonical_lora", or "dora"
+      type: lora
 
-  # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
-  _target_: verl.workers.config.McoreEngineConfig
+      # LoRA rank (Dimension of the low-rank projection space.). Set to 0 to disable LoRA
+      rank: 0  # typical values: 8, 16, 32, 64
+      
+      #  Weighting factor for the low-rank projection. Defaults to 32
+      alpha: 32
+      
+      # Dropout rate for the low-rank projection. Defaults to 0.0
+      dropout: 0.0
+      
+      # A list of module names to apply LoRA to.
+      # For fused LoRA, Defaults to all linear layers ['linear_qkv', 'linear_proj', 'linear_fc1', 'linear_fc2'].
+      # For canonical LoRA: ["linear_q", "linear_k", "linear_v", "linear_proj", "linear_fc1_up", "linear_fc1_gate", "linear_fc2"]
+      # - 'linear_qkv': Apply LoRA to the fused linear layer used for query, key, and value projections in self-attention
+      # - 'linear_proj': Apply LoRA to the linear layer used for projecting the output of self-attention
+      # - 'linear_fc1': Apply LoRA to the first fully-connected layer in MLP
+      # - 'linear_fc2': Apply LoRA to the second fully-connected layer in MLP
+      # Target modules can also contain wildcards. For example, you can specify
+      # target_modules=['*.layers.0.*.linear_qkv', '*.layers.1.*.linear_qkv'] to add LoRA to only linear_qkv on the first two layers
+      target_modules:
+        - linear_qkv
+        - linear_proj
+        - linear_fc1
+        - linear_fc2
+      
+      # A list of module names not to apply LoRa to. It will match all nn.Linear & nn.Linear-adjacent modules whose name
+      # does not match any string in exclude_modules. If used, will require target_modules to be empty list or null
+      exclude_modules: []
 
-  # Whether to offload model parameters to CPU
-  param_offload: False
+      # Position for applying dropout, can be 'pre' (before the low-rank projection) or 'post' (after). Defaults to 'pre'
+      dropout_position: pre
 
-  # Whether to offload gradients to CPU
-  grad_offload: False
+      # Initialization method for the low-rank matrix A. Defaults to "xavier".
+      lora_A_init_method: xavier
 
-  # Whether to offload optimizer state to CPU
-  optimizer_offload: False
+      # Initialization method for the low-rank matrix B. Defaults to "zero".
+      lora_B_init_method: zero
 
-  # size of tensor model parallel group
-  tensor_model_parallel_size: 1
+      # Enables the experimental All-to-All (A2A) communication strategy. Defaults to False
+      a2a_experimental: False
 
-  # size of expert model parallel group
-  expert_model_parallel_size: 1
+      # Parameter data type for LoRA weights. Default to null, which will use model's dtype.
+      dtype: null
 
-  # size of expert tensor parallel group
-  expert_tensor_parallel_size: null
+      # Path to pre-trained LoRA adapter weights (null to train from scratch)
+      adapter_path: null
 
-  # size of pipeline model parallel group
-  pipeline_model_parallel_size: 1
-
-  # size of virtual pipeline model parallel group
-  virtual_pipeline_model_parallel_size: null
-
-  # size of context parallel group
-  context_parallel_size: 1
-
-  # Whether to use sequence parallelism
-  sequence_parallel: True
-
-  # Whether to use distributed optimizer
-  use_distributed_optimizer: True
-
-  # Whether to use distributed checkpointing
-  use_dist_checkpointing: False
-
-  # Path for distributed checkpointing
-  dist_checkpointing_path: null
-
-  # Random seed for Megatron
-  seed: ${oc.select:actor_rollout_ref.actor.megatron.seed,42}
-
-  # Allow to override Distributed Data Parallel (DDP) config
-  override_ddp_config: ${oc.select:actor_rollout_ref.actor.megatron.override_ddp_config,{}}
-
-  # Transformer config overrides for Megatron
-  override_transformer_config: ${oc.select:actor_rollout_ref.actor.megatron.override_transformer_config,{}}
-
-  # Whether to use mBridge communications
-  use_mbridge: ${oc.select:actor_rollout_ref.actor.megatron.use_mbridge,False}
+      # VLMLoRA additionally allows the user to specify whether the language or vision models should be frozen.
+      # For example, a common finetuning workload for multimodal models is to apply adapters to language model and fully
+      # finetune the vision model.
+      freeze_vision_model: True
+      freeze_vision_projection: True
+      freeze_language_model: True
 
 # Whether to load initial weights
 load_weight: True

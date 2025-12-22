@@ -1,8 +1,11 @@
+# Target class for this configuration
+_target_: verl.workers.config.RolloutConfig
+
 # actor_rollout_ref.rollout.name: hf/vllm/sglang. The default value will be removed in the future
 name: ???
 
 # sync: LLM, async: AsyncLLM
-mode: sync
+mode: async
 
 # Sampling temperature for rollout.
 temperature: 1.0
@@ -46,6 +49,15 @@ free_cache_engine: True
 # TP size for rollout. Not effective for hf
 tensor_model_parallel_size: 2
 
+# DP size for rollout
+data_parallel_size: 1
+
+# EP size for rollout
+expert_parallel_size: 1
+
+# PP size for rollout.
+pipeline_model_parallel_size: 1
+
 # max number of tokens in a batch
 max_num_batched_tokens: 1536
 
@@ -54,6 +66,16 @@ max_model_len: 1536
 
 # max length of sequences
 max_num_seqs: 1024
+
+# may get higher throughput when set to True. When activated, Please increase max_num_batched_tokens or decrease max_model_len.
+enable_chunked_prefill: True
+
+# Prefix caching kv-cache blocks is a popular optimization in LLM inference to avoid redundant prompt computations.
+enable_prefix_caching: True
+
+# Which loader to use for rollout model weights: dummy, hf, megatron, etc.
+# safetensors (for huge model, and set use_shm=True); dummy: randomly init model weight
+load_format: dummy
 
 # [Will be deprecated, use log_prob_micro_batch_size_per_gpu] The batch size for one forward pass in the computation of log_prob. Global batch size.
 log_prob_micro_batch_size: null
@@ -79,29 +101,29 @@ do_sample: True
 # number of responses (i.e. num sample times). > 1 for grpo
 n: 1
 
-# Whether to wake up inference engine in multi-stage to reduce peak memory during training-rollout transition.
+# The over_sample_rate parameter controls the early termination threshold for training rollouts,
+# where the system will abort remaining requests when (1 - over_sample_rate) * total_requests completions are reached.
+over_sample_rate: 0
+
+# Whether to wake up inference engine in multi-stage for SGLang
+# to reduce peak memory during training-rollout transition.
+# This is only effective for SGLang rollout.
 multi_stage_wake_up: false
 
-# Extra inference engine arguments (vllm, sglang).
+# Extra inference engine arguments (vllm, sglang), please refer vllm/sglang official doc for detail
 engine_kwargs:
 
-  # for vllm
-  vllm:
+  # vllm engine config
+  vllm: {}
 
-    # Swap space (in GB) used by inference engine. null uses default (e.g., 4 GB).
-    swap_space: null
-
-    # Whether to disable the preprocessor cache for multimodel models.
-    disable_mm_preprocessor_cache: False
-
-  # for sglang
-  sglang:
-
-    # The attention backend for sglang engine. Options: flashinfer, triton, flashmla, null for default.
-    attention_backend: null
+  # sglang engine config
+  sglang: {}
 
 # Sampling parameters used during validation.
 val_kwargs:
+
+  # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
+  _target_: verl.workers.config.SamplingConfig
 
   # sampling parameters for validation
   # Top-k sampling parameter. -1 for vLLM rollout, 0 for HF rollout.
@@ -121,6 +143,9 @@ val_kwargs:
 
 # Multi-turn interaction config for tools or chat.
 multi_turn:
+
+  # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
+  _target_: verl.workers.config.MultiTurnConfig
 
   # set to True for multi-turn tool interaction tasks; should set rollout.name to sglang as well
   enable: False
@@ -164,14 +189,24 @@ multi_turn:
   # Format of the multi-turn interaction. Options: hermes, llama3_json, ...
   format: hermes
 
+  # Number of repeat rollouts for each interaction
+  num_repeat_rollouts: null
+
 # support logging rollout prob for debugging purpose
+# "Truncated importance sampling" requires rollout log probs, set to True when turning on Truncated importance sampling
 calculate_log_probs: False
 
 # [Experimental] agent loop based rollout configs
 agent:
 
+  # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
+  _target_: verl.workers.config.AgentLoopConfig
+
   # Number of agent loop workers
   num_workers: 8
+
+  # default agent loop to use if `agent_name` not set in RL dataset
+  default_agent_loop: single_turn_agent
 
   # custom agent loop config path, which should contain list of configs to intialize AgentLoop instances.
   # https://hydra.cc/docs/advanced/instantiate_objects/overview/
@@ -187,6 +222,9 @@ agent:
 
   # custom async server configs
   custom_async_server:
+
+    # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
+    _target_: verl.workers.config.CustomAsyncServerConfig
 
     # Path to the custom async server implementation
     path: null
@@ -211,11 +249,20 @@ update_weights_bucket_megabytes: 512
 # trace rollout data
 trace:
 
+  # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
+  _target_: verl.workers.config.TraceConfig
+
   # trace backend, support mlflow, weave
   backend: null
 
   # whether translate token id to text in output
   token2text: False
+
+  # Maximum number of unique samples to trace per agent worker per training step.
+  # If null, all samples are traced. If set to N, each agent loop worker will randomly
+  # select N unique samples to trace (including all their rollouts for GRPO).
+  # Total traces per step = max_samples_per_step_per_worker * num_workers * n_rollouts_per_sample
+  max_samples_per_step_per_worker: null
 
 # When enabled (True), the trainer will attempt to load previously generated rollout data from the specified directory instead of computing new rollouts.
 # If no cached data is found or loading fails, new rollouts will be generated and automatically saved.
@@ -225,3 +272,56 @@ skip_rollout: False
 # Specifies the filesystem path where rollout data should be cached when skip_rollout is enabled.
 # Note: Giving path under /tmp/ray/session* is not recommended as these are temporary Ray cluster directories.
 skip_dump_dir: /tmp/rollout_dump
+
+# Whether to skip tokenizer initialization for rollout engine
+# When enabled (True), the rollout assume token in token out for generation
+skip_tokenizer_init: True
+
+# Whether to enable rollout routing replay for MoE models
+# When enabled (True), the rollout will record the routing decisions.
+enable_rollout_routing_replay: False
+
+
+# profile the rollout model in `generate_sequence` 
+profiler:
+
+  # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
+  _target_: verl.utils.profiler.ProfilerConfig
+
+  # profiler tool, default same as profiler.tool in global config
+  # choices: nsys, npu, torch
+  tool: ${oc.select:global_profiler.tool,null}
+
+  # whether enable profile on ref
+  enable: ${oc.select:actor_rollout_ref.actor.profiler.enable,false}
+
+  # Whether to profile all ranks.
+  all_ranks: ${oc.select:actor_rollout_ref.actor.profiler.all_ranks,false}
+
+  # The ranks that will be profiled. [] or [0,1,...]
+  ranks: ${oc.select:actor_rollout_ref.actor.profiler.ranks,[]}
+
+  # profile results saving path
+  save_path: ${oc.select:global_profiler.save_path,null}
+
+  # specific tool config
+  tool_config: ${oc.select:actor_rollout_ref.actor.profiler.tool_config,null}
+
+# prometheus configuration for vllm/sglang server mode
+prometheus:
+
+  # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
+  _target_: verl.workers.config.PrometheusConfig
+
+  # whether enable prometheus on server mode rollout
+  enable: false
+
+  # Port number that Prometheus listens on, default is 9090
+  port: 9090
+
+  # Path to Prometheus configuration file
+  file: /tmp/ray/session_latest/metrics/prometheus/prometheus.yml
+
+  # Specify served_model_name to avoid displaying overly long model paths in Grafana
+  served_model_name: ${oc.select:actor_rollout_ref.model.path,null}
+

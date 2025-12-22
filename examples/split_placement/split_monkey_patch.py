@@ -31,6 +31,7 @@ from verl.trainer.ppo.ray_trainer import (
     compute_timing_metrics,
     marked_timer,
 )
+from verl.trainer.ppo.reward import compute_reward
 from verl.utils.metric import reduce_metrics
 
 
@@ -95,14 +96,22 @@ def fit(self):
                         gen_baseline_output = self.actor_rollout_wg.generate_sequences(gen_baseline_batch)
 
                         batch = batch.union(gen_baseline_output)
-                        reward_baseline_tensor = self.reward_fn(batch)
+                        # compute reward model score on batch
+                        rm_scores = None
+                        if self.use_rm and "rm_scores" not in batch.batch.keys():
+                            rm_scores = self.rm_wg.compute_rm_score(batch)
+                            batch = batch.union(rm_scores)
+                        reward_baseline_tensor, _ = compute_reward(batch, self.reward_fn)
                         reward_baseline_tensor = reward_baseline_tensor.sum(dim=-1)
 
-                        batch.pop(batch_keys=list(gen_baseline_output.batch.keys()))
+                        keys_to_pop = set(gen_baseline_output.batch.keys())
+                        if rm_scores is not None:
+                            keys_to_pop.update(rm_scores.batch.keys())
+                        batch.pop(batch_keys=list(keys_to_pop))
 
                         batch.batch["reward_baselines"] = reward_baseline_tensor
 
-                        del gen_baseline_batch, gen_baseline_output
+                        del rm_scores, gen_baseline_batch, gen_baseline_output
 
                 batch.non_tensor_batch["uid"] = np.array(
                     [str(uuid.uuid4()) for _ in range(len(batch.batch))], dtype=object
@@ -142,13 +151,13 @@ def fit(self):
                     # compute scores. Support both model and function-based.
                     # We first compute the scores using reward model. Then, we call reward_fn to combine
                     # the results from reward model and rule-based results.
-                    if self.use_rm:
+                    if self.use_rm and "rm_scores" not in batch.batch.keys():
                         # we first compute reward model score
                         reward_tensor = self.rm_wg.compute_rm_score(batch)
                         batch = batch.union(reward_tensor)
 
                     # we combine with rule-based rm
-                    reward_tensor = self.reward_fn(batch)
+                    reward_tensor, _ = compute_reward(batch, self.reward_fn)
                     batch.batch["token_level_scores"] = reward_tensor
 
                     # compute rewards. apply_kl_penalty if available
@@ -196,23 +205,23 @@ def fit(self):
                     actor_output_metrics = reduce_metrics(actor_output.meta_info["metrics"])
                     metrics.update(actor_output_metrics)
 
-                # validate
-                if (
-                    self.val_reward_fn is not None
-                    and self.config.trainer.test_freq > 0
-                    and (is_last_step or self.global_steps % self.config.trainer.test_freq == 0)
-                ):
-                    with marked_timer("testing", timing_raw):
-                        val_metrics: dict = self._validate()
-                        if is_last_step:
-                            last_val_metrics = val_metrics
-                    metrics.update(val_metrics)
+            # validate
+            if (
+                self.val_reward_fn is not None
+                and self.config.trainer.test_freq > 0
+                and (is_last_step or self.global_steps % self.config.trainer.test_freq == 0)
+            ):
+                with marked_timer("testing", timing_raw):
+                    val_metrics: dict = self._validate()
+                    if is_last_step:
+                        last_val_metrics = val_metrics
+                metrics.update(val_metrics)
 
-                if self.config.trainer.save_freq > 0 and (
-                    is_last_step or self.global_steps % self.config.trainer.save_freq == 0
-                ):
-                    with marked_timer("save_checkpoint", timing_raw):
-                        self._save_checkpoint()
+            if self.config.trainer.save_freq > 0 and (
+                is_last_step or self.global_steps % self.config.trainer.save_freq == 0
+            ):
+                with marked_timer("save_checkpoint", timing_raw):
+                    self._save_checkpoint()
 
             # collect metrics
             metrics.update(compute_data_metrics(batch=batch, use_critic=self.use_critic))

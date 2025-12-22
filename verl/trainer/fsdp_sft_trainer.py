@@ -25,6 +25,7 @@ os.environ["TOKENIZERS_PARALLELISM"] = "true"
 
 import logging
 import re
+import time
 from contextlib import nullcontext
 
 import hydra
@@ -33,7 +34,7 @@ import torch.distributed
 from omegaconf import DictConfig, OmegaConf
 from peft import LoraConfig, TaskType, get_peft_model
 from tensordict import TensorDict
-from torch import nn, optim
+from torch import nn
 from torch.distributed.device_mesh import DeviceMesh, init_device_mesh
 from torch.distributed.fsdp import CPUOffload, MixedPrecision, ShardingStrategy
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
@@ -43,11 +44,18 @@ from tqdm import tqdm
 from transformers import AutoConfig, AutoModelForCausalLM, PreTrainedModel
 
 import verl.utils.hdfs_io as hdfs_io
+from verl.utils.attention_utils import index_first_axis, pad_input, rearrange, unpad_input
 from verl.utils.checkpoint.checkpoint_manager import find_latest_ckpt_path, get_checkpoint_tracker_filename
 from verl.utils.checkpoint.fsdp_checkpoint_manager import FSDPCheckpointManager
 from verl.utils.dataset import SFTDataset
 from verl.utils.dataset.multiturn_sft_dataset import MultiTurnSFTDataset
-from verl.utils.device import get_device_id, get_device_name, is_cuda_available, is_npu_available
+from verl.utils.device import (
+    auto_set_ascend_device_name,
+    get_device_id,
+    get_device_name,
+    is_cuda_available,
+    is_npu_available,
+)
 from verl.utils.distributed import destroy_global_process_group, initialize_global_process_group
 from verl.utils.fs import copy_to_local
 from verl.utils.fsdp_utils import (
@@ -71,12 +79,8 @@ from verl.utils.ulysses import (
     get_ulysses_sequence_parallel_world_size,
     ulysses_pad_and_slice_inputs,
 )
+from verl.workers.config.optimizer import build_optimizer
 from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
-
-if is_cuda_available:
-    from flash_attn.bert_padding import index_first_axis, pad_input, rearrange, unpad_input
-elif is_npu_available:
-    from transformers.integrations.npu_flash_attention import index_first_axis, pad_input, rearrange, unpad_input
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_SFT_LOGGING_LEVEL", "WARN"))
@@ -119,6 +123,8 @@ class FSDPSFTTrainer:
 
         self._build_dataloader(train_dataset, val_dataset)
 
+        self.lora = self.config.model.get("lora_adapter_path") is not None or self.config.model.lora_rank > 0
+
         # Initialize resume-related variables
         self.resume_global_step = 0
 
@@ -132,6 +138,7 @@ class FSDPSFTTrainer:
 
         if self.device_mesh.get_rank() == 0:
             print(self.config)
+
         self.device_name = self.config.trainer.device
 
     def _normalize_config_bsz(self):
@@ -249,17 +256,32 @@ class FSDPSFTTrainer:
 
                 _apply_liger_kernel_to_instance(model=self.model)
 
-            if self.config.model.get("lora_rank", 0) > 0:
+            if self.lora:
                 self.model.enable_input_require_grads()
-                # Convert config to regular Python types before creating PEFT model
-                lora_config = {
-                    "task_type": TaskType.CAUSAL_LM,
-                    "r": self.config.model.lora_rank,
-                    "lora_alpha": self.config.model.lora_alpha,
-                    "target_modules": convert_to_regular_types(self.config.model.target_modules),
-                    "bias": "none",
-                }
-                self.model = get_peft_model(self.model, LoraConfig(**lora_config))
+
+                lora_adapter_path = self.config.model.get("lora_adapter_path")
+                if lora_adapter_path is not None:
+                    from peft import PeftModel
+
+                    print(f"Loading pre-trained LoRA adapter for sft from: {lora_adapter_path}")
+
+                    local_adapter_path = copy_to_local(lora_adapter_path, use_shm=self.config.model.use_shm)
+
+                    self.model = PeftModel.from_pretrained(self.model, local_adapter_path, is_trainable=True)
+                    peft_config = self.model.peft_config["default"]
+                    # Ensure task_type is TaskType enum, not string
+                    if isinstance(peft_config.task_type, str):
+                        peft_config.task_type = TaskType.CAUSAL_LM
+                else:
+                    # Convert config to regular Python types before creating PEFT model
+                    lora_config = {
+                        "task_type": TaskType.CAUSAL_LM,
+                        "r": self.config.model.lora_rank,
+                        "lora_alpha": self.config.model.lora_alpha,
+                        "target_modules": convert_to_regular_types(self.config.model.target_modules),
+                        "bias": "none",
+                    }
+                    self.model = get_peft_model(self.model, LoraConfig(**lora_config))
                 self.model = self.model.to(torch_dtype)
 
         if self.config.model.enable_gradient_checkpointing:
@@ -274,8 +296,9 @@ class FSDPSFTTrainer:
         auto_wrap_policy = get_fsdp_wrap_policy(
             self.model,
             config=self.config.model.fsdp_config.wrap_policy,
-            is_lora=self.config.model.get("lora_rank", 0) > 0,
+            is_lora=self.lora,
         )
+
         if self.device_mesh.get_rank() == 0:
             print(auto_wrap_policy)
 
@@ -320,12 +343,7 @@ class FSDPSFTTrainer:
 
         log_gpu_memory_usage("After FSDP wrapping", logger=logger)
 
-        self.optimizer = optim.AdamW(
-            self.fsdp_model.parameters(),
-            lr=self.config.optim.lr,
-            betas=self.config.optim.betas,
-            weight_decay=self.config.optim.weight_decay,
-        )
+        self.optimizer = build_optimizer(self.fsdp_model.parameters(), self.config.optim)
 
         log_gpu_memory_usage("After initialize optimizer", logger=logger)
 
@@ -338,7 +356,7 @@ class FSDPSFTTrainer:
                 f"{self.config.trainer.total_epochs}, total number of steps {self.total_steps}"
             )
 
-        num_warmup_steps = int(self.total_steps * self.config.optim.warmup_steps_ratio)
+        num_warmup_steps = int(self.total_steps * self.config.optim.lr_warmup_steps_ratio)
 
         if not hasattr(self.config.optim, "lr_scheduler") or self.config.optim.lr_scheduler == "cosine":
             self.lr_scheduler = get_cosine_schedule_with_warmup(
@@ -351,7 +369,7 @@ class FSDPSFTTrainer:
         else:
             raise ValueError(f"Unknown lr scheduler: {self.config.optim.lr_scheduler}")
 
-    def _compute_loss_and_backward(self, batch, do_backward=True):
+    def _compute_loss_and_backward(self, batch, do_backward=True, n_micro_batches=1):
         """Compute loss with optional sequence parallelism and remove padding features"""
         use_sp = self.use_remove_padding and self.config.ulysses_sequence_parallel_size > 1
 
@@ -359,7 +377,7 @@ class FSDPSFTTrainer:
         input_ids = batch["input_ids"].to(self.device_name)
         attention_mask = batch["attention_mask"].to(self.device_name)
         position_ids = batch["position_ids"].to(self.device_name)
-        loss_mask = batch.pop("loss_mask")[:, :-1].reshape(-1).to(self.device_name)
+        loss_mask = batch.pop("loss_mask")[:, 1:].reshape(-1).to(self.device_name)
         loss_fct = nn.CrossEntropyLoss(reduction="none")
 
         # Context manager for sequence parallel if needed
@@ -446,11 +464,15 @@ class FSDPSFTTrainer:
 
             loss = torch.sum(loss) / (valid_token_this_rank + 1e-8) * dp_size
 
+            loss = loss / n_micro_batches  # normalize loss
+
             if do_backward:
                 loss.backward()
             return loss
 
     def training_step(self, batch: TensorDict):
+        start_time = time.time()
+
         self.fsdp_model.train()
 
         log_gpu_memory_usage("Before optimizer zero_grad", logger=logger)
@@ -463,7 +485,7 @@ class FSDPSFTTrainer:
         n_micro_batches = len(micro_batches)
         step_loss = 0
         for micro_batch in micro_batches:
-            loss = self._compute_loss_and_backward(batch=micro_batch) / n_micro_batches
+            loss = self._compute_loss_and_backward(batch=micro_batch, n_micro_batches=n_micro_batches)
             step_loss += loss.item()
 
         if self.config.model.strategy == "fsdp":
@@ -492,12 +514,21 @@ class FSDPSFTTrainer:
         log_gpu_memory_usage("After offload weights", logger=logger)
 
         step_loss = torch.tensor(step_loss).to(self.device_name)
+
+        # compute time spent per step
+        end_time = time.time()
+        spend_time_per_step = end_time - start_time
+
         if is_cuda_available:
             torch.distributed.all_reduce(step_loss, op=torch.distributed.ReduceOp.AVG)
         elif is_npu_available:
             torch.distributed.all_reduce(step_loss)
             step_loss /= self.device_mesh.size(0)
-        return {"train/loss": step_loss.detach().item(), "train/lr(1e-3)": lr * 1e3}
+        return {
+            "train/loss": step_loss.detach().item(),
+            "train/lr(1e-3)": lr * 1e3,
+            "train/time(s)": spend_time_per_step,
+        }
 
     def validation_step(self, batch: TensorDict):
         self.fsdp_model.eval()
@@ -721,6 +752,7 @@ class FSDPSFTTrainer:
         # Calculate which epoch we're starting from for sampler.set_epoch()
         start_epoch = global_step // self.steps_per_epoch
 
+        train_time = 0
         for epoch in range(start_epoch, self.config.trainer.total_epochs):
             self.train_sampler.set_epoch(epoch=epoch)
 
@@ -736,6 +768,7 @@ class FSDPSFTTrainer:
                 global_step += 1
                 data = TensorDict(data, batch_size=self.config.data.train_batch_size).to(self.device_name)
                 metric = self.training_step(data)
+                train_time += metric["train/time(s)"]
                 if rank == 0:
                     tracking.log(data=metric, step=global_step)
 
@@ -765,6 +798,7 @@ class FSDPSFTTrainer:
 
                 if is_last_step:
                     if rank == 0:
+                        print(f"Total time for train steps: {train_time:.2f}s")
                         print(f"Final validation metrics: {last_valid_metric}")
                     return
 
@@ -785,8 +819,12 @@ def run_sft(config):
 
     local_model_path = copy_to_local(src=config.model.partial_pretrain, verbose=True)
     tokenizer = hf_tokenizer(local_model_path, trust_remote_code=config.model.trust_remote_code)
-    train_dataset = create_sft_dataset(config.data.train_files, config.data, tokenizer)
-    val_dataset = create_sft_dataset(config.data.val_files, config.data, tokenizer)
+    train_dataset = create_sft_dataset(
+        config.data.train_files, config.data, tokenizer, max_samples=config.data.get("train_max_samples", -1)
+    )
+    val_dataset = create_sft_dataset(
+        config.data.val_files, config.data, tokenizer, max_samples=config.data.get("val_max_samples", -1)
+    )
 
     trainer = FSDPSFTTrainer(
         config=config,
@@ -804,17 +842,20 @@ def run_sft(config):
 
 @hydra.main(config_path="config", config_name="sft_trainer", version_base=None)
 def main(config):
+    # Automatically set `config.trainer.device = npu` when running on Ascend NPU.
+    auto_set_ascend_device_name(config)
+
     run_sft(config)
 
 
-def create_sft_dataset(data_paths, data_config, tokenizer):
+def create_sft_dataset(data_paths, data_config, tokenizer, max_samples=-1):
     """Create a dataset."""
     # build dataset
     # First check if a custom dataset class is specified
     if data_config.custom_cls.get("path", None):
-        from verl.utils.import_utils import load_extern_type
+        from verl.utils.import_utils import load_extern_object
 
-        dataset_cls = load_extern_type(data_config.custom_cls.path, data_config.custom_cls.name)
+        dataset_cls = load_extern_object(data_config.custom_cls.path, data_config.custom_cls.name)
     # Then check if multi-turn dataset should be used
     elif data_config.get("multiturn", {}).get("enable", False):
         dataset_cls = MultiTurnSFTDataset
@@ -823,7 +864,7 @@ def create_sft_dataset(data_paths, data_config, tokenizer):
         dataset_cls = SFTDataset
 
     # Create datasets based on the selected class
-    dataset = dataset_cls(parquet_files=data_paths, tokenizer=tokenizer, config=data_config)
+    dataset = dataset_cls(parquet_files=data_paths, tokenizer=tokenizer, config=data_config, max_samples=max_samples)
     return dataset
 
 

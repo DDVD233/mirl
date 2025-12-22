@@ -39,6 +39,7 @@ class Qwen2_5VLSelfAttention(SelfAttention):
         sequence_len_offset: Optional[int] = None,
         *,
         inference_params: Optional[BaseInferenceContext] = None,
+        rotary_pos_cos_sin: Optional[Tensor] = None,
     ) -> Tuple[Tensor, Tensor]:
         """
         Perform a forward pass through the attention module.
@@ -118,7 +119,8 @@ class Qwen2_5VLSelfAttention(SelfAttention):
             output, bias = self.linear_proj(context_layer)
             return output, bias
 
-        query, key, value, rotary_pos_emb, attn_mask_type = self._adjust_key_value_for_inference(
+        # Use latest mcore 0.13 API and forward-compatible with previous versions.
+        outputs = self._adjust_key_value_for_inference(
             inference_context,
             query,
             key,
@@ -128,6 +130,8 @@ class Qwen2_5VLSelfAttention(SelfAttention):
             rotary_pos_sin,
             sequence_len_offset,
         )
+
+        query, key, value, rotary_pos_emb, attn_mask_type = outputs[:5]
 
         if packed_seq_params is not None:
             query = query.squeeze(1)

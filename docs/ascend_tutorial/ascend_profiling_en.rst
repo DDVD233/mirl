@@ -1,18 +1,18 @@
-Data collection based on FSDP (Fully Sharded Data Parallel) backend on Ascend devices(NPU)
+Performance data collection based on FSDP or MindSpeed(Megatron) on Ascend devices(en)
 ==========================================================================================
 
-Last updated: 07/24/2025.
+Last updated: 08/14/2025.
 
 This is a tutorial for data collection using the GRPO or DAPO algorithm
-based on FSDP on Ascend devices.
+based on FSDP or MindSpeed(Megatron) on Ascend devices.
 
 Configuration
 -------------
 
-Reuse the configuration items in
-verl/trainer/config/ppo_trainer.yaml to control the collection mode
-and steps, you can also manage the collection behaviors such as
-collection level via verl/trainer/config/npu_profile/npu_profile.yaml.
+Leverage two levels of configuration to control data collection:
+
+1. **Global profiler control**: Use parameters in ``ppo_trainer.yaml`` to control the collection mode and steps.
+2. **Role profile control**: Use parameters in each role's ``profile`` field to control the collection mode for each role.
 
 Global collection control
 ~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -20,52 +20,50 @@ Global collection control
 Use parameters in ppo_trainer.yaml to control the collection mode
 and steps.
 
--  trainer.profile_steps: This parameter can be set as a list that has
-   collection steps, such as [2, 4], which means it will collect steps 2
-   and 4. If set to null, no collection occurs.
--  actor_rollout_ref.profiler: Control the ranks and mode of profiling
+-  global_profiler: Control the ranks and mode of profiling
 
-   -  all_ranks: Collects data from all ranks when set to true.
-   -  ranks: This parameter specifies which ranks to collect (e.g., [0,
-      1]) when all_ranks is False.
-   -  discrete: Controls the collection mode. If False, end-to-end data
-      is collected; if True, data is collected in discrete phases during
-      training.
+   -  tool: The profiling tool to use, options are nsys, npu, torch,
+      torch_memory.
+   -  steps: This parameter can be set as a list that has
+      collection steps, such as [2, 4], which means it will collect steps 2
+      and 4. If set to null, no collection occurs.
+   -  save_path: The path to save the collected data. Default is
+      "outputs/profile".
 
-Use parameters in npu_profile.yaml to control collection behavior:
 
--  save_path: Storage path for collected data.
--  roles: Roles to collect. The following options are available
+Role collection control
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-   -  rollout_generate: Collect the `generate_sequences` phase 
-      of rollout worker.
-   -  actor_compute_log_prob: Collect the `compute_log_prob` phase 
-      of the actor worker.
-   -  actor_update:  Collect the `update_actor` phase of the actor worker.
-   -  ref_compute_log_prob: Collect the `compute_ref_log_prob` phase 
-      of the ref worker.
-   -  all: Collect all of the above phases.
+In each role's ``profiler`` field, you can control the collection mode for that role.
+
+-  enable: Whether to enable profiling for this role.
+-  all_ranks: Whether to collect data from all ranks.
+-  ranks: A list of ranks to collect data from. If empty, no data is collected.
+-  tool_config: Configuration for the profiling tool used by this role.
+
+Use parameters in each role's ``profiler.tool_config.npu`` to control npu profiler behavior:
 
 -  level: Collection level—options are level_none, level0, level1, and
    level2
 
-   -  level_none: Disables all level-based data collection (turns off
-      profiler_level).
-   -  level0: Collect high-level application data, underlying NPU data,
-      and operator execution details on NPU.
-   -  level1: Extends level0 by adding CANN-layer AscendCL data and AI
-      Core performance metrics on NPU.
-   -  level2: Extends level1 by adding CANN-layer Runtime data and AI
-      CPU metrics.
+   -  level_none: Disables all level-based data collection (turns off profiler_level).
+   -  level0: Collect high-level application data, underlying NPU data, and operator execution details on NPU. After balancing data volume and analytical capability, Level 0 is recommended as the default configuration.
+   -  level1: Extends level0 by adding CANN-layer AscendCL data and AI Core performance metrics on NPU.
+   -  level2: Extends level1 by adding CANN-layer Runtime data and AI CPU metrics.
 
--  record_shapes: Whether to record tensor shapes.
--  with_memory: Whether to enable memory analysis.
--  with_npu: Whether to collect device-side performance data.
--  with_cpu: Whether to collect host-side performance data.
--  with_module: Whether to record framework-layer Python call stack
-   information.
--  with_stack: Whether to record operator call stack information.
+-  contents: A list of options to control the collection content, such as
+   npu, cpu, memory, shapes, module, stack.
+   
+   -  npu: Whether to collect device-side performance data.
+   -  cpu: Whether to collect host-side performance data.
+   -  memory: Whether to enable memory analysis.
+   -  shapes: Whether to record tensor shapes.
+   -  module: Whether to record framework-layer Python call stack information. It is recommended to use 'module' instead of 'stack' for recording call stack information, as it costs less performance overhead.
+   -  stack: Whether to record operator call stack information.
+
 -  analysis: Enables automatic data parsing.
+-  discrete: Whether to enable discrete mode.
+
 
 Examples
 --------
@@ -75,20 +73,25 @@ Disabling collection
 
 .. code:: yaml
 
-       trainer:
-           profile_steps: null # disable profile
+      global_profiler:
+         steps: null # disable profile
 
 End-to-End collection
 ~~~~~~~~~~~~~~~~~~~~~
 
 .. code:: yaml
 
-       trainer:
-           profile_steps: [1, 2, 5]
-       actor_rollout_ref:
+      global_profiler:
+         steps: [1, 2, 5]
+      actor_rollout_ref:
+         actor:
             profiler:
-                discrete: False
-                all_ranks: True
+               enable: True
+               all_ranks: True
+               tool_config:
+                  npu:
+                     discrete: False
+        # rollout & ref follow actor settings
 
 
 Discrete Mode Collection
@@ -96,30 +99,17 @@ Discrete Mode Collection
 
 .. code:: yaml
 
-       trainer:
-           profile_steps: [1, 2, 5]
-       actor_rollout_ref:
+      global_profiler:
+         steps: [1, 2, 5]
+      actor_rollout_ref:
+         actor:
             profiler:
-                discrete: True
-                all_ranks: False
-                ranks: [0, 1]
-
-
-Enable actor collection in discrete mode
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-.. code:: yaml
-
-       trainer:
-           profile_steps: [1, 2, 5]
-           npu_profile:
-                options:
-                    roles: ["actor_compute_log_prob", "actor_update"]
-       actor_rollout_ref:
-            profiler:
-                discrete: True
-                all_ranks: False
-                ranks: [0, 1]
+               enable: True
+               all_ranks: True
+               tool_config:
+                  npu:
+                     discrete: True
+        # rollout & ref follow actor settings
 
 
 Visualization
@@ -127,6 +117,13 @@ Visualization
 
 Collected data is stored in the user-defined save_path and can be
 visualized by using the `MindStudio Insight <https://www.hiascend.com/document/detail/zh/mindstudio/80RC1/GUI_baseddevelopmenttool/msascendinsightug/Insight_userguide_0002.html>`_ tool.
+
+Additionally, in a Linux environment, the MindStudio Insight tool is provided in the form of a `JupyterLab Plugin <https://www.hiascend.com/document/detail/zh/mindstudio/82RC1/GUI_baseddevelopmenttool/msascendinsightug/Insight_userguide_0130.html>`_ ，offering a more intuitive and highly interactive user interface. The advantages of the JupyterLab plugin are as follows:
+
+- Seamless integration: Supports running the MindStudio Insight tool directly within the Jupyter environment, eliminating the need to switch platforms or copy data from the server, enabling data to be collected and used immediately.
+- Fast startup: Allows MindStudio Insight to be launched quickly via the JupyterLab command line or graphical interface.
+- Smooth operation: In a Linux environment, launching MindStudio Insight through JupyterLab effectively alleviates performance lag compared to the full-package communication mode, significantly improving the user experience.
+- Remote access: Supports remotely launching MindStudio Insight. Users can connect to the service via a local browser for direct visual analysis, reducing the difficulty of uploading and downloading data during large-model training or inference.
 
 If the analysis parameter is set to False, offline parsing is required after data collection:
 

@@ -297,6 +297,32 @@ def allgather_dict_tensors(tensors: dict[str, torch.Tensor] | TensorDict, size, 
     return output
 
 
+def allgather_dict_into_dict(data: dict, group=None) -> dict:
+    """allgather a dict into a dict of list
+
+    Args:
+        data: a dict
+        group: the process group to allgather
+
+    Returns: dict containing a list of the results from allgather
+
+    """
+    assert isinstance(data, dict), f"Expect data to be a dictionary, Got {type(data)}"
+
+    group_size = torch.distributed.get_world_size(group=group)
+
+    final_metrics = {}
+    all_metrics_lst = [None for _ in range(group_size)]
+    torch.distributed.all_gather_object(all_metrics_lst, data, group=group)
+
+    for all_metrics in all_metrics_lst:
+        for key, val in all_metrics.items():
+            if key not in final_metrics:
+                final_metrics[key] = []
+            final_metrics[key].append(val)
+    return final_metrics
+
+
 def split_dict_tensor_into_batches(tensors: TensorDict, batch_size) -> list[TensorDict]:
     assert tensors.batch_size[0] % batch_size == 0, (
         f"input data batch size: {tensors.batch_size[0]}, split batch size: {batch_size}"
@@ -513,6 +539,7 @@ def get_cosine_schedule_with_warmup(
     min_lr_ratio: float = 0.0,
     num_cycles: float = 0.5,
     last_epoch: int = -1,
+    init_lr_ratio: float = None,
 ):
     """
     Create a schedule with a learning rate that decreases following the values of the cosine function between the
@@ -532,6 +559,8 @@ def get_cosine_schedule_with_warmup(
             following a half-cosine).
         last_epoch (:obj:`int`, `optional`, defaults to -1):
             The index of the last epoch when resuming training.
+        init_lr_ratio (:obj:`float`, `optional`, defaults to None):
+            The initial lr ratio w.r.t the maximum.
     Return:
         :obj:`torch.optim.lr_scheduler.LambdaLR` with the appropriate schedule.
     """
@@ -540,9 +569,12 @@ def get_cosine_schedule_with_warmup(
     coef = (1 - min_lr_ratio) * 0.5
     intercept = (1 + min_lr_ratio) * 0.5
 
+    init_lr_ratio = 0.0 if init_lr_ratio is None else init_lr_ratio
+    assert init_lr_ratio >= 0 and init_lr_ratio <= 1.0
+
     def lr_lambda(current_step):
         if current_step < num_warmup_steps:
-            return min_lr_ratio + (1.0 - min_lr_ratio) * (float(current_step) / float(max(1, num_warmup_steps)))
+            return init_lr_ratio + (1.0 - init_lr_ratio) * (float(current_step) / float(max(1, num_warmup_steps)))
         progress = float(current_step - num_warmup_steps) / float(max(1, num_training_steps - num_warmup_steps))
         x = math.cos(math.pi * float(num_cycles) * 2.0 * progress)
         return max(min_lr_ratio, x * coef + intercept)
@@ -769,3 +801,27 @@ def distributed_masked_mean(local_tensor, local_mask):
 
     global_mean = local_sum / local_num
     return global_mean
+
+
+@contextmanager
+def use_original_torch_compile():
+    """torch.compile might be replaced by mindspeed on NPU, this contextmanager
+    can revert torch.compile temporarily.
+    """
+    try:
+        from mindspeed.patch_utils import MindSpeedPatchesManager
+
+        compile_patch = None
+        for patch in MindSpeedPatchesManager.patches_info.values():
+            if patch.orig_module_name == "torch" and patch.orig_func_name == "compile":
+                if patch.is_applied():
+                    compile_patch = patch
+                break
+        if compile_patch is not None:
+            compile_patch.remove_patch()
+            yield
+            compile_patch.apply_patch()
+        else:
+            yield
+    except Exception:
+        yield

@@ -46,7 +46,7 @@ Instead of adding KL penalty in the reward, GRPO regularizes by directly adding 
 
 - `actor_rollout_ref.actor.kl_loss_coef`: The coefficient of kl loss. Default is 0.001.
 
-- `actor_rollout_ref.actor.kl_loss_type`: Support kl(k1), abs, mse(k2), low_var_kl(k3) and full. How to calculate the kl divergence between actor and reference policy. See this blog post for detailed analysis: http://joschu.net/blog/kl-approx.html
+- `actor_rollout_ref.actor.kl_loss_type`: Support kl(k1), abs, mse(k2), low_var_kl(k3) and full. Appending "+" in the end (e.g., 'k1+' and 'k3+') would apply straight through to employ k2 for unbiased gradient estimation, regardless of the kl value estimation (see https://github.com/volcengine/verl/pull/2953#issuecomment-3162113848 for more details). How to calculate the kl divergence between actor and reference policy. See this blog post for detailed analysis: http://joschu.net/blog/kl-approx.html
 
 ## Advanced Extensions
 
@@ -57,6 +57,7 @@ Instead of adding KL penalty in the reward, GRPO regularizes by directly adding 
 Configure the following to enable DrGRPO, with all other parameters the same as GRPO's:
 
 - `actor_rollout_ref.actor.loss_agg_mode`: "seq-mean-token-sum-norm", which turns off seq-dim averaging
+- `actor_rollout_ref.actor.loss_scale_factor`: (Optional) Set to a constant integer (e.g., max response length) to ensure consistent normalization throughout training. If not set, uses the current batch's response length.
 - `actor_rollout_ref.actor.use_kl_loss`: Please set it to False for DrGRPO
 - `algorithm.norm_adv_by_std_in_grpo`: False, which turns off standard deviation norm
 

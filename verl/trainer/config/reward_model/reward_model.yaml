@@ -6,6 +6,12 @@
 # If False, the following parameters are not effective
 enable: False
 
+# Whether to deploy the model to a separate resource pool.
+# If true, n_gpus_per_node & nnodes will be used to determine the resource node.
+enable_resource_pool: False
+n_gpus_per_node: 0
+nnodes: 0
+
 # FSDP strategy: "fsdp" or "fsdp2"
 strategy: ???
 
@@ -28,6 +34,9 @@ model:
   # Whether to enable loading a remote code model, default to False
   trust_remote_code: False
 
+  # override hf config
+  override_config: {}
+
 # [Deprecated] Global micro batch size
 # will be deprecated, use micro_batch_size_per_gpu
 micro_batch_size: null
@@ -44,9 +53,8 @@ use_dynamic_bsz: ${critic.use_dynamic_bsz}
 # Maximum number of tokens per GPU in one forward pass
 forward_max_token_len_per_gpu: ${critic.forward_max_token_len_per_gpu}
 
-# Reward Manager. This defines the mechanism of computing rule-based reward and handling different reward sources.
-# Default is naive. If all verification functions are multiprocessing-safe,
-# the reward manager can be set to prime for parallel verification.
+# Deprecated. Use `reward_manager.name` instead. See `verl/trainer/config/reward_manager.yaml` for details.
+# Kept for backward compatibility.
 reward_manager: naive
 
 # Whether to launch custom reward function asynchronously during log_prob
@@ -65,17 +73,27 @@ sandbox_fusion:
   # Max memory limit for each sandbox process in MB
   memory_limit_mb: 1024
 
-# profiler configs
+# profile the reward model in `compute_reward` 
 profiler:
 
-  # hint for the target config dataclass
+  # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
   _target_: verl.utils.profiler.ProfilerConfig
 
-  # True for each task has its own database, False for all tasks in one training step share one database.
-  discrete: False
+  # profiler tool, default same as profiler.tool in global config
+  # choices: nsys, npu, torch
+  tool: ${oc.select:global_profiler.tool,null}
 
+  # whether enable profile on ref
+  enable: False
+  
   # Whether to profile all ranks.
   all_ranks: False
 
   # The ranks that will be profiled. [] or [0,1,...]
   ranks: []
+
+  # profile results saving path
+  save_path: ${oc.select:global_profiler.save_path,null}
+
+  # specific tool config
+  tool_config: ${oc.select:actor_rollout_ref.actor.profiler.tool_config,null}

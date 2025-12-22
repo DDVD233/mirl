@@ -17,6 +17,7 @@ Note that we don't combine the main with ray_trainer as ray_trainer is used by o
 
 import hydra
 import ray
+from omegaconf import OmegaConf
 
 from .entropy_ray_trainer import RayEntropyTrainer
 from .reward import load_reward_manager
@@ -30,17 +31,19 @@ def main(config):
 def run_ppo(config) -> None:
     if not ray.is_initialized():
         # this is for local ray cluster
-        ray.init(
-            runtime_env={
-                "env_vars": {
-                    "TOKENIZERS_PARALLELISM": "true",
-                    "NCCL_DEBUG": "WARN",
-                    "VLLM_LOGGING_LEVEL": "WARN",
-                    "WANDB_API_KEY": "YOUR_WANDB_API_KEY",
-                }
-            },
-            num_cpus=config.ray_init.num_cpus,
-        )
+        default_runtime_env = {
+            "env_vars": {
+                "TOKENIZERS_PARALLELISM": "true",
+                "NCCL_DEBUG": "WARN",
+                "VLLM_LOGGING_LEVEL": "WARN",
+            }
+        }
+        ray_init_kwargs = config.ray_kwargs.get("ray_init", {})
+        runtime_env_kwargs = ray_init_kwargs.get("runtime_env", {})
+        runtime_env = OmegaConf.merge(default_runtime_env, runtime_env_kwargs)
+        ray_init_kwargs = OmegaConf.create({**ray_init_kwargs, "runtime_env": runtime_env})
+        print(f"ray init kwargs: {ray_init_kwargs}")
+        ray.init(**OmegaConf.to_container(ray_init_kwargs))
 
     runner = TaskRunner.remote()
     ray.get(runner.run.remote(config))
@@ -158,8 +161,16 @@ class TaskRunner:
 
         from verl.utils.dataset.rl_dataset import collate_fn
 
-        train_dataset = create_rl_dataset(config.data.train_files, config.data, tokenizer, processor)
-        val_dataset = create_rl_dataset(config.data.val_files, config.data, tokenizer, processor)
+        train_dataset = create_rl_dataset(
+            config.data.train_files,
+            config.data,
+            tokenizer,
+            processor,
+            max_samples=config.data.get("train_max_samples", -1),
+        )
+        val_dataset = create_rl_dataset(
+            config.data.val_files, config.data, tokenizer, processor, max_samples=config.data.get("val_max_samples", -1)
+        )
         train_sampler = create_rl_sampler(config.data, train_dataset)
         trainer = RayEntropyTrainer(
             config=config,
@@ -179,7 +190,7 @@ class TaskRunner:
         trainer.fit()
 
 
-def create_rl_dataset(data_paths, data_config, tokenizer, processor):
+def create_rl_dataset(data_paths, data_config, tokenizer, processor, max_samples: int = -1):
     """Create a dataset.
 
     Arguments:
@@ -195,9 +206,9 @@ def create_rl_dataset(data_paths, data_config, tokenizer, processor):
     from verl.utils.dataset.rl_dataset import RLHFDataset
 
     if "custom_cls" in data_config and data_config.custom_cls.get("path", None) is not None:
-        from verl.utils.import_utils import load_extern_type
+        from verl.utils.import_utils import load_extern_object
 
-        dataset_cls = load_extern_type(data_config.custom_cls.path, data_config.custom_cls.name)
+        dataset_cls = load_extern_object(data_config.custom_cls.path, data_config.custom_cls.name)
         if not issubclass(dataset_cls, Dataset):
             raise TypeError(
                 f"The custom dataset class '{data_config.custom_cls.name}' from '{data_config.custom_cls.path}' "
@@ -212,6 +223,7 @@ def create_rl_dataset(data_paths, data_config, tokenizer, processor):
         tokenizer=tokenizer,
         processor=processor,
         config=data_config,
+        max_samples=max_samples,
     )
 
     return dataset
@@ -233,7 +245,9 @@ def create_rl_sampler(data_config, dataset):
     # use sampler for better ckpt resume
     if data_config.shuffle:
         train_dataloader_generator = torch.Generator()
-        train_dataloader_generator.manual_seed(data_config.get("seed", 1))
+        seed = data_config.get("seed")
+        if seed is not None:
+            train_dataloader_generator.manual_seed(seed)
         sampler = RandomSampler(data_source=dataset, generator=train_dataloader_generator)
     else:
         sampler = SequentialSampler(data_source=dataset)
