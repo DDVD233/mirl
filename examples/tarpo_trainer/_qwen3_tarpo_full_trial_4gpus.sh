@@ -28,7 +28,9 @@ export NCCL_ASYNC_ERROR_HANDLING=1
 
 # originally prompt length, response length, max model len is 2048, 2048, 8192 
 
-HF_MODEL_PATH=${HF_MODEL_PATH:-"${RAY_DATA_HOME}/models/Qwen3-VL-8B-Instruct"}
+# HF_MODEL_PATH=${HF_MODEL_PATH:-"${RAY_DATA_HOME}/models/Qwen3-VL-8B-Instruct"}
+
+# Qwen/Qwen3-VL-8B-Instruct
 
     python3 -m verl.trainer.main_ppo \
         algorithm.adv_estimator=tarpo \
@@ -50,7 +52,7 @@ HF_MODEL_PATH=${HF_MODEL_PATH:-"${RAY_DATA_HOME}/models/Qwen3-VL-8B-Instruct"}
         data.val_modality_batching.enabled=True \
         data.val_modality_batching.drop_last=False \
         data.format_prompt=/home/keaneong/human-behavior/verl/examples/format_prompt/default.jinja \
-        actor_rollout_ref.model.path=$HF_MODEL_PATH \
+        actor_rollout_ref.model.path=Qwen/Qwen3-VL-8B-Instruct \
         actor_rollout_ref.actor.optim.lr=1e-6 \
         actor_rollout_ref.model.use_remove_padding=True \
         actor_rollout_ref.actor.ppo_mini_batch_size=128 \
