@@ -1969,11 +1969,12 @@ class RayPPOTrainer:
 
 
         for epoch in range(current_epoch, self.config.trainer.total_epochs):
+            batch_idx = 1
             for batch_dict in self.train_dataloader:
                 if hasattr(self.actor_rollout_wg, "async_calls_finalize_fn_exec"):
                     self.actor_rollout_wg.async_calls_finalize_fn_exec(blocking=False)
 
-                 if debug_file is not None:
+                if debug_file is not None:
                     with open(debug_file, "a", encoding="utf-8") as f:
                         log_entry = {
                             "epoch": int(epoch),
@@ -1982,6 +1983,7 @@ class RayPPOTrainer:
                             "prompts": batch_dict.get("debug_prompts", []),
                         }
                         f.write(json.dumps(log_entry, ensure_ascii=False, default=lambda o: o.tolist() if isinstance(o, np.ndarray) else str(o)) + "\n")
+                batch_idx += 1
                 
                 metrics = {}
                 timing_raw = {}
