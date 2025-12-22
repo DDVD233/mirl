@@ -286,9 +286,9 @@ class RLHFDataset(Dataset):
                     messages = self._build_messages(doc)
 
                     # pass tool schemas if available so the processor can format prompts
-                        apply_kwargs = dict(**self.apply_chat_template_kwargs)
-                        if self.tool_schemas is not None:
-                            apply_kwargs["tools"] = self.tool_schemas
+                    apply_kwargs = dict(**self.apply_chat_template_kwargs)
+                    if self.tool_schemas is not None:
+                        apply_kwargs["tools"] = self.tool_schemas
 
                     raw_prompt = self.processor.apply_chat_template(
                         messages, add_generation_prompt=True, tokenize=False,  **apply_kwargs
@@ -314,9 +314,9 @@ class RLHFDataset(Dataset):
                                 ],
                                 strict=True,
                             )
-                            videos = list(videos)
-                            video_metadata = list(video_metadata)
-                            videos_kwargs = {"video_metadata": video_metadata, "do_sample_frames": False}
+                        videos = list(videos)
+                        video_metadata = list(video_metadata)
+                        videos_kwargs = {"video_metadata": video_metadata, "do_sample_frames": False}
                         processor_kwargs["videos"] = videos
 
                         # NOTE: verl updated
