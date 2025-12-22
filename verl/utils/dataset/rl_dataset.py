@@ -36,6 +36,43 @@ from verl.utils.dataset.count_mm_tokens import compute_modality_token_breakdown
 
 logger = logging.getLogger(__name__)
 
+
+
+def processor_supports_video(processor: ProcessorMixin) -> bool:
+    """
+    Check if a processor supports video inputs by inspecting its __call__ signature.
+
+    Args:
+        processor: The processor to check
+
+    Returns:
+        True if the processor supports video parameter, False otherwise
+    """
+    return False
+    # if processor is None:
+    #     return False
+    # else:
+    #     return True
+
+    # try:
+    #     sig = inspect.signature(processor.__call__)
+    #     params = sig.parameters
+    #     # return false if it's Gemma3Processor, which doesn't support video
+    #     if "Gemma3Processor" in processor.__class__.__name__:
+    #         return False
+    #
+    #     # Check if 'videos' is a parameter
+    #     if 'videos' in params:
+    #         param = params['videos']
+    #         # Verify it can be used as a keyword argument
+    #         if param.kind in (inspect.Parameter.KEYWORD_ONLY,
+    #                           inspect.Parameter.POSITIONAL_OR_KEYWORD):
+    #             return True
+    # except (ValueError, TypeError, AttributeError):
+    #     logger.debug("Cannot inspect processor __call__ signature")
+    #
+    # return False
+
 def _tok_est_from_hw(H, W):
     # 28x28 -> 1 "visual token" heuristic
     return math.ceil(H/28) * math.ceil(W/28)
@@ -566,7 +603,9 @@ class RLHFDataset(Dataset):
                     messages, add_generation_prompt=True, tokenize=False, **self.apply_chat_template_kwargs
                 )
             multi_modal_data = {}
-            processor_kwargs = {"text": [raw_prompt], "return_tensors": "pt"}
+            # processor_kwargs = {"text": [raw_prompt], "return_tensors": "pt"}
+
+            images = None
 
             if "images" in self.modalities and self.image_key in row_dict and row_dict.get(self.image_key, None) is not None and len(row_dict[self.image_key]) > 0:
                 images = []
@@ -577,34 +616,58 @@ class RLHFDataset(Dataset):
                 # due to the image key is "image" instead of "images" in vllm, we need to use "image" here
                 # link: https://github.com/vllm-project/vllm/blob/3c545c0c3b98ee642373a308197d750d0e449403/vllm/multimodal/parse.py#L205
                 multi_modal_data["image"] = images
-                processor_kwargs["images"] = images
 
             videos = None
+            video_frames_as_images = None
             videos_kwargs = {}
             if "videos" in self.modalities and self.video_key in row_dict and row_dict.get(self.video_key, None) is not None and len(row_dict[self.video_key]) > 0:
-                row_dict_videos = row_dict.pop(self.video_key, None)
-                if row_dict_videos:
-                    videos, video_metadata = zip(
-                        *[
-                            process_video(video, image_patch_size=self.image_patch_size, return_video_metadata=True)
-                            for video in row_dict_videos
-                        ],
-                        strict=True,
-                    )
-                    videos = list(videos)
-                    video_metadata = list(video_metadata)
-                    videos_kwargs = {"video_metadata": video_metadata, "do_sample_frames": False}
+                row_dict_videos = row_dict.get(self.video_key)
+                for video in row_dict_videos:
+                    video = os.path.join(self.base_dir, video) if isinstance(video, str) else video
+                    video, video_metadata = process_video(video,
+                                                          image_patch_size=self.image_patch_size,
+                                                          return_video_metadata=True)
+                    if videos is None:
+                        videos = [video]
+                    else:
+                        videos.append(video)
+                    if videos_kwargs is None:
+                        videos_kwargs = {"video_metadata": [video_metadata], "do_sample_frames": False}
+                    else:
+                        videos_kwargs['video_metadata'].append(video_metadata)
+                
+                if processor_supports_video(self.processor):
+                    # Processor supports video, use it directly
+                    # due to the video key is "video" instead of "videos" in vllm, we need to use "video" here
+                    # link: https://github.com/vllm-project/vllm/blob/3c545c0c3b98ee642373a308197d750d0e449403/vllm/multimodal/parse.py#L205
+                    multi_modal_data["video"] = [(video.numpy(), metadata) for video, metadata in zip(videos, videos_kwargs['video_metadata'], strict=True)]
+                else:
+                    # Processor doesn't support video, convert to images
+                    video_frames_as_images = []
+                    for video_tensor in videos:
+                        # video_tensor is shape [n_frames, 3, H, W]
+                        # Convert each frame to PIL Image
+                        for frame_idx in range(video_tensor.shape[0]):
+                            frame = video_tensor[frame_idx]  # [3, H, W]
+                            # Convert from tensor to PIL Image
+                            # Assuming the tensor is in uint8 format [0, 255]
+                            frame_np = frame.permute(1, 2, 0).numpy()  # [H, W, 3]
+                            from PIL import Image
+                            frame_image = Image.fromarray(frame_np.astype('uint8'), 'RGB')
+                            video_frames_as_images.append(frame_image)
+                    
+                 # Append video frames to existing images
+                    if images is None:
+                        images = video_frames_as_images
+                    else:
+                        images.extend(video_frames_as_images)
 
+                    # Update multi_modal_data with the combined images
+                    multi_modal_data["image"] = images
 
-                # due to the video key is "video" instead of "videos" in vllm, we need to use "video" here
-                # link: https://github.com/vllm-project/vllm/blob/3c545c0c3b98ee642373a308197d750d0e449403/vllm/multimodal/parse.py#L205
-                # multi_modal_data["video"] = [video.numpy() for video in videos]
-                multi_modal_data["video"] = [
-                    (video.numpy(), metadata) for video, metadata in zip(videos, video_metadata, strict=True)
-                ]
-                processor_kwargs["videos"] = videos
-                processor_kwargs["videos_kwargs"] = videos_kwargs
-
+                    # Clear videos since we've converted them to images
+                    videos = None
+                
             if (
                 "audio" in self.modalities
                 and self.audio_key in row_dict
@@ -628,11 +691,65 @@ class RLHFDataset(Dataset):
                 # HF (Whisper / Omni processor) path
                 multi_modal_data["audio"] = audios_np_sr  # Store numpy arrays (it should not accept tuples)
 
-                processor_kwargs["audio"] = audios_np  # Pass numpy arrays to processor
+                # processor_kwargs["audio"] = audios_np  # Pass numpy arrays to processor
 
+            try:
+                if processor_supports_video(self.processor):
+                    # Build kwargs dict and filter out None values
+                    kwargs = {
+                        "text": [raw_prompt],
+                        "images": images,
+                        "videos": videos,
+                        "videos_kwargs": videos_kwargs,
+                        "return_tensors": "pt"
+                    }
+                    kwargs = {k: v for k, v in kwargs.items() if v is not None}
+                    model_inputs = self.processor(**kwargs)
+                else:
+                    # Only pass images parameter if processor doesn't support video
+                    # Build kwargs dict and filter out None values
+                    kwargs = {
+                        "text": [raw_prompt],
+                        "images": images,
+                        "return_tensors": "pt"
+                    }
+                    kwargs = {k: v for k, v in kwargs.items() if v is not None}
+                    model_inputs = self.processor(**kwargs)
+            except Exception as e:
+                logger.error("Error processing multi-modal data for item %d: %s", item, e)
+                traceback.print_exc()
+                # Process as text only - remove multimodal tags and data from row_dict
+                original_prompt = row_dict.get(self.prompt_key)
+                if isinstance(original_prompt, str):
+                    # Remove <image> and <video> tags from string prompt
+                    row_dict[self.prompt_key] = re.sub(r'<image>|<video>', '', original_prompt)
+                elif isinstance(original_prompt, list):
+                    # Handle list of messages - remove tags from content
+                    cleaned_prompt = []
+                    for msg in original_prompt:
+                        if isinstance(msg, dict):
+                            new_msg = copy.deepcopy(msg)
+                            if isinstance(new_msg.get("content"), str):
+                                new_msg["content"] = re.sub(r'<image>|<video>', '', new_msg["content"])
+                            cleaned_prompt.append(new_msg)
+                        elif isinstance(msg, str):
+                            cleaned_prompt.append(re.sub(r'<image>|<video>', '', msg))
+                        else:
+                            cleaned_prompt.append(msg)
+                    row_dict[self.prompt_key] = cleaned_prompt
+                # Clear multimodal data
+                row_dict[self.image_key] = []
+                row_dict[self.video_key] = []
+                # Rebuild messages without multimodal content
+                messages = self._build_messages(row_dict, convert_video_to_images=False)
+                text_only_prompt = self.tokenizer.apply_chat_template(
+                    messages, add_generation_prompt=True, tokenize=False, **self.apply_chat_template_kwargs
+                )
+                model_inputs = self.tokenizer(text_only_prompt, return_tensors="pt", add_special_tokens=False)
+                # drop multi_modal_data
+                multi_modal_data = {}
 
-
-            model_inputs = self.processor(text=[raw_prompt], images=images, videos=videos, return_tensors="pt")
+            # model_inputs = self.processor(text=[raw_prompt], images=images, videos=videos, return_tensors="pt")
             # model_inputs = self.processor(
             #     text=[raw_prompt], images=images, videos=videos, videos_kwargs=videos_kwargs, return_tensors="pt"
             # )
