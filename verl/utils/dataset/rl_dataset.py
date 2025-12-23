@@ -696,7 +696,7 @@ class RLHFDataset(Dataset):
 
             videos = None
             video_frames_as_images = None
-            videos_kwargs = {}
+            videos_kwargs = None
             if "videos" in self.modalities and self.video_key in row_dict and row_dict.get(self.video_key, None) is not None and len(row_dict[self.video_key]) > 0:
                 row_dict_videos = row_dict.get(self.video_key)
                 for video in row_dict_videos:
@@ -708,6 +708,7 @@ class RLHFDataset(Dataset):
                         videos = [video]
                     else:
                         videos.append(video)
+
                     if videos_kwargs is None:
                         videos_kwargs = {"video_metadata": [video_metadata], "do_sample_frames": False}
                     else:
@@ -719,7 +720,7 @@ class RLHFDataset(Dataset):
                     # link: https://github.com/vllm-project/vllm/blob/3c545c0c3b98ee642373a308197d750d0e449403/vllm/multimodal/parse.py#L205
                     multi_modal_data["video"] = [(video.numpy(), metadata) for video, metadata in zip(videos, videos_kwargs['video_metadata'], strict=True)]
                 else:
-                    # TODO_VERLADAPT: qwen3 vl utilizes these lines instead of processing the videos directly
+                    # NOTE: Updated VERL qwen3 vl utilizes these lines instead of processing the videos directly
                     # Processor doesn't support video, convert to images
                     video_frames_as_images = []
                     for video_tensor in videos:
