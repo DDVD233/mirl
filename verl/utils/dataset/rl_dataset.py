@@ -527,9 +527,9 @@ class RLHFDataset(Dataset):
                             content_list.append({"type": "image"})
                         elif segment == "<video>":
                             if convert_video_to_images:
-                                # Replace each video tag with 4 image tags
-                                for _ in range(4):
-                                    content_list.append({"type": "image"})
+                                # When converting video to images, use a single image tag
+                                # The processor will handle the multiple frames internally
+                                content_list.append({"type": "image"})
                             else:
                                 content_list.append({"type": "video"})
                         elif segment == "<audio>" and "audio" in self.modalities:
@@ -653,7 +653,6 @@ class RLHFDataset(Dataset):
         convert_video_to_images = False
         if self.processor is not None and self.video_key in row_dict and row_dict.get(self.video_key, None) is not None and len(row_dict[self.video_key]) > 0:
             convert_video_to_images = not processor_supports_video(self.processor)
-
 
         messages = self._build_messages(row_dict, convert_video_to_images=convert_video_to_images)
 
@@ -898,6 +897,7 @@ class RLHFDataset(Dataset):
             text_position_ids = torch.ones((1, len(input_ids[0])), dtype=torch.long)
             text_position_ids[0, valid_mask] = torch.arange(valid_mask.sum().item())
             position_ids = [torch.cat((text_position_ids, vision_position_ids), dim=0)]  # (1, 4, seq_length)
+            
         elif self.processor is not None and "Glm4vImageProcessor" in self.processor.image_processor.__class__.__name__:
             from verl.models.transformers.glm4v import get_rope_index
 
