@@ -20,22 +20,13 @@ from enum import Enum
 from typing import Any, Optional
 from uuid import uuid4
 
-from transformers import AutoProcessor, AutoTokenizer
-
-from verl.experimental.agent_loop.agent_loop import (
-    AgentLoopBase,
-    AgentLoopOutput,
-    AsyncLLMServerManager,
-    DictConfigWrap,
-    register,
-)
+from verl.experimental.agent_loop.agent_loop import AgentLoopBase, AgentLoopOutput, register
 from verl.experimental.agent_loop.tool_parser import FunctionCall, ToolParser
-from verl.experimental.agent_loop.utils import build_gpt_oss_tool_response_text
+from verl.experimental.agent_loop.utils import add_generation_prompt_for_gpt_oss, format_gpt_oss_tool_response_manually
 from verl.interactions.base import BaseInteraction
 from verl.interactions.utils.interaction_registry import initialize_interactions_from_config
 from verl.tools.schemas import ToolResponse
 from verl.tools.utils.tool_registry import initialize_tools_from_config
-from verl.utils.chat_template import initialize_system_prompt
 from verl.utils.profiler import simple_timer
 from verl.utils.rollout_trace import rollout_trace_op
 
@@ -52,8 +43,7 @@ class AgentState(Enum):
 
 
 class AgentData:
-    """Encapsulates all state variables for the agent loop. AgentData is passed to tool calling in case that
-    tool may need to access full history state. User can store any tool session data in `extra_fields`."""
+    """Encapsulates all state variables for the agent loop."""
 
     def __init__(
         self,
@@ -86,49 +76,45 @@ class AgentData:
         # Temporary state for tool calls
         self.tool_calls: list[FunctionCall] = []
 
-        # Extra fields for dynamic addition, e.g., tool session data
+        # Extra fields for dynamic addition
         self.extra_fields: dict[str, Any] = {}
 
 
 @register("tool_agent")
 class ToolAgentLoop(AgentLoopBase):
-    def __init__(
-        self,
-        trainer_config: DictConfigWrap,
-        server_manager: AsyncLLMServerManager,
-        tokenizer: AutoTokenizer,
-        processor: AutoProcessor,
-        **kwargs,
-    ):
-        super().__init__(trainer_config, server_manager, tokenizer, processor, **kwargs)
-        config = trainer_config.config
+    @classmethod
+    def init_class(cls, config, tokenizer, processor, **kwargs):
+        if cls._class_initialized:
+            return
+        cls._class_initialized = True
+        print("Performing class-level ToolAgentLoop initialization")
 
         # Initialize tools from config file
-        self.max_user_turns = config.actor_rollout_ref.rollout.multi_turn.max_user_turns
-        self.max_assistant_turns = config.actor_rollout_ref.rollout.multi_turn.max_assistant_turns
-        self.max_parallel_calls = config.actor_rollout_ref.rollout.multi_turn.max_parallel_calls
-        self.max_tool_response_length = config.actor_rollout_ref.rollout.multi_turn.max_tool_response_length
-        self.tool_response_truncate_side = config.actor_rollout_ref.rollout.multi_turn.tool_response_truncate_side
+        cls.tokenizer = tokenizer
+        cls.processor = processor
+        cls.max_user_turns = config.actor_rollout_ref.rollout.multi_turn.max_user_turns
+        cls.max_assistant_turns = config.actor_rollout_ref.rollout.multi_turn.max_assistant_turns
+        cls.max_parallel_calls = config.actor_rollout_ref.rollout.multi_turn.max_parallel_calls
+        cls.max_tool_response_length = config.actor_rollout_ref.rollout.multi_turn.max_tool_response_length
+        cls.tool_response_truncate_side = config.actor_rollout_ref.rollout.multi_turn.tool_response_truncate_side
         tool_config_path = config.actor_rollout_ref.rollout.multi_turn.tool_config_path
         tool_list = initialize_tools_from_config(tool_config_path) if tool_config_path else []
-        self.tools = {tool.name: tool for tool in tool_list}
-        self.tool_schemas = [tool.tool_schema.model_dump(exclude_unset=True, exclude_none=True) for tool in tool_list]
-        self.tool_parser = ToolParser.get_tool_parser(
-            config.actor_rollout_ref.rollout.multi_turn.format, self.tokenizer
+        cls.tools = {tool.name: tool for tool in tool_list}
+        cls.tool_schemas = [tool.tool_schema.model_dump(exclude_unset=True, exclude_none=True) for tool in tool_list]
+        cls.tool_parser = ToolParser.get_tool_parser(config.actor_rollout_ref.rollout.multi_turn.format, cls.tokenizer)
+        cls.tool_parser_name = config.actor_rollout_ref.rollout.multi_turn.format
+        print(f"Initialized tools: {cls.tools}")
+
+        cls.apply_chat_template_kwargs = config.data.get("apply_chat_template_kwargs", {})
+        cls.prompt_length = config.actor_rollout_ref.rollout.prompt_length
+        cls.response_length = config.actor_rollout_ref.rollout.response_length
+        cls.system_prompt = tokenizer.apply_chat_template(
+            [{}], add_generation_prompt=False, tokenize=True, **cls.apply_chat_template_kwargs
         )
-        self.tool_parser_name = config.actor_rollout_ref.rollout.multi_turn.format
-
-        self.apply_chat_template_kwargs = config.data.get("apply_chat_template_kwargs", {})
-        self.prompt_length = config.actor_rollout_ref.rollout.prompt_length
-        self.response_length = config.actor_rollout_ref.rollout.response_length
-        self.system_prompt = initialize_system_prompt(self.tokenizer, **self.apply_chat_template_kwargs)
-
         # Initialize interactions from config file
-        self.interaction_config_file = config.actor_rollout_ref.rollout.multi_turn.interaction_config_path
-        if self.interaction_config_file:
-            self.interaction_map: dict[str, BaseInteraction] = self._initialize_interactions(
-                self.interaction_config_file
-            )
+        cls.interaction_config_file = config.actor_rollout_ref.rollout.multi_turn.interaction_config_path
+        if cls.interaction_config_file:
+            cls.interaction_map: dict[str, BaseInteraction] = cls._initialize_interactions(cls.interaction_config_file)
 
     @rollout_trace_op
     async def run(self, sampling_params: dict[str, Any], **kwargs) -> AgentLoopOutput:
@@ -247,9 +233,6 @@ class ToolAgentLoop(AgentLoopBase):
         if output.log_probs:
             agent_data.response_logprobs += output.log_probs
 
-        if output.routed_experts is not None:
-            agent_data.routed_experts = output.routed_experts
-
         # Check termination conditions
         if not ignore_termination and len(agent_data.response_mask) >= self.response_length:
             return AgentState.TERMINATED
@@ -285,7 +268,7 @@ class ToolAgentLoop(AgentLoopBase):
         tasks = []
         tool_call_names = []
         for tool_call in agent_data.tool_calls[: self.max_parallel_calls]:
-            tasks.append(self._call_tool(tool_call, agent_data.tools_kwargs, agent_data))
+            tasks.append(self._call_tool(tool_call, agent_data.tools_kwargs))
             tool_call_names.append(tool_call.name)
 
         with simple_timer("tool_calls", agent_data.metrics):
@@ -360,7 +343,14 @@ class ToolAgentLoop(AgentLoopBase):
         else:
             if self.tool_parser_name == "gpt-oss":
                 logger.info("manually format tool responses for gpt-oss")
-                tool_response_text = build_gpt_oss_tool_response_text(add_messages, tool_call_names)
+                # Format tool responses manually
+                tool_response_texts = []
+                for i, tool_msg in enumerate(add_messages):
+                    actual_tool_name = tool_call_names[i]
+                    formatted = format_gpt_oss_tool_response_manually(tool_msg["content"], actual_tool_name)
+                    tool_response_texts.append(formatted)
+
+                tool_response_text = add_generation_prompt_for_gpt_oss("".join(tool_response_texts))
                 response_ids = await self.loop.run_in_executor(
                     None, lambda: self.tokenizer.encode(tool_response_text, add_special_tokens=False)
                 )
@@ -441,7 +431,7 @@ class ToolAgentLoop(AgentLoopBase):
             return AgentState.GENERATING
 
     async def _call_tool(
-        self, tool_call: FunctionCall, tools_kwargs: dict[str, Any], agent_data: AgentData
+        self, tool_call: FunctionCall, tools_kwargs: dict[str, Any]
     ) -> tuple[ToolResponse, float, dict]:
         """Call tool and return tool response."""
         tool, instance_id = None, None
@@ -452,9 +442,7 @@ class ToolAgentLoop(AgentLoopBase):
             tool = self.tools[tool_name]
             kwargs = tools_kwargs.get(tool_name, {})
             instance_id, _ = await tool.create(create_kwargs=kwargs.get("create_kwargs", {}))
-            tool_execution_response, tool_reward, res = await tool.execute(
-                instance_id, tool_args, agent_data=agent_data
-            )
+            tool_execution_response, tool_reward, res = await tool.execute(instance_id, tool_args)
         except Exception as e:
             logger.warning(f"Error when executing tool: {e}")
             return (
@@ -490,7 +478,8 @@ class ToolAgentLoop(AgentLoopBase):
 
         return ToolResponse(**tool_response_kwargs), tool_reward, res
 
-    def _initialize_interactions(self, interaction_config_file):
+    @classmethod
+    def _initialize_interactions(cls, interaction_config_file):
         """Initialize interactions from configuration.
         Returns:
             dict[str, BaseInteraction]: A dictionary mapping interaction names to interaction instances.
@@ -499,4 +488,5 @@ class ToolAgentLoop(AgentLoopBase):
             return {}
 
         interaction_map = initialize_interactions_from_config(interaction_config_file)
+        logger.info(f"Initialize interactions from configuration: interaction_map: {list(interaction_map.keys())}")
         return interaction_map
