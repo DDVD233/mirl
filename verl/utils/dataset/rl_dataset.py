@@ -85,7 +85,7 @@ def processor_supports_video(processor: ProcessorMixin) -> bool:
     Returns:
         True if the processor supports video parameter, False otherwise
     """
-    return True
+    return False
     # if processor is None:
     #     return False
     # else:
@@ -525,8 +525,13 @@ class RLHFDataset(Dataset):
                     for segment in segments:
                         if segment == "<image>" and "images" in self.modalities:
                             content_list.append({"type": "image"})
-                        elif segment == "<video>" and "videos" in self.modalities:
-                            content_list.append({"type": "video"})
+                        elif segment == "<video>":
+                            if convert_video_to_images:
+                                # Replace each video tag with 4 image tags
+                                for _ in range(4):
+                                    content_list.append({"type": "image"})
+                            else:
+                                content_list.append({"type": "video"})
                         elif segment == "<audio>" and "audio" in self.modalities:
                             content_list.append({"type": "audio"})
                         else:
@@ -772,6 +777,7 @@ class RLHFDataset(Dataset):
 
                 # processor_kwargs["audio"] = audios_np  # Pass numpy arrays to processor
 
+            # BUILDING MODEL INPUTS after the self.processor
             try:
                 if processor_supports_video(self.processor):
                     # Build kwargs dict and filter out None values
@@ -863,8 +869,7 @@ class RLHFDataset(Dataset):
             input_ids = model_inputs.pop("input_ids")
             attention_mask = model_inputs.pop("attention_mask")
         
-        #TODO_DEBUG double check the prompt length here as it may lead to error
-        #TODO_DEBUG it may need to be set higher, to 4096 or something
+   
         input_ids, attention_mask = verl_F.postprocess_data(
             input_ids=input_ids,
             attention_mask=attention_mask,
