@@ -420,6 +420,7 @@ class AgentLoopWorkerBase:
                 {"input_ids": output.prompt_ids},
                 padding="max_length",
                 max_length=self.config.actor_rollout_ref.rollout.prompt_length,
+                truncation=True,
                 return_tensors="pt",
                 return_attention_mask=True,
             )
@@ -432,6 +433,7 @@ class AgentLoopWorkerBase:
                 {"input_ids": output.response_ids},
                 padding="max_length",
                 max_length=self.config.actor_rollout_ref.rollout.response_length,
+                truncation=True,
                 return_tensors="pt",
                 return_attention_mask=True,
             )
@@ -443,6 +445,7 @@ class AgentLoopWorkerBase:
                 {"input_ids": output.response_mask},
                 padding="max_length",
                 max_length=self.config.actor_rollout_ref.rollout.response_length,
+                truncation=True,
                 return_tensors="pt",
                 return_attention_mask=False,
             )
