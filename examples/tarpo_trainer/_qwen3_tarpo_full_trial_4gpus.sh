@@ -33,9 +33,11 @@ export NCCL_ASYNC_ERROR_HANDLING=1
 
 # Qwen/Qwen3-VL-8B-Instruct
 
+# /scratch/keane/human_behaviour/human_behaviour_data/test_mimeqa.jsonl
+# /scratch/keane/human_behaviour/human_behaviour_data/final_v8_train_cleaned_2.jsonl
     python3 -m verl.trainer.main_ppo \
         algorithm.adv_estimator=tarpo \
-        data.train_files=/scratch/keane/human_behaviour/human_behaviour_data/final_v8_train_cleaned_2.jsonl \
+        data.train_files=/scratch/keane/human_behaviour/human_behaviour_data/test_mimeqa.jsonl \
         data.val_files=/scratch/keane/human_behaviour/human_behaviour_data/final_v8_val_cleaned.jsonl \
         data.train_batch_size=256 \
         data.val_batch_size=64 \
