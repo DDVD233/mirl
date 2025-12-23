@@ -12,7 +12,7 @@ def _ensure_st_model():
     """Load SentenceTransformer only once (lazy load)."""
     global _sentence_transformer_loaded, _STModel
     if not _sentence_transformer_loaded:
-        _STModel = SentenceTransformer('all-MiniLM-L6-v2', device="auto")
+        _STModel = SentenceTransformer('all-MiniLM-L6-v2', device='cpu')
         _sentence_transformer_loaded = True
     return _STModel
 
