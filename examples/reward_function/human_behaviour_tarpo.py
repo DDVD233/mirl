@@ -123,7 +123,7 @@ def _parse_type_from_task_id(task_id: str) -> str:
         return "cls"
     if last in {"qa", "qna", "q&a"}:
         return "qa"
-    return "cls"
+    return "qa"
 
 
 # ---------------------------
