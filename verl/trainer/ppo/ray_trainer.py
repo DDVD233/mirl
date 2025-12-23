@@ -2117,13 +2117,13 @@ class RayPPOTrainer:
                     batch = batch.union(gen_batch_output)
 
                     # Restore TARPO fields that were popped before generation
-                    # tarpo_fields = ["task", "dataset", "class_label"]
-                    # for field in tarpo_fields:
-                    #     if field in gen_batch.non_tensor_batch:
-                    #         # Repeat the field to match the repeated batch
-                    #         repeated_field = np.repeat(gen_batch.non_tensor_batch[field],
-                    #                                   self.config.actor_rollout_ref.rollout.n)
-                    #         batch.non_tensor_batch[field] = repeated_field
+                    tarpo_fields = ["task", "dataset", "class_label"]
+                    for field in tarpo_fields:
+                        if field in gen_batch.non_tensor_batch:
+                            # Repeat the field to match the repeated batch
+                            repeated_field = np.repeat(gen_batch.non_tensor_batch[field],
+                                                      self.config.actor_rollout_ref.rollout.n)
+                            batch.non_tensor_batch[field] = repeated_field
 
                     if "response_mask" not in batch.batch.keys():
                         batch.batch["response_mask"] = compute_response_mask(batch)
