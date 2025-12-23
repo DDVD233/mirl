@@ -2010,6 +2010,10 @@ class RayPPOTrainer:
                 # TODO_TARPO: put the task ids and class_label here:
                 if "task" in batch.non_tensor_batch:
                     non_tensor_batch_keys_to_pop.append("task")
+                
+                if "answer" in batch.non_tensor_batch:
+                    non_tensor_batch_keys_to_pop.append("answer")
+        
                 if "class_label" in batch.non_tensor_batch:
                     non_tensor_batch_keys_to_pop.append("class_label")
 
