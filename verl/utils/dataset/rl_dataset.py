@@ -728,10 +728,13 @@ class RLHFDataset(Dataset):
                     # NOTE: Updated VERL qwen3 vl utilizes these lines instead of processing the videos directly
                     # Processor doesn't support video, convert to images
                     video_frames_as_images = []
-                    for video_tensor in videos:
+                    for video_idx, video_tensor in enumerate(videos):
                         # video_tensor is shape [n_frames, 3, H, W]
+                        num_frames = video_tensor.shape[0]
+                        logger.info(f"Video {video_idx}: shape={video_tensor.shape}, num_frames={num_frames}")
+
                         # Convert each frame to PIL Image
-                        for frame_idx in range(video_tensor.shape[0]):
+                        for frame_idx in range(num_frames):
                             frame = video_tensor[frame_idx]  # [3, H, W]
                             # Convert from tensor to PIL Image
                             # Assuming the tensor is in uint8 format [0, 255]
@@ -739,7 +742,9 @@ class RLHFDataset(Dataset):
                             from PIL import Image
                             frame_image = Image.fromarray(frame_np.astype('uint8'), 'RGB')
                             video_frames_as_images.append(frame_image)
-                    
+
+                    logger.info(f"Total video frames converted to images: {len(video_frames_as_images)}")
+
                  # Append video frames to existing images
                     if images is None:
                         images = video_frames_as_images
@@ -748,6 +753,7 @@ class RLHFDataset(Dataset):
 
                     # Update multi_modal_data with the combined images
                     multi_modal_data["image"] = images
+                    logger.info(f"Total images (including video frames): {len(images) if images else 0}")
 
                     # Clear videos since we've converted them to images
                     videos = None

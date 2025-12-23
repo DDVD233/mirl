@@ -140,9 +140,9 @@ def process_video(
         print(e)
         dummy_video = torch.zeros((4, 3, 224, 224), dtype=torch.uint8)
         video_metadata = dict(
-            fps=4,
+            fps=1,
             frames_indices=[i for i in range(len(video))],
-            total_num_frames=1,
+            total_num_frames=4,
         )
         return dummy_video, video_metadata
 

@@ -176,8 +176,17 @@ def _deep_equal(a: Any, b: Any, visited: set[int]) -> bool:
         # We know b is also an ndarray due to the initial type check
         result = _array_equal(a, b, visited)
     else:
-        # Standard equality for all other types
-        result = a == b
+        # Check if it's a torch tensor
+        try:
+            import torch
+            if isinstance(a, torch.Tensor) and isinstance(b, torch.Tensor):
+                result = torch.equal(a, b)
+            else:
+                # Standard equality for all other types
+                result = a == b
+        except ImportError:
+            # torch not available, use standard equality
+            result = a == b
 
     # Clean up the visited set on the way out of the recursion
     visited.remove(obj_id)
