@@ -337,7 +337,6 @@ class TaskRunner:
             config, tokenizer, num_examine=0, **config.reward_model.get("reward_kwargs", {})
         )
 
-        # TODO: This is a reward function for validation is basically data source specific
         val_reward_fn = load_reward_manager(
             config, tokenizer, num_examine=1, **config.reward_model.get("reward_kwargs", {})
         )

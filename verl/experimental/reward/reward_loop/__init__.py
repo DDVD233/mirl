@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .registry import get_reward_manager_cls, register  # noqa: I001
+from .registry import get_reward_loop_manager_cls, register  # noqa: I001
 from .dapo import DAPORewardManager
 from .naive import NaiveRewardManager
 from .limited import RateLimitedRewardManager
@@ -23,6 +23,6 @@ __all__ = [
     "NaiveRewardManager",
     "RateLimitedRewardManager",
     "register",
-    "get_reward_manager_cls",
+    "get_reward_loop_manager_cls",
     "BatchRewardLoopManager",
 ]

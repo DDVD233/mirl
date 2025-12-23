@@ -16,23 +16,23 @@ from typing import Callable
 
 from verl.experimental.reward.reward_loop.base import RewardLoopManagerBase
 
-__all__ = ["register", "get_reward_manager_cls"]
+__all__ = ["register", "get_reward_loop_manager_cls"]
 
 REWARD_LOOP_MANAGER_REGISTRY: dict[str, type[RewardLoopManagerBase]] = {}
 
 
 def register(name: str) -> Callable[[type[RewardLoopManagerBase]], type[RewardLoopManagerBase]]:
-    """Decorator to register a reward manager class with a given name.
+    """Decorator to register a reward loop manager class with a given name.
 
     Args:
         name: `(str)`
-            The name of the reward manager.
+            The name of the reward loop manager.
     """
 
     def decorator(cls: type[RewardLoopManagerBase]) -> type[RewardLoopManagerBase]:
         if name in REWARD_LOOP_MANAGER_REGISTRY and REWARD_LOOP_MANAGER_REGISTRY[name] != cls:
             raise ValueError(
-                f"reward manager {name} has already been registered: {REWARD_LOOP_MANAGER_REGISTRY[name]} vs {cls}"
+                f"reward loop manager {name} has already been registered: {REWARD_LOOP_MANAGER_REGISTRY[name]} vs {cls}"
             )
         REWARD_LOOP_MANAGER_REGISTRY[name] = cls
         return cls
@@ -40,16 +40,16 @@ def register(name: str) -> Callable[[type[RewardLoopManagerBase]], type[RewardLo
     return decorator
 
 
-def get_reward_manager_cls(name: str) -> type[RewardLoopManagerBase]:
-    """Get the reward manager class with a given name.
+def get_reward_loop_manager_cls(name: str) -> type[RewardLoopManagerBase]:
+    """Get the reward loop manager class with a given name.
 
     Args:
         name: `(str)`
-            The name of the reward manager.
+            The name of the reward loop manager.
 
     Returns:
-        `(type)`: The reward manager class.
+        `(type)`: The reward loop manager class.
     """
     if name not in REWARD_LOOP_MANAGER_REGISTRY:
-        raise ValueError(f"Unknown reward manager: {name}")
+        raise ValueError(f"Unknown reward loop manager: {name}")
     return REWARD_LOOP_MANAGER_REGISTRY[name]
