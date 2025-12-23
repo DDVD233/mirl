@@ -101,10 +101,10 @@ def soft_overlong_punishment(
 
 def human_behaviour_compute_score_batch(
     data_sources: List[str],
-    solution_strs: List[str],
-    ground_truths: List[str],
-    extra_infos: List[str],
-    task_ids: Optional[List[str]] = None,
+    solution_str: List[str],
+    ground_truth: List[str],
+    extra_info: List[str],
+    task_id: Optional[List[str]] = None,
     *,
     # ---- Overlength controls (optional; pass to activate) ----
     max_response_length: Optional[int] = 812,   # e.g., model max tokens for the *response*
@@ -121,23 +121,23 @@ def human_behaviour_compute_score_batch(
       - always includes format score
       - (optional) soft overlong penalty applied to the final score
     """
-    if task_ids is None:
+    if task_id is None:
         # default all to CLS semantics if not provided
-        task_ids = ["cls"] * len(solution_strs)
+        task_id = ["cls"] * len(solution_str)
 
-    assert len(solution_strs) == len(ground_truths) == len(task_ids), "Input length mismatch."
+    assert len(solution_str) == len(ground_truth) == len(task_id), "Input length mismatch."
 
     format_weight = 0.2
 
-    need_cosine = any(_parse_type_from_task_id(tid) == "qa" for tid in task_ids)
+    need_cosine = any(_parse_type_from_task_id(tid) == "qa" for tid in task_id)
     st_model = _ensure_st_model() if need_cosine else None
 
     # If response_lengths not provided, approximate with raw string length
     if response_lengths is None:
-        response_lengths = [len(s or "") for s in solution_strs]
+        response_lengths = [len(s or "") for s in solution_str]
 
     batch_scores = []
-    for i, (predict_str, ground_truth, task_id) in enumerate(zip(solution_strs, ground_truths, task_ids)):
+    for i, (predict_str, ground_truth, task_id) in enumerate(zip(solution_str, ground_truth, task_id)):
         task_type = _parse_type_from_task_id(task_id)
 
         # Normalize tag spacing, then extract boxed content
@@ -189,10 +189,10 @@ if __name__ == "__main__":
 
     scores = human_behaviour_compute_score_batch(
         data_sources=["", "", ""],
-        solution_strs=[cls_response, qa_response, qa_response_two],
-        ground_truths=["anger", "The Eiffel Tower is located in Paris.", "bad."],
-        extra_infos=["", "", ""],
-        task_ids=["sen_intensity_data_cls", "intent_qa", "mime_qa"],
+        solution_str=[cls_response, qa_response, qa_response_two],
+        ground_truth=["anger", "The Eiffel Tower is located in Paris.", "bad."],
+        extra_info=["", "", ""],
+        task_id=["sen_intensity_data_cls", "intent_qa", "mime_qa"],
         # ---- overlength control (example) ----
         max_response_length=512,
         overlong_buffer_length=128,

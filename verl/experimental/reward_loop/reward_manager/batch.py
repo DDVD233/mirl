@@ -159,7 +159,7 @@ class BatchRewardLoopManager(RewardManagerBase):
             if self.compute_score:
                 if self.is_async_reward_score:
                     result = await self.compute_score(
-                        task_ids=task_ids,
+                        task_id=task_ids,
                         data_source=data_source,
                         solution_str=response_str,
                         ground_truth=ground_truth,
@@ -172,7 +172,7 @@ class BatchRewardLoopManager(RewardManagerBase):
                     result = await self.loop.run_in_executor(
                         None,
                         lambda: self.compute_score(
-                            task_ids=task_ids,
+                            task_id=task_ids,
                             data_source=data_source,
                             solution_str=response_str,
                             ground_truth=ground_truth,
