@@ -20,11 +20,10 @@ from omegaconf import DictConfig
 from transformers import AutoTokenizer
 
 from verl import DataProto
-from verl.experimental.reward.reward_loop import register as register_manager
+from verl.experimental.reward.reward_loop import register as register_loop
 from verl.experimental.reward.reward_loop.base import RewardLoopManagerBase
-from verl.utils.ray_utils import get_event_loop
 from verl.utils.reward_score import default_compute_score
-from verl.workers.reward_manager import register as register_manager_legacy
+from verl.workers.reward_manager import register as register_manager
 
 logger = logging.getLogger(__file__)
 
@@ -124,7 +123,7 @@ class AsyncTokenBucket:
         if num_tokens > self.max_tokens:
             wait_time = 0.0
             async with self.lock:
-                loop = get_event_loop()
+                loop = asyncio.get_running_loop()
                 now = loop.time()
                 if self.last_update is None:
                     self.last_update = now
@@ -148,7 +147,7 @@ class AsyncTokenBucket:
         while True:
             wait_time = 0.0
             async with self.lock:
-                loop = get_event_loop()
+                loop = asyncio.get_running_loop()
                 now = loop.time()
                 if self.last_update is None:
                     self.last_update = now
@@ -169,10 +168,10 @@ class AsyncTokenBucket:
                 await asyncio.sleep(wait_time)
 
 
+@register_loop("rate_limited")
 @register_manager("rate_limited")
-@register_manager_legacy("rate_limited")
-class RateLimitedRewardManager(RewardLoopManagerBase):
-    """Reward manager with rate limiting for API-based reward functions.
+class RateLimitedRewardLoopManager(RewardLoopManagerBase):
+    """Reward loop manager with rate limiting for API-based reward functions.
 
     This manager implements a sophisticated three-layer rate limiting system
     designed for LLM-as-judge scenarios where reward computation involves
@@ -239,7 +238,7 @@ class RateLimitedRewardManager(RewardLoopManagerBase):
         ...         "timeout": 60.0,
         ...     }
         ... })
-        >>> manager = RateLimitedRewardManager(config, tokenizer)
+        >>> manager = RateLimitedRewardLoopManager(config, tokenizer)
 
     Thread Safety:
         This class is designed for concurrent use. All rate limiting resources
@@ -247,7 +246,7 @@ class RateLimitedRewardManager(RewardLoopManagerBase):
 
     See Also:
         - AsyncTokenBucket: Token bucket implementation for rate limiting
-        - RewardManagerBase: Base class for reward managers
+        - RewardLoopManagerBase: Base class for reward loop managers
         - verl.utils.reward_score.default_compute_score: Default scoring function
     """
 
@@ -318,21 +317,14 @@ class RateLimitedRewardManager(RewardLoopManagerBase):
     async def _compute_reward(
         self, data_source: str, solution_str: str, ground_truth: str, extra_info: dict
     ) -> dict | float:
-        extra_reward_kwargs = (
-            {
-                "reward_router_address": self.reward_router_address,
-                "reward_model_tokenizer": self.reward_model_tokenizer,
-            }
-            if self.reward_router_address is not None
-            else {}
-        )
         if self.is_async_reward_score:
             return await self.compute_score(
                 data_source=data_source,
                 solution_str=solution_str,
                 ground_truth=ground_truth,
                 extra_info=extra_info,
-                **extra_reward_kwargs,
+                reward_router_address=self.reward_router_address,
+                reward_model_tokenizer=self.reward_model_tokenizer,
             )
         else:
             return await self.loop.run_in_executor(
@@ -342,7 +334,8 @@ class RateLimitedRewardManager(RewardLoopManagerBase):
                     solution_str=solution_str,
                     ground_truth=ground_truth,
                     extra_info=extra_info,
-                    **extra_reward_kwargs,
+                    reward_router_address=self.reward_router_address,
+                    reward_model_tokenizer=self.reward_model_tokenizer,
                 ),
             )
 

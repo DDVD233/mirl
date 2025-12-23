@@ -21,7 +21,7 @@ from verl.utils.reward_score import default_compute_score
 
 
 @register("naive")
-class NaiveRewardManager(RewardLoopManagerBase):
+class NaiveRewardLoopManager(RewardLoopManagerBase):
     """The reward manager."""
 
     def __init__(self, config, tokenizer, compute_score=None, reward_router_address=None, reward_model_tokenizer=None):
@@ -54,22 +54,14 @@ class NaiveRewardManager(RewardLoopManagerBase):
         response_str = await self.loop.run_in_executor(
             None, lambda: self.tokenizer.decode(valid_response_ids, skip_special_tokens=True)
         )
-
-        extra_reward_kwargs = (
-            {
-                "reward_router_address": self.reward_router_address,
-                "reward_model_tokenizer": self.reward_model_tokenizer,
-            }
-            if self.reward_router_address is not None
-            else {}
-        )
         if self.is_async_reward_score:
             result = await self.compute_score(
                 data_source=data_source,
                 solution_str=response_str,
                 ground_truth=ground_truth,
                 extra_info=extra_info,
-                **extra_reward_kwargs,
+                reward_router_address=self.reward_router_address,
+                reward_model_tokenizer=self.reward_model_tokenizer,
             )
         else:
             result = await self.loop.run_in_executor(
@@ -79,7 +71,8 @@ class NaiveRewardManager(RewardLoopManagerBase):
                     solution_str=response_str,
                     ground_truth=ground_truth,
                     extra_info=extra_info,
-                    **extra_reward_kwargs,
+                    reward_router_address=self.reward_router_address,
+                    reward_model_tokenizer=self.reward_model_tokenizer,
                 ),
             )
 
