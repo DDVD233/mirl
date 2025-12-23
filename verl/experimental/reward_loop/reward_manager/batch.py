@@ -139,8 +139,11 @@ class BatchRewardLoopManager(RewardManagerBase):
             data_source = data_item.non_tensor_batch.get(self.reward_fn_key, [None] * len(data))
              
             # ground_truth = data_item.non_tensor_batch["reward_model"]["ground_truth"]
-            ground_truth = data_item.non_tensor_batch.get("answer", None)
-            raise Exception(print(ground_truth, task_ids))
+            ground_truth = [item.non_tensor_batch.get("answer", None) for item in data_item]
+
+            print(ground_truth)
+            print(task_ids)
+            raise NotImplementedError("check ground truth above")
 
             extra_info = data_item.non_tensor_batch.get("extra_info", {})
             tool_extra_fields = data_item.non_tensor_batch.get("tool_extra_fields", None)
