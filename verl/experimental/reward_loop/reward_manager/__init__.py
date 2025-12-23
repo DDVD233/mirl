@@ -23,4 +23,5 @@ __all__ = [
     "RateLimitedRewardManager",
     "register",
     "get_reward_manager_cls",
+    "BatchRewardLoopManager",
 ]
