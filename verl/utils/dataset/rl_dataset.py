@@ -85,7 +85,7 @@ def processor_supports_video(processor: ProcessorMixin) -> bool:
     Returns:
         True if the processor supports video parameter, False otherwise
     """
-    return False
+    return True
     # if processor is None:
     #     return False
     # else:
