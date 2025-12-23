@@ -148,7 +148,11 @@ def load_reward_manager(
     # Note(haibin.lin): For custom reward managers, please make sure they are imported and
     # registered via `verl.workers.reward_manager.register`
     # By default reward_manager is set to naive (NaiveRewardManager)
-    reward_manager_name = config.reward_model.get("reward_manager", "naive")
+
+    # this is the reward manager name that you pass through : i.e. "batch"
+    reward_manager_name = config.reward_model.get("reward_manager", "naive") 
+
+    # and then we get the class from the name
     reward_manager_cls = get_reward_manager_cls(reward_manager_name)
 
     if compute_score is None:
