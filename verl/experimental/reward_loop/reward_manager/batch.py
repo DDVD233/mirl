@@ -126,6 +126,7 @@ class BatchRewardLoopManager(RewardManagerBase):
             return {"reward_score": data.batch["rm_scores"], "reward_extra_info": reward_extra_info}
 
         # Check if this is actually a single item or a batch
+        # NOTE: updated verl This will be passing in a single item at a time from the reward loop
         is_single = len(data) == 1
 
         if is_single:
@@ -139,7 +140,7 @@ class BatchRewardLoopManager(RewardManagerBase):
             data_source = data_item.non_tensor_batch.get(self.reward_fn_key, [None] * len(data))
              
             # ground_truth = data_item.non_tensor_batch["reward_model"]["ground_truth"]
-            ground_truth = [item.non_tensor_batch.get("answer", None) for item in data_item]
+            ground_truth = [data_item.non_tensor_batch["answer"]]
 
             print(ground_truth)
             print(task_ids)
