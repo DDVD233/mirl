@@ -16,12 +16,12 @@ import inspect
 
 from verl import DataProto
 from verl.experimental.reward.reward_loop import register
-from verl.experimental.reward.reward_loop.base import RewardManagerBase
+from verl.experimental.reward.reward_loop.base import RewardLoopManagerBase
 from verl.utils.reward_score import default_compute_score
 
 
 @register("dapo")
-class DAPORewardManager(RewardManagerBase):
+class DAPORewardManager(RewardLoopManagerBase):
     """DAPO Reward Manager."""
 
     def __init__(self, config, tokenizer, compute_score=None, reward_router_address=None, reward_model_tokenizer=None):

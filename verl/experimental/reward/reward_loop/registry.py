@@ -14,14 +14,14 @@
 
 from typing import Callable
 
-from verl.experimental.reward.reward_loop.base import RewardManagerBase
+from verl.experimental.reward.reward_loop.base import RewardLoopManagerBase
 
 __all__ = ["register", "get_reward_manager_cls"]
 
-REWARD_LOOP_MANAGER_REGISTRY: dict[str, type[RewardManagerBase]] = {}
+REWARD_LOOP_MANAGER_REGISTRY: dict[str, type[RewardLoopManagerBase]] = {}
 
 
-def register(name: str) -> Callable[[type[RewardManagerBase]], type[RewardManagerBase]]:
+def register(name: str) -> Callable[[type[RewardLoopManagerBase]], type[RewardLoopManagerBase]]:
     """Decorator to register a reward manager class with a given name.
 
     Args:
@@ -29,7 +29,7 @@ def register(name: str) -> Callable[[type[RewardManagerBase]], type[RewardManage
             The name of the reward manager.
     """
 
-    def decorator(cls: type[RewardManagerBase]) -> type[RewardManagerBase]:
+    def decorator(cls: type[RewardLoopManagerBase]) -> type[RewardLoopManagerBase]:
         if name in REWARD_LOOP_MANAGER_REGISTRY and REWARD_LOOP_MANAGER_REGISTRY[name] != cls:
             raise ValueError(
                 f"reward manager {name} has already been registered: {REWARD_LOOP_MANAGER_REGISTRY[name]} vs {cls}"
@@ -40,7 +40,7 @@ def register(name: str) -> Callable[[type[RewardManagerBase]], type[RewardManage
     return decorator
 
 
-def get_reward_manager_cls(name: str) -> type[RewardManagerBase]:
+def get_reward_manager_cls(name: str) -> type[RewardLoopManagerBase]:
     """Get the reward manager class with a given name.
 
     Args:

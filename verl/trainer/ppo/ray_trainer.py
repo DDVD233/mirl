@@ -68,8 +68,6 @@ from verl.utils.rollout_skip import RolloutSkip
 from verl.utils.seqlen_balancing import calculate_workload, get_seqlen_balanced_partitions, log_seqlen_unbalance
 from verl.utils.torch_functional import masked_mean
 from verl.utils.tracking import ValidationGenerationsLogger
-from verl.utils.dataset.log_mm_tokens import log_modality_budgets
-from verl.trainer.ppo.reward import compute_reward, compute_reward_async
 
 from examples.reward_function.hb_evaluation import compute_metrics_by_data_source
 # === Tee logger setup: save all stdout + stderr to file while keeping terminal output ===

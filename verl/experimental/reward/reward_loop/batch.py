@@ -20,11 +20,11 @@ import torch
 
 from verl import DataProto
 from verl.experimental.reward.reward_loop import register
-from verl.experimental.reward.reward_loop.base import RewardManagerBase
+from verl.experimental.reward.reward_loop.base import RewardLoopManagerBase
 
 
 @register("batch")
-class BatchRewardLoopManager(RewardManagerBase):
+class BatchRewardLoopManager(RewardLoopManagerBase):
     """
     A batch reward manager that computes rewards for a batch of data.
 
