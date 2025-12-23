@@ -125,10 +125,10 @@ def human_behaviour_compute_score_batch(
         # default all to CLS semantics if not provided
         task_id = ["cls"] * len(solution_str)
 
-    print("Computing human behaviour reward scores...")
-    print(solution_str)
-    print(ground_truth)
-    print(task_id)
+    # print("Computing human behaviour reward scores...")
+    # print(solution_str)
+    # print(ground_truth)
+    # print(task_id)
     assert len(solution_str) == len(ground_truth) == len(task_id), "Input length mismatch."
 
     format_weight = 0.2

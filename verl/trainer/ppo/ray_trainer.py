@@ -1995,6 +1995,8 @@ class RayPPOTrainer:
                         if self.config.global_profiler.profile_continuous_steps
                         else curr_step_profile
                     )
+                
+                # The same data proto protocol
                 batch: DataProto = DataProto.from_single_dict(batch_dict)
                 batch.meta_info["temperature"] = self.config.actor_rollout_ref.rollout.temperature
 
@@ -2011,6 +2013,7 @@ class RayPPOTrainer:
                 if "task" in batch.non_tensor_batch:
                     non_tensor_batch_keys_to_pop.append("task")
                 
+                # pop the answer so that we are able to obtain it from the generation output
                 if "answer" in batch.non_tensor_batch:
                     non_tensor_batch_keys_to_pop.append("answer")
         
@@ -2042,10 +2045,7 @@ class RayPPOTrainer:
 
                 is_last_step = self.global_steps >= self.total_training_steps
 
-                # TODO: double check the gen_batch
-                # print(f"gen_batch", gen_batch)
-                # i += 1
-
+    
                 with marked_timer("step", timing_raw):
                     # generate a batch
                     with marked_timer("gen", timing_raw, color="red"):
@@ -2108,6 +2108,7 @@ class RayPPOTrainer:
                     # compute global_valid tokens
                     batch.meta_info["global_token_num"] = torch.sum(batch.batch["attention_mask"], dim=-1).tolist()
 
+                    # NOTE: updated verl COMPUTE THE REWARD SCORES: This is where you use the reward loops
                     with marked_timer("reward", timing_raw, color="yellow"):
                         # compute reward model score
                         if self.use_rm and "rm_scores" not in batch.batch.keys():
