@@ -20,7 +20,7 @@ import os
 from concurrent.futures import Future
 from pprint import pprint
 from typing import Any, Callable, Optional
-
+import threading
 import cloudpickle as pickle
 import numpy as np
 import ray
@@ -129,14 +129,59 @@ class ExternalZeroMQDistributedExecutor(Executor):
                 return f
             return result
 
+    # def collective_rpc(
+    #     self,
+    #     method: str | Callable,
+    #     timeout: Optional[float] = None,
+    #     args: tuple = (),
+    #     kwargs: Optional[dict[str, Any]] = None,
+    #     **kwargs_extra: Any,
+    # ) -> list[Any]:
+    #     if isinstance(method, str):
+    #         sent_method = method
+    #     else:
+    #         sent_method = pickle.dumps(method)
+    #     del method
+
+    #     message = pickle.dumps((sent_method, args, kwargs or {}))
+    #     for socket in self.sockets:
+    #         socket.send(message, zmq.DONTWAIT)
+
+    #     outputs = []
+    #     for socket in self.sockets:
+    #         outputs.append(pickle.loads(socket.recv()))
+
+    #     for output in outputs:
+    #         if isinstance(output, Exception):
+    #             raise output
+    #     return outputs
+
+    def check_health(self):
+        return
+    
     def collective_rpc(
         self,
         method: str | Callable,
         timeout: Optional[float] = None,
         args: tuple = (),
         kwargs: Optional[dict[str, Any]] = None,
+        non_block: bool = False,
         **kwargs_extra: Any,
     ) -> list[Any]:
+        """Execute RPC call on all workers via ZeroMQ.
+        
+        Args:
+            method: Method name or callable to execute
+            timeout: Timeout for the operation (currently unused)
+            args: Positional arguments
+            kwargs: Keyword arguments
+            non_block: If True, return Future objects for async execution.
+                      If False (default), block until completion for backward compatibility.
+            **kwargs_extra: Additional keyword arguments (for compatibility)
+        
+        Returns:
+            List of results from all workers, or list of Futures if non_block=True
+        """
         if isinstance(method, str):
             sent_method = method
         else:
@@ -147,17 +192,39 @@ class ExternalZeroMQDistributedExecutor(Executor):
         for socket in self.sockets:
             socket.send(message, zmq.DONTWAIT)
 
-        outputs = []
-        for socket in self.sockets:
-            outputs.append(pickle.loads(socket.recv()))
+        if non_block:
+            # For async execution, return Future objects
+            futures = []
+            for socket in self.sockets:
+                future = Future()
+                
+                def _recv_async(sock, fut):
+                    try:
+                        output = pickle.loads(sock.recv())
+                        if isinstance(output, Exception):
+                            fut.set_exception(output)
+                        else:
+                            fut.set_result(output)
+                    except Exception as e:
+                        fut.set_exception(e)
+                
+                # Start a thread to receive the result asynchronously
+                thread = threading.Thread(target=_recv_async, args=(socket, future))
+                thread.daemon = True
+                thread.start()
+                futures.append(future)
 
-        for output in outputs:
-            if isinstance(output, Exception):
-                raise output
-        return outputs
+            return futures
+        else:
+            # Blocking execution - maintain backward compatibility with vllm 0.11.0
+            outputs = []
+            for socket in self.sockets:
+                outputs.append(pickle.loads(socket.recv()))
 
-    def check_health(self):
-        return
+            for output in outputs:
+                if isinstance(output, Exception):
+                    raise output
+            return outputs
 
 
 class vLLMHttpServerBase:
