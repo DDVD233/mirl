@@ -15,8 +15,8 @@
 import inspect
 
 from verl import DataProto
-from verl.experimental.reward_loop.reward_manager import register
-from verl.experimental.reward_loop.reward_manager.base import RewardManagerBase
+from verl.experimental.reward.reward_loop import register
+from verl.experimental.reward.reward_loop.base import RewardManagerBase
 from verl.utils.reward_score import default_compute_score
 
 

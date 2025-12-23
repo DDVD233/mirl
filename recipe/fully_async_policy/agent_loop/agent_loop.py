@@ -235,7 +235,7 @@ class FullyAsyncAgentLoopManager(AgentLoopManager):
 
     async def _async_init(self):
         if self.config.reward_model.enable and self.config.reward_model.enable_resource_pool:
-            from verl.experimental.reward_loop import RewardModelManager
+            from verl.experimental.reward import RewardModelManager
 
             self.reward_model_manager = RewardModelManager(self.config.reward_model, self.rm_resource_pool)
             self.reward_router_address = self.reward_model_manager.get_router_address()

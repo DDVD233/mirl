@@ -19,7 +19,7 @@ from torchdata.stateful_dataloader import StatefulDataLoader
 from transformers import AutoTokenizer
 
 from verl.experimental.agent_loop import AgentLoopManager
-from verl.experimental.reward_loop import RewardLoopManager
+from verl.experimental.reward import RewardLoopManager
 from verl.protocol import DataProto
 from verl.single_controller.ray import RayClassWithInitArgs, RayWorkerGroup
 from verl.trainer.main_ppo import create_rl_sampler

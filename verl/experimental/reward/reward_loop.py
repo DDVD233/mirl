@@ -29,7 +29,7 @@ from verl.trainer.ppo.reward import get_custom_reward_fn
 from verl.utils import hf_tokenizer
 from verl.utils.fs import copy_to_local
 
-from .reward_manager import get_reward_manager_cls
+from .reward_loop import get_reward_manager_cls
 from .reward_model import RewardModelManager
 
 logger = logging.getLogger(__file__)
@@ -74,6 +74,9 @@ class RewardLoopWorker:
             self.config, self.input_tokenizer, self.reward_fn, self.reward_router_address, self.reward_model_tokenizer
         )
 
+    # NOTE: updated verl double check whether it is batch version or single data item version
+    # NOTE: automatically the compute_score_batch will compute, and then it will call the compute_score
+    # NOTE: individually for each data item
     async def compute_score_batch(self, data: DataProto) -> list[dict]:
         tasks = []
         for i in range(len(data)):

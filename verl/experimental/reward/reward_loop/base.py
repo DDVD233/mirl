@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import asyncio
 import logging
 import os
 from abc import ABC, abstractmethod
@@ -20,17 +21,16 @@ from omegaconf import DictConfig
 from transformers import AutoTokenizer
 
 from verl import DataProto
-from verl.utils.ray_utils import get_event_loop
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 
-class RewardManagerBase(ABC):
+class RewardLoopManagerBase(ABC):
     _class_initialized = False
 
     def __init__(self, config: DictConfig, tokenizer: AutoTokenizer):
-        """Initialize reward manager.
+        """Initialize agent loop.
 
         Args:
             config (DictConfig): YAML config.
@@ -38,8 +38,19 @@ class RewardManagerBase(ABC):
         """
         self.config = config
         self.tokenizer = tokenizer
-        self.loop = get_event_loop()
+        self._loop = None  # Will be set when first async method is called
         self.init_class(config, tokenizer)
+
+    @property
+    def loop(self):
+        """Get the current event loop, lazily initializing if needed."""
+        if self._loop is None:
+            try:
+                self._loop = asyncio.get_running_loop()
+            except RuntimeError:
+                # If no event loop is running, get or create one
+                self._loop = asyncio.get_event_loop()
+        return self._loop
 
     @classmethod
     def init_class(cls, config: DictConfig, tokenizer: AutoTokenizer):

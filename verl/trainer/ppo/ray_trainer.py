@@ -69,6 +69,7 @@ from verl.utils.seqlen_balancing import calculate_workload, get_seqlen_balanced_
 from verl.utils.torch_functional import masked_mean
 from verl.utils.tracking import ValidationGenerationsLogger
 from verl.utils.dataset.log_mm_tokens import log_modality_budgets
+from verl.trainer.ppo.reward import compute_reward, compute_reward_async
 
 from examples.reward_function.hb_evaluation import compute_metrics_by_data_source
 # === Tee logger setup: save all stdout + stderr to file while keeping terminal output ===
@@ -1243,7 +1244,7 @@ class RayPPOTrainer:
             # If we cannot parallelize, we should enable synchronous mode here, and launch a reward loop manager here
             # else for parallelize mode, we launch a reward worker for each rollout worker (in agent loop, not here)
             if not can_reward_loop_parallelize:
-                from verl.experimental.reward_loop import RewardLoopManager
+                from verl.experimental.reward import RewardLoopManager
 
                 self.config.reward_model.n_gpus_per_node = self.config.trainer.n_gpus_per_node
                 resource_pool = self.resource_pool_manager.get_resource_pool(Role.RewardModel)
@@ -2012,13 +2013,16 @@ class RayPPOTrainer:
                 # TODO_TARPO: put the task ids and class_label here:
                 if "task" in batch.non_tensor_batch:
                     non_tensor_batch_keys_to_pop.append("task")
-                
+
                 # pop the answer so that we are able to obtain it from the generation output
                 if "answer" in batch.non_tensor_batch:
                     non_tensor_batch_keys_to_pop.append("answer")
-        
+
                 if "class_label" in batch.non_tensor_batch:
                     non_tensor_batch_keys_to_pop.append("class_label")
+
+                if "dataset" in batch.non_tensor_batch:
+                    non_tensor_batch_keys_to_pop.append("dataset")
 
                 if "multi_modal_data" in batch.non_tensor_batch:
                     non_tensor_batch_keys_to_pop.append("multi_modal_data")
@@ -2096,6 +2100,15 @@ class RayPPOTrainer:
                     batch = batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
                     batch = batch.union(gen_batch_output)
 
+                    # Restore TARPO fields that were popped before generation
+                    tarpo_fields = ["task", "dataset", "class_label"]
+                    for field in tarpo_fields:
+                        if field in gen_batch.non_tensor_batch:
+                            # Repeat the field to match the repeated batch
+                            repeated_field = np.repeat(gen_batch.non_tensor_batch[field],
+                                                      self.config.actor_rollout_ref.rollout.n)
+                            batch.non_tensor_batch[field] = repeated_field
+
                     if "response_mask" not in batch.batch.keys():
                         batch.batch["response_mask"] = compute_response_mask(batch)
                     # Balance the number of valid tokens across DP ranks.
@@ -2109,25 +2122,38 @@ class RayPPOTrainer:
                     batch.meta_info["global_token_num"] = torch.sum(batch.batch["attention_mask"], dim=-1).tolist()
 
                     # NOTE: updated verl COMPUTE THE REWARD SCORES: This is where you use the reward loops
+                    # with marked_timer("reward", timing_raw, color="yellow"):
+                    #     # compute reward model score
+                    #     if self.use_rm and "rm_scores" not in batch.batch.keys():
+                    #         if not self.use_reward_loop:
+                    #             reward_tensor = self.rm_wg.compute_rm_score(batch)
+                    #         else:
+                    #             assert self.reward_loop_manager is not None, "RewardLoopManager is None"
+                    #             reward_tensor = self.reward_loop_manager.compute_rm_score(batch)
+                    #         batch = batch.union(reward_tensor)
+
+                    #     # Compute or extract reward for training
+                    #     if self.config.reward_model.launch_reward_fn_async:
+                    #         future_reward = compute_reward_async.remote(
+                    #             data=batch, config=self.config, tokenizer=self.tokenizer
+                    #         )
+                    #     else:
+                    #         reward_tensor, reward_extra_infos_dict = self._compute_or_extract_reward(
+                    #             batch, reward_fn=self.reward_fn, return_dict=False
+                    #         )
+                    
                     with marked_timer("reward", timing_raw, color="yellow"):
                         # compute reward model score
                         if self.use_rm and "rm_scores" not in batch.batch.keys():
-                            if not self.use_reward_loop:
-                                reward_tensor = self.rm_wg.compute_rm_score(batch)
-                            else:
-                                assert self.reward_loop_manager is not None, "RewardLoopManager is None"
-                                reward_tensor = self.reward_loop_manager.compute_rm_score(batch)
+                            reward_tensor = self.rm_wg.compute_rm_score(batch)
                             batch = batch.union(reward_tensor)
 
-                        # Compute or extract reward for training
                         if self.config.reward_model.launch_reward_fn_async:
                             future_reward = compute_reward_async.remote(
                                 data=batch, config=self.config, tokenizer=self.tokenizer
                             )
                         else:
-                            reward_tensor, reward_extra_infos_dict = self._compute_or_extract_reward(
-                                batch, reward_fn=self.reward_fn, return_dict=False
-                            )
+                            reward_tensor, reward_extra_infos_dict = compute_reward(batch, self.reward_fn)
 
                     # Operating Mode Selection:
                     # - Bypass mode: Sets old_log_probs = rollout_log_probs (2 policies: π_rollout, π_θ)
@@ -2189,6 +2215,8 @@ class RayPPOTrainer:
                             reward_tensor, reward_extra_infos_dict = ray.get(future_reward)
                         batch.batch["token_level_scores"] = reward_tensor
 
+                        # NOTE: updated verl, this is to retrieve back the addiditional reward_extra infos 
+                        # for computation in the TARPO
                         if reward_extra_infos_dict:
                             batch.non_tensor_batch.update({k: np.array(v) for k, v in reward_extra_infos_dict.items()})
 

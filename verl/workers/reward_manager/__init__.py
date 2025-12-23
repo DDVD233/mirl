@@ -30,7 +30,7 @@ __all__ = [
 
 # Import experimental reward managers to ensure they are registered
 try:
-    from verl.experimental.reward_loop.reward_manager.limited import RateLimitedRewardManager  # noqa: F401
+    from verl.experimental.reward.reward_loop.limited import RateLimitedRewardManager  # noqa: F401
 
     __all__.append("RateLimitedRewardManager")
 except ImportError:
