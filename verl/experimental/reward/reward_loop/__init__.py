@@ -13,15 +13,16 @@
 # limitations under the License.
 
 from .registry import get_reward_loop_manager_cls, register  # noqa: I001
-from .dapo import DAPORewardManager
-from .naive import NaiveRewardManager
-from .limited import RateLimitedRewardManager
+from .dapo import DAPORewardLoopManager
+from .naive import NaiveRewardLoopManager
+from .limited import RateLimitedRewardLoopManager
 from .batch import BatchRewardLoopManager
 
 __all__ = [
-    "DAPORewardManager",
-    "NaiveRewardManager",
-    "RateLimitedRewardManager",
+    "DAPORewardLoopManager",
+    "NaiveRewardLoopManager",
+    "RateLimitedRewardLoopManager",
+    "BatchRewardLoopManager",
     "register",
     "get_reward_loop_manager_cls",
     "BatchRewardLoopManager",

@@ -151,7 +151,7 @@ class RayDAPOTrainer(RayPPOTrainer):
                     repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True
                 )
 
-                is_last_step = self.global_steps >= self.total_training_steps
+                is_last_step = self.gen_steps >= self.total_training_steps
 
                 with marked_timer("step", timing_raw):
                     # generate a batch
@@ -274,7 +274,7 @@ class RayDAPOTrainer(RayPPOTrainer):
                             if max_num_gen_batches <= 0 or num_gen_batches < max_num_gen_batches:
                                 print(f"{num_gen_batches=}. Keep generating...")
                                 self.gen_steps += 1
-                                is_last_step = self.global_steps >= self.total_training_steps
+                                is_last_step = self.gen_steps >= self.total_training_steps
                                 continue
                             else:
                                 raise ValueError(

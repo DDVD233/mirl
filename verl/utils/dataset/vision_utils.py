@@ -20,7 +20,7 @@ from PIL import Image
 from qwen_vl_utils import fetch_image, fetch_video
 
 
-def process_image(image: dict | Image.Image | str, image_patch_size: int = 14) -> Image.Image:
+def process_image(image: dict | Image.Image, image_patch_size: int = 14) -> Image.Image:
     if isinstance(image, str):
         image = {"type": "image", "image": image, "min_pixels": 65536, "max_pixels": 524288}
 
@@ -33,10 +33,11 @@ def process_image(image: dict | Image.Image | str, image_patch_size: int = 14) -
 
     try:
         return fetch_image(image, image_patch_size=image_patch_size)
+        return fetch_image(image, image_patch_size=image_patch_size)
     except Exception as e:
         print(e)
         dummy_image = Image.new("RGB", (224, 224))
-        return process_image(dummy_image)
+        return process_image(dummy_image, image_patch_size=image_patch_size)
 
 
 VIDEO_FORMAT_HELP = """Currently, we only support the video formats introduced in qwen2-vl.
@@ -82,22 +83,11 @@ def process_video(
     debug: bool = False,           # <-- turn on diagnostics
     return_video_sample_fps: bool = False,
     return_video_metadata: bool = False,
-) -> torch.Tensor:
-    """Converts a video dict into a [n_frames, 3, H, W] uint8 tensor.
+) -> (torch.Tensor, dict):
+    """Converts a video dict into a [n_frames, 3, H, W] tensor
 
-    Set debug=True for per-call diagnostics to help track OOM spikes.
+    Add video sample FPS in a future MR
     """
-    start_t = time.perf_counter()
-
-    # --- PATCH: handle dummy sentinel early ---
-    if video == "dummy" or (isinstance(video, dict) and video.get("type") == "dummy"):
-        dummy = torch.zeros((4, 3, 224, 224), dtype=torch.uint8)
-        if debug:
-            print("[process_video] returning dummy video tensor:", dummy.shape)
-        return dummy
-    # --- /PATCH ---
-
-    # Normalize string input → dict
     if isinstance(video, str):
         # Your current defaults (tiny visual budget)
         # video = {"type": "video", "video": video,
@@ -139,22 +129,22 @@ def process_video(
                 video["min_frames"] = fps_min_frames
             if fps_max_frames is not None:
                 video["max_frames"] = fps_max_frames
-
     try:
-        frames = fetch_video(
-        video,
-        image_patch_size=image_patch_size,
-        return_video_sample_fps=return_video_sample_fps,
-        return_video_metadata=return_video_metadata,
-    )  # expected [T, 3, H, W], dtype=uint8
+        return fetch_video(
+            video,
+            image_patch_size=image_patch_size,
+            return_video_sample_fps=return_video_sample_fps,
+            return_video_metadata=return_video_metadata,
+        )
     except Exception as e:
-        if debug:
-            print(f"[process_video][error] {e}\n{traceback.format_exc()}")
-        # Return a small dummy to keep pipeline alive
-        dummy = torch.zeros((4, 3, 224, 224), dtype=torch.uint8)
-        return dummy
-
-    return frames
+        print(e)
+        dummy_video = torch.zeros((1, 3, 224, 224), dtype=torch.uint8)
+        video_metadata = dict(
+            fps=1,
+            frames_indices=[i for i in range(len(video))],
+            total_num_frames=1,
+        )
+        return dummy_video, video_metadata
 
 
 def process_multi_modal_inputs_for_minicpmo(input_ids, attention_mask, position_ids, cu_seqlens, multi_modal_inputs):

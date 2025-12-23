@@ -382,7 +382,7 @@ def _cluster_info_question(vectors: List[np.ndarray]) -> Tuple[float, np.ndarray
         return 0.0, np.empty(0, int), np.empty(0), np.empty((0, 0))
 
     X = np.stack(vectors, axis=0)            # (Q,R) – R inferred from data
-    k_opt = _select_k_elbow(X, k_max=20)
+    k_opt = _select_k_elbow(X, k_max=3)
     km    = KMeans(n_clusters=k_opt, n_init="auto", random_state=0).fit(X)
 
     centroids   = km.cluster_centers_        # (k,R)
@@ -408,7 +408,7 @@ def compute_drpo_outcome_advantage(
     token_level_rewards: torch.Tensor,      # (B,L)
     response_mask:      torch.Tensor,       # (B,L)
     index:              np.ndarray[str],         # (B,) question ids
-    domain_info: np.ndarray,  # (B,) domain ids
+    domain_info: np.ndarray[str],  # (B,) domain names
     epsilon: float = EPS_DEFAULT,
 ):
     """DRPO with question‑level clustering."""
@@ -417,6 +417,7 @@ def compute_drpo_outcome_advantage(
 
     # 1) raw rollout‑level rewards -------------------------------------- #
     raw_scores = token_level_rewards.sum(dim=-1)                          # (B,)
+    print(f"[DRPO] B={B} L={L} raw_scores={raw_scores}")
 
     # 2) collect rollouts per question for this mini‑batch -------------- #
     q2rollouts: Dict[str, List[float]] = defaultdict(list)
@@ -485,14 +486,30 @@ def compute_drpo_outcome_advantage(
 
         factor = T_d * math.sqrt(N_c) * mu_c
         scaling_factors.append(factor)
-        scores[i] = scores[i] / factor
+        scaled_score = scores[i] / factor
+        if not math.isnan(scaled_score) and not math.isinf(scaled_score):
+            scores[i] = scaled_score
+        else:
+            print(f"[DRPO] {qid} score={scaled_score:.3f}, factor={factor:.3f}, nan/inf detected! ")
+
 
     # divide scores by std of scores
     scores_std = torch.std(scores)
+    print("Scores std:", scores_std.item())
     scores = scores / (scores_std + epsilon)
 
     # Debug report -------------------------------------------------------- #
     print("--------------Hierarchical scaling report--------------")
+
+    # Print cache statistics
+    print("Global cache statistics:")
+    total_questions = global_running_stats["q_count"]
+    print(f"  Total questions across all domains: {total_questions}")
+    for dom, dstat in domain_qstats.items():
+        if dstat["count"] > 0:
+            print(f"  Domain '{dom}': {dstat['count']} questions")
+
+    # Print batch scaling factors
     dom2scale: Dict[Any, List[torch.Tensor]] = defaultdict(list)
     for i in range(B):
         dom2scale[domain_info[i]].append(scores[i] / (before_scale_score[i] + epsilon))

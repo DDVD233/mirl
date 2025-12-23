@@ -15,6 +15,7 @@
 # limitations under the License.
 
 import copy
+import inspect
 import logging
 import os
 import re
@@ -35,6 +36,42 @@ import time, os, math, warnings
 from verl.utils.dataset.count_mm_tokens import compute_modality_token_breakdown
 
 logger = logging.getLogger(__name__)
+
+
+def processor_supports_video(processor: ProcessorMixin) -> bool:
+    """
+    Check if a processor supports video inputs by inspecting its __call__ signature.
+
+    Args:
+        processor: The processor to check
+
+    Returns:
+        True if the processor supports video parameter, False otherwise
+    """
+    return False
+    # if processor is None:
+    #     return False
+    # else:
+    #     return True
+
+    # try:
+    #     sig = inspect.signature(processor.__call__)
+    #     params = sig.parameters
+    #     # return false if it's Gemma3Processor, which doesn't support video
+    #     if "Gemma3Processor" in processor.__class__.__name__:
+    #         return False
+    #
+    #     # Check if 'videos' is a parameter
+    #     if 'videos' in params:
+    #         param = params['videos']
+    #         # Verify it can be used as a keyword argument
+    #         if param.kind in (inspect.Parameter.KEYWORD_ONLY,
+    #                           inspect.Parameter.POSITIONAL_OR_KEYWORD):
+    #             return True
+    # except (ValueError, TypeError, AttributeError):
+    #     logger.debug("Cannot inspect processor __call__ signature")
+    #
+    # return False
 
 
 
@@ -328,7 +365,7 @@ class RLHFDataset(Dataset):
                         apply_kwargs["tools"] = self.tool_schemas
 
                     raw_prompt = self.processor.apply_chat_template(
-                        messages, add_generation_prompt=True, tokenize=False,  **apply_kwargs
+                        messages, add_generation_prompt=True, tokenize=False,  **self.apply_chat_template_kwarg
                     )
 
                     processor_kwargs = {"text": [raw_prompt]}
@@ -390,18 +427,11 @@ class RLHFDataset(Dataset):
             else:
                 # print(f"KEANE: PROCESSOR NOT FOUND")
                 def doc2len(doc) -> int:
-                    try:
-                        apply_kwargs = dict(**self.apply_chat_template_kwargs)
-                        if self.tool_schemas is not None:
-                            apply_kwargs["tools"] = self.tool_schemas
-
-                        return len(
-                            tokenizer.apply_chat_template(doc[prompt_key], add_generation_prompt=True, **apply_kwargs)
+                    return len(
+                        tokenizer.apply_chat_template(
+                            doc[prompt_key], add_generation_prompt=True, **self.apply_chat_template_kwargs
                         )
-                    except Exception:
-                        print("Error processing one of the samples, skipping...")
-                        traceback.print_exc()
-                        return self.max_prompt_length + 1
+                    )
 
             dataframe = dataframe.filter(
                 lambda doc: doc2len(doc) <= self.max_prompt_length,
@@ -424,13 +454,17 @@ class RLHFDataset(Dataset):
     def __len__(self):
         return len(self.dataframe)
 
-    def _build_messages(self, example: dict):
+    def _build_messages(self, example: dict, convert_video_to_images: bool = False):
         """
         This appears to be called twice, once during maybe_filter_out_long_prompts, and another time during getitems
         """
         messages: list = example.get(self.prompt_key)
         if isinstance(messages, str):
             messages = [messages]
+
+        format_prompt = ("You FIRST think about the reasoning process as an internal monologue and then "
+                         "provide the final answer. The reasoning process MUST BE enclosed within <think> "
+                         "</think> tags. The final answer MUST BE put in \\boxed{}.")
 
         # NOTE: Before building, check if there is multimodal content
         has_multimodal = (
@@ -446,7 +480,7 @@ class RLHFDataset(Dataset):
                 if isinstance(new_message, str):
                     new_message = {"role": "user", "content": new_message}
                 content = new_message["content"]
-                
+
                 # Apply format prompt to the entire content first if template is loaded
                 if self.format_prompt:
                     content = self.format_prompt.render(content=content)
@@ -507,7 +541,7 @@ class RLHFDataset(Dataset):
                 new_messages = [{"role": "user", "content": new_messages}]
             elif isinstance(new_messages, list) and isinstance(new_messages[0], str):
                 new_messages = [{"role": "user", "content": new_messages}]
-            
+
             # Apply format prompt to text-only messages if template is loaded
             if self.format_prompt and len(new_messages) > 0:
                 for i, msg in enumerate(new_messages):
@@ -516,6 +550,43 @@ class RLHFDataset(Dataset):
                         if isinstance(content, str):
                             new_messages[i]["content"] = self.format_prompt.render(content=content)
         return new_messages
+
+    def _process_demographic_info(self, demographic_info: str) -> str:
+        """
+        Process demographic information string to groups, separated by commas.
+        Example input: "demo": "sex: Male, age: 68"
+        Example output: "M,A3"
+        Age is grouped into ranges: 0-25 (A1), 26-50 (A2), 51-75 (A3), 76+ (A4).
+        """
+        if not demographic_info:
+            return ""
+
+        groups = []
+        for item in demographic_info.split(","):
+            key, value = item.split(":")
+            key = key.strip().lower()
+            value = value.strip().lower()
+
+            if key == 'sex':
+                groups.append(value[0].upper())  # M or F
+            elif key == 'age':
+                try:
+                    age = int(value)
+                except ValueError:
+                    try:
+                        age = float(value)
+                    except ValueError:
+                        groups.append("UNK")
+                        continue
+                if age <= 25:
+                    groups.append("A1")
+                elif age <= 50:
+                    groups.append("A2")
+                elif age <= 75:
+                    groups.append("A3")
+                else:
+                    groups.append("A4")
+        return ",".join(groups)
 
     def __getitem__(self, item):
         """
@@ -573,7 +644,13 @@ class RLHFDataset(Dataset):
         # NOTE: PROMPTS THAT DO NOT FIT THE LENGTH; 
         # NOTE: SECOND TIME IS TO BUILD THE MESSAGE TO BE PASSED INTO THE MODEL
 
-        messages = self._build_messages(row_dict)
+        # Check if processor supports video to determine if we need to convert tags
+        convert_video_to_images = False
+        if self.processor is not None and self.video_key in row_dict and row_dict.get(self.video_key, None) is not None and len(row_dict[self.video_key]) > 0:
+            convert_video_to_images = not processor_supports_video(self.processor)
+
+
+        messages = self._build_messages(row_dict, convert_video_to_images=convert_video_to_images)
 
         if "audio" in self.modalities:
             # NOTE: Set the following prompt for qwen omni when we are training on audio
@@ -862,6 +939,15 @@ class RLHFDataset(Dataset):
         # add index for each prompt
         if "extra_info" not in row_dict or row_dict["extra_info"] is None:
             row_dict["extra_info"] = dict()
+
+        # dump all keys in row_dict that has numerical or string values or list of strings in extra info
+        for key, value in row_dict.items():
+            if key not in row_dict["extra_info"]:
+                if isinstance(value, (int, float, str)):
+                    row_dict["extra_info"][key] = value
+                elif isinstance(value, list) and all(isinstance(item, str) for item in value):
+                    row_dict["extra_info"][key] = value
+
         index = row_dict.get("extra_info", {}).get("index", 0)
         tools_kwargs = row_dict.get("extra_info", {}).get("tools_kwargs", {})
         interaction_kwargs = row_dict.get("extra_info", {}).get("interaction_kwargs", {})
