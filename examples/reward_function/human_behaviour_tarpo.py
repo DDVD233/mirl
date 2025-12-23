@@ -14,7 +14,7 @@ def _ensure_st_model():
     if not _sentence_transformer_loaded:
         # Load on CPU first to avoid meta device issues
         _STModel = SentenceTransformer('all-MiniLM-L6-v2')
-        _STModel = _STModel.to_empty(device='cuda')
+        _STModel = _STModel.to_empty(device='cpu')
         _sentence_transformer_loaded = True
     return _STModel
 
