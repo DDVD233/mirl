@@ -2025,13 +2025,13 @@ class RayPPOTrainer:
                 batch_keys_to_pop = ["input_ids", "attention_mask", "position_ids"]
                 non_tensor_batch_keys_to_pop = ["raw_prompt_ids"]
 
-                # TODO_TARPO: put the task ids and class_label here:
+                #TODO_TARPO
+                # pop the answer so that we are able to obtain it from the generation output
                 if "task" in batch.non_tensor_batch:
                     non_tensor_batch_keys_to_pop.append("task")
 
-                # pop the answer so that we are able to obtain it from the generation output
-                if "answer" in batch.non_tensor_batch:
-                    non_tensor_batch_keys_to_pop.append("answer")
+                if "multi_modal_data" in batch.non_tensor_batch:
+                    non_tensor_batch_keys_to_pop.append("multi_modal_data")
 
                 if "class_label" in batch.non_tensor_batch:
                     non_tensor_batch_keys_to_pop.append("class_label")
