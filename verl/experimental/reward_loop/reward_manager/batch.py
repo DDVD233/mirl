@@ -154,6 +154,7 @@ class BatchRewardLoopManager(RewardManagerBase):
             response_str = await self.loop.run_in_executor(
                 None, lambda: self.tokenizer.decode(valid_response_ids, skip_special_tokens=True)
             )
+            response_str = [response_str]
 
             # Call compute_score with singular parameters for single item
             if self.compute_score:
