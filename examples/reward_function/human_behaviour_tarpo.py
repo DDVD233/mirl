@@ -100,7 +100,7 @@ def soft_overlong_punishment(
 
 
 def human_behaviour_compute_score_batch(
-    data_sources: List[str],
+    data_source: List[str],
     solution_str: List[str],
     ground_truth: List[str],
     extra_info: List[str],
