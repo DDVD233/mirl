@@ -8,7 +8,7 @@ export PYTHONUNBUFFERED=1
 export HYDRA_FULL_ERROR=1
 export PYTHONPATH="/home/keaneong/human-behavior/verl:$PYTHONPATH"
 export NCCL_ASYNC_ERROR_HANDLING=1
-export VLLM_USE_V1=1
+# export VLLM_USE_V1=1
 
 # train modality batching = do one modality at a time;
 
