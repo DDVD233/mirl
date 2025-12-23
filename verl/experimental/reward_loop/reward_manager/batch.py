@@ -117,6 +117,7 @@ class BatchRewardLoopManager(RewardManagerBase):
         return scores, valid_response_lengths
 
     async def run_single(self, data: DataProto) -> dict:
+        ## NOTE: upgraded VERL, runs here
         """Process a single data item or batch."""
         # If there is rm score, we directly return rm score
         if "rm_scores" in data.batch.keys():
@@ -135,7 +136,7 @@ class BatchRewardLoopManager(RewardManagerBase):
             valid_response_length = data_item.batch["attention_mask"][-response_length:].sum()
             valid_response_ids = response_ids[:valid_response_length]
             task_ids = data.non_tensor_batch.get("task", [None] * len(data))
-            data_source = data_item.non_tensor_batch[self.reward_fn_key]
+            data_source = data_item.non_tensor_batch.get(self.reward_fn_key, [None] * len(data))
             ground_truth = data_item.non_tensor_batch["reward_model"]["ground_truth"]
             extra_info = data_item.non_tensor_batch.get("extra_info", {})
             tool_extra_fields = data_item.non_tensor_batch.get("tool_extra_fields", None)
@@ -200,7 +201,8 @@ class BatchRewardLoopManager(RewardManagerBase):
             scores, valid_response_lengths = await self.compute_batch_scores(data)
 
             prompt_ids = data.batch["prompts"]
-            data_sources = data.non_tensor_batch[self.reward_fn_key]
+            # NOTE: upgraded VERL, this is not important for us.
+            data_source = data_item.non_tensor_batch.get(self.reward_fn_key, [None] * len(data))
             task_ids = data.non_tensor_batch.get("task", [None] * len(data))
             rewards = []
 

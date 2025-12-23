@@ -84,6 +84,7 @@ class RewardLoopWorker:
     async def compute_score(self, data: DataProto) -> dict:
         assert len(data) == 1, "RewardLoopWorker only support single data item"
         if self.config.custom_reward_function.path is not None:
+            # NOTE; upgraded VERL: Loop runs here into the reward_loop.run_single, which uses the batch.py
             # directly use user-customized reward function
             return await self.reward_loop.run_single(data)
         else:
