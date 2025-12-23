@@ -2036,6 +2036,9 @@ class RayPPOTrainer:
                 if "multi_modal_data" in batch.non_tensor_batch:
                     non_tensor_batch_keys_to_pop.append("multi_modal_data")
 
+                if "multi_modal_inputs" in batch.non_tensor_batch:
+                    non_tensor_batch_keys_to_pop.append("multi_modal_inputs")
+
                 if "class_label" in batch.non_tensor_batch:
                     non_tensor_batch_keys_to_pop.append("class_label")
 

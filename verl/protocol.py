@@ -184,9 +184,21 @@ def _deep_equal(a: Any, b: Any, visited: set[int]) -> bool:
             else:
                 # Standard equality for all other types
                 result = a == b
+                # Handle case where comparison returns a tensor (e.g., broadcasting with tensors)
+                if isinstance(result, torch.Tensor):
+                    result = result.all().item() if result.numel() > 0 else True
         except ImportError:
             # torch not available, use standard equality
             result = a == b
+            # Still need to check if result is somehow a tensor-like object
+            if hasattr(result, '__iter__') and not isinstance(result, (str, bytes)):
+                try:
+                    # Try to convert to scalar if it's an array-like with single element
+                    import numpy as np
+                    if isinstance(result, np.ndarray):
+                        result = bool(result.all()) if result.size > 0 else True
+                except:
+                    pass
 
     # Clean up the visited set on the way out of the recursion
     visited.remove(obj_id)
