@@ -138,9 +138,9 @@ def process_video(
         )
     except Exception as e:
         print(e)
-        dummy_video = torch.zeros((1, 3, 224, 224), dtype=torch.uint8)
+        dummy_video = torch.zeros((4, 3, 224, 224), dtype=torch.uint8)
         video_metadata = dict(
-            fps=1,
+            fps=4,
             frames_indices=[i for i in range(len(video))],
             total_num_frames=1,
         )

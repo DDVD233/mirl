@@ -527,9 +527,10 @@ class RLHFDataset(Dataset):
                             content_list.append({"type": "image"})
                         elif segment == "<video>":
                             if convert_video_to_images:
-                                # When converting video to images, use a single image tag
-                                # The processor will handle the multiple frames internally
-                                content_list.append({"type": "image"})
+                                # Replace each video tag with 4 image tags (one per frame)
+                                # This matches the nframes=4 in process_video
+                                for _ in range(4):
+                                    content_list.append({"type": "image"})
                             else:
                                 content_list.append({"type": "video"})
                         elif segment == "<audio>" and "audio" in self.modalities:
