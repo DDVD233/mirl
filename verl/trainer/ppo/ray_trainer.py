@@ -2030,6 +2030,9 @@ class RayPPOTrainer:
                 if "task" in batch.non_tensor_batch:
                     non_tensor_batch_keys_to_pop.append("task")
 
+                if "answer" in batch.non_tensor_batch:
+                    non_tensor_batch_keys_to_pop.append("answer")
+
                 if "multi_modal_data" in batch.non_tensor_batch:
                     non_tensor_batch_keys_to_pop.append("multi_modal_data")
 
@@ -2039,10 +2042,6 @@ class RayPPOTrainer:
                 if "dataset" in batch.non_tensor_batch:
                     non_tensor_batch_keys_to_pop.append("dataset")
 
-                # if "multi_modal_data" in batch.non_tensor_batch:
-                #     non_tensor_batch_keys_to_pop.append("multi_modal_data")
-                # if "multi_modal_inputs" in batch.non_tensor_batch:
-                #     non_tensor_batch_keys_to_pop.append("multi_modal_inputs")
                 if "raw_prompt" in batch.non_tensor_batch:
                     non_tensor_batch_keys_to_pop.append("raw_prompt")
                 if "tools_kwargs" in batch.non_tensor_batch:
