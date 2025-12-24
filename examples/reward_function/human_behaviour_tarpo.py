@@ -124,9 +124,9 @@ def human_behaviour_compute_score_batch(
       - always includes format score
       - (optional) soft overlong penalty applied to the final score
     """
-    if task_id is None:
-        # default all to CLS semantics if not provided
-        task_id = ["cls"] * len(solution_str)
+    # if task_id is None:
+    # default all to CLS semantics if not provided
+    task_id = ["cls"] * len(solution_str)
 
     # print("Computing human behaviour reward scores...")
     # print(solution_str)
@@ -185,7 +185,7 @@ def human_behaviour_compute_score_batch(
             "similarity_score": similarity_score,
             "overlong_score": overlong_score,   # 0..-1 (0 if disabled)
         })
-        
+
     return batch_scores
 
 
