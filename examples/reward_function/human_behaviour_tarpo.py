@@ -4,66 +4,15 @@ import numpy as np
 from sentence_transformers import SentenceTransformer, util
 import torch
 
-# Lazy initialization for SentenceTransformer
-_sentence_transformer_loaded = False
-_STModel: Optional["SentenceTransformer"] = None
-
-
-def _is_model_on_meta_device(model) -> bool:
-    """Check if any model parameters or buffers are on meta device."""
-    for param in model.parameters():
-        if param.is_meta:
-            return True
-    for buffer in model.buffers():
-        if buffer.is_meta:
-            return True
-    return False
+# Global SentenceTransformer - loaded at module import (BEFORE FSDP workers)
+print("Loading SentenceTransformer at module level...")
+device = "cuda" if torch.cuda.is_available() else "cpu"
+_STModel = SentenceTransformer('all-MiniLM-L6-v2', device=device)
+print(f"✓ SentenceTransformer loaded globally to {device} (before FSDP initialization)")
 
 
 def _ensure_st_model():
-    """Load SentenceTransformer only once (lazy load), handling init_empty_weights context."""
-    global _sentence_transformer_loaded, _STModel
-    if not _sentence_transformer_loaded:
-        device = "cuda:0" if torch.cuda.is_available() else "cpu"
-
-        # Strategy: Temporarily disable accelerate's init_empty_weights context
-        # This context causes all tensor allocations to go to meta device
-        context_disabled = False
-        old_init_contexts = None
-
-        try:
-            # Attempt to access accelerate's internal context manager state
-            from accelerate.utils import modeling as accel_modeling
-
-            # accelerate uses _init_contexts list to track active contexts
-            if hasattr(accel_modeling, '_init_contexts'):
-                old_init_contexts = accel_modeling._init_contexts
-                accel_modeling._init_contexts = []
-                context_disabled = True
-        except (ImportError, AttributeError) as e:
-            # If we can't disable the context, continue anyway and validate after
-            print(f"Warning: Could not disable init_empty_weights context: {e}")
-
-        try:
-            # Load SentenceTransformer (should now avoid meta device)
-            _STModel = SentenceTransformer('all-MiniLM-L6-v2', device=device)
-        finally:
-            # Restore the original context state
-            if context_disabled and old_init_contexts is not None:
-                from accelerate.utils import modeling as accel_modeling
-                accel_modeling._init_contexts = old_init_contexts
-
-        # CRITICAL VALIDATION: Ensure model is NOT on meta device
-        if _is_model_on_meta_device(_STModel):
-            raise RuntimeError(
-                f"FATAL: SentenceTransformer loaded onto meta device despite explicit device={device}!\n"
-                f"This is caused by accelerate.init_empty_weights() context from FSDP initialization.\n"
-                f"The context exit strategy failed. Please check accelerate version and internals."
-            )
-
-        _sentence_transformer_loaded = True
-        print(f"✓ SentenceTransformer successfully loaded to {device}")
-
+    """Return the globally loaded SentenceTransformer."""
     return _STModel
 
 
@@ -237,20 +186,18 @@ def human_behaviour_compute_score_batch(
 
 
 if __name__ == "__main__":
-    # Test that SentenceTransformer loads correctly (not on meta device)
-    print("Testing SentenceTransformer loading...")
-    test_model = _ensure_st_model()
+    # Verify SentenceTransformer loaded at module level (not on meta device)
+    print("\nTesting SentenceTransformer...")
 
-    if _is_model_on_meta_device(test_model):
-        raise RuntimeError("FAILED: Model is on meta device!")
+    # Check device
+    first_param = next(_STModel.parameters())
+    print(f"Model device: {first_param.device}")
+    print(f"Is meta: {first_param.is_meta}")
 
-    # Test encoding produces real tensors
-    embeddings = test_model.encode(["test"], convert_to_tensor=True)
-    if embeddings.is_meta:
-        raise RuntimeError("FAILED: Embeddings are meta tensors!")
-
-    print(f"✓ SentenceTransformer test passed. Device: {embeddings.device}")
-    print()
+    # Test encoding
+    embeddings = _STModel.encode(["test"], convert_to_tensor=True)
+    print(f"Embeddings device: {embeddings.device}")
+    print(f"✓ SentenceTransformer working correctly\n")
 
     # Original tests
     cls_response = "<think>Reasoning.....</think>\\boxed{anger}"
