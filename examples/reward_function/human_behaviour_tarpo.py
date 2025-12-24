@@ -185,8 +185,8 @@ def human_behaviour_compute_score_batch(
             "similarity_score": similarity_score,
             "overlong_score": overlong_score,   # 0..-1 (0 if disabled)
         })
-
-    return batch_scores
+    return overall_score
+    # return batch_scores
 
 
 if __name__ == "__main__":
