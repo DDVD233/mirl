@@ -7,7 +7,7 @@ import torch
 # Global SentenceTransformer - loaded at module import (BEFORE FSDP workers)
 # print("Loading SentenceTransformer at module level...")
 # device = "cuda" if torch.cuda.is_available() else "cpu"
-device = "cuda"
+device = "cpu"
 _STModel = SentenceTransformer('all-MiniLM-L6-v2', device=device)
 
 # Verify it's NOT on meta device
