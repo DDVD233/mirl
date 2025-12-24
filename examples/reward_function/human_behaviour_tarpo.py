@@ -119,10 +119,10 @@ def human_behaviour_compute_score_batch(
       - type=qa  → cosine similarity only
       - always includes format score
       - (optional) soft overlong penalty applied to the final score
-    """
-    # if task_id is None:
+    # """
+    if task_id is None:
     # default all to CLS semantics if not provided
-    task_id = ["qa"] * len(solution_str)
+        task_id = ["cls"] * len(solution_str)
 
     # print("Computing human behaviour reward scores...")
     # print(solution_str)
