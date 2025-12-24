@@ -974,8 +974,11 @@ class RayPPOTrainer:
  
             if "answer" in test_batch.non_tensor_batch:
                 non_tensor_batch_keys_to_pop.append("answer")
+            
             if "multi_modal_data" in test_batch.non_tensor_batch:
                 non_tensor_batch_keys_to_pop.append("multi_modal_data")
+            if "multi_modal_inputs" in test_batch.non_tensor_batch:
+                non_tensor_batch_keys_to_pop.append("multi_modal_inputs")
             if "raw_prompt" in test_batch.non_tensor_batch:
                 non_tensor_batch_keys_to_pop.append("raw_prompt")
             if "tools_kwargs" in test_batch.non_tensor_batch:
