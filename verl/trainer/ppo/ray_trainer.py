@@ -634,6 +634,8 @@ class RayPPOTrainer:
 
         num_workers = self.config.data["dataloader_num_workers"]
 
+        from torch.utils.data import BatchSampler, SequentialSampler
+
         world_size = dist.get_world_size() if dist.is_initialized() else 1
         rank = dist.get_rank() if dist.is_initialized() else 0
         epoch = self.current_epoch  # wherever you track it
@@ -641,71 +643,58 @@ class RayPPOTrainer:
         train_sampler = create_rl_sampler(self.config.data, self.train_dataset, split="train",
                                         world_size=world_size, rank=rank, epoch=epoch)
 
-        self.train_dataloader = StatefulDataLoader(
-            dataset=self.train_dataset,
-            batch_sampler=train_sampler,   
-            num_workers=num_workers,
-            collate_fn=collate_fn,
-        )
-
-        # if isinstance(train_sampler, BatchSampler):
-        #     self.train_dataloader = StatefulDataLoader(
-        #         dataset=self.train_dataset,
-        #         batch_sampler=train_sampler,
-        #         num_workers=num_workers,
-        #         collate_fn=collate_fn,
-        #     )
-        # else:
-        #     # Else if it is not a batch sampler, we can specify the batch size directly
-        #     self.train_dataloader = StatefulDataLoader(
-        #         dataset=self.train_dataset,
-        #         batch_size=self.config.data.get("gen_batch_size", self.config.data.train_batch_size),
-        #         num_workers=num_workers,
-        #         # shuffle=False,
-        #         drop_last=True,
-        #         collate_fn=collate_fn,
-        #         sampler=train_sampler,
-        #     )
+        if isinstance(train_sampler, BatchSampler):
+            self.train_dataloader = StatefulDataLoader(
+                dataset=self.train_dataset,
+                batch_sampler=train_sampler,
+                num_workers=num_workers,
+                collate_fn=collate_fn,
+            )
+        else:
+            # Else if it is not a batch sampler, we can specify the batch size directly
+            self.train_dataloader = StatefulDataLoader(
+                dataset=self.train_dataset,
+                batch_size=self.config.data.get("gen_batch_size", self.config.data.train_batch_size),
+                num_workers=num_workers,
+                # shuffle=False,
+                drop_last=True,
+                collate_fn=collate_fn,
+                sampler=train_sampler,
+            )
 
         val_sampler = create_rl_sampler(
         self.config.data, self.val_dataset, split="val",
         world_size=world_size, rank=rank, epoch=epoch
     )
-        self.val_dataloader = StatefulDataLoader(
-        dataset=self.val_dataset,
-        batch_sampler=val_sampler,     # keep per-rank equality for eval too
-        num_workers=num_workers,
-        collate_fn=collate_fn,
-    )
-        # if isinstance(val_sampler, BatchSampler):
-        #     # BatchSampler path: DO NOT pass batch_size/shuffle/drop_last
-        #     self.val_dataloader = StatefulDataLoader(
-        #         dataset=self.val_dataset,
-        #         batch_sampler=val_sampler,
-        #         num_workers=num_workers,
-        #         collate_fn=collate_fn,
-        #     )
-        # else:
-        #     # Plain Sampler path: compute val_batch_size (None -> len(dataset))
-        #     # This plain sampler path, if you trace the instance of val_sampler,
-        #     # should be that of a sequential sampler. Break if it is not.
-        #     if not isinstance(val_sampler, SequentialSampler):
-        #         raise ValueError("Validation sampler is not a SequentialSampler")
+        if isinstance(val_sampler, BatchSampler):
+            # BatchSampler path: DO NOT pass batch_size/shuffle/drop_last
+            self.val_dataloader = StatefulDataLoader(
+                dataset=self.val_dataset,
+                batch_sampler=val_sampler,
+                num_workers=num_workers,
+                collate_fn=collate_fn,
+            )
+        else:
+            # Plain Sampler path: compute val_batch_size (None -> len(dataset))
+            # This plain sampler path, if you trace the instance of val_sampler,
+            # should be that of a sequential sampler. Break if it is not.
+            if not isinstance(val_sampler, SequentialSampler):
+                raise ValueError("Validation sampler is not a SequentialSampler")
 
-        #     val_batch_size = self.config.data.val_batch_size
-        #     if val_batch_size is None:
-        #         val_batch_size = len(self.val_dataset)
+            val_batch_size = self.config.data.val_batch_size
+            if val_batch_size is None:
+                val_batch_size = len(self.val_dataset)
 
-        #     self.val_dataloader = StatefulDataLoader(
-        #         dataset=self.val_dataset,
-        #         sampler=val_sampler,
-        #         batch_size=val_batch_size,
-        #         num_workers=num_workers,
-        #         drop_last=False,                           # keep all val samples
-        #         collate_fn=collate_fn,
-        #         # Deterministic val preferred; if you want to honor a config flag, keep it here:
-        #         shuffle=self.config.data.get("validation_shuffle", False),
-        #     )
+            self.val_dataloader = StatefulDataLoader(
+                dataset=self.val_dataset,
+                sampler=val_sampler,
+                batch_size=val_batch_size,
+                num_workers=num_workers,
+                drop_last=False,                           # keep all val samples
+                collate_fn=collate_fn,
+                # Deterministic val preferred; if you want to honor a config flag, keep it here:
+                shuffle=self.config.data.get("validation_shuffle", False),
+            )
 
         assert len(self.train_dataloader) >= 1, "Train dataloader is empty!"
         assert len(self.val_dataloader) >= 1, "Validation dataloader is empty!"
