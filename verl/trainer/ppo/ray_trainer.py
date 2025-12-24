@@ -970,6 +970,10 @@ class RayPPOTrainer:
 
             batch_keys_to_pop = ["input_ids", "attention_mask", "position_ids"]
             non_tensor_batch_keys_to_pop = ["raw_prompt_ids"]
+            
+ 
+            if "answer" in test_batch.non_tensor_batch:
+                non_tensor_batch_keys_to_pop.append("answer")
             if "multi_modal_data" in test_batch.non_tensor_batch:
                 non_tensor_batch_keys_to_pop.append("multi_modal_data")
             if "raw_prompt" in test_batch.non_tensor_batch:
