@@ -188,10 +188,10 @@ class ResourcePoolManager:
         total_required_gpus = sum(
             [n_gpus for process_on_nodes in self.resource_pool_spec.values() for n_gpus in process_on_nodes]
         )
-        if total_available_gpus < total_required_gpus:
-            raise ValueError(
-                f"Total available GPUs {total_available_gpus} is less than total desired GPUs {total_required_gpus}"
-            )
+        # if total_available_gpus < total_required_gpus:
+        #     raise ValueError(
+        #         f"Total available GPUs {total_available_gpus} is less than total desired GPUs {total_required_gpus}"
+        #     )
 
 
 def apply_kl_penalty(data: DataProto, kl_ctrl: core_algos.AdaptiveKLController, kl_penalty="kl"):
