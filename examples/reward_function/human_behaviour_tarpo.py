@@ -6,14 +6,40 @@ import torch
 
 # Global SentenceTransformer - loaded at module import (BEFORE FSDP workers)
 print("Loading SentenceTransformer at module level...")
-device = "cuda" if torch.cuda.is_available() else "cpu"
+# Use cuda:0 explicitly - module loads BEFORE training starts, so GPU is free
+# device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+device = "cuda:0"
 _STModel = SentenceTransformer('all-MiniLM-L6-v2', device=device)
 print(f"✓ SentenceTransformer loaded globally to {device} (before FSDP initialization)")
+
+# Cache for ground truth embeddings (they don't change, so we can reuse them)
+_ground_truth_embedding_cache = {}
 
 
 def _ensure_st_model():
     """Return the globally loaded SentenceTransformer."""
     return _STModel
+
+
+def _get_or_cache_embedding(text: str, model, is_ground_truth: bool = False) -> torch.Tensor:
+    """
+    Get embedding with optional caching for ground truth strings.
+
+    Args:
+        text: String to encode
+        model: SentenceTransformer model
+        is_ground_truth: If True, cache the embedding (ground truth doesn't change)
+
+    Returns:
+        Embedding tensor
+    """
+    if is_ground_truth:
+        if text not in _ground_truth_embedding_cache:
+            _ground_truth_embedding_cache[text] = model.encode(text, convert_to_tensor=True)
+        return _ground_truth_embedding_cache[text]
+    else:
+        # Don't cache predictions (they're always different)
+        return model.encode(text, convert_to_tensor=True)
 
 
 def extract_boxed_content(text: str) -> str:
@@ -44,9 +70,15 @@ def cosine_similarity_reward(pred_label: str, ground_truth: str, model) -> float
     """
     Compute cosine similarity between two strings using embeddings.
     Returns scaled score in [0, 1].
+
+    Ground truth embeddings are cached for speed (they don't change).
     """
-    embeddings = model.encode([pred_label, ground_truth], convert_to_tensor=True)
-    cos_sim = util.cos_sim(embeddings[0], embeddings[1]).item()
+    # Encode prediction (always new, don't cache)
+    pred_embedding = _get_or_cache_embedding(pred_label, model, is_ground_truth=False)
+    # Encode ground truth (cache it since it's reused across rollouts)
+    gt_embedding = _get_or_cache_embedding(ground_truth, model, is_ground_truth=True)
+
+    cos_sim = util.cos_sim(pred_embedding, gt_embedding).item()
     # Scale from [-1, 1] → [0, 1]
     return (cos_sim + 1.0) / 2.0
 
