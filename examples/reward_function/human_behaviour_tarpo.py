@@ -23,7 +23,6 @@ _ground_truth_embedding_cache = {}
 
 # _STModel = None
 
-
 def _ensure_st_model():
     """Return the globally loaded SentenceTransformer."""
     return _STModel
