@@ -7,21 +7,21 @@ import torch
 # Global SentenceTransformer - loaded at module import (BEFORE FSDP workers)
 # print("Loading SentenceTransformer at module level...")
 # device = "cuda" if torch.cuda.is_available() else "cpu"
-# device = "cpu"
-# _STModel = SentenceTransformer('all-MiniLM-L6-v2', device=device)
+device = "cpu"
+_STModel = SentenceTransformer('all-MiniLM-L6-v2', device=device)
 
-# # Verify it's NOT on meta device
-# first_param = next(_STModel.parameters())
-# is_meta = first_param.is_meta if hasattr(first_param, 'is_meta') else False
-# if is_meta:
-#     raise RuntimeError("SentenceTransformer loaded on meta device! This should not happen.")
+# Verify it's NOT on meta device
+first_param = next(_STModel.parameters())
+is_meta = first_param.is_meta if hasattr(first_param, 'is_meta') else False
+if is_meta:
+    raise RuntimeError("SentenceTransformer loaded on meta device! This should not happen.")
 
-# print(f"✓ SentenceTransformer loaded to {first_param.device} (before FSDP initialization)")
+print(f"✓ SentenceTransformer loaded to {first_param.device} (before FSDP initialization)")
 
-# # Cache for ground truth embeddings (they don't change, so we can reuse them)
-# _ground_truth_embedding_cache = {}
+# Cache for ground truth embeddings (they don't change, so we can reuse them)
+_ground_truth_embedding_cache = {}
 
-_STModel = None
+# _STModel = None
 
 
 def _ensure_st_model():
@@ -160,11 +160,11 @@ def human_behaviour_compute_score_batch(
       - always includes format score
       - (optional) soft overlong penalty applied to the final score
     # """
-    # if task_id is None:
-    # # default all to CLS semantics if not provided
-    #     task_id = ["cls"] * len(solution_str)
+    if task_id is None:
+    # default all to CLS semantics if not provided
+        task_id = ["cls"] * len(solution_str)
     #NOTE: For debugging
-    task_id = ["cls"] * len(solution_str)
+    # task_id = ["cls"] * len(solution_str)
 
     # print("Computing human behaviour reward scores...")
     # print(solution_str)
