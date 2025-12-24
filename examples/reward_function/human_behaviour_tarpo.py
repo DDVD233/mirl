@@ -6,11 +6,17 @@ import torch
 
 # Global SentenceTransformer - loaded at module import (BEFORE FSDP workers)
 print("Loading SentenceTransformer at module level...")
-# Use cuda:0 explicitly - module loads BEFORE training starts, so GPU is free
-# device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-device = "cuda:0"
+# device = "cuda" if torch.cuda.is_available() else "cpu"
+device = "cuda"
 _STModel = SentenceTransformer('all-MiniLM-L6-v2', device=device)
-print(f"✓ SentenceTransformer loaded globally to {device} (before FSDP initialization)")
+
+# Verify it's NOT on meta device
+first_param = next(_STModel.parameters())
+is_meta = first_param.is_meta if hasattr(first_param, 'is_meta') else False
+if is_meta:
+    raise RuntimeError("SentenceTransformer loaded on meta device! This should not happen.")
+
+print(f"✓ SentenceTransformer loaded to {first_param.device} (before FSDP initialization)")
 
 # Cache for ground truth embeddings (they don't change, so we can reuse them)
 _ground_truth_embedding_cache = {}

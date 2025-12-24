@@ -86,7 +86,9 @@ def run_ppo(config, task_runner_class=None) -> None:
         ray.init(**OmegaConf.to_container(ray_init_kwargs))
 
     if task_runner_class is None:
-        task_runner_class = ray.remote(num_cpus=1)(TaskRunner)  # please make sure main_task is not scheduled on head
+        # Allocate small GPU fraction so SentenceTransformer can load on GPU in reward function
+        # TaskRunner needs GPU access for reward function module loading
+        task_runner_class = ray.remote(num_cpus=1, num_gpus=0.1)(TaskRunner)  # please make sure main_task is not scheduled on head
 
     # Create a remote instance of the TaskRunner class, and
     # Execute the `run` method of the TaskRunner instance remotely and wait for it to complete
