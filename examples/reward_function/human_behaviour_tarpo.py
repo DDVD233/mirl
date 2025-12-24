@@ -4,15 +4,19 @@ import numpy as np
 from sentence_transformers import SentenceTransformer, util
 import torch
 
-# Global SentenceTransformer - loaded at module import (BEFORE FSDP workers)
-print("Loading SentenceTransformer at module level...")
-device = "cuda" if torch.cuda.is_available() else "cpu"
-_STModel = SentenceTransformer('all-MiniLM-L6-v2', device=device)
-print(f"✓ SentenceTransformer loaded globally to {device} (before FSDP initialization)")
+# Lazy initialization for SentenceTransformer
+_sentence_transformer_loaded = False
+_STModel: Optional["SentenceTransformer"] = None
 
 
 def _ensure_st_model():
-    """Return the globally loaded SentenceTransformer."""
+    """Load SentenceTransformer only once (lazy load)."""
+    global _sentence_transformer_loaded, _STModel
+    if not _sentence_transformer_loaded:
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        _STModel = SentenceTransformer('all-MiniLM-L6-v2', device=device)
+        _sentence_transformer_loaded = True
+        print(f"✓ SentenceTransformer loaded to {device}")
     return _STModel
 
 
@@ -186,16 +190,20 @@ def human_behaviour_compute_score_batch(
 
 
 if __name__ == "__main__":
-    # Verify SentenceTransformer loaded at module level (not on meta device)
-    print("\nTesting SentenceTransformer...")
+    # Test lazy loading of SentenceTransformer
+    print("\nTesting SentenceTransformer lazy loading...")
+
+    # Trigger lazy load
+    model = _ensure_st_model()
 
     # Check device
-    first_param = next(_STModel.parameters())
-    print(f"Model device: {first_param.device}")
-    print(f"Is meta: {first_param.is_meta}")
+    first_param = next(model.parameters())
+    print(f"Model parameters device: {first_param.device}")
+    print(f"Is meta device: {first_param.is_meta}")
+    assert not first_param.is_meta, "FAILED: Model is on meta device!"
 
     # Test encoding
-    embeddings = _STModel.encode(["test"], convert_to_tensor=True)
+    embeddings = model.encode(["test sentence"], convert_to_tensor=True)
     print(f"Embeddings device: {embeddings.device}")
     print(f"✓ SentenceTransformer working correctly\n")
 
