@@ -4,19 +4,15 @@ import numpy as np
 from sentence_transformers import SentenceTransformer, util
 import torch
 
-# Lazy initialization for SentenceTransformer
-_sentence_transformer_loaded = False
-_STModel: Optional["SentenceTransformer"] = None
+# Global SentenceTransformer - loaded at module import (BEFORE FSDP workers)
+print("Loading SentenceTransformer at module level...")
+device = "cuda" if torch.cuda.is_available() else "cpu"
+_STModel = SentenceTransformer('all-MiniLM-L6-v2', device=device)
+print(f"✓ SentenceTransformer loaded globally to {device} (before FSDP initialization)")
 
 
 def _ensure_st_model():
-    """Load SentenceTransformer only once (lazy load)."""
-    global _sentence_transformer_loaded, _STModel
-    if not _sentence_transformer_loaded:
-        device = "cuda" if torch.cuda.is_available() else "cpu"
-        _STModel = SentenceTransformer('all-MiniLM-L6-v2', device=device)
-        _sentence_transformer_loaded = True
-        print(f"✓ SentenceTransformer loaded to {device}")
+    """Return the globally loaded SentenceTransformer."""
     return _STModel
 
 
