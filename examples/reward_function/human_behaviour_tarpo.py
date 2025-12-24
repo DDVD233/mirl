@@ -185,8 +185,7 @@ def human_behaviour_compute_score_batch(
             "overlong_score": overlong_score,   # 0..-1 (0 if disabled)
             "task_type": task_type,
         })
-    return overall_score
-    # return batch_scores
+    return batch_scores
 
 
 if __name__ == "__main__":
