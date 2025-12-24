@@ -177,15 +177,15 @@ def human_behaviour_compute_score_batch(
             # overlong_score <= 0; factor lets you tune severity
             overall_score += overlong_penalty_factor * overlong_score
 
+
         batch_scores.append({
             "score": overall_score,
             "standard_score": label_score,
             "format_score": format_score,
             "similarity_score": similarity_score,
             "overlong_score": overlong_score,   # 0..-1 (0 if disabled)
-            "task_type": task_type,
         })
-    return overall_score
+        
     return batch_scores
 
 
