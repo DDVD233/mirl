@@ -2438,7 +2438,7 @@ def compute_tarpo_outcome_advantage(
         RARE_RATIO = 2.5
 
         # Hierarchical rollout mixture
-        ALPHA_ROLL     = 0.5
+        ALPHA_ROLL     = 0.5 # how genetly or strongly we redistribute the rollout mixtures within the task
         ROLL_MAX_SCALE = 3.0   # symmetric clamp
 
         # EMA smoothing
@@ -2453,28 +2453,32 @@ def compute_tarpo_outcome_advantage(
         # ----------------------------
         # Step 0 — global unit advantage U (EMA of geometric mean of task abs means)
         # ----------------------------
+        
+        # Collecting all of the advantages into the all_task_log_mus list
         task_mu_abs = {}
-        log_mus = []
+        tasks_log_mus = []
         for t in set(q2tasks.values()):
             mu = float(task_stats[t].get("post_grpo_advantage_ema_abs_mean", 0.0))
             mu = max(mu, eps)
             task_mu_abs[t] = mu
-            log_mus.append(math.log(mu))
+            tasks_log_mus.append(math.log(mu))
 
-        if len(log_mus) == 0:
+        if len(tasks_log_mus) == 0:
             q2norm = {qid: list(vals) for qid, vals in q2rollouts.items()}
         else:
-            unit_batch = math.exp(sum(log_mus) / len(log_mus))
+            # compute the average of the all tasks log means, which will give us the 
+            # geometric mean of the absolute advantages of all tasks, U
+            unit_batch = math.exp(sum(tasks_log_mus) / len(tasks_log_mus))
 
             task_stats.setdefault("_global", {})
             prev_unit = float(task_stats["_global"].get("mixture_unit_adv_ema", unit_batch))
-            unit_ema  = _ema_update(prev_unit, unit_batch, BETA_UNIT)
-            unit_ema  = max(unit_ema, eps)
+            unit_ema_mean_tasks_abs_advantages  = _ema_update(prev_unit, unit_batch, BETA_UNIT)
+            unit_ema_mean_tasks_abs_advantages  = max(unit_ema_mean_tasks_abs_advantages, eps)
 
             task_stats["_global"]["mixture_unit_adv_batch"] = float(unit_batch)
-            task_stats["_global"]["mixture_unit_adv_ema"]   = float(unit_ema)
+            task_stats["_global"]["mixture_unit_adv_ema"]   = float(unit_ema_mean_tasks_abs_advantages)
 
-            U = unit_ema
+            U = unit_ema_mean_tasks_abs_advantages
 
             # ----------------------------
             # Step 1 — responsibilities + task signal mass
@@ -2492,6 +2496,8 @@ def compute_tarpo_outcome_advantage(
                 for v in vals:
                     a = abs(v)
                     u = a / (U + eps)
+
+                    # assignment of the responsibilities
                     r = 1.0 / (1.0 + math.exp(-BETA_R * (u - DELTA_U)))
 
                     task_signal_mass[task] += r * a
@@ -2587,6 +2593,8 @@ def compute_tarpo_outcome_advantage(
                 # ----------------------------
                 # Step 4 — task-scale s_t (EMA)
                 # ----------------------------
+
+                # Computing the task level scaling factor for each task
                 task_scale = {}
 
                 for task in task_signal_mass:
