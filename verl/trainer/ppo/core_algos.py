@@ -1743,17 +1743,17 @@ def compute_tarpo_outcome_advantage(
         # Toggles
         # ----------------------------
         USE_RARITY_BOOST         = False
-        USE_HIER_ROLLOUT_MIXTURE = False
+        USE_HIER_ROLLOUT_MIXTURE = True
 
         # ----------------------------
         # Hyperparameters
         # ----------------------------
-        # Responsibility (unit-normalized)
+        # Responsibility (z-score on |A|)
         BETA_R   = 4.0
-        DELTA_U  = 1.0     # threshold in unit-advantage space
+        DELTA_Z  = 0.25   # threshold in z space (e.g., 0.25 ~ mildly above typical)
 
         # Inter-task density scaling
-        GAMMA = 0.5
+        GAMMA = 1
 
         # Rarity boost (optional)
         ETA_K      = 0.5
@@ -1761,236 +1761,210 @@ def compute_tarpo_outcome_advantage(
         RARE_RATIO = 2.5
 
         # Hierarchical rollout mixture
-        ALPHA_ROLL     = 0.5 # how genetly or strongly we redistribute the rollout mixtures within the task
-        ROLL_MAX_SCALE = 3.0   # symmetric clamp
+        ALPHA_ROLL     = 0.5
+        ROLL_MAX_SCALE = 3.0
 
         # EMA smoothing
         BETA_RHO     = 0.95
         BETA_LOGMULT = 0.95
-        BETA_UNIT    = 0.95
 
         # Final task-scale clamp
         MIN_SCALE = 0.5
-        MAX_SCALE = 8.0
+        MAX_SCALE = 4.0
 
         # ----------------------------
-        # Step 0 — global unit advantage U (EMA of geometric mean of task abs means)
+        # Step 1 — responsibilities + task signal mass (z-score)
         # ----------------------------
-        
-        # Collecting all of the advantages into the all_task_log_mus list
-        task_mu_abs = {}
-        tasks_log_mus = []
-        for t in set(q2tasks.values()):
-            mu = float(task_stats[t].get("post_grpo_advantage_ema_abs_mean", 0.0))
-            mu = max(mu, eps)
-            task_mu_abs[t] = mu
-            tasks_log_mus.append(math.log(mu))
+        task_signal_mass = defaultdict(float)
+        task_sig_count   = defaultdict(float)
+        task_count       = defaultdict(int)
 
-        if len(tasks_log_mus) == 0:
+        q2rvalues = {}
+
+        for qid, vals in q2rollouts.items():
+            task = q2tasks[qid]
+            r_list = []
+
+            # Fetch per-task EMA stats in |A| space
+            mu_abs = float(task_stats[task].get("post_grpo_advantage_ema_abs_mean", 0.0))
+            mu_abs = max(mu_abs, eps)
+
+            # Prefer abs-sigma if tracked; otherwise fall back to signed sigma
+            sd_abs = float(task_stats[task].get("post_grpo_advantage_ema_abs_sigma", 0.0))
+            if sd_abs <= 0.0:
+                sd_abs = float(task_stats[task].get("post_grpo_advantage_ema_sigma", 0.0))
+            sd_abs = max(sd_abs, eps)
+
+            for v in vals:
+                a = abs(v)
+
+                # standard z-score in |A| space
+                z = (a - mu_abs) / (sd_abs + eps)
+
+                # responsibility as soft tail membership
+                r = 1.0 / (1.0 + math.exp(-BETA_R * (z - DELTA_Z)))
+
+                task_signal_mass[task] += r * a
+                task_sig_count[task]   += r
+                task_count[task]       += 1
+                r_list.append(r)
+
+            q2rvalues[qid] = r_list
+
+        # Store batch-level signal statistics for logging
+        for task in task_signal_mass:
+            task_stats[task]["mixture_signal_mass"]       = float(task_signal_mass[task])
+            task_stats[task]["mixture_sig_count_batch"]   = float(task_sig_count[task])
+            task_stats[task]["mixture_batch_count"]       = int(task_count[task])
+
+        if len(task_signal_mass) == 0:
             q2norm = {qid: list(vals) for qid, vals in q2rollouts.items()}
         else:
-            # compute the average of the all tasks log means, which will give us the 
-            # geometric mean of the absolute advantages of all tasks, U
-            unit_batch = math.exp(sum(tasks_log_mus) / len(tasks_log_mus))
+            # ----------------------------
+            # Step 2 — task densities rho_t (EMA)
+            # ----------------------------
+            task_densities = {}
+            log_rhos = []
 
-            task_stats.setdefault("_global", {})
-            prev_unit = float(task_stats["_global"].get("mixture_unit_adv_ema", unit_batch))
-            unit_ema_mean_tasks_abs_advantages  = _ema_update(prev_unit, unit_batch, BETA_UNIT)
-            unit_ema_mean_tasks_abs_advantages  = max(unit_ema_mean_tasks_abs_advantages, eps)
+            for task, mass in task_signal_mass.items():
+                count = max(task_count[task], 1)
+                rho_batch = max(mass / count, eps)
 
-            task_stats["_global"]["mixture_unit_adv_batch"] = float(unit_batch)
-            task_stats["_global"]["mixture_unit_adv_ema"]   = float(unit_ema_mean_tasks_abs_advantages)
+                prev_rho = float(task_stats[task].get("mixture_rho_t_ema", rho_batch))
+                rho_ema  = _ema_update(prev_rho, rho_batch, BETA_RHO)
+                rho_ema  = max(rho_ema, eps)
 
-            U = unit_ema_mean_tasks_abs_advantages
+                task_stats[task]["mixture_rho_t_batch"] = float(rho_batch)
+                task_stats[task]["mixture_rho_t_ema"]   = float(rho_ema)
+
+                task_densities[task] = rho_ema
+                log_rhos.append(math.log(rho_ema))
+
+            # geometric mean of task densities
+            log_rho_ref = sum(log_rhos) / len(log_rhos)
+            rho_ref     = math.exp(log_rho_ref)
+
+            for task in task_signal_mass:
+                task_stats[task]["mixture_rho_ref"] = float(rho_ref)
 
             # ----------------------------
-            # Step 1 — responsibilities + task signal mass
+            # Step 3 — rarity boost (optional)
             # ----------------------------
-            task_signal_mass = defaultdict(float)
-            task_sig_count   = defaultdict(float)
-            task_count       = defaultdict(int)
+            task_k = defaultdict(lambda: 1.0)
 
-            q2rvalues = {}
+            if USE_RARITY_BOOST:
+                for task in task_signal_mass:
+                    sig_batch = max(task_sig_count[task], eps)
+                    prev = float(task_stats[task].get("mixture_sig_count_ema", sig_batch))
+                    sig_ema = _ema_update(prev, sig_batch, BETA_RHO)
+                    task_stats[task]["mixture_sig_count_ema"] = float(sig_ema)
+                    task_stats[task]["mixture_sig_count"]     = float(sig_batch)
 
+                sig_emas = [
+                    max(float(task_stats[t]["mixture_sig_count_ema"]), eps)
+                    for t in task_signal_mass
+                ]
+                sig_ref = math.exp(sum(math.log(x) for x in sig_emas) / len(sig_emas))
+
+                for task in task_signal_mass:
+                    n_sig = max(task_stats[task]["mixture_sig_count_ema"], eps)
+                    ratio = sig_ref / n_sig
+                    excess = max(0.0, ratio - RARE_RATIO)
+
+                    log_k = ETA_K * math.log1p(excess)
+                    log_k = min(log_k, math.log(K_MAX))
+                    task_k[task] = math.exp(log_k)
+
+                    task_stats[task]["mixture_sig_ref"]          = float(sig_ref)
+                    task_stats[task]["mixture_log_rarity_raw"]   = float(math.log(ratio))
+                    task_stats[task]["mixture_log_rarity_pos"]   = float(excess)
+                    task_stats[task]["mixture_rarity_ratio"]     = float(ratio)
+                    task_stats[task]["mixture_rarity_excess"]    = float(excess)
+                    task_stats[task]["mixture_k_t"]              = float(task_k[task])
+            else:
+                for task in task_signal_mass:
+                    task_stats[task]["mixture_sig_count"]        = 0.0
+                    task_stats[task]["mixture_sig_ref"]          = 0.0
+                    task_stats[task]["mixture_log_rarity_raw"]   = 0.0
+                    task_stats[task]["mixture_log_rarity_pos"]   = 0.0
+                    task_stats[task]["mixture_rarity_ratio"]     = 0.0
+                    task_stats[task]["mixture_rarity_excess"]    = 0.0
+                    task_stats[task]["mixture_k_t"]              = 1.0
+
+            # ----------------------------
+            # Step 4 — task-scale s_t (EMA)
+            # ----------------------------
+            task_scale = {}
+
+            for task in task_signal_mass:
+                rho_t = max(task_densities[task], eps)
+                log_ratio = log_rho_ref - math.log(rho_t)
+                log_mult_inst = GAMMA * log_ratio + math.log(task_k[task])
+
+                prev = float(task_stats[task].get("mixture_log_mult_ema", 0.0))
+                log_mult_ema = _ema_update(prev, log_mult_inst, BETA_LOGMULT)
+
+                scale = math.exp(log_mult_ema)
+                scale = max(MIN_SCALE, min(MAX_SCALE, scale))
+
+                task_scale[task] = scale
+
+                task_stats[task]["mixture_log_ratio_scale"]      = float(log_ratio)
+                task_stats[task]["mixture_log_mult_inst_scale"]  = float(log_mult_inst)
+                task_stats[task]["mixture_final_scale"]          = float(scale)
+
+            # ----------------------------
+            # Step 5 — hierarchical rollout-mixture (two-sided, budget-preserving)
+            # ----------------------------
+            qid_rollout_scale = defaultdict(lambda: 1.0)
+
+            if USE_HIER_ROLLOUT_MIXTURE:
+                task2qids = defaultdict(list)
+                for qid in q2rollouts:
+                    task2qids[q2tasks[qid]].append(qid)
+
+                for task, qids in task2qids.items():
+                    if len(qids) < 2:
+                        continue
+
+                    qid2m = {}
+                    log_m = []
+
+                    for qid in qids:
+                        vals = q2rollouts[qid]
+                        rs   = q2rvalues[qid]
+                        m = sum(r * abs(v) for r, v in zip(rs, vals)) / max(len(vals), 1)
+                        m = max(m, eps)
+                        qid2m[qid] = m
+                        log_m.append(math.log(m))
+
+                    log_mbar = sum(log_m) / len(log_m)
+
+                    log_s_raw = {
+                        qid: ALPHA_ROLL * (log_mbar - math.log(qid2m[qid]))
+                        for qid in qids
+                    }
+
+                    mean_log_s = sum(log_s_raw.values()) / len(log_s_raw)
+
+                    for qid in qids:
+                        log_s = log_s_raw[qid] - mean_log_s
+                        if ROLL_MAX_SCALE is not None:
+                            cap = math.log(ROLL_MAX_SCALE)
+                            log_s = max(-cap, min(cap, log_s))
+                        qid_rollout_scale[qid] = math.exp(log_s)
+
+            # ----------------------------
+            # Step 6 — apply final scaling
+            # ----------------------------
+            q2norm = {}
             for qid, vals in q2rollouts.items():
                 task = q2tasks[qid]
-                r_list = []
-
-                for v in vals:
-                    a = abs(v)
-                    u = a / (U + eps)
-
-                    # assignment of the responsibilities
-                    r = 1.0 / (1.0 + math.exp(-BETA_R * (u - DELTA_U)))
-
-                    task_signal_mass[task] += r * a
-                    task_sig_count[task]   += r
-                    task_count[task]       += 1
-                    r_list.append(r)
-
-                q2rvalues[qid] = r_list
-
-            # Store batch-level signal statistics for logging
-            for task in task_signal_mass:
-                task_stats[task]["mixture_signal_mass"] = float(task_signal_mass[task])
-                task_stats[task]["mixture_sig_count_batch"] = float(task_sig_count[task])
-                task_stats[task]["mixture_batch_count"] = int(task_count[task])
-
-            if len(task_signal_mass) == 0:
-                q2norm = {qid: list(vals) for qid, vals in q2rollouts.items()}
-            else:
-                # ----------------------------
-                # Step 2 — task densities rho_t (EMA)
-                # ----------------------------
-                task_densities = {}
-                log_rhos = []
-
-                for task, mass in task_signal_mass.items():
-                    count = max(task_count[task], 1)
-                    rho_batch = max(mass / count, eps)
-
-                    prev_rho = float(task_stats[task].get("mixture_rho_ema", rho_batch))
-                    rho_ema  = _ema_update(prev_rho, rho_batch, BETA_RHO)
-                    rho_ema  = max(rho_ema, eps)
-
-                    task_stats[task]["mixture_rho_batch"] = float(rho_batch)
-                    task_stats[task]["mixture_rho_ema"]   = float(rho_ema)
-
-                    task_densities[task] = rho_ema
-                    log_rhos.append(math.log(rho_ema))
-
-                # geometric mean of task densities
-                log_rho_ref = sum(log_rhos) / len(log_rhos)
-                rho_ref     = math.exp(log_rho_ref)
-
-                # Store rho_ref for each task (for logging)
-                for task in task_signal_mass:
-                    task_stats[task]["mixture_rho_ref"] = float(rho_ref)
-
-                # ----------------------------
-                # Step 3 — rarity boost (optional)
-                # ----------------------------
-                task_k = defaultdict(lambda: 1.0)
-
-                if USE_RARITY_BOOST:
-                    for task in task_signal_mass:
-                        sig_batch = max(task_sig_count[task], eps)
-                        prev = float(task_stats[task].get("mixture_sig_count_ema", sig_batch))
-                        sig_ema = _ema_update(prev, sig_batch, BETA_RHO)
-                        task_stats[task]["mixture_sig_count_ema"] = float(sig_ema)
-                        task_stats[task]["mixture_sig_count"] = float(sig_batch)
-
-                    sig_emas = [
-                        max(float(task_stats[t]["mixture_sig_count_ema"]), eps)
-                        for t in task_signal_mass
-                    ]
-                    sig_ref = math.exp(sum(math.log(x) for x in sig_emas) / len(sig_emas))
-
-                    for task in task_signal_mass:
-                        n_sig = max(task_stats[task]["mixture_sig_count_ema"], eps)
-                        ratio = sig_ref / n_sig
-                        excess = max(0.0, ratio - RARE_RATIO)
-
-                        log_k = ETA_K * math.log1p(excess)
-                        log_k = min(log_k, math.log(K_MAX))
-                        task_k[task] = math.exp(log_k)
-
-                        # Store rarity boost stats for logging
-                        task_stats[task]["mixture_sig_ref"] = float(sig_ref)
-                        task_stats[task]["mixture_log_rarity_raw"] = float(math.log(ratio))
-                        task_stats[task]["mixture_log_rarity_pos"] = float(excess)
-                        task_stats[task]["mixture_rarity_ratio"] = float(ratio)
-                        task_stats[task]["mixture_rarity_excess"] = float(excess)
-                        task_stats[task]["mixture_k_t"] = float(task_k[task])
-                else:
-                    # If rarity boost is disabled, still store default values
-                    for task in task_signal_mass:
-                        task_stats[task]["mixture_sig_count"] = 0.0
-                        task_stats[task]["mixture_sig_ref"] = 0.0
-                        task_stats[task]["mixture_log_rarity_raw"] = 0.0
-                        task_stats[task]["mixture_log_rarity_pos"] = 0.0
-                        task_stats[task]["mixture_rarity_ratio"] = 0.0
-                        task_stats[task]["mixture_rarity_excess"] = 0.0
-                        task_stats[task]["mixture_k_t"] = 1.0
-
-                # ----------------------------
-                # Step 4 — task-scale s_t (EMA)
-                # ----------------------------
-
-                # Computing the task level scaling factor for each task
-                task_scale = {}
-
-                for task in task_signal_mass:
-                    rho_t = max(task_densities[task], eps)
-                    log_ratio = log_rho_ref - math.log(rho_t)
-                    log_mult_inst = GAMMA * log_ratio + math.log(task_k[task])
-
-                    prev = float(task_stats[task].get("mixture_log_mult_ema", 0.0))
-                    log_mult_ema = _ema_update(prev, log_mult_inst, BETA_LOGMULT)
-
-                    scale = math.exp(log_mult_ema)
-                    scale = max(MIN_SCALE, min(MAX_SCALE, scale))
-
-                    task_scale[task] = scale
-
-                    # Store task scale stats for logging
-                    task_stats[task]["mixture_log_ratio"] = float(log_ratio)
-                    task_stats[task]["mixture_log_mult_inst"] = float(log_mult_inst)
-                    task_stats[task]["mixture_final_scale"] = float(scale)
-
-                # ----------------------------
-                # Step 5 — hierarchical rollout-mixture (two-sided, budget-preserving)
-                # ----------------------------
-                qid_rollout_scale = defaultdict(lambda: 1.0)
-
-                if USE_HIER_ROLLOUT_MIXTURE:
-                    task2qids = defaultdict(list)
-                    for qid in q2rollouts:
-                        task2qids[q2tasks[qid]].append(qid)
-
-                    for task, qids in task2qids.items():
-                        if len(qids) < 2:
-                            continue
-
-                        qid2m = {}
-                        log_m = []
-
-                        for qid in qids:
-                            vals = q2rollouts[qid]
-                            rs   = q2rvalues[qid]
-                            m = sum(r * abs(v) for r, v in zip(rs, vals)) / max(len(vals), 1)
-                            m = max(m, eps)
-                            qid2m[qid] = m
-                            log_m.append(math.log(m))
-
-                        log_mbar = sum(log_m) / len(log_m)
-
-                        log_s_raw = {
-                            qid: ALPHA_ROLL * (log_mbar - math.log(qid2m[qid]))
-                            for qid in qids
-                        }
-
-                        mean_log_s = sum(log_s_raw.values()) / len(log_s_raw)
-
-                        for qid in qids:
-                            log_s = log_s_raw[qid] - mean_log_s
-                            if ROLL_MAX_SCALE is not None:
-                                cap = math.log(ROLL_MAX_SCALE)
-                                log_s = max(-cap, min(cap, log_s))
-                            qid_rollout_scale[qid] = math.exp(log_s)
-
-                # ----------------------------
-                # Step 6 — apply final scaling
-                # ----------------------------
-                q2norm = {}
-                for qid, vals in q2rollouts.items():
-                    task = q2tasks[qid]
-                    s_t  = task_scale.get(task, 1.0)
-                    s_q  = qid_rollout_scale.get(qid, 1.0)
-                    q2norm[qid] = [v * s_t * s_q for v in vals]
+                s_t  = task_scale.get(task, 1.0)
+                s_q  = qid_rollout_scale.get(qid, 1.0)
+                q2norm[qid] = [v * s_t * s_q for v in vals]
 
     else:
-        # No adapter → identity
         q2norm = {qid: list(vals) for qid, vals in q2rollouts.items()}
 
 

@@ -96,12 +96,10 @@ task_stats: Dict[Any, Dict[str, Any]] = defaultdict(lambda: {
     # Mixture model parameters (simple mixture adapter)
     "mixture_rho_t": 0.0,
     "mixture_rho_ref": 0.0,
-    "mixture_rho_ema": 0.0,
+    "mixture_rho_t_ema": 0.0,
     "mixture_log_scale": 0.0,
     "mixture_final_scale": 1.0,
-
-    # Mixture density adapter parameters (signal-based)
-    "mixture_rho_batch": 0.0,
+    "mixture_rho_t_batch": 0.0,
     "mixture_sig_count": 0.0,
     "mixture_sig_count_ema": 0.0,
     "mixture_sig_ref": 0.0,
@@ -110,8 +108,8 @@ task_stats: Dict[Any, Dict[str, Any]] = defaultdict(lambda: {
     "mixture_rarity_ratio": 0.0,
     "mixture_rarity_excess": 0.0,
     "mixture_k_t": 1.0,
-    "mixture_log_ratio": 0.0,
-    "mixture_log_mult_inst": 0.0,
+    "mixture_log_ratio_scale": 0.0,
+    "mixture_log_mult_inst_scale": 0.0,
     "mixture_log_mult_ema": 0.0,
     "mixture_signal_mass": 0.0,
     "mixture_batch_count": 0,
@@ -180,12 +178,12 @@ dataset_stats: Dict[Any, Dict[str, Any]] = defaultdict(lambda: {
     # Mixture model parameters (simple mixture adapter) - mirroring task-level for logging
     "mixture_rho_t": 0.0,
     "mixture_rho_ref": 0.0,
-    "mixture_rho_ema": 0.0,
+    "mixture_rho_t_ema": 0.0,
     "mixture_log_scale": 0.0,
     "mixture_final_scale": 1.0,
 
     # Mixture density adapter parameters (signal-based) - mirroring task-level for logging
-    "mixture_rho_batch": 0.0,
+    "mixture_rho_t_batch": 0.0,
     "mixture_sig_count": 0.0,
     "mixture_sig_count_ema": 0.0,
     "mixture_sig_ref": 0.0,
@@ -194,8 +192,8 @@ dataset_stats: Dict[Any, Dict[str, Any]] = defaultdict(lambda: {
     "mixture_rarity_ratio": 0.0,
     "mixture_rarity_excess": 0.0,
     "mixture_k_t": 1.0,
-    "mixture_log_ratio": 0.0,
-    "mixture_log_mult_inst": 0.0,
+    "mixture_log_ratio_scale": 0.0,
+    "mixture_log_mult_inst_scale": 0.0,
     "mixture_log_mult_ema": 0.0,
     "mixture_signal_mass": 0.0,
     "mixture_batch_count": 0,

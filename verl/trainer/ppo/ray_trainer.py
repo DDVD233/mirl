@@ -1285,21 +1285,9 @@ class RayPPOTrainer:
         out = {}
 
         # ======================================================================
-        #                         GLOBAL-LEVEL LOGGING
-        # ======================================================================
-        # Global-level TARPO stats (for mixture density adapter)
-        if "_global" in core_algos.task_stats:
-            global_st = core_algos.task_stats["_global"]
-            out["tarpo/global/mixture_unit_adv_batch"] = float(global_st.get("mixture_unit_adv_batch", 0.0))
-            out["tarpo/global/mixture_unit_adv_ema"] = float(global_st.get("mixture_unit_adv_ema", 0.0))
-
-        # ======================================================================
         #                           TASK-LEVEL LOGGING
         # ======================================================================
         for task_id, st in core_algos.task_stats.items():
-            # Skip the _global key as it's already handled above
-            if task_id == "_global":
-                continue
             tkey = _sanitize_key(task_id)
             prefix = f"tarpo/task/{tkey}"
 
@@ -1345,7 +1333,8 @@ class RayPPOTrainer:
             out[f"{prefix}/mixture_final_scale"] = float(st.get("mixture_final_scale", 1.0))
 
             # --- Mixture density adapter parameters (signal-based) ---
-            out[f"{prefix}/mixture_density_rho_ema"]         = float(st.get("mixture_rho_ema", 0.0))
+            out[f"{prefix}/mixture_density_rho_t_batch"]     = float(st.get("mixture_rho_t_batch", 0.0))
+            out[f"{prefix}/mixture_density_rho_t_ema"]       = float(st.get("mixture_rho_t_ema", 0.0))
             out[f"{prefix}/mixture_density_sig_count"]       = float(st.get("mixture_sig_count", 0.0))
             out[f"{prefix}/mixture_density_sig_count_ema"]   = float(st.get("mixture_sig_count_ema", 0.0))
             out[f"{prefix}/mixture_density_sig_ref"]         = float(st.get("mixture_sig_ref", 0.0))
@@ -1354,8 +1343,8 @@ class RayPPOTrainer:
             out[f"{prefix}/mixture_density_rarity_ratio"]    = float(st.get("mixture_rarity_ratio", 0.0))
             out[f"{prefix}/mixture_density_rarity_excess"]   = float(st.get("mixture_rarity_excess", 0.0))
             out[f"{prefix}/mixture_density_k_t"]             = float(st.get("mixture_k_t", 1.0))
-            out[f"{prefix}/mixture_density_log_ratio"]       = float(st.get("mixture_log_ratio", 0.0))
-            out[f"{prefix}/mixture_density_log_mult_inst"]   = float(st.get("mixture_log_mult_inst", 0.0))
+            out[f"{prefix}/mixture_density_log_ratio_scale"] = float(st.get("mixture_log_ratio_scale", 0.0))
+            out[f"{prefix}/mixture_density_log_mult_inst_scale"] = float(st.get("mixture_log_mult_inst_scale", 0.0))
             out[f"{prefix}/mixture_density_log_mult_ema"]    = float(st.get("mixture_log_mult_ema", 0.0))
             out[f"{prefix}/mixture_density_signal_mass"]     = float(st.get("mixture_signal_mass", 0.0))
             out[f"{prefix}/mixture_density_batch_count"]     = int(st.get("mixture_batch_count", 0))
@@ -1457,7 +1446,8 @@ class RayPPOTrainer:
             out[f"{prefix}/mixture_final_scale"] = float(st.get("mixture_final_scale", 1.0))
 
             # --- Mixture density adapter parameters (signal-based) - mirroring task-level for logging ---
-            out[f"{prefix}/mixture_density_rho_ema"]         = float(st.get("mixture_rho_ema", 0.0))
+            out[f"{prefix}/mixture_density_rho_t_batch"]     = float(st.get("mixture_rho_t_batch", 0.0))
+            out[f"{prefix}/mixture_density_rho_t_ema"]       = float(st.get("mixture_rho_t_ema", 0.0))
             out[f"{prefix}/mixture_density_sig_count"]       = float(st.get("mixture_sig_count", 0.0))
             out[f"{prefix}/mixture_density_sig_count_ema"]   = float(st.get("mixture_sig_count_ema", 0.0))
             out[f"{prefix}/mixture_density_sig_ref"]         = float(st.get("mixture_sig_ref", 0.0))
@@ -1466,8 +1456,8 @@ class RayPPOTrainer:
             out[f"{prefix}/mixture_density_rarity_ratio"]    = float(st.get("mixture_rarity_ratio", 0.0))
             out[f"{prefix}/mixture_density_rarity_excess"]   = float(st.get("mixture_rarity_excess", 0.0))
             out[f"{prefix}/mixture_density_k_t"]             = float(st.get("mixture_k_t", 1.0))
-            out[f"{prefix}/mixture_density_log_ratio"]       = float(st.get("mixture_log_ratio", 0.0))
-            out[f"{prefix}/mixture_density_log_mult_inst"]   = float(st.get("mixture_log_mult_inst", 0.0))
+            out[f"{prefix}/mixture_density_log_ratio_scale"] = float(st.get("mixture_log_ratio_scale", 0.0))
+            out[f"{prefix}/mixture_density_log_mult_inst_scale"] = float(st.get("mixture_log_mult_inst_scale", 0.0))
             out[f"{prefix}/mixture_density_log_mult_ema"]    = float(st.get("mixture_log_mult_ema", 0.0))
             out[f"{prefix}/mixture_density_signal_mass"]     = float(st.get("mixture_signal_mass", 0.0))
             out[f"{prefix}/mixture_density_batch_count"]     = int(st.get("mixture_batch_count", 0))
