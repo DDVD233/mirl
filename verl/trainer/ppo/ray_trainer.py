@@ -1125,8 +1125,6 @@ class RayPPOTrainer:
                 dump_path=reward_val_data_dir,
                 datasets=all_datasets,
                 data_sources=data_sources,
-                demographics=all_demographics,
-                extra_infos=all_extra_infos,
             )
 
         if len(sample_turns) > 0:
