@@ -1554,9 +1554,21 @@ class RayPPOTrainer:
         out = {}
 
         # ======================================================================
+        #                         GLOBAL-LEVEL LOGGING
+        # ======================================================================
+        # Global-level TARPO stats (for mixture density adapter)
+        if "_global" in core_algos.task_stats:
+            global_st = core_algos.task_stats["_global"]
+            out["tarpo/global/mixture_unit_adv_batch"] = float(global_st.get("mixture_unit_adv_batch", 0.0))
+            out["tarpo/global/mixture_unit_adv_ema"] = float(global_st.get("mixture_unit_adv_ema", 0.0))
+
+        # ======================================================================
         #                           TASK-LEVEL LOGGING
         # ======================================================================
         for task_id, st in core_algos.task_stats.items():
+            # Skip the _global key as it's already handled above
+            if task_id == "_global":
+                continue
             tkey = _sanitize_key(task_id)
             prefix = f"tarpo/task/{tkey}"
 
