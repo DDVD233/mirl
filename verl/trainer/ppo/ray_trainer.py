@@ -1088,9 +1088,9 @@ class RayPPOTrainer:
         # TODO: change this if you want to use your own validation metrics
         # NOTE: This currently focuses on data sources
         # So, ignore this in WANDB logging for now
-        # data_src2var2metric2val = process_validation_metrics(data_sources, sample_inputs, reward_extra_infos_dict)
+        data_src2var2metric2val = process_validation_metrics(data_sources, sample_inputs, reward_extra_infos_dict)
 
-        data_src2var2metric2val = process_validation_metrics(data_sources, sample_uids, reward_extra_infos_dict)
+        # data_src2var2metric2val = process_validation_metrics(data_sources, sample_uids, reward_extra_infos_dict)
 
         
         metric_dict = {}
