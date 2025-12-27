@@ -2,8 +2,8 @@
 set -x
 
 # Pin to GPUs 0,1
-# export CUDA_VISIBLE_DEVICES=4,5,6,7
-export CUDA_VISIBLE_DEVICES=0,1,2,3
+# export CUDA_VISIBLE_DEVICES=0,1,2,3
+export CUDA_VISIBLE_DEVICES=4,5,6,7
 unset ROCR_VISIBLE_DEVICES
 export PYTHONUNBUFFERED=1
 export HYDRA_FULL_ERROR=1
@@ -32,7 +32,7 @@ export NCCL_ASYNC_ERROR_HANDLING=1
 # data.train_files=/scratch/keane/human_behaviour_data/final_v8_train_cleaned_2.jsonl \
 
     python3 -m verl.trainer.main_ppo \
-        algorithm.adv_estimator=gpg \
+        algorithm.adv_estimator=rloo \
         data.train_files=/scratch/keane/human_behaviour_data/final_v8_train_cleaned_2.jsonl \
         data.val_files=/scratch/keane/human_behaviour_data/final_v8_val_cleaned.jsonl \
         data.train_batch_size=256 \
@@ -84,15 +84,15 @@ export NCCL_ASYNC_ERROR_HANDLING=1
         trainer.critic_warmup=0 \
         trainer.logger='["console","wandb"]' \
         trainer.project_name='rl_baselines' \
-        trainer.experiment_name='gpg_mib_baseline' \
+        trainer.experiment_name='rloo_mib_baseline' \
         trainer.n_gpus_per_node=4 \
         trainer.nnodes=1 \
         trainer.save_freq=50 \
         trainer.val_before_train=False \
         trainer.val_only=False \
-        trainer.validation_data_dir=/scratch/keane/hb_atlas_models/gpg_mib_baseline \
+        trainer.validation_data_dir=/scratch/keane/hb_atlas_models/rloo_mib_baseline \
         trainer.test_freq=50 \
         trainer.total_epochs=5 \
-        trainer.advantage_save_dir=/scratch/keane/hb_atlas_models/gpg_mib_baseline/advantages \
+        trainer.advantage_save_dir=/scratch/keane/hb_atlas_models/rloo_mib_baseline/advantages \
         trainer.advantage_plot_freq=15 $@ \
-        trainer.default_local_dir=/scratch/keane/hb_atlas_models/gpg_mib_baseline
+        trainer.default_local_dir=/scratch/keane/hb_atlas_models/rloo_mib_baseline
