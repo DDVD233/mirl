@@ -1744,13 +1744,14 @@ def compute_tarpo_outcome_advantage(
         # ----------------------------
         USE_RARITY_BOOST         = False
         USE_HIER_ROLLOUT_MIXTURE = True
+        NORMALIZATION_MODE       = "z_score"  # "z_score" or "global_norm"
 
         # ----------------------------
         # Hyperparameters
         # ----------------------------
-        # Responsibility (z-score on |A|)
+        # Responsibility computation
         BETA_R   = 4.0
-        DELTA_Z  = 0.25   # threshold in z space (e.g., 0.25 ~ mildly above typical)
+        DELTA_Z  = 0.25   # threshold in z space (e.g., 0.25 ~ mildly above typical) - only used for z_score mode
 
         # Inter-task density scaling
         GAMMA = 1
@@ -1773,7 +1774,7 @@ def compute_tarpo_outcome_advantage(
         MAX_SCALE = 4.0
 
         # ----------------------------
-        # Step 1 — responsibilities + task signal mass (z-score)
+        # Step 1 — responsibilities + task signal mass
         # ----------------------------
         task_signal_mass = defaultdict(float)
         task_sig_count   = defaultdict(float)
@@ -1781,33 +1782,60 @@ def compute_tarpo_outcome_advantage(
 
         q2rvalues = {}
 
+        # Compute global mean absolute advantage if using global normalization
+        global_mean_abs = None
+        if NORMALIZATION_MODE == "global_norm":
+            all_abs_vals = []
+            for vals in q2rollouts.values():
+                all_abs_vals.extend([abs(v) for v in vals])
+            global_mean_abs = sum(all_abs_vals) / max(len(all_abs_vals), 1) if all_abs_vals else eps
+            global_mean_abs = max(global_mean_abs, eps)
+
         for qid, vals in q2rollouts.items():
             task = q2tasks[qid]
             r_list = []
 
-            # Fetch per-task EMA stats in |A| space
-            mu_abs = float(task_stats[task].get("post_grpo_advantage_ema_abs_mean", 0.0))
-            mu_abs = max(mu_abs, eps)
+            if NORMALIZATION_MODE == "global_norm":
+                # Global normalization: normalize by global mean |A|
+                for v in vals:
+                    a = abs(v)
+                    # Normalize by global mean
+                    norm_a = a / global_mean_abs
+                    # Responsibility based on normalized advantage
+                    # Use norm_a - 1.0 as input to sigmoid (values > mean have norm_a > 1)
+                    r = 1.0 / (1.0 + math.exp(-BETA_R * (norm_a - 1.0)))
 
-            # Prefer abs-sigma if tracked; otherwise fall back to signed sigma
-            sd_abs = float(task_stats[task].get("post_grpo_advantage_ema_abs_sigma", 0.0))
-            if sd_abs <= 0.0:
-                sd_abs = float(task_stats[task].get("post_grpo_advantage_ema_sigma", 0.0))
-            sd_abs = max(sd_abs, eps)
+                    task_signal_mass[task] += r * a
+                    task_sig_count[task]   += r
+                    task_count[task]       += 1
+                    r_list.append(r)
+            elif NORMALIZATION_MODE == "z_score":
+                # Z-score normalization: task-specific normalization
+                # Fetch per-task EMA stats in |A| space
+                mu_abs = float(task_stats[task].get("post_grpo_advantage_ema_abs_mean", 0.0))
+                mu_abs = max(mu_abs, eps)
 
-            for v in vals:
-                a = abs(v)
+                # Prefer abs-sigma if tracked; otherwise fall back to signed sigma
+                sd_abs = float(task_stats[task].get("post_grpo_advantage_ema_abs_sigma", 0.0))
+                if sd_abs <= 0.0:
+                    sd_abs = float(task_stats[task].get("post_grpo_advantage_ema_sigma", 0.0))
+                sd_abs = max(sd_abs, eps)
 
-                # standard z-score in |A| space
-                z = (a - mu_abs) / (sd_abs + eps)
+                for v in vals:
+                    a = abs(v)
 
-                # responsibility as soft tail membership
-                r = 1.0 / (1.0 + math.exp(-BETA_R * (z - DELTA_Z)))
+                    # standard z-score in |A| space
+                    z = (a - mu_abs) / (sd_abs + eps)
 
-                task_signal_mass[task] += r * a
-                task_sig_count[task]   += r
-                task_count[task]       += 1
-                r_list.append(r)
+                    # responsibility as soft tail membership
+                    r = 1.0 / (1.0 + math.exp(-BETA_R * (z - DELTA_Z)))
+
+                    task_signal_mass[task] += r * a
+                    task_sig_count[task]   += r
+                    task_count[task]       += 1
+                    r_list.append(r)
+            else:
+                raise ValueError(f"Unknown NORMALIZATION_MODE: {NORMALIZATION_MODE}. Must be 'z_score' or 'global_norm'")
 
             q2rvalues[qid] = r_list
 
@@ -1901,7 +1929,7 @@ def compute_tarpo_outcome_advantage(
                 log_ratio = log_rho_ref - math.log(rho_t)
                 log_mult_inst = GAMMA * log_ratio + math.log(task_k[task])
 
-                prev = float(task_stats[task].get("mixture_log_mult_ema", 0.0))
+                prev = float(task_stats[task].get("mixture_log_mult_ema_scale", 0.0))
                 log_mult_ema = _ema_update(prev, log_mult_inst, BETA_LOGMULT)
 
                 scale = math.exp(log_mult_ema)
@@ -1911,6 +1939,7 @@ def compute_tarpo_outcome_advantage(
 
                 task_stats[task]["mixture_log_ratio_scale"]      = float(log_ratio)
                 task_stats[task]["mixture_log_mult_inst_scale"]  = float(log_mult_inst)
+                task_stats[task]["mixture_log_mult_ema_scale"]   = float(log_mult_ema)
                 task_stats[task]["mixture_final_scale"]          = float(scale)
 
             # ----------------------------
@@ -1930,6 +1959,7 @@ def compute_tarpo_outcome_advantage(
                     qid2m = {}
                     log_m = []
 
+                    # computing the per rolloutout m , which is essentially the density of the signal mass
                     for qid in qids:
                         vals = q2rollouts[qid]
                         rs   = q2rvalues[qid]
@@ -1938,6 +1968,9 @@ def compute_tarpo_outcome_advantage(
                         qid2m[qid] = m
                         log_m.append(math.log(m))
 
+
+                    # For a specific task, what's the average log m
+                    # across its questions
                     log_mbar = sum(log_m) / len(log_m)
 
                     log_s_raw = {
