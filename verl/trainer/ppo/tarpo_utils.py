@@ -10,8 +10,8 @@ import torch
 
 # Module-level storage for latest advantage data (for saving to JSON)
 _latest_advantage_data: Dict[str, Any] = {
-    "post_grpo": {"q2_advantages": {}, "q2tasks": {}, "q2datasets": {}},
-    "final": {"q2_advantages": {}, "q2tasks": {}, "q2datasets": {}}
+    "post_grpo": {"q2_advantages": {}, "q2tasks": {}, "q2datasets": {}, "q2_responsibilities": {}},
+    "final": {"q2_advantages": {}, "q2tasks": {}, "q2datasets": {}, "q2_responsibilities": {}}
 }
 
 
@@ -24,6 +24,7 @@ def get_latest_advantage_data() -> Dict[str, Any]:
             - q2_advantages: Dict[qid -> List[float]]
             - q2tasks: Dict[qid -> task_id]
             - q2datasets: Dict[qid -> dataset_id]
+            - q2_responsibilities: Dict[qid -> List[float]]
     """
     return _latest_advantage_data
 
@@ -32,7 +33,8 @@ def store_advantage_data(
     advantage_type: str,
     q2_advantages: Dict[Any, List[float]],
     q2tasks: Dict[Any, Any],
-    q2datasets: Dict[Any, Any]
+    q2datasets: Dict[Any, Any],
+    q2_responsibilities: Optional[Dict[Any, List[float]]] = None
 ) -> None:
     """
     Store advantage data for later retrieval/saving.
@@ -42,11 +44,13 @@ def store_advantage_data(
         q2_advantages: Dict mapping qid -> list of advantage values
         q2tasks: Dict mapping qid -> task_id
         q2datasets: Dict mapping qid -> dataset_id
+        q2_responsibilities: Dict mapping qid -> list of responsibility values (optional)
     """
     _latest_advantage_data[advantage_type] = {
         "q2_advantages": dict(q2_advantages),  # Make a copy
         "q2tasks": dict(q2tasks),
-        "q2datasets": dict(q2datasets)
+        "q2datasets": dict(q2datasets),
+        "q2_responsibilities": dict(q2_responsibilities) if q2_responsibilities is not None else {}
     }
 
 
@@ -761,9 +765,10 @@ def save_advantages_to_json(
     global_step: int,
     save_dir: str,
     advantage_type: str = "final",
+    q2_responsibilities: Optional[Dict[Any, List[float]]] = None,
 ) -> None:
     """
-    Save per-sample advantages to JSON file organized by task.
+    Save per-sample advantages and responsibilities to JSON file organized by task.
 
     Args:
         q2_advantages: Dict mapping qid -> list of advantage values
@@ -772,6 +777,7 @@ def save_advantages_to_json(
         global_step: Current training step number
         save_dir: Directory to save JSON files
         advantage_type: Type of advantage ("post_grpo" or "final")
+        q2_responsibilities: Dict mapping qid -> list of responsibility values (optional)
     """
     import json
     import os
@@ -780,18 +786,28 @@ def save_advantages_to_json(
     task_data: Dict[Any, Dict[str, List]] = defaultdict(lambda: {
         "advantages": [],
         "datasets": [],
-        "qids": []
+        "qids": [],
+        "responsibilities": []
     })
 
     for qid, adv_list in q2_advantages.items():
         task = q2tasks[qid]
         dataset = q2datasets[qid]
 
+        # Get responsibilities for this qid (if available)
+        resp_list = q2_responsibilities.get(qid, []) if q2_responsibilities is not None else []
+
         # Each qid can have multiple rollouts (advantages)
-        for adv_val in adv_list:
+        for idx, adv_val in enumerate(adv_list):
             task_data[task]["advantages"].append(float(adv_val))
             task_data[task]["datasets"].append(str(dataset))
             task_data[task]["qids"].append(str(qid))
+
+            # Add responsibility if available, otherwise use 0.0
+            if idx < len(resp_list):
+                task_data[task]["responsibilities"].append(float(resp_list[idx]))
+            else:
+                task_data[task]["responsibilities"].append(0.0)
 
     # Convert to regular dict for JSON serialization
     output = {
@@ -810,4 +826,4 @@ def save_advantages_to_json(
     with open(filepath, 'w') as f:
         json.dump(output, f, indent=2)
 
-    print(f"Saved {advantage_type} advantages to {filepath}")
+    print(f"Saved {advantage_type} advantages and responsibilities to {filepath}")

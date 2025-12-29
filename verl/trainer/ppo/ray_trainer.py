@@ -1811,7 +1811,7 @@ class RayPPOTrainer:
                                 os.path.join(self.config.trainer.default_local_dir, "advantages")
                             )
 
-                            # Save advantages to JSON every step
+                            # Save advantages and responsibilities to JSON every step
                             adv_data = get_latest_advantage_data()
                             for adv_type in ["post_grpo", "final"]:
                                 if adv_data[adv_type]["q2_advantages"]:
@@ -1821,7 +1821,8 @@ class RayPPOTrainer:
                                         q2datasets=adv_data[adv_type]["q2datasets"],
                                         global_step=self.global_steps,
                                         save_dir=advantage_save_dir,
-                                        advantage_type=adv_type
+                                        advantage_type=adv_type,
+                                        q2_responsibilities=adv_data[adv_type]["q2_responsibilities"]
                                     )
 
                             # Generate and log plots every N steps
@@ -1831,6 +1832,10 @@ class RayPPOTrainer:
                                 try:
 
                                     from verl.trainer.ppo.utils.plot_advantage_distributions import plot_advantage_distributions
+                                    from verl.trainer.ppo.utils.plot_responsibility_distributions import plot_responsibility_distributions
+                                    import plotly.io as pio
+                                    import PIL.Image
+                                    from io import BytesIO
 
                                     # Generate plots for both advantage types
                                     for adv_type in ["post_grpo", "final"]:
@@ -1840,8 +1845,8 @@ class RayPPOTrainer:
                                         )
 
                                         if os.path.exists(json_path):
-                                            # Create plot
-                                            fig = plot_advantage_distributions(
+                                            # Create advantage plot
+                                            fig_adv = plot_advantage_distributions(
                                                 json_path,
                                                 save_path=None,  # Don't save to file, just create figure
                                                 title=f"{adv_type.replace('_', ' ').title()} Advantages (Step {self.global_steps})",
@@ -1850,26 +1855,37 @@ class RayPPOTrainer:
                                             )
 
                                             # Convert plotly figure to image for W&B
-                                            import plotly.io as pio
-                                            img_bytes = pio.to_image(fig, format='png', width=1400, height=600)
-
-                                            # Log to W&B
-                                            import PIL.Image
-                                            from io import BytesIO
-                                            img = PIL.Image.open(BytesIO(img_bytes))
+                                            img_bytes_adv = pio.to_image(fig_adv, format='png', width=1400, height=600)
+                                            img_adv = PIL.Image.open(BytesIO(img_bytes_adv))
                                             wandb.log({
-                                                f"advantages/{adv_type}_distribution": wandb.Image(img)
+                                                f"advantages/{adv_type}_distribution": wandb.Image(img_adv)
                                             }, step=self.global_steps)
-
                                             print(f"Logged {adv_type} advantage plot to W&B at step {self.global_steps}")
 
+                                            # Create responsibility plot
+                                            fig_resp = plot_responsibility_distributions(
+                                                json_path,
+                                                save_path=None,  # Don't save to file, just create figure
+                                                title=f"{adv_type.replace('_', ' ').title()} Responsibilities (Step {self.global_steps})",
+                                                width=1400,
+                                                height=600
+                                            )
+
+                                            # Convert plotly figure to image for W&B
+                                            img_bytes_resp = pio.to_image(fig_resp, format='png', width=1400, height=600)
+                                            img_resp = PIL.Image.open(BytesIO(img_bytes_resp))
+                                            wandb.log({
+                                                f"responsibilities/{adv_type}_distribution": wandb.Image(img_resp)
+                                            }, step=self.global_steps)
+                                            print(f"Logged {adv_type} responsibility plot to W&B at step {self.global_steps}")
+
                                 except Exception as plot_e:
-                                    print(f"[WARN] Advantage plotting failed: {plot_e}")
+                                    print(f"[WARN] Advantage/Responsibility plotting failed: {plot_e}")
                                     import traceback
                                     traceback.print_exc()
 
                         except Exception as e:
-                            print(f"[WARN] Advantage saving/plotting failed: {e}")
+                            print(f"[WARN] Advantage/ Responsibility saving/plotting failed: {e}")
                             import traceback
                             traceback.print_exc()
 

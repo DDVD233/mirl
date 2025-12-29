@@ -1721,11 +1721,13 @@ def compute_tarpo_outcome_advantage(
         )
 
         # Store post-GRPO advantages for saving to JSON
+        # Note: responsibilities (q2rvalues) are not yet computed at this stage
         store_advantage_data(
             advantage_type="post_grpo",
             q2_advantages=q2rollouts,
             q2tasks=q2tasks,
-            q2datasets=q2datasets
+            q2datasets=q2datasets,
+            q2_responsibilities={}
         )
 
     # -------------------------------------------------------------------------
@@ -1737,6 +1739,10 @@ def compute_tarpo_outcome_advantage(
     #  3) Optional hierarchical rollout-mixture within each task (two-sided,
     #     budget-preserving via log re-centering)
     # -------------------------------------------------------------------------
+
+    # Initialize responsibilities dict (will be populated if mixture adapter is enabled)
+    q2rvalues: Dict[Any, List[float]] = {}
+
     if use_task_mixture_density_adapter:
 
         # ----------------------------
@@ -1779,8 +1785,6 @@ def compute_tarpo_outcome_advantage(
         task_signal_mass = defaultdict(float)
         task_sig_count   = defaultdict(float)
         task_count       = defaultdict(int)
-
-        q2rvalues = {}
 
         # Compute global mean absolute advantage if using global normalization
         global_mean_abs = None
@@ -2050,12 +2054,13 @@ def compute_tarpo_outcome_advantage(
         eps=eps,
     )
 
-    # Store final advantages for saving to JSON
+    # Store final advantages and responsibilities for saving to JSON
     store_advantage_data(
         advantage_type="final",
         q2_advantages=q2_final,
         q2tasks=q2tasks,
-        q2datasets=q2datasets
+        q2datasets=q2datasets,
+        q2_responsibilities=q2rvalues
     )
 
     # --------------------------------------------
