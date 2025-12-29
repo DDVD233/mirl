@@ -1750,7 +1750,7 @@ def compute_tarpo_outcome_advantage(
         # ----------------------------
         USE_RARITY_BOOST         = False
         USE_HIER_ROLLOUT_MIXTURE = True
-        NORMALIZATION_MODE       = "z_score"  # "z_score" or "global_norm"
+        NORMALIZATION_MODE       = "absolute"  # "z_score", "global_norm", or "absolute"
 
         # ----------------------------
         # Hyperparameters
@@ -1758,6 +1758,7 @@ def compute_tarpo_outcome_advantage(
         # Responsibility computation
         BETA_R   = 4.0
         DELTA_Z  = 0.25   # threshold in z space (e.g., 0.25 ~ mildly above typical) - only used for z_score mode
+        A_THRESHOLD = 0.5  # threshold in absolute advantage space - only used for absolute mode
 
         # Inter-task density scaling
         GAMMA = 1
@@ -1838,8 +1839,20 @@ def compute_tarpo_outcome_advantage(
                     task_sig_count[task]   += r
                     task_count[task]       += 1
                     r_list.append(r)
+            elif NORMALIZATION_MODE == "absolute":
+                # Absolute mode: sigmoid applied directly to absolute advantage with threshold
+                for v in vals:
+                    a = abs(v)
+
+                    # Responsibility based on raw absolute advantage with threshold
+                    r = 1.0 / (1.0 + math.exp(-BETA_R * (a - A_THRESHOLD)))
+
+                    task_signal_mass[task] += r * a
+                    task_sig_count[task]   += r
+                    task_count[task]       += 1
+                    r_list.append(r)
             else:
-                raise ValueError(f"Unknown NORMALIZATION_MODE: {NORMALIZATION_MODE}. Must be 'z_score' or 'global_norm'")
+                raise ValueError(f"Unknown NORMALIZATION_MODE: {NORMALIZATION_MODE}. Must be 'z_score', 'global_norm', or 'absolute'")
 
             q2rvalues[qid] = r_list
 
