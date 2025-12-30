@@ -6,6 +6,7 @@ set -x
 # ============================================
 CHECKPOINT_FOLDER="/path/to/your/checkpoint/folder"
 ALGO_NAME="gpg"
+MIN_CHECKPOINT_STEP=0  # Only evaluate checkpoints >= this step number (0 = evaluate all)
 # ============================================
 
 if [ ! -d "$CHECKPOINT_FOLDER" ]; then
@@ -51,8 +52,17 @@ for checkpoint_dir in "$CHECKPOINT_FOLDER"/global_step_*; do
     # Extract checkpoint name (e.g., "global_step_100")
     checkpoint_name=$(basename "$checkpoint_dir")
 
+    # Extract step number from checkpoint name
+    step_number=$(echo "$checkpoint_name" | sed 's/global_step_//')
+
+    # Skip if step number is below threshold
+    if [ -n "$step_number" ] && [ "$step_number" -lt "$MIN_CHECKPOINT_STEP" ]; then
+        echo "Skipping $checkpoint_name (step $step_number < $MIN_CHECKPOINT_STEP)"
+        continue
+    fi
+
     # Create validation data directory name (e.g., "global_step_100_val")
-    validation_dir="${checkpoint_name}_val"
+    validation_dir="$checkpoint_dir/${checkpoint_name}_val"
 
     # Create experiment name (e.g., "gpg_global_step_100")
     experiment_name="${ALGO_NAME}_${checkpoint_name}"
