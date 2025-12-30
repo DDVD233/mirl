@@ -30,13 +30,15 @@ export NCCL_ASYNC_ERROR_HANDLING=1
 # originally prompt length, response length, max model len is 2048, 2048, 8192 
 
 # data.train_files=/scratch/keane/human_behaviour_data/final_v8_train_cleaned_2.jsonl \
+# To avoid multimodal request cache error, do max_num_batched_tokens = 3072
+# And also the micro batch size per gpu to 8
 
     python3 -m verl.trainer.main_ppo \
         algorithm.adv_estimator=gpg \
         data.train_files=/scratch/keane/human_behaviour_data/final_v8_train_cleaned_2.jsonl \
         data.val_files=/scratch/keane/human_behaviour_data/final_v8_val_cleaned.jsonl \
         data.train_batch_size=256 \
-        data.val_batch_size=16 \
+        data.val_batch_size=8 \
         data.max_prompt_length=2048 \
         data.max_response_length=2048 \
         data.filter_overlong_prompts=False \
@@ -67,7 +69,7 @@ export NCCL_ASYNC_ERROR_HANDLING=1
         actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=16 \
         actor_rollout_ref.rollout.tensor_model_parallel_size=1 \
         actor_rollout_ref.rollout.name=vllm \
-        actor_rollout_ref.rollout.engine_kwargs.vllm.disable_mm_preprocessor_cache=False \
+        actor_rollout_ref.rollout.engine_kwargs.vllm.disable_mm_preprocessor_cache=True \
         actor_rollout_ref.rollout.gpu_memory_utilization=0.6 \
         actor_rollout_ref.rollout.enable_chunked_prefill=False \
         actor_rollout_ref.rollout.enforce_eager=False \
@@ -87,11 +89,11 @@ export NCCL_ASYNC_ERROR_HANDLING=1
         trainer.experiment_name='gpg_mib_baseline' \
         trainer.n_gpus_per_node=4 \
         trainer.nnodes=1 \
-        trainer.save_freq=50 \
+        trainer.save_freq=10 \
         trainer.val_before_train=False \
         trainer.val_only=False \
         trainer.validation_data_dir=/scratch/keane/hb_atlas_models/gpg_mib_baseline \
-        trainer.test_freq=50 \
+        trainer.test_freq=99999 \
         trainer.total_epochs=5 \
         trainer.advantage_save_dir=/scratch/keane/hb_atlas_models/gpg_mib_baseline/advantages \
         trainer.advantage_plot_freq=15 $@ \
