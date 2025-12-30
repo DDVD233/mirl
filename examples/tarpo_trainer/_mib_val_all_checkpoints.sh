@@ -1,6 +1,19 @@
 #!/usr/bin/env bash
 set -x
 
+# ============================================
+# CONFIGURATION - Edit these variables
+# ============================================
+CHECKPOINT_FOLDER="/path/to/your/checkpoint/folder"
+ALGO_NAME="gpg"
+# ============================================
+
+if [ ! -d "$CHECKPOINT_FOLDER" ]; then
+    echo "Error: Checkpoint folder '$CHECKPOINT_FOLDER' does not exist"
+    echo "Please edit the CHECKPOINT_FOLDER variable at the top of this script"
+    exit 1
+fi
+
 # Pin to GPUs 0,1
 export CUDA_VISIBLE_DEVICES=0,1,2,3
 unset ROCR_VISIBLE_DEVICES
@@ -26,7 +39,30 @@ export NCCL_ASYNC_ERROR_HANDLING=1
 # dataloader num workers set to 8
 # gpu memory set to 0.7 from 0.6
 
-# originally prompt length, response length, max model len is 2048, 2048, 8192 
+# originally prompt length, response length, max model len is 2048, 2048, 8192
+
+# Find all checkpoint directories matching global_step_*
+for checkpoint_dir in "$CHECKPOINT_FOLDER"/global_step_*; do
+    # Check if directory exists (handles case where no matches found)
+    if [ ! -d "$checkpoint_dir" ]; then
+        continue
+    fi
+
+    # Extract checkpoint name (e.g., "global_step_100")
+    checkpoint_name=$(basename "$checkpoint_dir")
+
+    # Create validation data directory name (e.g., "global_step_100_val")
+    validation_dir="${checkpoint_name}_val"
+
+    # Create experiment name (e.g., "gpg_global_step_100")
+    experiment_name="${ALGO_NAME}_${checkpoint_name}"
+
+    echo "=================================================="
+    echo "Processing checkpoint: $checkpoint_name"
+    echo "Resume from: $checkpoint_dir"
+    echo "Validation dir: $validation_dir"
+    echo "Experiment name: $experiment_name"
+    echo "=================================================="
 
     python3 -m verl.trainer.main_ppo \
         algorithm.adv_estimator=tarpo \
@@ -81,15 +117,21 @@ export NCCL_ASYNC_ERROR_HANDLING=1
         trainer.critic_warmup=0 \
         trainer.logger='["console","wandb"]' \
         trainer.project_name='rl_baselines' \
-        trainer.experiment_name='' \
+        trainer.experiment_name="$experiment_name" \
         trainer.n_gpus_per_node=4 \
         trainer.nnodes=1 \
         trainer.save_freq=50 \
         trainer.val_before_train=True \
         trainer.resume_mode=resume_path \
-        trainer.resume_from_path='' \
+        trainer.resume_from_path="$checkpoint_dir" \
         trainer.val_only=True \
-        trainer.validation_data_dir='' \
+        trainer.validation_data_dir="$validation_dir" \
         trainer.test_freq=1 \
         trainer.total_epochs=1 $@ \
-        trainer.default_local_dir=''
+        trainer.default_local_dir="$CHECKPOINT_FOLDER"
+
+done
+
+echo "=================================================="
+echo "All checkpoints processed!"
+echo "=================================================="
