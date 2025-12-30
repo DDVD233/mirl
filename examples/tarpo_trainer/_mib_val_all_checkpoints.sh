@@ -4,7 +4,7 @@ set -x
 # ============================================
 # CONFIGURATION - Edit these variables
 # ============================================
-CHECKPOINT_FOLDER="/path/to/your/checkpoint/folder"
+CHECKPOINT_FOLDER="/scratch/keane/hb_atlas_models/gpg_mib_baseline"
 ALGO_NAME="gpg"
 MIN_CHECKPOINT_STEP=0  # Only evaluate checkpoints >= this step number (0 = evaluate all)
 # ============================================
@@ -16,7 +16,7 @@ if [ ! -d "$CHECKPOINT_FOLDER" ]; then
 fi
 
 # Pin to GPUs 0,1
-export CUDA_VISIBLE_DEVICES=0,1,2,3
+export CUDA_VISIBLE_DEVICES=4,5,6,7
 unset ROCR_VISIBLE_DEVICES
 export PYTHONUNBUFFERED=1
 export HYDRA_FULL_ERROR=1
@@ -76,7 +76,7 @@ for checkpoint_dir in "$CHECKPOINT_FOLDER"/global_step_*; do
 
     python3 -m verl.trainer.main_ppo \
         algorithm.adv_estimator=tarpo \
-        data.train_files=/scratch/keane/human_behaviour/human_behaviour_data/final_v8_train_cleaned_2.jsonl \
+        data.train_files=/scratch/keane/human_behaviour_data/final_v8_train_cleaned_2.jsonl \
         data.val_files=/scratch/keane/human_behaviour_data/final_v8_val_cleaned.jsonl \
         data.train_batch_size=256 \
         data.val_batch_size=64 \
