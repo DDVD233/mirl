@@ -1750,7 +1750,7 @@ def compute_tarpo_outcome_advantage(
         # ----------------------------
         USE_RARITY_BOOST         = False
         USE_HIER_ROLLOUT_MIXTURE = True
-        NORMALIZATION_MODE       = "absolute"  # "z_score", "global_norm", or "absolute"
+        NORMALIZATION_MODE       = "no_responsibilities"  # "z_score", "global_norm", "absolute", or "no_responsibilities"
 
         # ----------------------------
         # Hyperparameters
@@ -1851,8 +1851,22 @@ def compute_tarpo_outcome_advantage(
                     task_sig_count[task]   += r
                     task_count[task]       += 1
                     r_list.append(r)
+
+            elif NORMALIZATION_MODE == "no_responsibilities":
+                # No responsibilities ablation: all responsibilities set to 1.0
+                # This removes responsibility weighting and uses raw absolute advantage statistics
+                for v in vals:
+                    a = abs(v)
+
+                    # Responsibility is always 1.0 (no weighting)
+                    r = 1.0
+
+                    task_signal_mass[task] += r * a  # Equivalent to: task_signal_mass[task] += a
+                    task_sig_count[task]   += r      # Equivalent to: task_sig_count[task] += 1
+                    task_count[task]       += 1
+                    r_list.append(r)
             else:
-                raise ValueError(f"Unknown NORMALIZATION_MODE: {NORMALIZATION_MODE}. Must be 'z_score', 'global_norm', or 'absolute'")
+                raise ValueError(f"Unknown NORMALIZATION_MODE: {NORMALIZATION_MODE}. Must be 'z_score', 'global_norm', 'absolute', or 'no_responsibilities'")
 
             q2rvalues[qid] = r_list
 

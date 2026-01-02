@@ -827,3 +827,102 @@ def save_advantages_to_json(
         json.dump(output, f, indent=2)
 
     print(f"Saved {advantage_type} advantages and responsibilities to {filepath}")
+
+
+def save_ema_stats(save_dir: str) -> None:
+    """
+    Save task_stats and dataset_stats to JSON file for checkpoint persistence.
+
+    Args:
+        save_dir: Directory to save the EMA stats JSON file
+    """
+    import json
+    import os
+
+    # Convert defaultdicts to regular dicts, handling deque objects
+    def serialize_stats(stats_dict):
+        serialized = {}
+        for key, val_dict in stats_dict.items():
+            serialized[str(key)] = {}
+            for stat_key, stat_val in val_dict.items():
+                if stat_key == "buffer":
+                    # Convert deque to list for JSON serialization
+                    serialized[str(key)][stat_key] = list(stat_val)
+                else:
+                    serialized[str(key)][stat_key] = stat_val
+        return serialized
+
+    output = {
+        "task_stats": serialize_stats(task_stats),
+        "dataset_stats": serialize_stats(dataset_stats)
+    }
+
+    # Create directory if it doesn't exist
+    os.makedirs(save_dir, exist_ok=True)
+
+    # Save to JSON file
+    filepath = os.path.join(save_dir, "ema_stats.json")
+
+    with open(filepath, 'w') as f:
+        json.dump(output, f, indent=2)
+
+    print(f"Saved EMA stats to {filepath}")
+
+
+def load_ema_stats(load_dir: str) -> bool:
+    """
+    Load task_stats and dataset_stats from JSON file when resuming from checkpoint.
+
+    Args:
+        load_dir: Directory containing the EMA stats JSON file
+
+    Returns:
+        bool: True if stats were loaded successfully, False otherwise
+    """
+    import json
+    import os
+
+    filepath = os.path.join(load_dir, "ema_stats.json")
+
+    if not os.path.exists(filepath):
+        print(f"Warning: No EMA stats found at {filepath}, will start ema stats from scratch")
+        return False
+
+    try:
+        with open(filepath, 'r') as f:
+            data = json.load(f)
+
+        # Clear existing stats
+        task_stats.clear()
+        dataset_stats.clear()
+
+        # Restore task_stats
+        for task_key, stat_dict in data.get("task_stats", {}).items():
+            # Reconstruct the defaultdict with all stats
+            task_stats[task_key] = {}
+            for stat_key, stat_val in stat_dict.items():
+                if stat_key == "buffer":
+                    # Convert list back to deque
+                    task_stats[task_key][stat_key] = deque(stat_val, maxlen=256)
+                else:
+                    task_stats[task_key][stat_key] = stat_val
+
+        # Restore dataset_stats
+        for ds_key, stat_dict in data.get("dataset_stats", {}).items():
+            dataset_stats[ds_key] = {}
+            for stat_key, stat_val in stat_dict.items():
+                if stat_key == "buffer":
+                    # Convert list back to deque
+                    dataset_stats[ds_key][stat_key] = deque(stat_val, maxlen=256)
+                else:
+                    dataset_stats[ds_key][stat_key] = stat_val
+
+        print(f"Successfully loaded EMA stats from {filepath}")
+        print(f"  - Loaded {len(task_stats)} task stats")
+        print(f"  - Loaded {len(dataset_stats)} dataset stats")
+        return True
+
+    except Exception as e:
+        print(f"Error loading EMA stats from {filepath}: {e}")
+        print("Will start EMA stats from scratch")
+        return False
