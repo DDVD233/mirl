@@ -1855,6 +1855,7 @@ def compute_tarpo_outcome_advantage(
             elif NORMALIZATION_MODE == "no_responsibilities":
                 # No responsibilities ablation: all responsibilities set to 1.0
                 # This removes responsibility weighting and uses raw absolute advantage statistics
+                # so that we can test the effectiveness of the responsibilities
                 for v in vals:
                     a = abs(v)
 
