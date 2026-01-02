@@ -80,7 +80,7 @@ for checkpoint_dir in "$CHECKPOINT_FOLDER"/global_step_*; do
         data.val_files=/scratch/keane/human_behaviour_data/final_v8_val_cleaned.jsonl \
         data.train_batch_size=256 \
         data.val_batch_size=64 \
-        data.max_prompt_length=2048 \
+        data.max_prompt_length=4096 \
         data.max_response_length=2048 \
         data.filter_overlong_prompts=False \
         data.truncation='right' \
@@ -118,8 +118,8 @@ for checkpoint_dir in "$CHECKPOINT_FOLDER"/global_step_*; do
         actor_rollout_ref.rollout.n=5 \
         actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=2 \
         actor_rollout_ref.ref.fsdp_config.param_offload=True \
-        actor_rollout_ref.rollout.max_model_len=6096 \
-        actor_rollout_ref.rollout.max_num_batched_tokens=6096 \
+        actor_rollout_ref.rollout.max_model_len=6192 \
+        actor_rollout_ref.rollout.max_num_batched_tokens=6192 \
         algorithm.use_kl_in_reward=False \
         custom_reward_function.path=/home/keaneong/human-behavior/verl/examples/reward_function/human_behaviour_tarpo.py \
         custom_reward_function.name=human_behaviour_compute_score_batch \
