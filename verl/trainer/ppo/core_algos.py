@@ -1773,7 +1773,7 @@ def compute_tarpo_outcome_advantage(
         ROLL_MAX_SCALE = 3.0
 
         # EMA smoothing
-        BETA_RHO     = 0.95
+        BETA_RHO     = 0.00 # NOTE: DISABLE EMA OF RHO FOR NOW
         BETA_LOGMULT = 0.95
 
         # Final task-scale clamp
