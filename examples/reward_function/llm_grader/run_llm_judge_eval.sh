@@ -12,7 +12,7 @@
 
 
 RESULTS_PATH="/scratch/keane/human_behaviour/tarpo_iter_20_no_resp_corrected_hierarchy_mixtures_densities_ema_original/global_step_425_test/full_test_or_val_generation_outputs/step_425.json"
-SAVE_PATH=""/scratch/keane/human_behaviour/tarpo_iter_20_no_resp_corrected_hierarchy_mixtures_densities_ema_original/global_step_425_test/full_test_or_val_generation_outputs/step_425.json_llm_grading_results.json"
+SAVE_PATH="/scratch/keane/human_behaviour/tarpo_iter_20_no_resp_corrected_hierarchy_mixtures_densities_ema_original/global_step_425_test/full_test_or_val_generation_outputs/step_425.json_llm_grading_results.json"
 PROVIDER="openai"
 WANDB_PROJECT="llm_judge_eval"
 WANDB_RUN_NAME="harpo_experiment_$(date +%Y%m%d_%H%M%S)"
