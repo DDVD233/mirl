@@ -1751,6 +1751,7 @@ def compute_tarpo_outcome_advantage(
         USE_RARITY_BOOST         = False
         USE_HIER_ROLLOUT_MIXTURE = True
         NORMALIZATION_MODE       = "no_responsibilities"  # "z_score", "global_norm", "absolute", or "no_responsibilities"
+        SCALING_TYPE             = "naive_density"  # "geom" (geometric mean redistribution), "arith" (arithmetic mean redistribution), or "naive_density" (direct division by rho_t)
 
         # ----------------------------
         # Hyperparameters
@@ -1769,8 +1770,9 @@ def compute_tarpo_outcome_advantage(
         RARE_RATIO = 2.5
 
         # Hierarchical rollout mixture
-        ALPHA_ROLL     = 0.5
-        ROLL_MAX_SCALE = 3.0
+        ALPHA_ROLL     = 1.0
+        HIER_MIN_SCALE = 0.5
+        HIER_MAX_SCALE = 3.0
 
         # EMA smoothing
         BETA_RHO     = 0.95 # NOTE: ORIGINAL VALUE IS 0.95 ; we can put as 0 for no EMA smoothing
@@ -1886,6 +1888,8 @@ def compute_tarpo_outcome_advantage(
             task_densities = {}
             log_rhos = []
 
+
+            # derivation of rhos
             for task, mass in task_signal_mass.items():
                 count = max(task_count[task], 1)
                 rho_batch = max(mass / count, eps)
@@ -1898,14 +1902,19 @@ def compute_tarpo_outcome_advantage(
                 task_stats[task]["mixture_rho_t_ema"]   = float(rho_ema)
 
                 task_densities[task] = rho_ema
+
+                # obtaining the log rhos for geometric mean
                 log_rhos.append(math.log(rho_ema))
 
             # geometric mean of task densities
             log_rho_ref = sum(log_rhos) / len(log_rhos)
-            rho_ref     = math.exp(log_rho_ref)
+            rho_ref_geom = math.exp(log_rho_ref)
+
+            # arithmetic mean of task densities; obtained from rho_ema
+            rho_ref_arith = sum(task_densities.values()) / len(task_densities)
 
             for task in task_signal_mass:
-                task_stats[task]["mixture_rho_ref"] = float(rho_ref)
+                task_stats[task]["mixture_rho_ref"] = float(rho_ref_geom)
 
             # ----------------------------
             # Step 3 — rarity boost (optional)
@@ -1958,14 +1967,42 @@ def compute_tarpo_outcome_advantage(
 
             for task in task_signal_mass:
                 rho_t = max(task_densities[task], eps)
-                log_ratio = log_rho_ref - math.log(rho_t)
-                log_mult_inst = GAMMA * log_ratio + math.log(task_k[task])
+                
+                if SCALING_TYPE == "geom":
+                    # Original: geometric mean redistribution with EMA smoothing
+                    log_ratio = log_rho_ref - math.log(rho_t)
+                    log_mult_inst = GAMMA * log_ratio + math.log(task_k[task])
 
-                prev = float(task_stats[task].get("mixture_log_mult_ema_scale", 0.0))
-                log_mult_ema = _ema_update(prev, log_mult_inst, BETA_LOGMULT)
+                    prev = float(task_stats[task].get("mixture_log_mult_ema_scale", 0.0))
+                    log_mult_ema = _ema_update(prev, log_mult_inst, BETA_LOGMULT)
 
-                scale = math.exp(log_mult_ema)
-                scale = max(MIN_SCALE, min(MAX_SCALE, scale))
+                    scale = math.exp(log_mult_ema)
+                    scale = max(MIN_SCALE, min(MAX_SCALE, scale))
+
+                elif SCALING_TYPE == "arith":
+                    # Arithmetic mean redistribution with EMA smoothing
+                    mult_inst = (rho_ref_arith / rho_t) * task_k[task]
+
+                    prev_scale = float(task_stats[task].get("mixture_final_scale", mult_inst))
+                    scale = _ema_update(prev_scale, mult_inst, BETA_LOGMULT)
+                    scale = max(MIN_SCALE, min(MAX_SCALE, scale))
+
+                    # SOLELY FOR LOGGING PURPOSES: THESE ARE NOT USED FOR SCALING
+                    log_ratio = math.log(rho_ref_arith) - math.log(rho_t)
+                    log_mult_inst = math.log(mult_inst)
+                    log_mult_ema = math.log(scale)
+
+                elif SCALING_TYPE == "naive_density":
+                    # SOLELY FOR LOGGING PURPOSES: THESE ARE NOT USED FOR SCALING
+                    log_ratio = 0.0
+                    log_mult_inst = -math.log(rho_t)
+                    log_mult_ema = log_mult_inst  # No EMA smoothing
+                    
+                    # Naive ablation: directly use 1/density (no EMA, no redistribution, no rarity boost)
+                    scale = 1.0 / rho_t
+                    scale = max(MIN_SCALE, min(MAX_SCALE, scale))
+                else:
+                    raise ValueError(f"Unknown SCALING_TYPE: {SCALING_TYPE}. Must be 'geom', 'arith', or 'naive_density'")
 
                 task_scale[task] = scale
 
@@ -1989,35 +2026,46 @@ def compute_tarpo_outcome_advantage(
                         continue
 
                     qid2m = {}
-                    log_m = []
 
-                    # computing the per rolloutout m , which is essentially the density of the signal mass
+                    # computing the per rollout m, which is essentially the density of the signal mass
                     for qid in qids:
                         vals = q2rollouts[qid]
                         rs   = q2rvalues[qid]
                         m = sum(r * abs(v) for r, v in zip(rs, vals)) / max(len(vals), 1)
                         m = max(m, eps)
                         qid2m[qid] = m
-                        log_m.append(math.log(m))
 
+                    if SCALING_TYPE == "geom":
+                        # Geometric mean redistribution (log space)
+                        log_m = [math.log(m) for m in qid2m.values()]
 
-                    # For a specific task, what's the average log m
-                    # across its questions
-                    log_mbar = sum(log_m) / len(log_m)
+                        # reference geometric mean
+                        log_mbar = sum(log_m) / len(log_m)
 
-                    log_s_raw = {
-                        qid: ALPHA_ROLL * (log_mbar - math.log(qid2m[qid]))
-                        for qid in qids
-                    }
+                        for qid in qids:
+                            log_s = ALPHA_ROLL * (log_mbar - math.log(qid2m[qid]))
+                            s = math.exp(log_s)
+                            if HIER_MAX_SCALE is not None:
+                                s = max(HIER_MIN_SCALE, min(HIER_MAX_SCALE, s))
+                            qid_rollout_scale[qid] = s
 
-                    mean_log_s = sum(log_s_raw.values()) / len(log_s_raw)
+                    elif SCALING_TYPE == "arith":
+                        # Arithmetic mean redistribution (linear space)
+                        mbar = sum(qid2m.values()) / len(qid2m)
+                        for qid in qids:
+                            ratio = mbar / qid2m[qid]
+                            s = ratio * ALPHA_ROLL
+                            if HIER_MAX_SCALE is not None:
+                                s = max(HIER_MIN_SCALE, min(HIER_MAX_SCALE, s))
+                            qid_rollout_scale[qid] = s
 
-                    for qid in qids:
-                        log_s = log_s_raw[qid] - mean_log_s
-                        if ROLL_MAX_SCALE is not None:
-                            cap = math.log(ROLL_MAX_SCALE)
-                            log_s = max(-cap, min(cap, log_s))
-                        qid_rollout_scale[qid] = math.exp(log_s)
+                    elif SCALING_TYPE == "naive_density":
+                        # Naive density: direct 1/m scaling
+                        for qid in qids:
+                            s = 1.0 / qid2m[qid]
+                            if HIER_MAX_SCALE is not None:
+                                s = max(HIER_MIN_SCALE, min(HIER_MAX_SCALE, s))
+                            qid_rollout_scale[qid] = s
 
             # ----------------------------
             # Step 6 — apply final scaling
