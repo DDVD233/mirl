@@ -1749,7 +1749,7 @@ def compute_tarpo_outcome_advantage(
         # Toggles
         # ----------------------------
         USE_RARITY_BOOST         = False
-        USE_HIER_ROLLOUT_MIXTURE = False
+        USE_HIER_ROLLOUT_MIXTURE = True
         NORMALIZATION_MODE       = "no_responsibilities"  # "z_score", "global_norm", "absolute", or "no_responsibilities"
 
         # ----------------------------
