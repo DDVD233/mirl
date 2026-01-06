@@ -2043,8 +2043,8 @@ def compute_tarpo_outcome_advantage(
                         log_mbar = sum(log_m) / len(log_m)
 
                         for qid in qids:
-                            log_s = ALPHA_ROLL * (log_mbar - math.log(qid2m[qid]))
-                            s = math.exp(log_s)
+                            log_s = log_mbar - math.log(qid2m[qid])
+                            s = ALPHA_ROLL * math.exp(log_s)
                             if HIER_MAX_SCALE is not None:
                                 s = max(HIER_MIN_SCALE, min(HIER_MAX_SCALE, s))
                             qid_rollout_scale[qid] = s
@@ -2054,7 +2054,7 @@ def compute_tarpo_outcome_advantage(
                         mbar = sum(qid2m.values()) / len(qid2m)
                         for qid in qids:
                             ratio = mbar / qid2m[qid]
-                            s = ratio * ALPHA_ROLL
+                            s =  ALPHA_ROLL * ratio
                             if HIER_MAX_SCALE is not None:
                                 s = max(HIER_MIN_SCALE, min(HIER_MAX_SCALE, s))
                             qid_rollout_scale[qid] = s
@@ -2062,7 +2062,8 @@ def compute_tarpo_outcome_advantage(
                     elif SCALING_TYPE == "naive_density":
                         # Naive density: direct 1/m scaling
                         for qid in qids:
-                            s = 1.0 / qid2m[qid]
+                            ratio = 1.0 / qid2m[qid]
+                            s = ALPHA_ROLL * ratio
                             if HIER_MAX_SCALE is not None:
                                 s = max(HIER_MIN_SCALE, min(HIER_MAX_SCALE, s))
                             qid_rollout_scale[qid] = s
