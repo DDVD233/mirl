@@ -1751,7 +1751,7 @@ def compute_tarpo_outcome_advantage(
         USE_RARITY_BOOST         = False
         USE_HIER_ROLLOUT_MIXTURE = True
         NORMALIZATION_MODE       = "no_responsibilities"  # "z_score", "global_norm", "absolute", or "no_responsibilities"
-        SCALING_TYPE             = "naive_density"  # "geom" (geometric mean redistribution), "arith" (arithmetic mean redistribution), or "naive_density" (direct division by rho_t)
+        SCALING_TYPE             = "geom"  # "geom" (geometric mean redistribution), "arith" (arithmetic mean redistribution), or "naive_density" (direct division by rho_t)
 
         # ----------------------------
         # Hyperparameters
