@@ -38,6 +38,7 @@ verl/workers/*
 !verl/workers/reward_manager/
 verl/workers/reward_manager/*
 !verl/workers/reward_manager/batch.py
+!verl/workers/reward_manager/hb_dapo_manager.py
 
 develop-eggs/
 dist/
