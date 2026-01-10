@@ -2,8 +2,8 @@
 set -x
 
 # Pin to GPUs 0,1
-export CUDA_VISIBLE_DEVICES=0,1,2,3
-# export CUDA_VISIBLE_DEVICES=4,5,6,7
+export CUDA_VISIBLE_DEVICES=4,5,6,7
+# export CUDA_VISIBLE_DEVICES=5,6
 unset ROCR_VISIBLE_DEVICES
 export PYTHONUNBUFFERED=1
 export HYDRA_FULL_ERROR=1
@@ -75,8 +75,8 @@ export NCCL_ASYNC_ERROR_HANDLING=1
         actor_rollout_ref.rollout.n=5 \
         actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=8 \
         actor_rollout_ref.ref.fsdp_config.param_offload=True \
-        actor_rollout_ref.rollout.max_model_len=6192 \
-        actor_rollout_ref.rollout.max_num_batched_tokens=6192 \
+        actor_rollout_ref.rollout.max_model_len=8192 \
+        actor_rollout_ref.rollout.max_num_batched_tokens=8192 \
         algorithm.use_kl_in_reward=False \
         custom_reward_function.path=/home/keaneong/human-behavior/verl/examples/reward_function/human_behaviour_tarpo.py \
         custom_reward_function.name=human_behaviour_compute_score_batch \
