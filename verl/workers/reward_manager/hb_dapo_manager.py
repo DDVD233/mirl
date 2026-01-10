@@ -149,7 +149,7 @@ class HBDAPORewardManager(AbstractRewardManager):
             reward = score
 
             # Add overlong penalty (following dapo.py pattern)
-            if self.overlong_buffer_cfg.enable:
+            if self.overlong_buffer_cfg is not None and self.overlong_buffer_cfg.enable:
                 overlong_buffer_len = self.overlong_buffer_cfg.len
                 expected_len = self.max_resp_len - overlong_buffer_len
                 exceed_len = valid_response_length - expected_len

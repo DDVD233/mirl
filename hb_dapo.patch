@@ -1,0 +1,25 @@
+diff --git a/verl/workers/reward_manager/__init__.py b/verl/workers/reward_manager/__init__.py
+index 566631b4..06b4d892 100644
+--- a/verl/workers/reward_manager/__init__.py
++++ b/verl/workers/reward_manager/__init__.py
+@@ -17,6 +17,7 @@ from .batch import BatchRewardManager
+ from .dapo import DAPORewardManager
+ from .naive import NaiveRewardManager
+ from .prime import PrimeRewardManager
++from .hb_dapo_manager import HBDAPORewardManager
+ 
+ # Note(haibin.lin): no need to include all reward managers here in case of complicated dependencies
+ __all__ = [
+diff --git a/verl/workers/reward_manager/hb_dapo_manager.py b/verl/workers/reward_manager/hb_dapo_manager.py
+index bd8a09e7..03667155 100644
+--- a/verl/workers/reward_manager/hb_dapo_manager.py
++++ b/verl/workers/reward_manager/hb_dapo_manager.py
+@@ -149,7 +149,7 @@ class HBDAPORewardManager(AbstractRewardManager):
+             reward = score
+ 
+             # Add overlong penalty (following dapo.py pattern)
+-            if self.overlong_buffer_cfg.enable:
++            if self.overlong_buffer_cfg is not None and self.overlong_buffer_cfg.enable:
+                 overlong_buffer_len = self.overlong_buffer_cfg.len
+                 expected_len = self.max_resp_len - overlong_buffer_len
+                 exceed_len = valid_response_length - expected_len
