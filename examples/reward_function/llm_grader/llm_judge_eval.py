@@ -231,7 +231,7 @@ async def evaluate_worker(semaphore, question: str, candidate_answer: str, refer
 
 
 def load_annotations():
-    annotation_path = Path("/scratch/keane/human_behaviour/human_behaviour_data")
+    annotation_path = Path("/scratch/keane/human_behaviour_data/")
     # annotation_path = Path("/Users/keane/Desktop/research/human-behavior/verl/examples/reward_function/temp/scratch/keane/human_behaviour/human_behaviour_data")
 
     # Load annotation files

@@ -4,9 +4,9 @@ set -x
 # ============================================
 # CONFIGURATION - Edit these variables
 # ============================================
-CHECKPOINT_FOLDER="/scratch/keane/hb_atlas_models/gpg_mib_baseline2"
-ALGO_NAME="gpg"
-MIN_CHECKPOINT_STEP=550  # Only evaluate checkpoints >= this step number (0 = evaluate all)
+CHECKPOINT_FOLDER="/scratch/keane/hb_atlas_models/grpo_mib_baseline"
+ALGO_NAME="grpo"
+MIN_CHECKPOINT_STEP=250  # Only evaluate checkpoints >= this step number (0 = evaluate all)
 # ============================================
 
 if [ ! -d "$CHECKPOINT_FOLDER" ]; then
@@ -16,9 +16,8 @@ if [ ! -d "$CHECKPOINT_FOLDER" ]; then
 fi
 
 # Pin to GPUs 0,1
-# export CUDA_VISIBLE_DEVICES=4,5,6,7
-# export CUDA_VISIBLE_DEVICES=4,5,7,8
-export CUDA_VISIBLE_DEVICES=0,1,2,3
+export CUDA_VISIBLE_DEVICES=4,5,6,7
+# export CUDA_VISIBLE_DEVICES=0,1,2,3
 unset ROCR_VISIBLE_DEVICES
 export PYTHONUNBUFFERED=1
 export HYDRA_FULL_ERROR=1

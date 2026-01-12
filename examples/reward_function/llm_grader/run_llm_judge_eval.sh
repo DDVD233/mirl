@@ -11,11 +11,11 @@
 
 
 
-RESULTS_PATH="/scratch/keane/human_behaviour/tarpo_iter_20_no_resp_corrected_hierarchy_mixtures_densities_ema_original/global_step_425_test/full_test_or_val_generation_outputs/step_425.json"
-SAVE_PATH="/scratch/keane/human_behaviour/tarpo_iter_20_no_resp_corrected_hierarchy_mixtures_densities_ema_original/global_step_425_test/full_test_or_val_generation_outputs/step_425.json_llm_grading_results.json"
+RESULTS_PATH="/scratch/keane/hb_atlas_models/gpg_mib_baseline2/global_step_300_test/full_test_or_val_generation_outputs/step_300.json"
+SAVE_PATH="/scratch/keane/hb_atlas_models/gpg_mib_baseline2/global_step_300_test/full_test_or_val_generation_outputs/step_300_llm_grading_results.json"
 PROVIDER="openai"
 WANDB_PROJECT="llm_judge_eval"
-WANDB_RUN_NAME="harpo_experiment_$(date +%Y%m%d_%H%M%S)"
+WANDB_RUN_NAME="gpg_experiment_$(date +%Y%m%d_%H%M%S)"
 
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
