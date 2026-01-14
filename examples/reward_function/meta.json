@@ -273,7 +273,8 @@
       "mmpsy_depression": "mental_health_depression",
       "mmpsy_anxiety": "mental_health_anxiety",
       "mmsd": "sarcasm",
-      "urfunny": "humour"
+      "urfunny": "humour",
+      "iemocap": "emotion"
     },
     "global_classes": {
       "sentiment_intensity": [
