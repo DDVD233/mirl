@@ -47,8 +47,8 @@ def compute_metrics_by_data_source(
 
     # Get the absolute path to meta.json
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    # label_map_path = os.path.join(script_dir, "meta.json")
-    label_map_path = os.path.join(script_dir, "meta_zero_shot_gen.json")
+    label_map_path = os.path.join(script_dir, "meta.json")
+    # label_map_path = os.path.join(script_dir, "meta_zero_shot_gen.json")
     # # NOTE: hardcoded for now
     # label_map_path = ""
 
