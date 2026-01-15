@@ -30,6 +30,8 @@ export NCCL_ASYNC_ERROR_HANDLING=1
 
 # /scratch/keane/human_behaviour/human_behaviour_data/no_vid_test_processed_iemocap_ground_truth.jsonl 
 
+# trainer.resume_from_path=/scratch/keane/human_behaviour/HARPO_Hier_Ema_Rerun/global_step_400 \
+# trainer.resume_from_path=/scratch/keane/human_behaviour/grpo_full/global_step_600 \
     python3 -m verl.trainer.main_ppo \
         algorithm.adv_estimator=tarpo \
         data.train_files=/scratch/keane/human_behaviour/human_behaviour_data/final_v8_train_cleaned_2.jsonl \
@@ -83,15 +85,15 @@ export NCCL_ASYNC_ERROR_HANDLING=1
         trainer.critic_warmup=0 \
         trainer.logger='["console","wandb"]' \
         trainer.project_name='rl_generalization' \
-        trainer.experiment_name='iemocap_grpo' \
+        trainer.experiment_name='iemocap_harpo' \
         trainer.n_gpus_per_node=4 \
         trainer.nnodes=1 \
         trainer.save_freq=999999 \
         trainer.val_before_train=True \
         trainer.resume_mode=resume_path \
-        trainer.resume_from_path=/scratch/keane/human_behaviour/grpo_full/global_step_600 \
+        trainer.resume_from_path=/scratch/keane/human_behaviour/HARPO_Hier_Ema_Rerun/global_step_400 \
         trainer.val_only=True \
-        trainer.validation_data_dir=/scratch/keane/human_behaviour/grpo_full/global_step_600_iemocap_test \
+        trainer.validation_data_dir=/scratch/keane/human_behaviour/HARPO_Hier_Ema_Rerun/global_step_400_iemocap_test \
         trainer.test_freq=1 \
         trainer.total_epochs=1 $@ \
-        trainer.default_local_dir=/scratch/keane/human_behaviour/grpo_full/global_step_600
+        trainer.default_local_dir=/scratch/keane/human_behaviour/HARPO_Hier_Ema_Rerun

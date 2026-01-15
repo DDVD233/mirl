@@ -177,7 +177,7 @@
       "true"
     ]
   },
-  "num_classes": 28,
+  "num_classes": 38,
   "datasets": [
     "chsimsv2",
     "cremad",
@@ -239,6 +239,18 @@
       "humour": [
         "not humour",
         "humour"
+      ],
+      "autism": [
+        "Absence or Avoidance of Eye Contact",
+        "Aggressive Behavior",
+        "Hyper- or Hyporeactivity to Sensory Input",
+        "Non-Responsiveness to Verbal Interaction",
+        "Non-Typical Language",
+        "Object Lining-Up",
+        "Self-Hitting or Self-Injurious Behavior",
+        "Self-Spinning or Spinning Objects",
+        "Upper Limb Stereotypies",
+        "Background"
       ]
     },
     "synonyms": {
@@ -404,6 +416,48 @@
         {
           "index": 27,
           "label": "humour"
+        }
+      ],
+      "autism": [
+        {
+          "index": 28,
+          "label": "Absence or Avoidance of Eye Contact"
+        },
+        {
+          "index": 29,
+          "label": "Aggressive Behavior"
+        },
+        {
+          "index": 30,
+          "label": "Hyper- or Hyporeactivity to Sensory Input"
+        },
+        {
+          "index": 31,
+          "label": "Non-Responsiveness to Verbal Interaction"
+        },
+        {
+          "index": 32,
+          "label": "Non-Typical Language"
+        },
+        {
+          "index": 33,
+          "label": "Object Lining-Up"
+        },
+        {
+          "index": 34,
+          "label": "Self-Hitting or Self-Injurious Behavior"
+        },
+        {
+          "index": 35,
+          "label": "Self-Spinning or Spinning Objects"
+        },
+        {
+          "index": 36,
+          "label": "Upper Limb Stereotypies"
+        },
+        {
+          "index": 37,
+          "label": "Background"
         }
       ]
     },
