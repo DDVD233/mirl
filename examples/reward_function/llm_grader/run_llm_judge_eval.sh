@@ -10,12 +10,11 @@
 # SAVE_PATH="/Users/keane/Desktop/research/human-behavior/verl/examples/reward_function/temp/results_temp.json"
 
 
-
-RESULTS_PATH="/scratch/keane/hb_atlas_models/gpg_mib_baseline2/global_step_300_test/full_test_or_val_generation_outputs/step_300.json"
-SAVE_PATH="/scratch/keane/hb_atlas_models/gpg_mib_baseline2/global_step_300_test/full_test_or_val_generation_outputs/step_300_llm_grading_results.json"
+RESULTS_PATH="/scratch/keane/human_behaviour/HARPO_Hier_Ema_Rerun/global_step_400_test/full_test_or_val_generation_outputs/step_400.json"
+SAVE_PATH="/scratch/keane/human_behaviour/HARPO_Hier_Ema_Rerun/global_step_400_test/full_test_or_val_generation_outputs/step_400_llm_grading_results.json"
 PROVIDER="openai"
 WANDB_PROJECT="llm_judge_eval"
-WANDB_RUN_NAME="gpg_experiment_$(date +%Y%m%d_%H%M%S)"
+WANDB_RUN_NAME="harpo_full_experiment_$(date +%Y%m%d_%H%M%S)"
 
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do

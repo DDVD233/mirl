@@ -1752,6 +1752,7 @@ def compute_tarpo_outcome_advantage(
         USE_HIER_ROLLOUT_MIXTURE = True
         NORMALIZATION_MODE       = "no_responsibilities"  # "z_score", "global_norm", "absolute", or "no_responsibilities"
         SCALING_TYPE             = "geom"  # "geom" (geometric mean redistribution), "arith" (arithmetic mean redistribution), or "naive_density" (direct division by rho_t)
+        RHO_METHOD               = "normalized"  # "normalized" (mass / count) or "unnormalized" (raw mass)
 
         # ----------------------------
         # Hyperparameters
@@ -1892,7 +1893,12 @@ def compute_tarpo_outcome_advantage(
             # derivation of rhos
             for task, mass in task_signal_mass.items():
                 count = max(task_count[task], 1)
-                rho_batch = max(mass / count, eps)
+                if RHO_METHOD == "normalized":
+                    rho_batch = max(mass / count, eps)
+                elif RHO_METHOD == "unnormalized":
+                    rho_batch = max(mass, eps)
+                else:
+                    raise ValueError(f"Unknown RHO_METHOD: {RHO_METHOD}. Must be 'normalized' or 'unnormalized'")
 
                 prev_rho = float(task_stats[task].get("mixture_rho_t_ema", rho_batch))
                 rho_ema  = _ema_update(prev_rho, rho_batch, BETA_RHO)
