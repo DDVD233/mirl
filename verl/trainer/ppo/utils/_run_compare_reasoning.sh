@@ -9,9 +9,9 @@
 
 
 # On engaging cluster:
-STEP_FILE="/scratch/keane/human_behaviour/tarpo_iter_20_no_resp_corrected_hierarchy_mixtures_densities_ema_original/global_step_425_test/full_test_or_val_generation_outputs/step_425.json"
+STEP_FILE="/scratch/keane/human_behaviour/grpo_full/global_step_600_test/full_test_or_val_generation_outputs/step_600.json"
 JSONL_FILE="/scratch/keane/human_behaviour/human_behaviour_data/final_v8_test_cleaned.jsonl"
-OUTPUT_FILE="/orcd/home/002/keaneong/orcd/pool/human_behaviour_data/harpo_v1_reasoning_traces.jsonl"
+OUTPUT_FILE="/orcd/home/002/keaneong/orcd/pool/human_behaviour_data/grpo_v1_reasoning_traces.jsonl"
 
 # Get the directory where this script is located
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"

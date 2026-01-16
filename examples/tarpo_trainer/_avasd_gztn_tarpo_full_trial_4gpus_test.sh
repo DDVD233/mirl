@@ -30,12 +30,12 @@ export NCCL_ASYNC_ERROR_HANDLING=1
 
 # /scratch/keane/human_behaviour/human_behaviour_data/no_vid_test_processed_iemocap_ground_truth.jsonl 
 # trainer.resume_from_path=/scratch/keane/human_behaviour/grpo_full/global_step_600 \
-        # trainer.resume_from_path=/scratch/keane/human_behaviour/HARPO_Hier_Ema_Rerun/global_step_400 \
+# trainer.resume_from_path=/scratch/keane/human_behaviour/HARPO_Hier_Ema_Rerun/global_step_400 \
 
-        # trainer.resume_mode=resume_path \
-        # trainer.resume_from_path=/scratch/keane/human_behaviour/grpo_full/global_step_600 \
-        # trainer.default_local_dir=/scratch/keane/human_behaviour/grpo_full/
-        # trainer.validation_data_dir=/scratch/keane/human_behaviour/grpo_full/global_step_600_avasd_test \
+# trainer.resume_mode=resume_path \
+# trainer.resume_from_path=/scratch/keane/human_behaviour/grpo_full/global_step_600 \
+# trainer.default_local_dir=/scratch/keane/human_behaviour/grpo_full/
+# trainer.validation_data_dir=/scratch/keane/human_behaviour/grpo_full/global_step_600_avasd_test \
 
     python3 -m verl.trainer.main_ppo \
         algorithm.adv_estimator=tarpo \
