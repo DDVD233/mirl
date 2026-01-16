@@ -32,6 +32,11 @@ export NCCL_ASYNC_ERROR_HANDLING=1
 # trainer.resume_from_path=/scratch/keane/human_behaviour/grpo_full/global_step_600 \
         # trainer.resume_from_path=/scratch/keane/human_behaviour/HARPO_Hier_Ema_Rerun/global_step_400 \
 
+        # trainer.resume_mode=resume_path \
+        # trainer.resume_from_path=/scratch/keane/human_behaviour/grpo_full/global_step_600 \
+        # trainer.default_local_dir=/scratch/keane/human_behaviour/grpo_full/
+        # trainer.validation_data_dir=/scratch/keane/human_behaviour/grpo_full/global_step_600_avasd_test \
+
     python3 -m verl.trainer.main_ppo \
         algorithm.adv_estimator=tarpo \
         data.train_files=/scratch/keane/human_behaviour/human_behaviour_data/final_v8_train_cleaned_2.jsonl \
@@ -90,10 +95,8 @@ export NCCL_ASYNC_ERROR_HANDLING=1
         trainer.nnodes=1 \
         trainer.save_freq=999999 \
         trainer.val_before_train=True \
-        trainer.resume_mode=resume_path \
-        trainer.resume_from_path=/scratch/keane/human_behaviour/grpo_full/global_step_600 \
         trainer.val_only=True \
-        trainer.validation_data_dir=/scratch/keane/human_behaviour/grpo_full/global_step_600_avasd_test \
+        trainer.validation_data_dir=/scratch/keane/human_behaviour/omnisapiens_rl/avasd_test \
         trainer.test_freq=1 \
         trainer.total_epochs=1 $@ \
-        trainer.default_local_dir=/scratch/keane/human_behaviour/grpo_full/
+        trainer.default_local_dir=/scratch/keane/human_behaviour/omnisapiens_rl/
