@@ -7,11 +7,10 @@
 # JSONL_FILE="/Users/keane/Desktop/research/human-behavior/data/tarpo_jsonls/final_jsonls/final_v8_val_cleaned.jsonl"
 # OUTPUT_FILE="/Users/keane/Desktop/research/human-behavior/data/tarpo_jsonls/merged_output.jsonl"
 
-
 # On engaging cluster:
-STEP_FILE="/scratch/keane/human_behaviour/grpo_full/global_step_600_test/full_test_or_val_generation_outputs/step_600.json"
+STEP_FILE="/scratch/keane/human_behaviour/HARPO_Hier_Ema_Rerun/global_step_400_test/full_test_or_val_generation_outputs/step_400.json"
 JSONL_FILE="/scratch/keane/human_behaviour/human_behaviour_data/final_v8_test_cleaned.jsonl"
-OUTPUT_FILE="/orcd/home/002/keaneong/orcd/pool/human_behaviour_data/grpo_v1_reasoning_traces.jsonl"
+OUTPUT_FILE="/orcd/home/002/keaneong/orcd/pool/human_behaviour_data/harpo_v2_reasoning_traces.jsonl"
 
 # Get the directory where this script is located
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
