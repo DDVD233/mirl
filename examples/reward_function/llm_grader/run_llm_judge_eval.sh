@@ -14,7 +14,7 @@ RESULTS_PATH="/scratch/keane/human_behaviour/harpo_unnormalized_adv/global_step_
 SAVE_PATH="/scratch/keane/human_behaviour/harpo_unnormalized_adv/global_step_300_test/full_test_or_val_generation_outputs/step_300_llm_grading_results.json"
 PROVIDER="openai"
 WANDB_PROJECT="llm_judge_eval"
-WANDB_RUN_NAME="naive_density_harpo_full_experiment_$(date +%Y%m%d_%H%M%S)"
+WANDB_RUN_NAME="harpo_unnormalized_adv_experiment_$(date +%Y%m%d_%H%M%S)"
 
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
