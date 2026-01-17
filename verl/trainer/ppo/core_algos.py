@@ -1752,7 +1752,7 @@ def compute_tarpo_outcome_advantage(
         USE_HIER_ROLLOUT_MIXTURE = True
         NORMALIZATION_MODE       = "no_responsibilities"  # "z_score", "global_norm", "absolute", or "no_responsibilities"
         SCALING_TYPE             = "geom"  # "geom" (geometric mean redistribution), "arith" (arithmetic mean redistribution), or "naive_density" (direct division by rho_t)
-        RHO_METHOD               = "unnormalized"  # "normalized" (mass / count) or "unnormalized" (raw mass)
+        RHO_METHOD               = "normalized"  # "normalized" (mass / count) or "unnormalized" (raw mass)
 
         # ----------------------------
         # Hyperparameters
