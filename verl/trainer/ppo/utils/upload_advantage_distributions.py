@@ -7,8 +7,8 @@ PROJECT = "harpo_task_only_advantage_distribution_upload"
 ARTIFACT_NAME = "harpo_task_only_advantage_distribution"
 ARTIFACT_TYPE = "dataset"
 
-FOLDER_TO_ZIP = Path("/scratch/keane/human_behaviour/tarpo_iter_22_no_resp_no_hierarchy_mixtures_densities_ema_original/advantages")  # <-- set this
-ZIP_PATH = Path("/scratch/keane/human_behaviour/tarpo_iter_22_no_resp_no_hierarchy_mixtures_densities_ema_original/harpo_task_only_advantages.zip")        # <-- output zip
+FOLDER_TO_ZIP = Path("/scratch/keane/human_behaviour/harpo_unnormalized_adv/advantages")  # <-- set this
+ZIP_PATH = Path("/scratch/keane/human_behaviour/harpo_unnormalized_adv/harpo_unnormalized_advantages.zip")        # <-- output zip
 
 # ---- zip folder ----
 if not FOLDER_TO_ZIP.exists() or not FOLDER_TO_ZIP.is_dir():
