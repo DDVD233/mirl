@@ -3,12 +3,12 @@ from pathlib import Path
 import wandb
 
 # ---- config ----
-PROJECT = "hier_advantage_distribution_upload"
+PROJECT = "v2_hier_advantage_distribution_upload"
 ARTIFACT_NAME = "hier_advantage_distribution"
 ARTIFACT_TYPE = "dataset"
 
-FOLDER_TO_ZIP = Path("/orcd/home/002/keaneong/orcd/pool/human_behaviour_data/hier_advantages_folder")  # <-- set this
-ZIP_PATH = Path("/orcd/home/002/keaneong/orcd/pool/human_behaviour_data/hier_advantages.zip")        # <-- output zip
+FOLDER_TO_ZIP = Path("/scratch/keane/human_behaviour/HARPO_Hier_Ema_Rerun/advantages")  # <-- set this
+ZIP_PATH = Path("/scratch/keane/human_behaviour/HARPO_Hier_Ema_Rerun/hier_advantages.zip")        # <-- output zip
 
 # ---- zip folder ----
 if not FOLDER_TO_ZIP.exists() or not FOLDER_TO_ZIP.is_dir():
