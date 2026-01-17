@@ -10,8 +10,8 @@
 # SAVE_PATH="/Users/keane/Desktop/research/human-behavior/verl/examples/reward_function/temp/results_temp.json"
 
 
-RESULTS_PATH="/scratch/keane/human_behaviour/naive_density/global_step_400_test/full_test_or_val_generation_outputs/step_400.json"
-SAVE_PATH="/scratch/keane/human_behaviour/naive_density/global_step_400_test/full_test_or_val_generation_outputs/step_400_llm_grading_results.json"
+RESULTS_PATH="/scratch/keane/human_behaviour/harpo_unnormalized_adv/global_step_300_test/full_test_or_val_generation_outputs/step_300.json"
+SAVE_PATH="/scratch/keane/human_behaviour/harpo_unnormalized_adv/global_step_300_test/full_test_or_val_generation_outputs/step_300_llm_grading_results.json"
 PROVIDER="openai"
 WANDB_PROJECT="llm_judge_eval"
 WANDB_RUN_NAME="naive_density_harpo_full_experiment_$(date +%Y%m%d_%H%M%S)"
