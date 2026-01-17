@@ -3,8 +3,8 @@ from pathlib import Path
 import wandb
 
 # ---- config ----
-PROJECT = "harpo_task_only_advantage_distribution_upload"
-ARTIFACT_NAME = "harpo_task_only_advantage_distribution"
+PROJECT = "harpo_unnormalized_advantage_distribution_upload"
+ARTIFACT_NAME = "harpo_unnormalized_advantage_distribution"
 ARTIFACT_TYPE = "dataset"
 
 FOLDER_TO_ZIP = Path("/scratch/keane/human_behaviour/harpo_unnormalized_adv/advantages")  # <-- set this
