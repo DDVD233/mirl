@@ -29,9 +29,9 @@ export NCCL_ASYNC_ERROR_HANDLING=1
 # originally prompt length, response length, max model len is 2048, 2048, 8192 
 
 # /scratch/keane/human_behaviour/human_behaviour_data/no_vid_test_processed_iemocap_ground_truth.jsonl 
+# trainer.resume_from_path=/scratch/keane/human_behaviour/dapo_enhanced_harpo/global_step_400
+# trainer.resume_from_path=/scratch/keane/human_behaviour/harpo_unnormalized_adv/global_step_300
 
-# trainer.resume_from_path=/scratch/keane/human_behaviour/HARPO_Hier_Ema_Rerun/global_step_400 \
-# trainer.resume_from_path=/scratch/keane/human_behaviour/grpo_full/global_step_600 \
     python3 -m verl.trainer.main_ppo \
         algorithm.adv_estimator=tarpo \
         data.train_files=/scratch/keane/human_behaviour/human_behaviour_data/final_v8_train_cleaned_2.jsonl \
