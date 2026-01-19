@@ -9,9 +9,8 @@
 # RESULTS_PATH="/Users/keane/Desktop/research/human-behavior/verl/examples/reward_function/temp/input_data_2025-11-28_11-53-44.json"
 # SAVE_PATH="/Users/keane/Desktop/research/human-behavior/verl/examples/reward_function/temp/results_temp.json"
 
-
-RESULTS_PATH="/scratch/keane/human_behaviour/harpo_unnormalized_adv/global_step_300_test/full_test_or_val_generation_outputs/step_300.json"
-SAVE_PATH="/scratch/keane/human_behaviour/harpo_unnormalized_adv/global_step_300_test/full_test_or_val_generation_outputs/step_300_llm_grading_results.json"
+RESULTS_PATH="/scratch/keane/human_behaviour/dapo_enhanced_harpo/global_step_350_test/full_test_or_val_generation_outputs/step_350.json"
+SAVE_PATH="/scratch/keane/human_behaviour/dapo_enhanced_harpo/global_step_350_test/full_test_or_val_generation_outputs/step_350_llm_grading_results.json"
 PROVIDER="openai"
 WANDB_PROJECT="llm_judge_eval"
 WANDB_RUN_NAME="harpo_unnormalized_adv_experiment_$(date +%Y%m%d_%H%M%S)"
