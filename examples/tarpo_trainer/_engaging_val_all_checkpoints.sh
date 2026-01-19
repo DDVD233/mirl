@@ -94,8 +94,8 @@ for line in "${ckpt_lines[@]}"; do
 
   python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=tarpo \
-    data.train_files=/scratch/keane/human_behaviour_data/final_v8_train_cleaned_2.jsonl \
-    data.val_files=/scratch/keane/human_behaviour_data/final_v8_val_cleaned.jsonl \
+    data.train_files=/scratch/keane/human_behaviour/human_behaviour_data/final_v8_train_cleaned_2.jsonl \
+    data.val_files=/scratch/keane/human_behaviour/human_behaviour_data/final_v8_val_cleaned.jsonl \
     data.train_batch_size=256 \
     data.val_batch_size=1024 \
     data.max_prompt_length=4096 \
