@@ -160,3 +160,5 @@ examples/tarpo_trainer/global_step_200_val/
 examples/tarpo_trainer/global_step_250_val/
 examples/tarpo_trainer/global_step_300_val/
 
+verl/trainer/ppo/utils/gpg_reasoning_traces.jsonl
+verl/trainer/ppo/utils/rloo_reasoning_traces.jsonl
