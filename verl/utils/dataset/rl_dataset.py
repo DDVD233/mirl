@@ -728,14 +728,29 @@ class RLHFDataset(Dataset):
                     # NOTE: Updated VERL qwen3 vl utilizes these lines instead of processing the videos directly
                     # Processor doesn't support video, convert to images
                     video_frames_as_images = []
+                    MAX_FRAMES_PER_VIDEO = 4
                     for video_idx, video_tensor in enumerate(videos):
                         # video_tensor is shape [n_frames, 3, H, W]
                         num_frames = video_tensor.shape[0]
                         logger.info(f"Video {video_idx}: shape={video_tensor.shape}, num_frames={num_frames}")
 
-                        # Convert each frame to PIL Image
-                        for frame_idx in range(num_frames):
+                                                # --- choose frame indices ---
+                        k = min(MAX_FRAMES_PER_VIDEO, num_frames)
+
+                        # Uniform random sample without replacement (if num_frames >= k)
+                        # Use torch so it plays nicely with seeding/device.
+                        chosen = torch.randperm(num_frames)[:k].tolist()
+                        chosen.sort()  # optional: keep temporal order after sampling
+
+                        # Alternative deterministic-ish spread (better coverage, no randomness):
+                        # chosen = torch.linspace(0, num_frames - 1, steps=k).round().long().tolist()
+
+                        # --- convert only chosen frames ---
+                        for frame_idx in chosen:
                             frame = video_tensor[frame_idx]  # [3, H, W]
+                            # for frame_idx in range(num_frames):
+                            #frame = video_tensor[frame_idx]  # [3, H, W]
+                        # Convert each frame to PIL Image
                             # Convert from tensor to PIL Image
                             # Assuming the tensor is in uint8 format [0, 255]
                             frame_np = frame.permute(1, 2, 0).numpy()  # [H, W, 3]

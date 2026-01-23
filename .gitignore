@@ -159,3 +159,5 @@ new_flash-attention/
 old_flash-attention/
 examples/reward_function/temp/
 examples/grpo_trainer/debug_log.txt
+verl/trainer/ppo/utils/gpg_reasoning_traces.jsonl
+verl/trainer/ppo/utils/rloo_reasoning_traces.jsonl
