@@ -58,7 +58,7 @@ f1_scores_fairgrpo_scatter = f1_scores_fairgrpo[1:]
 f1_diffs_fairgrpo_scatter = f1_diffs_fairgrpo[1:]
 
 # Color palette
-colors = ["#da81c1", "#7dbfa7", "#b0d766", "#8ca0cb", "#ee946c", "#da81c1"]
+colors = ["#da81c1", "#7dbfa7", "#b0d766", "#8ca0cb", "#ee946c"]
 grpo_color = colors[0]
 fairgrpo_color = colors[1]
 

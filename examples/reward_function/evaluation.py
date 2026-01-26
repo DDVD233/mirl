@@ -7,6 +7,16 @@ from typing import Dict, List, Set
 import statistics
 
 
+def safe_mean(values, default=0.0):
+    """Return the mean of values, or default if the list is empty."""
+    return sum(values) / len(values) if values else default
+
+
+def safe_div(numerator, denominator, default=0.0):
+    """Return numerator / denominator, or default if denominator is zero."""
+    return numerator / denominator if denominator != 0 else default
+
+
 def strip_thinking_tags(text: str) -> str:
     """Remove <think>...</think> tags and return the content after."""
     # Remove everything within <think>...</think> tags
@@ -629,6 +639,9 @@ def compute_metrics_by_data_source(
             - "{data_source}/{dataset}/{metric}" for dataset metrics
     """
     # Save inputs to json for debugging under outputs/
+    if len(demographics) != len(predictions):
+        print(f"Number of demographics does not match number of predictions, length of demographics: {len(demographics)}, "
+              f"length of predictions: {len(predictions)}")
 
     output_dir = "outputs"
     os.makedirs(output_dir, exist_ok=True)
@@ -868,44 +881,40 @@ def compute_metrics_by_data_source(
     result["val/num_data_sources"] = total_data_sources
     result["val/num_datasets"] = total_datasets
 
-    try:
-        result[f"overall/overall_acc"] = sum(overall_acc) / len(overall_acc)
-        result[f"overall/overall_f1"] = sum(overall_f1) / len(overall_f1)
-        result[f"overall/overall_similarity"] = sum(overall_similarity) / len(overall_similarity) if overall_similarity else 0.0
-        result[f"overall/overall_tpr"] = sum(overall_tpr) / len(overall_tpr)
-        result[f"overall/overall_fpr"] = sum(overall_fpr) / len(overall_fpr)
-        result[f"overall/overall_fdr"] = sum(overall_fdr) / len(overall_fdr)
-        result[f"overall/overall_acc_diff"] = sum(overall_acc_diff) / len(overall_acc_diff)
-        result[f"overall/overall_f1_diff"] = sum(overall_f1_diff) / len(overall_f1_diff)
-        result[f"overall/overall_similarity_diff"] = sum(overall_similarity_diff) / len(overall_similarity_diff) if overall_similarity_diff else 0.0
-        result[f"overall/overall_tpr_diff"] = sum(overall_tpr_diff) / len(overall_tpr_diff)
-        result[f"overall/overall_fpr_diff"] = sum(overall_fpr_diff) / len(overall_fpr_diff)
-        result[f"overall/overall_fdr_diff"] = sum(overall_fdr_diff) / len(overall_fdr_diff)
-        result[f"overall/overall_acc_std"] = sum(overall_acc_std) / len(overall_acc_std)
-        result[f"overall/overall_f1_std"] = sum(overall_f1_std) / len(overall_f1_std)
-        result[f"overall/overall_similarity_std"] = sum(overall_similarity_std) / len(overall_similarity_std) if overall_similarity_std else 0.0
-        result[f"overall/acc_es"] = result[f"overall/overall_acc"] / (1 + result[f"overall/overall_acc_std"])
-        result[f"overall/f1_es"] = result[f"overall/overall_f1"] / (1 + result[f"overall/overall_f1_std"])
-        result[f"overall/similarity_es"] = result[f"overall/overall_similarity"] / (1 + result[f"overall/overall_similarity_std"]) if result[f"overall/overall_similarity_std"] > 0 else result[f"overall/overall_similarity"]
-        for key in [
-            "overall/overall_tpr",
-            "overall/overall_fpr",
-            "overall/overall_fdr",
-            "overall/overall_acc_diff",
-            "overall/overall_f1_diff",
-            "overall/overall_similarity_diff",
-            "overall/overall_tpr_diff",
-            "overall/overall_fpr_diff",
-            "overall/overall_fdr_diff",
-            "overall/overall_acc_std",
-            "overall/overall_f1_std",
-            "overall/overall_similarity_std",
-        ]:
+    result[f"overall/overall_acc"] = safe_mean(overall_acc)
+    result[f"overall/overall_f1"] = safe_mean(overall_f1)
+    result[f"overall/overall_similarity"] = safe_mean(overall_similarity)
+    result[f"overall/overall_tpr"] = safe_mean(overall_tpr)
+    result[f"overall/overall_fpr"] = safe_mean(overall_fpr)
+    result[f"overall/overall_fdr"] = safe_mean(overall_fdr)
+    result[f"overall/overall_acc_diff"] = safe_mean(overall_acc_diff)
+    result[f"overall/overall_f1_diff"] = safe_mean(overall_f1_diff)
+    result[f"overall/overall_similarity_diff"] = safe_mean(overall_similarity_diff)
+    result[f"overall/overall_tpr_diff"] = safe_mean(overall_tpr_diff)
+    result[f"overall/overall_fpr_diff"] = safe_mean(overall_fpr_diff)
+    result[f"overall/overall_fdr_diff"] = safe_mean(overall_fdr_diff)
+    result[f"overall/overall_acc_std"] = safe_mean(overall_acc_std)
+    result[f"overall/overall_f1_std"] = safe_mean(overall_f1_std)
+    result[f"overall/overall_similarity_std"] = safe_mean(overall_similarity_std)
+    result[f"overall/acc_es"] = safe_div(result[f"overall/overall_acc"], 1 + result[f"overall/overall_acc_std"])
+    result[f"overall/f1_es"] = safe_div(result[f"overall/overall_f1"], 1 + result[f"overall/overall_f1_std"])
+    result[f"overall/similarity_es"] = safe_div(result[f"overall/overall_similarity"], 1 + result[f"overall/overall_similarity_std"], default=result[f"overall/overall_similarity"])
+    for key in [
+        "overall/overall_tpr",
+        "overall/overall_fpr",
+        "overall/overall_fdr",
+        "overall/overall_acc_diff",
+        "overall/overall_f1_diff",
+        "overall/overall_similarity_diff",
+        "overall/overall_tpr_diff",
+        "overall/overall_fpr_diff",
+        "overall/overall_fdr_diff",
+        "overall/overall_acc_std",
+        "overall/overall_f1_std",
+        "overall/overall_similarity_std",
+    ]:
+        if key in result:
             print(f"{key}/{result[key]:.4f}")
-    except KeyError:
-        print("No fairness metrics computed.")
-    except ZeroDivisionError:
-        print("Division by zero, no fairness metrics computed.")
 
     return result
 
