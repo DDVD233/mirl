@@ -63,14 +63,15 @@ def compute_pairwise_similarities(predictions: List[str], ground_truths: List[st
     Returns:
         List of similarity scores for each pair
     """
-    similarities = []
-    for pred, gt in zip(predictions, ground_truths):
-        pred_answer = extract_boxed_content(pred)
-        if pred_answer == "None" or pred_answer == "":
-            similarities.append(0.0)
-        else:
-            similarities.append(jaccard_similarity(pred_answer, gt))
-    return similarities
+    return [0.0] * len(predictions)
+    # similarities = []
+    # for pred, gt in zip(predictions, ground_truths):
+    #     pred_answer = extract_boxed_content(pred)
+    #     if pred_answer == "None" or pred_answer == "":
+    #         similarities.append(0.0)
+    #     else:
+    #         similarities.append(jaccard_similarity(pred_answer, gt))
+    # return similarities
 
 def parse_conditions(text: str) -> Set[str]:
     """
