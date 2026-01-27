@@ -660,6 +660,30 @@ def compute_metrics_by_data_source(
     ) as f:
         json.dump(input_data, f, indent=4)
 
+    # convert demographics from A3,M back into full string
+    for i in range(len(demographics)):
+        demo = demographics[i]
+        if demo is None:
+            continue
+        parts = demo.split(",")
+        age_map = {
+            "A1": "age: 18",
+            "A2": "age: 26",
+            "A3": "age: 51",
+            "A4": "age: 77",
+        }
+        gender_map = {"M": "sex: male", "F": "sex: female"}
+        new_demo_string = ""
+        for j in range(len(parts)):
+            part = parts[j].strip()
+            if part in age_map:
+                new_demo_string += age_map[part]
+            elif part in gender_map:
+                if new_demo_string != "":
+                    new_demo_string += ", "
+                new_demo_string += gender_map[part]
+        demographics[i] = new_demo_string
+
     # Group examples by data source and dataset
     grouped_data = defaultdict(lambda: defaultdict(lambda: {"preds": [], "gts": [], "demos": []}))
 
@@ -926,8 +950,8 @@ if __name__ == "__main__":
     if not output_files:
         print("No output files found in the outputs directory.")
     else:
-        latest_file = max(output_files, key=lambda f: os.path.getmtime(os.path.join(outputs_dir, f)))
-        with open(os.path.join(outputs_dir, latest_file), "r") as f:
+        last_file = max(output_files, key=lambda f: os.path.getmtime(os.path.join(outputs_dir, f)))
+        with open(os.path.join(outputs_dir, last_file), "r") as f:
             input_data = json.load(f)
 
         predictions = input_data["predictions"]
