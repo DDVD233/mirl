@@ -98,13 +98,13 @@ def process_video(
         #         "min_pixels": 49152, "max_pixels": 262144, "nframes": 4}
         video= {
             "type": "video", "video": video,
-            "min_pixels": 147456, "max_pixels": 147456, "nframes": 4
+            "min_pixels": 147456, "max_pixels": 147456, "nframes": 16
         }        
 
     #TODO_DEBUG: Changing the pixel budget
         # video= {
         #     "type": "video", "video": video,
-        #     "min_pixels": 65536, "max_pixels": 65536, "nframes": 4
+        #     "min_pixels": 98304, "max_pixels": 98304, "nframes": 4
         # }
     
     # Most expensive budget
@@ -138,11 +138,11 @@ def process_video(
         )
     except Exception as e:
         print(e)
-        dummy_video = torch.zeros((4, 3, 224, 224), dtype=torch.uint8)
+        dummy_video = torch.zeros((16, 3, 224, 224), dtype=torch.uint8)
         video_metadata = dict(
             fps=1,
-            frames_indices=[i for i in range(len(video))],
-            total_num_frames=4,
+            frames_indices=[i for i in range(16)],
+            total_num_frames=16,
         )
         return dummy_video, video_metadata
 

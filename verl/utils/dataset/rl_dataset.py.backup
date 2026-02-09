@@ -527,9 +527,9 @@ class RLHFDataset(Dataset):
                             content_list.append({"type": "image"})
                         elif segment == "<video>":
                             if convert_video_to_images:
-                                # Replace each video tag with 16 image tags (one per frame)
-                                # This matches the nframes=16 in process_video (vision_utils.py line 101)
-                                for _ in range(16):
+                                # Replace each video tag with 4 image tags (one per frame)
+                                # This matches the nframes=4 in process_video
+                                for _ in range(4):
                                     content_list.append({"type": "image"})
                             else:
                                 content_list.append({"type": "video"})
@@ -729,29 +729,14 @@ class RLHFDataset(Dataset):
                     # NOTE: Updated VERL qwen3 vl utilizes these lines instead of processing the videos directly
                     # Processor doesn't support video, convert to images
                     video_frames_as_images = []
-                    MAX_FRAMES_PER_VIDEO = 4
                     for video_idx, video_tensor in enumerate(videos):
                         # video_tensor is shape [n_frames, 3, H, W]
                         num_frames = video_tensor.shape[0]
                         logger.info(f"Video {video_idx}: shape={video_tensor.shape}, num_frames={num_frames}")
 
-                                                # --- choose frame indices ---
-                        k = min(MAX_FRAMES_PER_VIDEO, num_frames)
-
-                        # Uniform random sample without replacement (if num_frames >= k)
-                        # Use torch so it plays nicely with seeding/device.
-                        chosen = torch.randperm(num_frames)[:k].tolist()
-                        chosen.sort()  # optional: keep temporal order after sampling
-
-                        # Alternative deterministic-ish spread (better coverage, no randomness):
-                        # chosen = torch.linspace(0, num_frames - 1, steps=k).round().long().tolist()
-
-                        # --- convert only chosen frames ---
-                        for frame_idx in chosen:
-                            frame = video_tensor[frame_idx]  # [3, H, W]
-                            # for frame_idx in range(num_frames):
-                            #frame = video_tensor[frame_idx]  # [3, H, W]
                         # Convert each frame to PIL Image
+                        for frame_idx in range(num_frames):
+                            frame = video_tensor[frame_idx]  # [3, H, W]
                             # Convert from tensor to PIL Image
                             # Assuming the tensor is in uint8 format [0, 255]
                             frame_np = frame.permute(1, 2, 0).numpy()  # [H, W, 3]
@@ -943,9 +928,7 @@ class RLHFDataset(Dataset):
         row_dict["attention_mask"] = attention_mask[0]
         row_dict["position_ids"] = position_ids[0]
 
-        # Use the already-tokenized input_ids which preserves multimodal tokens
-        # instead of re-encoding with tokenizer.encode() which loses image tokens
-        raw_prompt_ids = input_ids[0].tolist()
+        raw_prompt_ids = self.tokenizer.encode(raw_prompt, add_special_tokens=False)
         if len(raw_prompt_ids) > self.max_prompt_length:
             if self.truncation == "left":
                 raw_prompt_ids = raw_prompt_ids[-self.max_prompt_length :]

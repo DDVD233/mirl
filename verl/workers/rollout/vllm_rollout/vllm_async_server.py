@@ -523,6 +523,18 @@ class vLLMHttpServerBase:
         sampling_params.setdefault("repetition_penalty", self.config.get("repetition_penalty", 1.0))
         sampling_params = SamplingParams(max_tokens=max_tokens, **sampling_params)
         prompt_ids = _qwen2_5_vl_dedup_image_tokens(prompt_ids, self.model_config.processor)
+        
+        # DEBUG: Log prompt and image info
+        num_images = len(image_data) if image_data else 0
+        if self.model_config.processor is not None:
+            image_token_id = self.model_config.processor.image_token_id
+            num_image_tokens = prompt_ids.count(image_token_id)
+            logger.warning(f"DEBUG [{request_id}]: prompt_len={len(prompt_ids)}, num_images={num_images}, image_tokens_in_prompt={num_image_tokens}, max_model_len={self.config.max_model_len}")
+            if num_images != num_image_tokens:
+                logger.error(f"MISMATCH [{request_id}]: {num_images} images provided but {num_image_tokens} image tokens in prompt!")
+        else:
+            logger.warning(f"DEBUG [{request_id}]: prompt_len={len(prompt_ids)}, num_images={num_images}, max_model_len={self.config.max_model_len}")
+        
         prompt = TokensPrompt(
             prompt_token_ids=prompt_ids, multi_modal_data={"image": image_data} if image_data else None
         )

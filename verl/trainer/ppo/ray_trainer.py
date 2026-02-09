@@ -80,7 +80,7 @@ import warnings
 
 # WorkerType = type[Worker]
 
-debug_file = "/home/keaneong/human-behavior/verl/examples/grpo_trainer/debug_log.txt"
+debug_file = "/home/jadali85/orcd/scratch/updated2/mirl/examples/grpo_trainer/debug_log.txt"
 # Create a timestamped log file in the same directory as this script
 # log_dir = os.path.dirname(os.path.abspath(__file__))
 # timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")

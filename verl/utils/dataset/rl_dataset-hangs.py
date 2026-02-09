@@ -1,3 +1,5 @@
+# 
+
 # Copyright 2024 Bytedance Ltd. and/or its affiliates
 # Copyright 2023-2024 SGLang Team
 # Copyright 2025 ModelBest Inc. and/or its affiliates
@@ -29,6 +31,7 @@ from jinja2 import Template
 from omegaconf import DictConfig, ListConfig
 from torch.utils.data import Dataset
 from transformers import PreTrainedTokenizer, ProcessorMixin
+from transformers.video_utils import VideoMetadata
 import warnings
 import verl.utils.torch_functional as verl_F
 from verl.utils.model import compute_position_id_with_mask
@@ -75,17 +78,21 @@ def processor_supports_video(processor: ProcessorMixin) -> bool:
 
 
 
-# def processor_supports_video(processor: ProcessorMixin) -> bool:
-#     """
-#     Check if a processor supports video inputs by inspecting its __call__ signature.
+def processor_supports_video(processor: ProcessorMixin) -> bool:
+    """
+    Check if a processor supports video inputs by inspecting its __call__ signature.
 
-#     Args:
-#         processor: The processor to check
+    Args:
+        processor: The processor to check
 
-#     Returns:
-#         True if the processor supports video parameter, False otherwise
-#     """
-#     return True
+    Returns:
+        True if the processor supports video parameter, False otherwise
+    """
+    # For Qwen3VL, we want to convert videos to images (frames)
+    # so the model sees them as a sequence of images with temporal context
+    if processor is not None and "Qwen3VL" in processor.__class__.__name__:
+        return False
+    return True
     # if processor is None:
     #     return False
     # else:
@@ -109,6 +116,27 @@ def processor_supports_video(processor: ProcessorMixin) -> bool:
     #     logger.debug("Cannot inspect processor __call__ signature")
     #
     # return False
+
+
+def ensure_video_metadata(metadata):
+    """
+    Convert a dict-style video metadata to VideoMetadata dataclass if needed.
+    Qwen3VLProcessor requires VideoMetadata objects with attribute access (.fps, etc.)
+    but qwen_vl_utils.fetch_video returns plain dicts.
+    """
+    if metadata is None:
+        return None
+    if isinstance(metadata, dict):
+        # Convert dict to VideoMetadata dataclass
+        return VideoMetadata(
+            total_num_frames=metadata.get('total_num_frames', 0),
+            fps=metadata.get('fps'),
+            frames_indices=metadata.get('frames_indices'),
+            video_backend=metadata.get('video_backend'),
+        )
+    # Already a VideoMetadata object
+    return metadata
+
 
 def _tok_est_from_hw(H, W):
     # 28x28 -> 1 "visual token" heuristic
@@ -281,22 +309,7 @@ class RLHFDataset(Dataset):
     def _read_files_and_tokenize(self):
         dataframes = []
 
-        #TODO_TARPO
-        features = datasets.Features({
-            "problem": datasets.Value("string"),
-            "answer":  datasets.Value("string"),
-            "images":  datasets.Sequence(datasets.Value("string")),
-            "videos":  datasets.Sequence(datasets.Value("string")),
-            "audios":  datasets.Sequence(datasets.Value("string")),  # <- force list of strings
-            "dataset": datasets.Value("string"),
-            "task": datasets.Value("string"),
-            "class_label": datasets.Value("string"),
-            "texts":   datasets.Sequence(datasets.Value("string")),
-            "modality_signature": datasets.Value("string"),
-            "ext_video_feats": datasets.Sequence(datasets.Value("string")),  # <- optional, default []
-            "ext_audio_feats": datasets.Sequence(datasets.Value("string")),  # <- optional, default []
-        })
-
+        # #TODO_TARPO
         # features = datasets.Features({
         #     "problem": datasets.Value("string"),
         #     "answer":  datasets.Value("string"),
@@ -304,12 +317,27 @@ class RLHFDataset(Dataset):
         #     "videos":  datasets.Sequence(datasets.Value("string")),
         #     "audios":  datasets.Sequence(datasets.Value("string")),  # <- force list of strings
         #     "dataset": datasets.Value("string"),
+        #     "task": datasets.Value("string"),
+        #     "class_label": datasets.Value("string"),
         #     "texts":   datasets.Sequence(datasets.Value("string")),
         #     "modality_signature": datasets.Value("string"),
-        #     # TODO: THE BOTTOM TWO ARE JUST FOR DEBUGGING FOR NOW; remove when running the other scripts
         #     "ext_video_feats": datasets.Sequence(datasets.Value("string")),  # <- optional, default []
         #     "ext_audio_feats": datasets.Sequence(datasets.Value("string")),  # <- optional, default []
         # })
+
+        features = datasets.Features({
+            "problem": datasets.Value("string"),
+            "answer":  datasets.Value("string"),
+            "images":  datasets.Sequence(datasets.Value("string")),
+            "videos":  datasets.Sequence(datasets.Value("string")),
+            "audios":  datasets.Sequence(datasets.Value("string")),  # <- force list of strings
+            "dataset": datasets.Value("string"),
+            "texts":   datasets.Sequence(datasets.Value("string")),
+            "modality_signature": datasets.Value("string"),
+            # TODO: THE BOTTOM TWO ARE JUST FOR DEBUGGING FOR NOW; remove when running the other scripts
+            "ext_video_feats": datasets.Sequence(datasets.Value("string")),  # <- optional, default []
+            "ext_audio_feats": datasets.Sequence(datasets.Value("string")),  # <- optional, default []
+        })
 
         for parquet_file in self.data_files:
             # read parquet files and cache
@@ -389,7 +417,7 @@ class RLHFDataset(Dataset):
                                 strict=True,
                             )
                         videos = list(videos)
-                        video_metadata = list(video_metadata)
+                        video_metadata = [ensure_video_metadata(m) for m in video_metadata]
                         videos_kwargs = {"video_metadata": video_metadata, "do_sample_frames": False}
                         processor_kwargs["videos"] = videos
 
@@ -527,9 +555,9 @@ class RLHFDataset(Dataset):
                             content_list.append({"type": "image"})
                         elif segment == "<video>":
                             if convert_video_to_images:
-                                # Replace each video tag with 16 image tags (one per frame)
-                                # This matches the nframes=16 in process_video (vision_utils.py line 101)
-                                for _ in range(16):
+                                # Replace each video tag with 4 image tags (one per frame)
+                                # This matches the nframes=4 in process_video
+                                for _ in range(4):
                                     content_list.append({"type": "image"})
                             else:
                                 content_list.append({"type": "video"})
@@ -546,8 +574,7 @@ class RLHFDataset(Dataset):
             if isinstance(new_messages, str):
                 new_messages = [{"role": "user", "content": new_messages}]
             elif isinstance(new_messages, list) and isinstance(new_messages[0], str):
-                # Join list of strings into single content string
-                new_messages = [{"role": "user", "content": " ".join(new_messages)}]
+                new_messages = [{"role": "user", "content": new_messages}]
 
             # Apply format prompt to text-only messages if template is loaded
             if self.format_prompt and len(new_messages) > 0:
@@ -706,15 +733,23 @@ class RLHFDataset(Dataset):
             if "videos" in self.modalities and self.video_key in row_dict and row_dict.get(self.video_key, None) is not None and len(row_dict[self.video_key]) > 0:
                 row_dict_videos = row_dict.get(self.video_key)
                 for video in row_dict_videos:
-                    video = os.path.join(self.base_dir, video) if isinstance(video, str) else video
-                    video, video_metadata = process_video(video,
-                                                          image_patch_size=self.image_patch_size,
-                                                          return_video_metadata=True)
+                    video_path = os.path.join(self.base_dir, video) if isinstance(video, str) else video
+                    try:
+                        video_tensor, video_metadata = process_video(video_path,
+                                                              image_patch_size=self.image_patch_size,
+                                                              return_video_metadata=True)
+                    except Exception as e:
+                        logger.error(f"Failed to load video {video_path}: {e}. Using dummy frames.")
+                        # Create dummy 4-frame video tensor
+                        video_tensor = torch.zeros((4, 3, 224, 224), dtype=torch.uint8)
+                        video_metadata = {"total_num_frames": 4, "fps": 1.0, "frames_indices": [0,1,2,3], "video_backend": "dummy"}
+                    
                     if videos is None:
-                        videos = [video]
+                        videos = [video_tensor]
                     else:
-                        videos.append(video)
+                        videos.append(video_tensor)
 
+                    video_metadata = ensure_video_metadata(video_metadata)
                     if videos_kwargs is None:
                         videos_kwargs = {"video_metadata": [video_metadata], "do_sample_frames": False}
                     else:
@@ -728,37 +763,46 @@ class RLHFDataset(Dataset):
                 else:
                     # NOTE: Updated VERL qwen3 vl utilizes these lines instead of processing the videos directly
                     # Processor doesn't support video, convert to images
+                    
+                    from PIL import Image
                     video_frames_as_images = []
                     MAX_FRAMES_PER_VIDEO = 4
+                    
                     for video_idx, video_tensor in enumerate(videos):
-                        # video_tensor is shape [n_frames, 3, H, W]
-                        num_frames = video_tensor.shape[0]
-                        logger.info(f"Video {video_idx}: shape={video_tensor.shape}, num_frames={num_frames}")
-
-                                                # --- choose frame indices ---
-                        k = min(MAX_FRAMES_PER_VIDEO, num_frames)
-
-                        # Uniform random sample without replacement (if num_frames >= k)
-                        # Use torch so it plays nicely with seeding/device.
-                        chosen = torch.randperm(num_frames)[:k].tolist()
-                        chosen.sort()  # optional: keep temporal order after sampling
-
-                        # Alternative deterministic-ish spread (better coverage, no randomness):
-                        # chosen = torch.linspace(0, num_frames - 1, steps=k).round().long().tolist()
-
-                        # --- convert only chosen frames ---
-                        for frame_idx in chosen:
-                            frame = video_tensor[frame_idx]  # [3, H, W]
-                            # for frame_idx in range(num_frames):
-                            #frame = video_tensor[frame_idx]  # [3, H, W]
-                        # Convert each frame to PIL Image
-                            # Convert from tensor to PIL Image
-                            # Assuming the tensor is in uint8 format [0, 255]
-                            frame_np = frame.permute(1, 2, 0).numpy()  # [H, W, 3]
-                            from PIL import Image
-                            frame_image = Image.fromarray(frame_np.astype('uint8'), 'RGB')
-                            video_frames_as_images.append(frame_image)
-
+                        try:
+                            # video_tensor is shape [n_frames, 3, H, W]
+                            num_frames = video_tensor.shape[0]
+                            logger.info(f"Video {video_idx}: shape={video_tensor.shape}, num_frames={num_frames}")
+                            
+                            # --- choose frame indices uniformly ---
+                            k = min(MAX_FRAMES_PER_VIDEO, num_frames)
+                            chosen = torch.linspace(0, num_frames - 1, steps=k).round().long().tolist()
+                            
+                            # --- convert chosen frames ---
+                            frames_extracted = []
+                            for frame_idx in chosen:
+                                frame = video_tensor[frame_idx]  # [3, H, W]
+                                frame_np = frame.permute(1, 2, 0).numpy()  # [H, W, 3]
+                                frame_image = Image.fromarray(frame_np.astype('uint8'), 'RGB')
+                                frames_extracted.append(frame_image)
+                            
+                            # Pad with dummy frames if we got fewer than MAX_FRAMES_PER_VIDEO
+                            while len(frames_extracted) < MAX_FRAMES_PER_VIDEO:
+                                if len(frames_extracted) > 0:
+                                    dummy = Image.new('RGB', frames_extracted[0].size, color='black')
+                                else:
+                                    dummy = Image.new('RGB', (224, 224), color='black')
+                                frames_extracted.append(dummy)
+                                logger.warning(f"Video {video_idx}: Padded with dummy frame")
+                            
+                            video_frames_as_images.extend(frames_extracted[:MAX_FRAMES_PER_VIDEO])
+                            
+                        except Exception as e:
+                            logger.error(f"Video {video_idx}: Failed to extract frames - {e}. Using {MAX_FRAMES_PER_VIDEO} dummy frames")
+                            for _ in range(MAX_FRAMES_PER_VIDEO):
+                                dummy = Image.new('RGB', (224, 224), color='black')
+                                video_frames_as_images.append(dummy)
+                    
                     logger.info(f"Total video frames converted to images: {len(video_frames_as_images)}")
 
                  # Append video frames to existing images
@@ -767,12 +811,24 @@ class RLHFDataset(Dataset):
                     else:
                         images.extend(video_frames_as_images)
 
+                    # # Update multi_modal_data with the combined images
+                    # multi_modal_data["image"] = images
+                    # logger.info(f"Total images (including video frames): {len(images) if images else 0}")
+
+                    # # Clear videos since we've converted them to images
+                    # videos = None
+                    
+                    
                     # Update multi_modal_data with the combined images
                     multi_modal_data["image"] = images
                     logger.info(f"Total images (including video frames): {len(images) if images else 0}")
 
-                    # Clear videos since we've converted them to images
+                    # EXPLICIT MEMORY CLEANUP - free video tensors immediately
+                    import gc
+                    del videos
+                    gc.collect()
                     videos = None
+                    
                 
             if (
                 "audio" in self.modalities
@@ -869,6 +925,14 @@ class RLHFDataset(Dataset):
 
             # There's a trap here, multi_modal_inputs has to be a dict, not BatchFeature
             row_dict["multi_modal_data"] = multi_modal_data
+            
+            # DEBUG: Log video data
+            if "video" in multi_modal_data and len(multi_modal_data["video"]) > 0:
+                v = multi_modal_data["video"][0]
+                if isinstance(v, tuple):
+                    print(f"[DEBUG rl_dataset] Video stored as tuple: array shape={v[0].shape}, metadata keys={v[1].keys() if v[1] else None}")
+                else:
+                    print(f"[DEBUG rl_dataset] Video stored as: {type(v)}, shape={v.shape if hasattr(v, 'shape') else 'N/A'}")
 
             # We will do batch.union() in the trainer,
             # so we cannot have "multi_modal_inputs" in row_dict if rollout generates new multi_modal_inputs
@@ -943,9 +1007,7 @@ class RLHFDataset(Dataset):
         row_dict["attention_mask"] = attention_mask[0]
         row_dict["position_ids"] = position_ids[0]
 
-        # Use the already-tokenized input_ids which preserves multimodal tokens
-        # instead of re-encoding with tokenizer.encode() which loses image tokens
-        raw_prompt_ids = input_ids[0].tolist()
+        raw_prompt_ids = self.tokenizer.encode(raw_prompt, add_special_tokens=False)
         if len(raw_prompt_ids) > self.max_prompt_length:
             if self.truncation == "left":
                 raw_prompt_ids = raw_prompt_ids[-self.max_prompt_length :]

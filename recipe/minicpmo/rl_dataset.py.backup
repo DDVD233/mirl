@@ -495,10 +495,6 @@ class RLHFDataset(Dataset):
         model_inputs = {}
 
         if self.processor is not None:
-            # DEBUG: Log how many images before processing
-            num_images_input = len(row_dict.get(self.image_key, []))
-            logger.warning(f"DEBUG DATASET: Processing {num_images_input} images from {self.image_key}")
-            
             model_inputs, multi_modal_data, raw_prompt = process_minicpmo_data(
                 row_dict,
                 messages,
@@ -530,9 +526,7 @@ class RLHFDataset(Dataset):
         row_dict["attention_mask"] = attention_mask
         row_dict["position_ids"] = position_ids
 
-        # Use the already-tokenized input_ids which preserves multimodal tokens
-        # instead of re-encoding with tokenizer which loses image tokens
-        raw_prompt_ids = input_ids.squeeze(0).tolist()
+        raw_prompt_ids = self.tokenizer.encode(raw_prompt, add_special_tokens=False)
         if len(raw_prompt_ids) > self.max_prompt_length:
             if self.truncation == "left":
                 raw_prompt_ids = raw_prompt_ids[-self.max_prompt_length :]

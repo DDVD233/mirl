@@ -71,7 +71,24 @@
     "tess_pleasant surprise": 14,
     "tess_sad": 13,
     "urfunny_false": 23,
-    "urfunny_true": 24
+    "urfunny_true": 24,
+    "av-asd_Background": 25,
+    "av-asd_Absence or Avoidance of Eye Contact": 26,
+    "av-asd_Aggressive Behavior": 27,
+    "av-asd_Hyper- or Hyporeactivity to Sensory Input": 28,
+    "av-asd_Non-Responsiveness to Verbal Interaction": 29,
+    "av-asd_Non-Typical Language": 30,
+    "av-asd_Object Lining-Up": 31,
+    "av-asd_Self-Hitting or Self-Injurious Behavior": 32,
+    "av-asd_Self-Spinning or Spinning Objects": 33,
+    "av-asd_Upper Limb Stereotypies": 34,
+    "ados2_toddler_module_0": 35,
+    "ados2_toddler_module_1": 36,
+    "ados2_toddler_module_2": 37,
+    "ados2_toddler_module_3": 38,
+    "ados2_toddler_module_4": 39,
+    "ados2_toddler_module_7": 40,
+    "ados2_toddler_module_8": 41
   },
   "dataset_labels": {
     "cremad": [
@@ -175,9 +192,30 @@
     "urfunny": [
       "false",
       "true"
+    ],
+    "av-asd": [
+      "Background",
+      "Absence or Avoidance of Eye Contact",
+      "Aggressive Behavior",
+      "Hyper- or Hyporeactivity to Sensory Input",
+      "Non-Responsiveness to Verbal Interaction",
+      "Non-Typical Language",
+      "Object Lining-Up",
+      "Self-Hitting or Self-Injurious Behavior",
+      "Self-Spinning or Spinning Objects",
+      "Upper Limb Stereotypies"
+    ],
+    "ados2_toddler_module": [
+      "0",
+      "1",
+      "2",
+      "3",
+      "4",
+      "7",
+      "8"
     ]
   },
-  "num_classes": 25,
+  "num_classes": 42,
   "datasets": [
     "chsimsv2",
     "cremad",
@@ -193,7 +231,9 @@
     "ptsd_in_the_wild",
     "ravdess",
     "tess",
-    "urfunny"
+    "urfunny",
+    "av-asd",
+    "ados2_toddler_module"
   ],
   "meta": {
     "created_at": "2025-09-07T01:51:31.567463Z",
@@ -236,6 +276,27 @@
       "humour": [
         "not humour",
         "humour"
+      ],
+      "asd_behavior": [
+        "Background",
+        "Absence or Avoidance of Eye Contact",
+        "Aggressive Behavior",
+        "Hyper- or Hyporeactivity to Sensory Input",
+        "Non-Responsiveness to Verbal Interaction",
+        "Non-Typical Language",
+        "Object Lining-Up",
+        "Self-Hitting or Self-Injurious Behavior",
+        "Self-Spinning or Spinning Objects",
+        "Upper Limb Stereotypies"
+      ],
+      "ados_rating": [
+        "0",
+        "1",
+        "2",
+        "3",
+        "4",
+        "7",
+        "8"
       ]
     },
     "synonyms": {
@@ -256,7 +317,15 @@
         "weakly positive": "weakly positive",
         "positive": "positive",
         "strongly positive": "highly positive"
-      }
+      },
+      "asd_behavior": {
+        "Self-Injurious Behavior": "Self-Hitting or Self-Injurious Behavior",
+        "Self Hitting": "Self-Hitting or Self-Injurious Behavior",
+        "Hand Flapping": "Upper Limb Stereotypies",
+        "Hand-Flapping": "Upper Limb Stereotypies",
+        "Flapping": "Upper Limb Stereotypies"
+  }
+
     },
     "dataset_domain": {
       "chsimsv2": "sentiment_intensity",
@@ -273,7 +342,9 @@
       "mmpsy_depression": "mental_health_depression",
       "mmpsy_anxiety": "mental_health_anxiety",
       "mmsd": "sarcasm",
-      "urfunny": "humour"
+      "urfunny": "humour",
+      "av-asd": "asd_behavior",
+      "ados2_toddler_module": "ados_rating"
     },
     "global_classes": {
       "sentiment_intensity": [
@@ -389,6 +460,27 @@
           "index": 24,
           "label": "humour"
         }
+      ],
+      "asd_behavior": [
+        { "index": 25, "label": "Background" },
+        { "index": 26, "label": "Absence or Avoidance of Eye Contact" },
+        { "index": 27, "label": "Aggressive Behavior" },
+        { "index": 28, "label": "Hyper- or Hyporeactivity to Sensory Input" },
+        { "index": 29, "label": "Non-Responsiveness to Verbal Interaction" },
+        { "index": 30, "label": "Non-Typical Language" },
+        { "index": 31, "label": "Object Lining-Up" },
+        { "index": 32, "label": "Self-Hitting or Self-Injurious Behavior" },
+        { "index": 33, "label": "Self-Spinning or Spinning Objects" },
+        { "index": 34, "label": "Upper Limb Stereotypies" }
+      ],
+      "ados_rating": [
+        { "index": 35, "label": "0" },
+        { "index": 36, "label": "1" },
+        { "index": 37, "label": "2" },
+        { "index": 38, "label": "3" },
+        { "index": 39, "label": "4" },
+        { "index": 40, "label": "7" },
+        { "index": 41, "label": "8" }
       ]
     },
     "original_label_ids": {
@@ -897,7 +989,110 @@
         "unified_label": "humour",
         "global_index": 24,
         "notes": "Humour direct binary (true/false)"
+      },
+      "av-asd_Background": {
+        "domain": "asd_behavior",
+        "unified_label": "Background",
+        "global_index": 25,
+        "notes": ""
+      },
+      "av-asd_Absence or Avoidance of Eye Contact": {
+        "domain": "asd_behavior",
+        "unified_label": "Absence or Avoidance of Eye Contact",
+        "global_index": 26,
+        "notes": ""
+      },
+      "av-asd_Aggressive Behavior": {
+        "domain": "asd_behavior",
+        "unified_label": "Aggressive Behavior",
+        "global_index": 27,
+        "notes": ""
+      },
+      "av-asd_Hyper- or Hyporeactivity to Sensory Input": {
+        "domain": "asd_behavior",
+        "unified_label": "Hyper- or Hyporeactivity to Sensory Input",
+        "global_index": 28,
+        "notes": ""
+      },
+      "av-asd_Non-Responsiveness to Verbal Interaction": {
+        "domain": "asd_behavior",
+        "unified_label": "Non-Responsiveness to Verbal Interaction",
+        "global_index": 29,
+        "notes": ""
+      },
+      "av-asd_Non-Typical Language": {
+        "domain": "asd_behavior",
+        "unified_label": "Non-Typical Language",
+        "global_index": 30,
+        "notes": ""
+      },
+      "av-asd_Object Lining-Up": {
+        "domain": "asd_behavior",
+        "unified_label": "Object Lining-Up",
+        "global_index": 31,
+        "notes": ""
+      },
+      "av-asd_Self-Hitting or Self-Injurious Behavior": {
+        "domain": "asd_behavior",
+        "unified_label": "Self-Hitting or Self-Injurious Behavior",
+        "global_index": 32,
+        "notes": ""
+      },
+      "av-asd_Self-Spinning or Spinning Objects": {
+        "domain": "asd_behavior",
+        "unified_label": "Self-Spinning or Spinning Objects",
+        "global_index": 33,
+        "notes": ""
+      },
+      "av-asd_Upper Limb Stereotypies": {
+        "domain": "asd_behavior",
+        "unified_label": "Upper Limb Stereotypies",
+        "global_index": 34,
+        "notes": ""
+      },
+      "ados2_toddler_module_0": {
+      "domain": "ados_rating",
+        "unified_label": "0",
+        "global_index": 35,
+        "notes": ""
+      },
+      "ados2_toddler_module_1": {
+      "domain": "ados_rating",
+        "unified_label": "1",
+        "global_index": 36,
+        "notes": ""
+      },
+      "ados2_toddler_module_2": {
+      "domain": "ados_rating",
+        "unified_label": "2",
+        "global_index": 37,
+        "notes": ""
+      },
+      "ados2_toddler_module_3": {
+      "domain": "ados_rating",
+        "unified_label": "3",
+        "global_index": 38,
+        "notes": ""
+      },
+      "ados2_toddler_module_4": {
+      "domain": "ados_rating",
+        "unified_label": "4",
+        "global_index": 39,
+        "notes": ""
+      },
+      "ados2_toddler_module_7": {
+      "domain": "ados_rating",
+        "unified_label": "7",
+        "global_index": 40,
+        "notes": ""
+      },
+      "ados2_toddler_module_8": {
+      "domain": "ados_rating",
+        "unified_label": "8",
+        "global_index": 41,
+        "notes": ""
       }
+
     },
     "mental_health_notes": [
       "Mental health split into PTSD/Depression/Anxiety sub-domains with binary labels only.",
