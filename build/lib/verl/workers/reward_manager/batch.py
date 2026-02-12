@@ -63,7 +63,7 @@ class BatchRewardManager(AbstractRewardManager):
         data_sources = data.non_tensor_batch[self.reward_fn_key]
         extras = data.non_tensor_batch.get("extra_info", [None] * len(data))
 
-        # TODO_TARPO: modify compute score to accept task_ids
+        # TODO_HARPO: modify compute score to accept task_ids
         task_ids = data.non_tensor_batch.get("task", [None] * len(data))
         scores = self.compute_score(
             task_ids = task_ids,
@@ -99,7 +99,7 @@ class BatchRewardManager(AbstractRewardManager):
         attention_mask = data.batch["attention_mask"]
         valid_response_lengths = attention_mask[:, prompt_len:].sum(dim=-1)
         data_sources = data.non_tensor_batch[self.reward_fn_key]
-        # TODO_TARPO: put the task_ids here
+        # TODO_HARPO: put the task_ids here
         task_ids = data.non_tensor_batch.get("task", [None] * len(data))
 
         scores = self.verify(data)

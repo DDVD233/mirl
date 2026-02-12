@@ -185,7 +185,7 @@ class RLHFDataset(Dataset):
     def _read_files_and_tokenize(self):
         dataframes = []
 
-        #TODO_TARPO
+        #TODO_HARPO
         features = datasets.Features({
             "problem": datasets.Value("string"),
             "answer":  datasets.Value("string"),

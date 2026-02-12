@@ -231,7 +231,7 @@ class RLHFDataset(Dataset):
             "ext_audio_feats": datasets.Sequence(datasets.Value("string")),  # <- optional, default []
         })
 
-        # TODO_TARPO: uncomment when needed for TARPO implementation
+        # TODO_HARPO: uncomment when needed for HARPO implementation
         # features = datasets.Features({
         #     "problem": datasets.Value("string"),
         #     "answer":  datasets.Value("string"),

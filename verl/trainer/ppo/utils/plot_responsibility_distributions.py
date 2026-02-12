@@ -1,5 +1,5 @@
 """
-Standalone script to plot TARPO responsibility distributions per task.
+Standalone script to plot HARPO responsibility distributions per task.
 
 This script can be used to:
 1. Plot responsibility distributions from saved JSON files (standalone mode)
@@ -197,7 +197,7 @@ def plot_responsibility_distributions(
 def main():
     """Command-line interface for standalone usage."""
     parser = argparse.ArgumentParser(
-        description="Plot TARPO responsibility distributions from JSON files"
+        description="Plot HARPO responsibility distributions from JSON files"
     )
     parser.add_argument(
         "--json_path",

@@ -1,5 +1,5 @@
 # _unit_test_core_algo.py
-# Standalone runner for compute_tarpo_outcome_advantage
+# Standalone runner for compute_harpo_outcome_advantage
 #
 # This version includes two-batch simulations to verify global updates
 # (EMA stats, counts, buffers) between calls.
@@ -56,7 +56,7 @@ def test_shapes_and_broadcast_basic_pass_through():
     dataset_ids = ["mosei_senti", "mosei_emo", "chsimsv2"]
     class_labels = ["sen_pos", "sen_pos", "emo_happy"]
 
-    returns, adv = M.compute_tarpo_outcome_advantage(
+    returns, adv = M.compute_harpo_outcome_advantage(
         token_level_rewards=token_rewards,
         response_mask=mask,
         index=index,
@@ -87,7 +87,7 @@ def test_task_adapter_normalization_from_batch_stats():
     dataset_ids = ["dA", "dA", "dA"]
     class_labels = ["c1", "c1", "c1"]
 
-    returns, _ = M.compute_tarpo_outcome_advantage(
+    returns, _ = M.compute_harpo_outcome_advantage(
         token_level_rewards=token_rewards,
         response_mask=mask,
         index=index,
@@ -125,7 +125,7 @@ def test_class_weighting_only_matches_formula():
     inv_c2 = 1.0 / 30.0
     w_c1 = inv_c1 * (2 / (inv_c1 + inv_c2))
 
-    returns, _ = M.compute_tarpo_outcome_advantage(
+    returns, _ = M.compute_harpo_outcome_advantage(
         token_level_rewards=token_rewards,
         response_mask=mask,
         index=index,
@@ -161,7 +161,7 @@ def test_cvar_boost_applies_taskwide_scaling():
     alpha = 0.5
     lambda_risk = 0.3
 
-    returns, _ = M.compute_tarpo_outcome_advantage(
+    returns, _ = M.compute_harpo_outcome_advantage(
         token_level_rewards=token_rewards,
         response_mask=mask,
         index=index,
@@ -198,7 +198,7 @@ def test_grpo_group_norm_normalizes_within_qid():
     dataset_ids = ["dY"] * 3
     class_labels = ["cY"] * 3
 
-    returns, _ = M.compute_tarpo_outcome_advantage(
+    returns, _ = M.compute_harpo_outcome_advantage(
         token_level_rewards=token_rewards,
         response_mask=mask,
         index=index,
@@ -244,7 +244,7 @@ def test_task_adapter_updates_across_two_batches():
     dataset_ids_1 = ["dA", "dA", "dA", "dB", "dB"]
     class_labels_1 = ["cA", "cA", "cA", "cB", "cB"]
 
-    returns_1, _ = M.compute_tarpo_outcome_advantage(
+    returns_1, _ = M.compute_harpo_outcome_advantage(
         token_level_rewards=token_rewards_1,
         response_mask=mask_1,
         index=index_1,
@@ -280,7 +280,7 @@ def test_task_adapter_updates_across_two_batches():
     dataset_ids_2 = ["dA", "dA", "dA", "dB", "dB"]
     class_labels_2 = ["cA", "cA", "cA", "cB", "cB"]
 
-    returns_2, _ = M.compute_tarpo_outcome_advantage(
+    returns_2, _ = M.compute_harpo_outcome_advantage(
         token_level_rewards=token_rewards_2,
         response_mask=mask_2,
         index=index_2,
@@ -330,7 +330,7 @@ def test_class_weighting_across_batches():
     # and the dataset_class_info would correspond to the dataset ids
     dataset_class_count_info = {"dX": {"c1": 10, "c2": 30}}
 
-    returns_1, _ = M.compute_tarpo_outcome_advantage(
+    returns_1, _ = M.compute_harpo_outcome_advantage(
         token_level_rewards=token_rewards_1,
         response_mask=mask_1,
         index=index_1,
@@ -346,7 +346,7 @@ def test_class_weighting_across_batches():
     )
 
     # Same batch again should yield identical outputs (no global state affects class-weighting)
-    returns_2, _ = M.compute_tarpo_outcome_advantage(
+    returns_2, _ = M.compute_harpo_outcome_advantage(
         token_level_rewards=token_rewards_1,
         response_mask=mask_1,
         index=index_1,
@@ -385,7 +385,7 @@ def test_cvar_boost_updates_across_two_batches():
     alpha = 0.5
     lambda_risk = 0.25
 
-    returns_1, _ = M.compute_tarpo_outcome_advantage(
+    returns_1, _ = M.compute_harpo_outcome_advantage(
         token_level_rewards=token_rewards_1,
         response_mask=mask_1,
         index=index_1,
@@ -420,7 +420,7 @@ def test_cvar_boost_updates_across_two_batches():
     dataset_ids_2 = ["dR"]   * 4 + ["dS"]   * 2
     class_labels_2 = ["cR"]  * 4 + ["cS"]  * 2
 
-    returns_2, _ = M.compute_tarpo_outcome_advantage(
+    returns_2, _ = M.compute_harpo_outcome_advantage(
         token_level_rewards=token_rewards_2,
         response_mask=mask_2,
         index=index_2,
@@ -468,7 +468,7 @@ def test_grpo_group_norm_two_independent_batches():
     dataset_ids_1 = ["dgA", "dgB", "dgA"]
     class_labels_1 = ["cgA", "cgB", "cgA"]
 
-    returns_1, _ = M.compute_tarpo_outcome_advantage(
+    returns_1, _ = M.compute_harpo_outcome_advantage(
         token_level_rewards=token_rewards_1,
         response_mask=mask_1,
         index=index_1,
@@ -489,7 +489,7 @@ def test_grpo_group_norm_two_independent_batches():
     dataset_ids_2 = ["dgB", "dgA", "dgB"]
     class_labels_2 = ["cgB", "cgA", "cgB"]
 
-    returns_2, _ = M.compute_tarpo_outcome_advantage(
+    returns_2, _ = M.compute_harpo_outcome_advantage(
         token_level_rewards=token_rewards_2,
         response_mask=mask_2,
         index=index_2,
@@ -512,7 +512,7 @@ def test_grpo_group_norm_two_independent_batches():
     print("✅ test_grpo_group_norm_two_independent_batches (mixed tasks/datasets) passed")
 
 if __name__ == "__main__":
-    print("\n🚀 Running TARPO core algorithm unit tests...\n")
+    print("\n🚀 Running HARPO core algorithm unit tests...\n")
     # Original single-batch tests
     test_shapes_and_broadcast_basic_pass_through()
     # test_task_adapter_normalization_from_batch_stats()
@@ -526,4 +526,4 @@ if __name__ == "__main__":
     test_cvar_boost_updates_across_two_batches()
     test_grpo_group_norm_two_independent_batches()
 
-    print("\n🎉 All TARPO tests passed successfully!\n")
+    print("\n🎉 All HARPO tests passed successfully!\n")

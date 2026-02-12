@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import torch
 
-# ---------------------------- TARPO GLOBAL STATE ---------------------------- #
+# ---------------------------- HARPO GLOBAL STATE ---------------------------- #
 
 # Module-level storage for latest advantage data (for saving to JSON)
 _latest_advantage_data: Dict[str, Any] = {
@@ -17,7 +17,7 @@ _latest_advantage_data: Dict[str, Any] = {
 
 def get_latest_advantage_data() -> Dict[str, Any]:
     """
-    Retrieve the latest computed advantage data from TARPO.
+    Retrieve the latest computed advantage data from HARPO.
 
     Returns:
         Dict with keys "post_grpo" and "final", each containing:

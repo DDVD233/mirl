@@ -154,9 +154,9 @@ new_flash-attention/
 old_flash-attention/
 examples/reward_function/temp/
 examples/grpo_trainer/debug_log.txt
-examples/tarpo_trainer/global_step_100_val/
-examples/tarpo_trainer/global_step_150_val/
-examples/tarpo_trainer/global_step_200_val/
-examples/tarpo_trainer/global_step_250_val/
-examples/tarpo_trainer/global_step_300_val/
+examples/harpo_trainer/global_step_100_val/
+examples/harpo_trainer/global_step_150_val/
+examples/harpo_trainer/global_step_200_val/
+examples/harpo_trainer/global_step_250_val/
+examples/harpo_trainer/global_step_300_val/
 

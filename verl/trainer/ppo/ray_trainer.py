@@ -55,7 +55,7 @@ from verl.trainer.ppo.metric_utils import (
     process_validation_metrics,
 )
 from verl.trainer.ppo.reward import compute_reward, compute_reward_async
-from verl.trainer.ppo.tarpo_utils import (
+from verl.verl.trainer.ppo.harpo_utils import (
     get_latest_advantage_data,
     save_advantages_to_json,
     save_ema_stats,
@@ -79,25 +79,6 @@ from datetime import datetime
 import torch.distributed as dist
 
 WorkerType = type[Worker]
-
-debug_file = "/home/keaneong/human-behavior/verl/examples/grpo_trainer/debug_log.txt"
-# Create a timestamped log file in the same directory as this script
-# log_dir = os.path.dirname(os.path.abspath(__file__))
-# timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-# full_debug_log_file = os.path.join(log_dir, f"full_debug_logs_{timestamp}.txt")
-
-
-# class Tee:
-#     """Write output to both terminal and a file."""
-#     def __init__(self, *files):
-#         self.files = files
-#     def write(self, data):
-#         for f in self.files:
-#             f.write(data)
-#             f.flush()
-#     def flush(self):
-#         for f in self.files:
-#             f.flush()
 
 
 def _flatten(d, parent_key=""):
@@ -342,38 +323,39 @@ def compute_advantage(
         data.batch["advantages"] = advantages
         data.batch["returns"] = returns
 
-    elif adv_estimator == AdvantageEstimator.TARPO:
-        grpo_calculation_mask = data.batch["response_mask"]
+    # NOTE: HARPO Implementation will be added upon the acceptance and cleanup of the subsequent paper: 
+    # OmniSapiens: A Foundation Model for Social Behavior Processing via Heterogeneity-Aware Relative Policy Optimization
+    elif adv_estimator == AdvantageEstimator.HARPO:
 
-        # TODO_TARPO: make sure that the data batch has dataset_ids, task_ids, and class_labels
-        # TODO_TARPO: so the class_labels should be prefixed by the task (i.e. SEN_NEU)
-        # TODO_TARPO: you can add the static class code later on
+        pass
 
-        # info, taken from the non_tensor batch,
-        # this is usually a string identifier for the task, 
-        # for task_ids, dataset_ids, class_labels
-        advantages, returns = core_algos.compute_tarpo_outcome_advantage(
-            token_level_rewards=data.batch["token_level_rewards"],
-            response_mask=grpo_calculation_mask,
-            index=data.non_tensor_batch["uid"],
-            task_ids=data.non_tensor_batch.get("task", None),
-            dataset_ids = data.non_tensor_batch.get("dataset", None),
-            class_labels=data.non_tensor_batch.get("class_label", None),
+        # grpo_calculation_mask = data.batch["response_mask"]
+
+        # # info, taken from the non_tensor batch,
+        # # this is usually a string identifier for the task, 
+        # # for task_ids, dataset_ids, class_labels
+        # advantages, returns = core_algos.compute_harpo_outcome_advantage(
+        #     token_level_rewards=data.batch["token_level_rewards"],
+        #     response_mask=grpo_calculation_mask,
+        #     index=data.non_tensor_batch["uid"],
+        #     task_ids=data.non_tensor_batch.get("task", None),
+        #     dataset_ids = data.non_tensor_batch.get("dataset", None),
+        #     class_labels=data.non_tensor_batch.get("class_label", None),
         
-            # EMA decays
-            beta_mu = 0.95,
-            beta_sigma = 0.95,
-            beta_mean = 0.95,
-            beta_cvar = 0.95,
-            beta_tail = 1.0,
+        #     # EMA decays
+        #     beta_mu = 0.95,
+        #     beta_sigma = 0.95,
+        #     beta_mean = 0.95,
+        #     beta_cvar = 0.95,
+        #     beta_tail = 1.0,
 
-            # Static metadata for class weights
-            class_count_info = None, 
-            class_weight_scope = "auto"
+        #     # Static metadata for class weights
+        #     class_count_info = None, 
+        #     class_weight_scope = "auto"
 
-        )
-        data.batch["advantages"] = advantages
-        data.batch["returns"] = returns
+        # )
+        # data.batch["advantages"] = advantages
+        # data.batch["returns"] = returns
 
     else:
         # handle all other adv estimator type other than GAE and GRPO
@@ -821,7 +803,7 @@ class RayPPOTrainer:
 
             # Store original inputs
             input_ids = test_batch.batch["input_ids"]
-            # TODO: Can we keep special tokens except for padding tokens?
+
             input_texts = [self.tokenizer.decode(ids, skip_special_tokens=True) for ids in input_ids]
             sample_inputs.extend(input_texts)
 
@@ -917,9 +899,6 @@ class RayPPOTrainer:
 
         self._maybe_log_val_generations(inputs=sample_inputs, outputs=sample_outputs, scores=sample_scores)
 
-        # Per data source metrics
-        # metrics = compute_metrics_by_data_source(all_predictions, all_ground_truths,
-        #                                          all_data_sources, all_datasets, all_demographics)
   
         # NOTE: KEANE's IMPLEMENTATION
         metrics = compute_metrics_by_data_source(all_predictions, all_ground_truths, 
@@ -938,7 +917,6 @@ class RayPPOTrainer:
               f" size of sample_gts: {len(sample_gts)}, size of sample_inputs: {len(sample_inputs)}"
               f", size of data_sources: {len(data_sources)}, size of sample_turns: {len(sample_turns)}")
         
-        # TODO: change this if you want to use your own validation metrics
         # NOTE: This currently focuses on data sources
         # So, ignore this in WANDB logging for now
         data_src2var2metric2val = process_validation_metrics(data_sources, sample_inputs, reward_extra_infos_dict)
@@ -1227,9 +1205,6 @@ class RayPPOTrainer:
                 critic_path, del_local_after_load=self.config.trainer.del_local_ckpt_after_load
             )
 
-        # load dataloader,
-        # TODO: from remote not implemented yet
-        # TODO_TAPRO: can you check if the dataloader is loaded correctly for our case
         dataloader_local_path = os.path.join(global_step_folder, "data.pt")
         if os.path.exists(dataloader_local_path):
             dataloader_state_dict = torch.load(dataloader_local_path, weights_only=False)
@@ -1279,12 +1254,12 @@ class RayPPOTrainer:
         )
         metrics.update(global_balance_stats)
     
-    def _tarpo_metrics_all(self):
+    def _harpo_metrics_all(self):
         """
         Summarize BOTH task_stats and dataset_stats into flat scalars.
         Logs everything in one unified dictionary:
-            tarpo/task/<task_id>/...
-            tarpo/dataset/<dataset_id>/...
+            harpo/task/<task_id>/...
+            harpo/dataset/<dataset_id>/...
         """
 
         def _sanitize_key(x: str) -> str:
@@ -1297,7 +1272,7 @@ class RayPPOTrainer:
         # ======================================================================
         for task_id, st in core_algos.task_stats.items():
             tkey = _sanitize_key(task_id)
-            prefix = f"tarpo/task/{tkey}"
+            prefix = f"harpo/task/{tkey}"
 
             # --- Core EMAs / counters (raw rewards, task adapter level) ---
             out[f"{prefix}/ema_mu"]           = float(st.get("ema_mu", 0.0))
@@ -1358,7 +1333,7 @@ class RayPPOTrainer:
             out[f"{prefix}/mixture_density_batch_count"]     = int(st.get("mixture_batch_count", 0))
             out[f"{prefix}/mixture_density_sig_count_batch"] = float(st.get("mixture_sig_count_batch", 0.0))
 
-            # --- Final TARPO advantages (after all transformations) ---
+            # --- Final HARPO advantages (after all transformations) ---
             out[f"{prefix}/final_advantage_batch_mu"]         = float(st.get("final_advantage_batch_mu", 0.0))
             out[f"{prefix}/final_advantage_batch_sigma"]      = float(st.get("final_advantage_batch_sigma", 1.0))
             out[f"{prefix}/final_advantage_batch_abs_mean"]   = float(st.get("final_advantage_batch_abs_mean", 0.0))
@@ -1410,7 +1385,7 @@ class RayPPOTrainer:
         # ======================================================================
         for ds_id, st in core_algos.dataset_stats.items():
             dkey = _sanitize_key(ds_id)
-            prefix = f"tarpo/dataset/{dkey}"
+            prefix = f"harpo/dataset/{dkey}"
 
             # --- Core EMAs / counters ---
             out[f"{prefix}/ema_mu"]           = float(st.get("ema_mu", 0.0))
@@ -1471,7 +1446,7 @@ class RayPPOTrainer:
             out[f"{prefix}/mixture_density_batch_count"]     = int(st.get("mixture_batch_count", 0))
             out[f"{prefix}/mixture_density_sig_count_batch"] = float(st.get("mixture_sig_count_batch", 0.0))
 
-            # --- Final TARPO advantages (after all transformations) ---
+            # --- Final HARPO advantages (after all transformations) ---
             out[f"{prefix}/final_advantage_batch_mu"]         = float(st.get("final_advantage_batch_mu", 0.0))
             out[f"{prefix}/final_advantage_batch_sigma"]      = float(st.get("final_advantage_batch_sigma", 1.0))
             out[f"{prefix}/final_advantage_batch_abs_mean"]   = float(st.get("final_advantage_batch_abs_mean", 0.0))
@@ -1641,7 +1616,7 @@ class RayPPOTrainer:
                 batch_keys_to_pop = ["input_ids", "attention_mask", "position_ids"]
                 non_tensor_batch_keys_to_pop = ["raw_prompt_ids"]
 
-                # TODO_TARPO: put the task ids and class_label here:
+                # TODO_HARPO: put the task ids and class_label here:
                 if "task" in batch.non_tensor_batch:
                     non_tensor_batch_keys_to_pop.append("task")
                 if "class_label" in batch.non_tensor_batch:
@@ -1801,16 +1776,16 @@ class RayPPOTrainer:
                             config=self.config.algorithm,
                         )
                     
-                    # Log TARPO task_stats (all tasks) every step
+                    # Log HARPO task_stats (all tasks) every step
                     try:
-                        tarpo_metrics = self._tarpo_metrics_all()
-                        if tarpo_metrics:
-                            metrics.update(tarpo_metrics)
+                        harpo_metrics = self._harpo_metrics_all()
+                        if harpo_metrics:
+                            metrics.update(harpo_metrics)
                     except Exception as e:
-                        print(f"[WARN] TARPO metrics logging failed: {e}")
+                        print(f"[WARN] HARPO metrics logging failed: {e}")
 
-                    # Save advantage distributions to JSON and plot (TARPO only)
-                    if self.config.algorithm.adv_estimator == AdvantageEstimator.TARPO:
+                    # Save advantage distributions to JSON and plot (HARPO only)
+                    if self.config.algorithm.adv_estimator == AdvantageEstimator.HARPO:
                         try:
                             # Get advantage save directory from config
                             # Can be set in shell script with: trainer.advantage_save_dir=/path/to/dir

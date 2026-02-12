@@ -299,8 +299,8 @@
 ### OLDEST WORKING:
 
 
-@register_adv_est(AdvantageEstimator.TARPO)
-def compute_tarpo_outcome_advantage(
+@register_adv_est(AdvantageEstimator.HARPO)
+def compute_harpo_outcome_advantage(
     token_level_rewards: torch.Tensor,   # (B, L), where L is the response_length
     response_mask:      torch.Tensor,    # (B, L)
     index:              torch.Tensor,    # (B,) question /prompt ids (unused except parity with others)
@@ -330,7 +330,7 @@ def compute_tarpo_outcome_advantage(
     class_weight_scope: str = "auto",
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """
-    TARPO advantage/return computation (no per-prompt batch norm).
+    HARPO advantage/return computation (no per-prompt batch norm).
     Pipeline (modular; combine once at the end):
         A) Build q2rollouts/q2tasks/q2datasets/q2class and per-task/dataset stats
         B) (Optional) Global min-max scaling across all rollouts
@@ -788,7 +788,7 @@ def compute_tarpo_outcome_advantage(
         qfinalrolloutpos[qid] += 1
 
     # --------------------------------------------
-    # U3) Update FINAL TARPO advantages per task and per dataset
+    # U3) Update FINAL HARPO advantages per task and per dataset
     # --------------------------------------------
     update_advantage_stats(
         q2_advantages=q2_final,
