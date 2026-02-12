@@ -54,6 +54,9 @@ from verl.workers.rollout.vllm_rollout.utils import (
     VLLM_LORA_PATH,
     get_vllm_max_lora_rank,
 )
+from packaging import version
+
+_VLLM_VERSION = version.parse(vllm.__version__)
 
 logger = logging.getLogger(__file__)
 logger.setLevel(logging.INFO)
@@ -338,7 +341,10 @@ class vLLMHttpServerBase:
         await engine_client.reset_mm_cache()
 
         app = build_app(args)
-        await init_app_state(engine_client, vllm_config, app.state, args)
+        if _VLLM_VERSION > version.parse("0.11.0"):
+            await init_app_state(engine_client, app.state, args)
+        else:
+            await init_app_state(engine_client, vllm_config, app.state, args)
         if self.replica_rank == 0 and self.node_rank == 0:
             logger.info(f"Initializing a V1 LLM engine with config: {vllm_config}")
 
