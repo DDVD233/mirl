@@ -232,11 +232,7 @@ async def evaluate_worker(semaphore, question: str, candidate_answer: str, refer
 
 def load_annotations():
     
-    # For MIB Server
-    # annotation_path = Path("/scratch/keane/human_behaviour_data/")
-
-    # For Scratch Server
-    annotation_path = Path("/scratch/keane/human_behaviour/human_behaviour_data")
+    annotation_path = Path("/path/to/data/human_behaviour_data")
 
     # Load annotation files
     mimeqa_annotation_path = annotation_path / "mimeqa" / "metadata.csv"
@@ -409,8 +405,8 @@ def calculate_accuracy(graded_results):
 
 async def main():
     parser = argparse.ArgumentParser(description="Process results and calculate accuracy")
-    parser.add_argument("--results_path", help="Path to the results JSON file", default="/Users/keane/Desktop/research/human-behavior/verl/examples/reward_function/temp/input_data_2025-11-28_11-53-44.json")
-    parser.add_argument("--save_path", help="Optional path to save graded results as JSON", default="/Users/keane/Desktop/research/human-behavior/verl/examples/reward_function/temp/results_temp.json")
+    parser.add_argument("--results_path", help="Path to the results JSON file", default=None)
+    parser.add_argument("--save_path", help="Optional path to save graded results as JSON", default=None)
     parser.add_argument("--provider", choices=["openai", "anthropic"], default="openai",
                        help="LLM provider to use (default: openai)")
     parser.add_argument("--wandb_project", help="Weights & Biases project name", default="temp_llm_judge_test")
@@ -424,7 +420,7 @@ async def main():
 
     if args.save_path is None:
         # Optionally set a default save path for debugging
-        # args.save_path = "/scratch/keane/human_behaviour/graded_results.json"
+        # args.save_path = "/path/to/data/graded_results.json"
         pass
 
     if args.provider == "anthropic":

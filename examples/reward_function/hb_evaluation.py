@@ -6,7 +6,7 @@ import datetime
 import sys
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
-from multi_task_classification.evaluate.detailed_multi_task_evaluation import evaluate_predictions, _build_index_to_label
+from eval_helpers.main import evaluate_predictions, _build_index_to_label
 
 # Function to extract boxed content from model predictions
 def extract_boxed(text: str) -> str:
@@ -48,9 +48,9 @@ def compute_metrics_by_data_source(
     # Get the absolute path to meta.json
     script_dir = os.path.dirname(os.path.abspath(__file__))
     label_map_path = os.path.join(script_dir, "meta.json")
+
+    # TODO: For future evaluation iteration
     # label_map_path = os.path.join(script_dir, "meta_zero_shot_gen.json")
-    # # NOTE: hardcoded for now
-    # label_map_path = ""
 
     ignore_datasets = {"mimeqa", "siq2", "intentqa"}
     # remove predictions, ground_truths, datasets for ignored datasets

@@ -69,7 +69,7 @@ from verl.utils.rollout_skip import RolloutSkip
 from verl.utils.seqlen_balancing import get_seqlen_balanced_partitions, log_seqlen_unbalance
 from verl.utils.torch_functional import masked_mean
 from verl.utils.tracking import ValidationGenerationsLogger
-from verl.utils.dataset.log_mm_tokens import log_modality_budgets
+
 
 from examples.reward_function.hb_evaluation import compute_metrics_by_data_source
 # === Tee logger setup: save all stdout + stderr to file while keeping terminal output ===
@@ -899,8 +899,7 @@ class RayPPOTrainer:
 
         self._maybe_log_val_generations(inputs=sample_inputs, outputs=sample_outputs, scores=sample_scores)
 
-  
-        # NOTE: KEANE's IMPLEMENTATION
+
         metrics = compute_metrics_by_data_source(all_predictions, all_ground_truths, 
                                                  all_datasets, val_data_dir, self.global_steps)
 
@@ -1582,9 +1581,6 @@ class RayPPOTrainer:
                 #     print("skipping problematic batch")
                 #     continue
 
-                # log modality budgets                
-                log_modality_budgets(batch_dict, step=self.global_steps)
-
                 if debug_file is not None:
                     with open(debug_file, "a", encoding="utf-8") as f:
                         log_entry = {
@@ -1815,7 +1811,6 @@ class RayPPOTrainer:
                                 try:
 
                                     from verl.trainer.ppo.utils.plot_advantage_distributions import plot_advantage_distributions
-                                    from verl.trainer.ppo.utils.plot_responsibility_distributions import plot_responsibility_distributions
                                     import plotly.io as pio
                                     import PIL.Image
                                     from io import BytesIO
@@ -1845,30 +1840,13 @@ class RayPPOTrainer:
                                             }, step=self.global_steps)
                                             print(f"Logged {adv_type} advantage plot to W&B at step {self.global_steps}")
 
-                                            # Create responsibility plot
-                                            fig_resp = plot_responsibility_distributions(
-                                                json_path,
-                                                save_path=None,  # Don't save to file, just create figure
-                                                title=f"{adv_type.replace('_', ' ').title()} Responsibilities (Step {self.global_steps})",
-                                                width=1400,
-                                                height=600
-                                            )
-
-                                            # Convert plotly figure to image for W&B
-                                            img_bytes_resp = pio.to_image(fig_resp, format='png', width=1400, height=600)
-                                            img_resp = PIL.Image.open(BytesIO(img_bytes_resp))
-                                            wandb.log({
-                                                f"responsibilities/{adv_type}_distribution": wandb.Image(img_resp)
-                                            }, step=self.global_steps)
-                                            print(f"Logged {adv_type} responsibility plot to W&B at step {self.global_steps}")
-
                                 except Exception as plot_e:
-                                    print(f"[WARN] Advantage/Responsibility plotting failed: {plot_e}")
+                                    print(f"[WARN] Advantage plotting failed: {plot_e}")
                                     import traceback
                                     traceback.print_exc()
 
                         except Exception as e:
-                            print(f"[WARN] Advantage/ Responsibility saving/plotting failed: {e}")
+                            print(f"[WARN] Advantage saving/plotting failed: {e}")
                             import traceback
                             traceback.print_exc()
 

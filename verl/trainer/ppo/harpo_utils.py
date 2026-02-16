@@ -8,6 +8,8 @@ import torch
 
 # ---------------------------- HARPO GLOBAL STATE ---------------------------- #
 
+# NOTE: This will be released in the future as part of HARPO (the second iteration of OmniSapiens 2.0).
+
 # Module-level storage for latest advantage data (for saving to JSON)
 _latest_advantage_data: Dict[str, Any] = {
     "post_grpo": {"q2_advantages": {}, "q2tasks": {}, "q2datasets": {}, "q2_responsibilities": {}},

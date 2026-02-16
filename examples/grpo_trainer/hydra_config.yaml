@@ -210,7 +210,7 @@ trainer:
   - wandb
   log_val_generations: 0
   rollout_data_dir: null
-  validation_data_dir: /home/keaneong/human-behavior/verl/examples/grpo_trainer/val_logs_mixed_modal_verl_models_hb_omni_gpus12
+  validation_data_dir: /path/to/verl/examples/grpo_trainer/val_logs_mixed_modal_verl_models_hb_omni_gpus12
   nnodes: 1
   n_gpus_per_node: 2
   save_freq: 10
@@ -223,7 +223,7 @@ trainer:
   critic_warmup: 0
   default_hdfs_dir: null
   del_local_ckpt_after_load: false
-  default_local_dir: /scratch/keane/human_behaviour/mixed_modal_verl_models_hb_omni_gpu_block2
+  default_local_dir: /path/to/data/mixed_modal_verl_models_hb_omni_gpu_block2
   max_actor_ckpt_to_keep: null
   max_critic_ckpt_to_keep: null
   ray_wait_register_center_timeout: 300
@@ -232,10 +232,10 @@ trainer:
 data:
   tokenizer: null
   use_shm: false
-  train_files: /scratch/keane/human_behaviour/human_behaviour_data/fixed_0.1_train.jsonl
-  val_files: /scratch/keane/human_behaviour/human_behaviour_data/fixed_0.1_val.jsonl
+  train_files: /path/to/data/human_behaviour_data/fixed_0.1_train.jsonl
+  val_files: /path/to/data/human_behaviour_data/fixed_0.1_val.jsonl
   prompt_key: problem
-  format_prompt: /home/keaneong/human-behavior/verl/examples/format_prompt/default.jinja
+  format_prompt: /path/to/verl/examples/format_prompt/default.jinja
   reward_fn_key: data_source
   max_prompt_length: 4096
   max_response_length: 4096
@@ -376,7 +376,7 @@ reward_model:
     ranks: []
   ulysses_sequence_parallel_size: 1
 custom_reward_function:
-  path: /home/keaneong/human-behavior/verl/examples/reward_function/human_behaviour.py
+  path: /path/to/verl/examples/reward_function/human_behaviour.py
   name: human_behaviour_compute_score_batch
 algorithm:
   _target_: verl.trainer.config.AlgoConfig

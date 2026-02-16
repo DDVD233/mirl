@@ -6,11 +6,8 @@
 
 # Default values
 # PLEASE PUT THE RESULTS_PATH as the path within the save dir that points to the generated outputs for all questions, which should look like "full_test_or_val_generation_outputs/150.json"
-# RESULTS_PATH="/Users/keane/Desktop/research/human-behavior/verl/examples/reward_function/temp/input_data_2025-11-28_11-53-44.json"
-# SAVE_PATH="/Users/keane/Desktop/research/human-behavior/verl/examples/reward_function/temp/results_temp.json"
-
-RESULTS_PATH="/scratch/keane/human_behaviour/dapo_enhanced_harpo/global_step_350_test/full_test_or_val_generation_outputs/step_350.json"
-SAVE_PATH="/scratch/keane/human_behaviour/dapo_enhanced_harpo/global_step_350_test/full_test_or_val_generation_outputs/step_350_llm_grading_results.json"
+RESULTS_PATH="/path/to/data/global_step_350_test/full_test_or_val_generation_outputs/step_350.json"
+SAVE_PATH="/path/to/data/global_step_350_test/full_test_or_val_generation_outputs/step_350_llm_grading_results.json"
 PROVIDER="openai"
 WANDB_PROJECT="llm_judge_eval"
 WANDB_RUN_NAME="harpo_v2_experiment_$(date +%Y%m%d_%H%M%S)"

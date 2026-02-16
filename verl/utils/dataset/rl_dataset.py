@@ -15,7 +15,6 @@
 # limitations under the License.
 
 import copy
-import logging
 import os
 import re
 from collections import defaultdict
@@ -30,26 +29,8 @@ from transformers import PreTrainedTokenizer, ProcessorMixin
 import warnings
 import verl.utils.torch_functional as verl_F
 from verl.utils.model import compute_position_id_with_mask
-import time, os, math, warnings
-from verl.utils.dataset.count_mm_tokens import compute_modality_token_breakdown
+import os, warnings
 
-logger = logging.getLogger(__name__)
-
-def _tok_est_from_hw(H, W):
-    # 28x28 -> 1 "visual token" heuristic
-    return math.ceil(H/28) * math.ceil(W/28)
-
-def _sec_from_array(arr, sr):
-    try:
-        return round(len(arr) / float(sr), 3)
-    except Exception:
-        return "?"
-
-def _p99(xs):
-    xs = sorted(xs)
-    if not xs: return 0
-    k = int(0.99*(len(xs)-1))
-    return xs[k]
 
 def assert_homogeneous(batch_list: List[Dict[str, Any]]):
     sigs = {b.get("modality_signature") for b in batch_list}
@@ -70,7 +51,7 @@ def collate_fn(data_list: list[dict]) -> dict:
     """
     # data list is the batch list
     # NOTE: we assert homogeneous if the modality signatures are not homogeneous
-    # assert_homogeneous(data_list) # assert if not homogeneous
+    assert_homogeneous(data_list) # assert if not homogeneous
 
     tensors = defaultdict(list)
     non_tensors = defaultdict(list)
@@ -143,7 +124,6 @@ class RLHFDataset(Dataset):
         self.return_full_prompt = config.get("return_full_prompt", False)
         self.truncation = config.get("truncation", "error")
 
-        # TODO: Check whether this is true
         self.filter_overlong_prompts = config.get("filter_overlong_prompts", True)
         if isinstance(data_files, str):
             self.base_dir = os.path.dirname(os.path.abspath(data_files))
@@ -185,7 +165,6 @@ class RLHFDataset(Dataset):
     def _read_files_and_tokenize(self):
         dataframes = []
 
-        #TODO_HARPO
         features = datasets.Features({
             "problem": datasets.Value("string"),
             "answer":  datasets.Value("string"),
@@ -200,20 +179,6 @@ class RLHFDataset(Dataset):
             "ext_video_feats": datasets.Sequence(datasets.Value("string")),  # <- optional, default []
             "ext_audio_feats": datasets.Sequence(datasets.Value("string")),  # <- optional, default []
         })
-
-        # features = datasets.Features({
-        #     "problem": datasets.Value("string"),
-        #     "answer":  datasets.Value("string"),
-        #     "images":  datasets.Sequence(datasets.Value("string")),
-        #     "videos":  datasets.Sequence(datasets.Value("string")),
-        #     "audios":  datasets.Sequence(datasets.Value("string")),  # <- force list of strings
-        #     "dataset": datasets.Value("string"),
-        #     "texts":   datasets.Sequence(datasets.Value("string")),
-        #     "modality_signature": datasets.Value("string"),
-        #     # TODO: THE BOTTOM TWO ARE JUST FOR DEBUGGING FOR NOW; remove when running the other scripts
-        #     "ext_video_feats": datasets.Sequence(datasets.Value("string")),  # <- optional, default []
-        #     "ext_audio_feats": datasets.Sequence(datasets.Value("string")),  # <- optional, default []
-        # })
 
         for parquet_file in self.data_files:
             # read parquet files and cache
@@ -245,7 +210,6 @@ class RLHFDataset(Dataset):
             audio_key = self.audio_key
 
             if processor is not None:
-                # print(f"KEANE: PROCESSOR FOUND")
                 from verl.utils.dataset.vision_utils import process_image, process_video
                 from verl.utils.dataset.audio_utils import process_audio
 
@@ -265,10 +229,7 @@ class RLHFDataset(Dataset):
                         processor_kwargs["videos"] = videos
 
                     if "audio" in self.modalities and audio_key in doc and doc.get(audio_key, None) is not None and len(doc[audio_key]) > 0:
-                        # processing of audio
-                        # print(f"KEANE: Processing audio within rl dataset file")
-                        # audios = [process_audio(audio, processor) for audio in doc[audio_key]]
-                        # processor_kwargs["audio"] = audios
+      
 
                         # PATCH
                         audios = []
@@ -277,18 +238,13 @@ class RLHFDataset(Dataset):
                             audio_path = os.path.join(self.base_dir, audio) if isinstance(audio, str) else audio
                             audio_data, sampling_rate = process_audio(audio_path, self.processor)
                             audio_tuples.append((audio_data, sampling_rate))
-                            # audios.append(audio_data.numpy())  # Convert to numpy array for Whisper
                             audios.append(audio_data.detach().cpu().numpy().astype("float32"))
 
                         processor_kwargs["audio"] = audios  # Pass numpy arrays to processor
-                    # TODO: cannot process the audio inputs
-                    # print(f"KEANE: Processor class is {processor.__class__.__name__}")
-                    # print(f"KEANE: Printing the processor_kwargs, {processor_kwargs}")
-                    # Assume that all are in tensors already, hence there is no return_tensors = "pt"
+
                     return len(processor(**processor_kwargs)["input_ids"][0])
 
             else:
-                # print(f"KEANE: PROCESSOR NOT FOUND")
                 def doc2len(doc) -> int:
                     return len(tokenizer.apply_chat_template(doc[prompt_key], add_generation_prompt=True))
 
@@ -350,16 +306,10 @@ class RLHFDataset(Dataset):
                 # NOTE: Apppending the <image>, <video>, <audio> tags when they are missing
                 if image_tag_count < image_count:
                     content = "<image>" * (image_count - image_tag_count) + content
-                    logger.warning("<image> tag count is less than image count, adding missing <image> tags."
-                                   " content: %s", content)
                 if video_tag_count < video_count:
                     content = "<video>" * (video_count - video_tag_count) + content
-                    logger.warning("<video> tag count is less than video count, adding missing <video> tags."
-                                 " content: %s", content)
                 if audio_tag_count < audio_count:
                     content = "<audio>" * (audio_count - audio_tag_count) + content
-                    logger.warning("<audio> tag count is less than audio count, adding missing <audio> tags."
-                                   " content: %s", content)
 
                 content_list = []
                 # Build regex pattern based on enabled modalities
@@ -372,7 +322,7 @@ class RLHFDataset(Dataset):
                     tag_patterns.append("<audio>")
                 
                 # NOTE: Denote the different patterns based on the tag.
-                # TODO: Double check what this does
+
                 if tag_patterns:
                     pattern = "(" + "|".join(tag_patterns) + ")"
                     segments = re.split(pattern, content)
@@ -440,9 +390,6 @@ class RLHFDataset(Dataset):
             if item is None:
                 row_dict[key] = []
 
-        # create the video_ext and audio ext paths:
-        # TODO: This currently works for only the fist video within the .pt list
-        # i.e. "ext_video_feats": [path1, path2, ...], we only take the first one
         video_rel_path = row_dict.get('ext_video_feats', None)
         if video_rel_path:
             video_rel_path = video_rel_path[0]
@@ -457,10 +404,7 @@ class RLHFDataset(Dataset):
         else:
             row_dict["ext_audio_feats_path"] = None
 
-        # NOTE: BUILD_MESSAGES IS CALLED TWICE; 
-        # NOTE: FIRST TIME IS TO GET THE LENGTH OF THE RAW PROMPT AND FILTER OUT 
-        # NOTE: PROMPTS THAT DO NOT FIT THE LENGTH; 
-        # NOTE: SECOND TIME IS TO BUILD THE MESSAGE TO BE PASSED INTO THE MODEL
+        # NOTE: BUILD_MESSAGES IS CALLED TWICE; FIRST TIME IS TO GET THE LENGTH OF THE RAW PROMPT AND FILTER OUT; PROMPTS THAT DO NOT FIT THE LENGTH; SECOND TIME IS TO BUILD THE MESSAGE TO BE PASSED INTO THE MODEL
 
         messages = self._build_messages(row_dict)
 
@@ -475,12 +419,6 @@ class RLHFDataset(Dataset):
             })
         model_inputs = {}
         
-        # NOTE: DEBUGGING
-        dbg = False
-        if dbg:
-            print(f"[getitem] idx=? ds={row_dict.get('dataset')} src={row_dict.get('data_source')} "
-                f"modalities={self.modalities}")
-
         if self.processor is not None:
             # THIS CHUNK IS BASICALLY ABOUT PROCESSING ALL THE MODALITIES
             from verl.utils.dataset.vision_utils import process_image, process_video
@@ -490,9 +428,6 @@ class RLHFDataset(Dataset):
                 warnings.filterwarnings("ignore", message="System prompt modified")
                 raw_prompt = self.processor.apply_chat_template(messages, add_generation_prompt=True, tokenize=False)
 
-            
-            if dbg:
-                print(f"[prompt] raw_prompt_chars={len(raw_prompt)}")
 
             multi_modal_data = {}
             processor_kwargs = {"text": [raw_prompt], "return_tensors": "pt"}
@@ -508,14 +443,8 @@ class RLHFDataset(Dataset):
                 multi_modal_data["image"] = images
                 processor_kwargs["images"] = images
 
-                if dbg:
-                    print(f"[image] n={len(images)} shapes={[tuple(x.size()) if hasattr(x,'size') else 'np' for x in images]}")
-
-
-            # print(f"KEANE: Videos is next line, current processor_kwargs {processor_kwargs}")
             if "videos" in self.modalities and self.video_key in row_dict and row_dict.get(self.video_key, None) is not None and len(row_dict[self.video_key]) > 0:
                 videos = []
-                # print(f"KEANE: GETTING VIDEO {row_dict[self.video_key]}")
 
                 for video in row_dict.get(self.video_key):
                     video = os.path.join(self.base_dir, video) if isinstance(video, str) else video
@@ -526,14 +455,6 @@ class RLHFDataset(Dataset):
                 multi_modal_data["video"] = [video.numpy() for video in videos]
                 processor_kwargs["videos"] = videos
 
-                if dbg:
-                    shapes = [tuple(v.shape) for v in videos]  # [T,3,H,W]
-                    toks = []
-                    for (T, C, H, W) in shapes:
-                        toks.append(_tok_est_from_hw(H, W) * T)
-                    print(f"[video] n={len(videos)} shapes={shapes} est_tokens={toks} "
-                        f"sum_est_tokens={sum(toks)} p99_est={_p99(toks)}")
-
             if (
                 "audio" in self.modalities
                 and self.audio_key in row_dict
@@ -542,69 +463,24 @@ class RLHFDataset(Dataset):
             ):
                 audios_np = []
                 audios_np_sr = []
-                audio_tuples_debug = []  # keep tensors only for debugging
-                audio_secs = []
 
                 for audio in row_dict[self.audio_key]:
                     audio_path = os.path.join(self.base_dir, audio) if isinstance(audio, str) else audio
                     audio_tensor, sr = process_audio(audio_path, self.processor)
 
-                    # Debug only
-                    audio_tuples_debug.append((audio_tensor, sr))
-
                     # What BOTH HF and vLLM need:
                     arr = audio_tensor.detach().cpu().numpy().astype("float32")
                     audios_np.append(arr)
                     audios_np_sr.append((arr, int(sr)))
-                    audio_secs.append(_sec_from_array(arr, sr))
 
                 # HF (Whisper / Omni processor) path
                 multi_modal_data["audio"] = audios_np_sr  # Store numpy arrays (it should not accept tuples)
 
                 processor_kwargs["audio"] = audios_np  # Pass numpy arrays to processor
 
-                if dbg:
-                    print(f"[audio] n={len(audios_np)} secs_each={audio_secs} total_secs≈{round(sum([s for s in audio_secs if s!='?']),3)}")
-
-            # NOTE: Original CODE PROCESSING    
-            # TODO: Please check whether the model is processing the "audio" correctly, the processor that we are using is qwen 2.5 OMNI
-            # print(f"KEANE: Processing multimodal data with processor {self.processor.__class__.__name__} ")
-            # print(f"KEANE: Processor kwargs: {processor_kwargs}")
-            # model_inputs = self.processor(**processor_kwargs)
-
-            # NOTE: Replacement code
-            # try:
-            t0 = time.time()
-            # processing the modalities:
-            # # TODO_DEBUG; increase token limits for processor
-            # processor_kwargs["max_length"] = 10000
-
             model_inputs = self.processor(**processor_kwargs)
-            dt = (time.time() - t0)*1000
-            if dbg:
-                # lengths after processor/tokenizer
-                ids = model_inputs.get("input_ids")
-                lens = [len(x) for x in ids] if ids is not None else []
-                print(f"[processor] ok in {dt:.1f}ms; input_ids lens={lens} "
-                    f"min/med/max={ (min(lens) if lens else '-')} / "
-                    f"{ (sorted(lens)[len(lens)//2] if lens else '-') } / "
-                    f"{ (max(lens) if lens else '-') }")
-            # except Exception as e:
-            #     print(f"[processor][ERROR] {type(e).__name__}: {e}")
-            #     # helpful context dump (small)
-            #     print(f"[processor][ctx] has_video={videos is not None} "
-            #         f"n_vid={len(videos) if videos is not None else 0} "
-            #         f"n_audio={len(audio_secs) if audio_secs else 0} "
-            #         f"raw_prompt_chars={len(raw_prompt)}")
-            #     raise
 
-            row_dict["modality_token_breakdown"] = compute_modality_token_breakdown(
-                                            model_inputs=model_inputs,
-                                            tokenizer=self.tokenizer,
-                                            row_dict=row_dict,           # for audio seconds
-                                        )
 
-            # NOTE: all text should be processed by self.processor()
             input_ids = model_inputs.pop("input_ids")
             attention_mask = model_inputs.pop("attention_mask")
 
@@ -628,8 +504,6 @@ class RLHFDataset(Dataset):
             input_ids = model_inputs.pop("input_ids")
             attention_mask = model_inputs.pop("attention_mask")
         
-        #TODO_DEBUG double check the prompt length here as it may lead to error
-        #TODO_DEBUG it may need to be set higher, to 4096 or something
         input_ids, attention_mask = verl_F.postprocess_data(
             input_ids=input_ids,
             attention_mask=attention_mask,
@@ -641,9 +515,6 @@ class RLHFDataset(Dataset):
 
         if self.processor is not None and "Qwen2VLImageProcessor" in self.processor.image_processor.__class__.__name__:
             from verl.models.transformers.qwen2_vl import get_rope_index
-            
-            # NOTE: printing out whether this runs
-            # print("KEANE: Running getting the rope index of input ids")
             
             # NOTE: OBTAIN ROPE of rotary positional embeddings. ROPE encodes position by rotating components of query/key vectors
             # This is just for to get relative position in terms of angular differences etc.
@@ -692,9 +563,6 @@ class RLHFDataset(Dataset):
         index = row_dict.get("extra_info", {}).get("index", 0)
         tools_kwargs = row_dict.get("extra_info", {}).get("tools_kwargs", {})
         interaction_kwargs = row_dict.get("extra_info", {}).get("interaction_kwargs", {})
-        need_tools_kwargs = row_dict.get("extra_info", {}).get("need_tools_kwargs", self.need_tools_kwargs)
-        if need_tools_kwargs and not tools_kwargs:
-            logger.warning("tools_kwargs is empty for index {}, data source: {}", index, row_dict["data_source"])
         row_dict["index"] = index
         row_dict["tools_kwargs"] = tools_kwargs
         row_dict["interaction_kwargs"] = interaction_kwargs

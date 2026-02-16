@@ -30,7 +30,7 @@ from verl.trainer.ppo.reward import load_reward_manager
 from verl.utils.device import is_cuda_available
 from verl.utils.import_utils import load_extern_type
 from verl.utils.dataset.modality_sampler import ModalitySignatureBatchSampler
-from verl.utils.dataset.debug_modality_sampler import DebugModalitySignatureBatchSampler
+
 from verl.utils.dataset.resume_modality_sampler import ResModalitySignatureBatchSampler
 
 @hydra.main(config_path="config", config_name="ppo_trainer", version_base=None)
@@ -398,14 +398,6 @@ def create_rl_sampler(data_config, dataset, split: str = "train", *, world_size:
         shuffle = (split == "train")
         base_seed = int(data_config.get("seed", 42))
   
-        # sampler = DebugModalitySignatureBatchSampler(
-        #     indices_by_sig=by_sig,
-        #     batch_size=int(batch_size),
-        #     drop_last=drop_last,
-        #     shuffle=shuffle,
-        #     seed=data_config.get("seed", 42),
-
-        # )
         sampler = ResModalitySignatureBatchSampler(
         indices_by_sig=by_sig,
         batch_size=batch_size,
