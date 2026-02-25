@@ -6,7 +6,7 @@ import datetime
 import sys
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
-from eval_helpers.main import evaluate_predictions, _build_index_to_label
+from examples.reward_function.eval_helpers.main import evaluate_predictions, _build_index_to_label
 
 # Function to extract boxed content from model predictions
 def extract_boxed(text: str) -> str:
