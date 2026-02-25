@@ -55,7 +55,7 @@ from verl.trainer.ppo.metric_utils import (
     process_validation_metrics,
 )
 from verl.trainer.ppo.reward import compute_reward, compute_reward_async
-from verl.verl.trainer.ppo.harpo_utils import (
+from verl.trainer.ppo.harpo_utils import (
     get_latest_advantage_data,
     save_advantages_to_json,
     save_ema_stats,
