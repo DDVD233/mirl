@@ -45,7 +45,7 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml train_multi_
     --train_file "/scratch/keane/human_behaviour/human_behaviour_data/w_feats_v6_train.jsonl" \
     --val_file "/scratch/keane/human_behaviour/human_behaviour_data/w_feats_v6_val.jsonl" \
     --test_file "/scratch/keane/human_behaviour/human_behaviour_data/w_feats_v6_test.jsonl" \
-    --label_map_path "/home/keaneong/human-behavior/verl/multi_task_classification/unified_label_map_v6.json" \
+    --label_map_path "/home/keaneong/human-behavior/verl/multi_task_classification/label_maps/unified_label_map_v6.json" \
     --load_checkpoint_path "/scratch/keane/human_behaviour/4_freeze_base_qa_multi_task_model/step_4578" \
     --save_every_n_epochs 999999 \
     --save_every_n_steps 999999 \
