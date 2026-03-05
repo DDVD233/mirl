@@ -28,6 +28,7 @@ from evaluate.detailed_multi_task_evaluation import evaluate_predictions
 from accelerate import Accelerator
 from accelerate.utils import set_seed
 from accelerate.logging import get_logger
+from accelerate.utils.fsdp_utils import load_fsdp_model
 
 logger = get_logger(__name__)
 
@@ -251,6 +252,7 @@ class MultiHeadOmniClassifierAccelerateTrainer:
         base_ckpt_dir: str,
         explicit_dir: str|None = None,
         expect_training_strategy: str|None = None,
+        inference_only: bool = False,
     ):
         """
         Rebuild & accelerator.prepare() your model/optimizer/dataloaders first.
@@ -281,8 +283,15 @@ class MultiHeadOmniClassifierAccelerateTrainer:
         if expect_training_strategy and meta.get("training_strategy") != expect_training_strategy:
             accelerator.print(f"[warn] strategy mismatch: expected {expect_training_strategy}, got {meta.get('training_strategy')}")
 
-        # 1) Restore everything the accelerator saved (model/opt/scaler/RNG/registered)
-        accelerator.load_state(ckpt_dir)
+        # 1) Restore state
+        if inference_only:
+            # For eval/test: load only model weights. Skipping accelerator.load_state()
+            # avoids strict checks on optimizer param groups and custom checkpoint counts
+            # that would fail when the registered objects differ from the saved checkpoint.
+            load_fsdp_model(accelerator.state.fsdp_plugin, accelerator, model, ckpt_dir, model_index=0)
+        else:
+            # Restore everything the accelerator saved (model/opt/scaler/RNG/registered)
+            accelerator.load_state(ckpt_dir)
 
         # 2) Compute resume positions using your step definition
         global_step = int(meta["global_step"])
@@ -753,6 +762,7 @@ class MultiHeadOmniClassifierAccelerateTrainer:
             base_ckpt_dir=self.checkpoint_dir, # essentially the save path; ignored if we specified load_checkpoint_path
             explicit_dir=self.load_checkpoint_path or None,
             expect_training_strategy=self.global_config.get("TRAINING_STRATEGY"),
+            inference_only=True,
         )
 
         test_results = self.validate(test_dataloader, "test", current_step=1)
