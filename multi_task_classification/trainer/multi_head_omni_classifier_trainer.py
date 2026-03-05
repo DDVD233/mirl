@@ -737,35 +737,13 @@ class MultiHeadOmniClassifierAccelerateTrainer:
         train_dataloader = self.get_dataloader(self.data_files, self.batch_size, num_workers=self.num_workers, shuffle=True)
         test_dataloader = self.get_dataloader(self.test_data_files, self.test_batch_size, num_workers=self.num_workers, shuffle=False)
 
-        optimizer = Adam(self.model.parameters(), lr=self.lr)
-        total_updates = self.epochs * len(train_dataloader)
-
-        # Get the scheduler
-        if self.use_scheduler:
-            scheduler = get_scheduler(
-                self.scheduler_type,
-                optimizer,
-                num_warmup_steps=self.warmup_steps,
-                num_training_steps=total_updates
-            )
-            print(f"[INFO] Using {self.scheduler_type} scheduler with {self.warmup_steps} warmup steps")
-        else:
-            scheduler = None
-            print("[INFO] Scheduler disabled - using constant learning rate")
-
-
-        # everything should be prepared again by accelerator, including the model
-         # Prepare everything with Accelerate
-        if scheduler is not None:
-            self.model, optimizer, train_dataloader, test_dataloader, scheduler = self.accelerator.prepare(
-                self.model, optimizer, train_dataloader, test_dataloader, scheduler
-            )
-            # Register the scheduler for checkpointing
-            self.accelerator.register_for_checkpointing(scheduler)
-        else:
-            self.model, optimizer, train_dataloader, test_dataloader = self.accelerator.prepare(
-                self.model, optimizer, train_dataloader, test_dataloader
-            )
+        # No optimizer needed for test/eval — prepare model and dataloaders only.
+        # Skipping optimizer registration means accelerator.load_state() won't attempt
+        # to restore optimizer state, avoiding mismatches with checkpoints saved under
+        # a different training strategy (e.g. LoRA vs full-param).
+        self.model, train_dataloader, test_dataloader = self.accelerator.prepare(
+            self.model, train_dataloader, test_dataloader
+        )
 
         # loading of the model etc. 
 
