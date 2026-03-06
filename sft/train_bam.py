@@ -78,7 +78,7 @@ def parse_parameters():
     parser.add_argument('--use_bam_video', action='store_true')
     parser.add_argument('--use_bam_audio', action='store_true')
     parser.add_argument('--bam_stage', type=str,
-                        choices=['base_only', 'residual_only', 'joint', 'residual_and_head'])
+                        choices=['bam_only', 'bam_and_classifier_heads_only', 'bam_and_full_model'])
     parser.add_argument('--bam_resume_diff_training_stage', action='store_true')
     parser.add_argument('--bam_hidden_video', type=int)
     parser.add_argument('--bam_hidden_audio', type=int)
@@ -286,7 +286,7 @@ def main():
         # BAM-specific
         'USE_BAM_VIDEO':                bool(_bam('use_bam_video', False)),
         'USE_BAM_AUDIO':                bool(_bam('use_bam_audio', False)),
-        'BAM_STAGE':                    _bam('bam_stage', 'base_only'),
+        'BAM_STAGE':                    _bam('bam_stage', 'bam_only'),
         'BAM_RESUME_DIFF_TRAINING_STAGE': bool(_bam('resume_diff_training_stage', False)),
         'BAM_HIDDEN':                   int(_bam('bam_hidden', 128)),
         'BAM_HIDDEN_VIDEO':             int(_bam('bam_hidden_video', 128)),

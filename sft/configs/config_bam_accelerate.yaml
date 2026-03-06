@@ -24,8 +24,8 @@ model:
 bam:
   use_bam_video: false
   use_bam_audio: false
-  bam_stage: "base_only"          # base_only | residual_only | joint
-  # NEW (per-modality hidden)
+  bam_stage: "bam_only"           # bam_only | bam_and_classifier_heads_only | bam_and_full_model
+  
   bam_hidden_video: 256
   bam_hidden_audio: 512
   bam_p_moddrop_video: 0.30

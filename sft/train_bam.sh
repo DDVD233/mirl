@@ -1,5 +1,5 @@
 #!/bin/bash
-# RHA adapter training: loads a frozen multi-head checkpoint and trains
+# BAM adapter training: loads a frozen multi-head checkpoint and trains
 # per-dataset video/audio residual hidden adapters.
 # Edit the paths below before running.
 
@@ -128,7 +128,7 @@ for DS in "${PROCESS_DS[@]}"; do
     --validate_every_n_steps None \
     --early_stopping_patience 99999 \
     --gradient_accumulation_steps 4 \
-    --bam_stage residual_and_head \
+    --bam_stage bam_and_classifier_heads_only \
     --use_bam_audio \
     --d_video_feat 3318 \
     --d_audio_feat 6373 \

@@ -42,8 +42,8 @@ class BAMTrainer(BaseMultiHeadTrainer):
         self.use_bam_video = cfg.get("USE_BAM_VIDEO", False)
         self.use_bam_audio = cfg.get("USE_BAM_AUDIO", False)
 
-        # Stage: "base_only" | "residual_only" | "joint" | "residual_and_head"
-        self.bam_stage = cfg.get("BAM_STAGE", "base_only")
+        # Stage: "bam_only" | "bam_and_classifier_heads_only" | "bam_and_full_model"
+        self.bam_stage = cfg.get("BAM_STAGE", "bam_only")
         self.bam_resume_diff_training_stage = bool(cfg.get("BAM_RESUME_DIFF_TRAINING_STAGE", False))
 
         self.bam_hidden = cfg.get("BAM_HIDDEN", 128)
@@ -73,7 +73,7 @@ class BAMTrainer(BaseMultiHeadTrainer):
         return {
             "bam_use_video": bool(cfg.get("USE_BAM_VIDEO", False)),
             "bam_use_audio": bool(cfg.get("USE_BAM_AUDIO", False)),
-            "bam_stage": cfg.get("BAM_STAGE", "base_only"),
+            "bam_stage": cfg.get("BAM_STAGE", "bam_only"),
             "bam_resume_diff_training_stage": bool(cfg.get("BAM_RESUME_DIFF_TRAINING_STAGE", False)),
             "bam_d_video_feat": cfg.get("D_VIDEO_FEAT", None),
             "bam_d_audio_feat": cfg.get("D_AUDIO_FEAT", None),
@@ -105,7 +105,7 @@ class BAMTrainer(BaseMultiHeadTrainer):
 
     def _current_model_order(self):
         order = ["base"]
-        if self.bam_stage in {"residual_only", "joint", "residual_and_head"}:
+        if self.bam_stage in {"bam_only", "bam_and_classifier_heads_only", "bam_and_full_model"}:
             if self.video_adapter is not None:
                 order.append("video")
             if self.audio_adapter is not None:
@@ -226,7 +226,7 @@ class BAMTrainer(BaseMultiHeadTrainer):
     def _prepare_modules(self, train_dl, val_dl, include_adapters: bool):
         """Prepare model (and optionally adapters) + dataloaders with accelerator."""
         modules = [self.model]
-        if include_adapters and self.bam_stage in {"residual_only", "joint", "residual_and_head"}:
+        if include_adapters and self.bam_stage in {"bam_only", "bam_and_classifier_heads_only", "bam_and_full_model"}:
             if self.video_adapter is not None:
                 modules.append(self.video_adapter)
             if self.audio_adapter is not None:
@@ -236,7 +236,7 @@ class BAMTrainer(BaseMultiHeadTrainer):
 
         idx = 0
         self.model = prepared[idx]; idx += 1
-        if include_adapters and self.bam_stage in {"residual_only", "joint", "residual_and_head"}:
+        if include_adapters and self.bam_stage in {"bam_only", "bam_and_classifier_heads_only", "bam_and_full_model"}:
             if self.video_adapter is not None:
                 self.video_adapter = prepared[idx]; idx += 1
             if self.audio_adapter is not None:
@@ -271,14 +271,7 @@ class BAMTrainer(BaseMultiHeadTrainer):
 
         bundles = {"base": None, "video": None, "audio": None}
 
-        if self.bam_stage == "base_only":
-            _set(self.video_adapter, False)
-            _set(self.audio_adapter, False)
-            params = [p for p in self.model.parameters() if p.requires_grad]
-            if params:
-                bundles["base"] = {"params": params, "lr": base_lr}
-
-        elif self.bam_stage == "residual_only":
+        if self.bam_stage == "bam_only":
             _set(self.model, False)
             _set(self.video_adapter, True)
             _set(self.audio_adapter, True)
@@ -294,7 +287,7 @@ class BAMTrainer(BaseMultiHeadTrainer):
                 if ap:
                     bundles["audio"] = {"params": ap, "lr": bam_lr}
 
-        elif self.bam_stage == "residual_and_head":
+        elif self.bam_stage == "bam_and_classifier_heads_only":
             _set(self.model, False)
             _set(self.model.heads, True)
             _set(self.video_adapter, True)
@@ -311,7 +304,7 @@ class BAMTrainer(BaseMultiHeadTrainer):
                 if ap:
                     bundles["audio"] = {"params": ap, "lr": bam_lr}
 
-        elif self.bam_stage == "joint":
+        elif self.bam_stage == "bam_and_full_model":
             _set(self.video_adapter, True)
             _set(self.audio_adapter, True)
             params = [p for p in self.model.parameters() if p.requires_grad]
@@ -381,7 +374,7 @@ class BAMTrainer(BaseMultiHeadTrainer):
 
     def _pool_feats(self, batch, device):
         cfg = self.global_config
-        use_adapters = self.bam_stage in {"residual_only", "joint", "residual_and_head"}
+        use_adapters = self.bam_stage in {"bam_only", "bam_and_classifier_heads_only", "bam_and_full_model"}
 
         pooled_video = None
         if use_adapters and self.use_bam_video and "video_feats" in batch and batch["video_feats"] is not None:
@@ -413,7 +406,7 @@ class BAMTrainer(BaseMultiHeadTrainer):
             domain_ids=domain_ids,
         )
         use_adapters = (
-            self.bam_stage in {"residual_only", "joint", "residual_and_head"}
+            self.bam_stage in {"bam_only", "bam_and_classifier_heads_only", "bam_and_full_model"}
             and (self.use_bam_video or self.use_bam_audio)
         )
         if use_adapters:
@@ -781,7 +774,7 @@ class BAMTrainer(BaseMultiHeadTrainer):
         self._build_adapters()
         train_dataloader, test_dataloader = self._prepare_modules(
             train_dataloader, test_dataloader,
-            include_adapters=(self.bam_stage in {"residual_only", "joint", "residual_and_head"}),
+            include_adapters=(self.bam_stage in {"bam_only", "bam_and_classifier_heads_only", "bam_and_full_model"}),
         )
 
         base_lr = self.global_config.get("BASE_LR", self.lr * 0.25)
