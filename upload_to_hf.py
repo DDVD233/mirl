@@ -172,13 +172,157 @@ def parse_args():
     p.add_argument("--dataset_repo", default=None,
                    help="HF dataset repo to cross-link in the model card "
                         "(e.g. keentomato/human_behaviour_atlas)")
+    p.add_argument("--readme_only", action="store_true",
+                   help="Skip checkpoint loading; only regenerate and push README.md")
     return p.parse_args()
+
+
+def _write_readme(args, backbone_save: str) -> None:
+    """Write README.md into backbone_save."""
+    readme_lines = [
+        "---",
+        "language: en",
+        "license: apache-2.0",
+        "tags:",
+        "  - human-behavior",
+        "  - multimodal",
+        "  - qwen2.5-omni",
+    ]
+    if args.dataset_repo:
+        readme_lines += ["datasets:", f"  - {args.dataset_repo}"]
+    readme_lines += [
+        "---",
+        "",
+        "# OmniSapiens SFT",
+        "",
+        f"Fine-tuned [Qwen2.5-Omni-7B](https://huggingface.co/Qwen/Qwen2.5-Omni-7B) "
+        "for human behavior understanding.",
+    ]
+    if args.dataset_repo:
+        readme_lines += [
+            "",
+            "## Benchmark",
+            f"Evaluated on [{args.dataset_repo}](https://huggingface.co/datasets/{args.dataset_repo}).",
+        ]
+    readme_lines += [
+        "",
+        "## Usage",
+        "",
+        "### Installation",
+        "```bash",
+        "pip install transformers torch huggingface_hub",
+        "```",
+        "",
+        "### Classification",
+        "",
+        "```python",
+        "import json, torch",
+        "from huggingface_hub import hf_hub_download",
+        "from transformers import Qwen2_5OmniThinkerForConditionalGeneration, AutoProcessor",
+        "",
+        f'MODEL_ID = "{args.repo_id}"',
+        "",
+        "# 1. Load backbone and processor",
+        "model = Qwen2_5OmniThinkerForConditionalGeneration.from_pretrained(",
+        "    MODEL_ID, torch_dtype=torch.float16, device_map=\"auto\"",
+        ")",
+        "processor = AutoProcessor.from_pretrained(MODEL_ID)",
+        "",
+        "# 2. Load classification heads and label scheme",
+        "heads_path = hf_hub_download(MODEL_ID, \"heads.bin\")",
+        "label_path = hf_hub_download(MODEL_ID, \"label_scheme.json\")",
+        "heads_sd = torch.load(heads_path, map_location=\"cpu\")",
+        "with open(label_path) as f:",
+        "    label_scheme = json.load(f)",
+        "",
+        "# 3. Reconstruct domain heads",
+        "global_classes = label_scheme[\"meta\"][\"global_classes\"]  # {domain: [{index, label}, ...]}",
+        "hidden_size = model.config.hidden_size",
+        "domain_names = list(global_classes.keys())",
+        "domain_heads = torch.nn.ModuleList([",
+        "    torch.nn.Linear(hidden_size, len(global_classes[d])) for d in domain_names",
+        "])",
+        "domain_heads.load_state_dict({k.replace(\"heads.\", \"\"): v for k, v in heads_sd.items()})",
+        "domain_heads.eval().to(model.device).to(torch.float16)",
+        "domain_to_id = {d: i for i, d in enumerate(domain_names)}",
+        "",
+        "# 4. Prepare multimodal inputs",
+        "# video_tensor: [T, C, H, W] tensor or list of PIL images",
+        "# audio_waveform: 1-D numpy array / tensor at 16 kHz",
+        "domain = \"emotion\"  # one of: " + ", ".join(f'"{d}"' for d in [
+            "sentiment_intensity", "emotion", "mental_health_ptsd",
+            "mental_health_depression", "mental_health_anxiety", "sarcasm", "humour",
+        ]),
+        "messages = [{\"role\": \"user\", \"content\": [",
+        "    {\"type\": \"video\"},",
+        "    {\"type\": \"audio\"},",
+        "    {\"type\": \"text\", \"text\": \"Classify the human behavior expressed.\"},",
+        "]}]",
+        "text = processor.apply_chat_template(messages, add_generation_prompt=False, tokenize=False)",
+        "inputs = processor(text=[text], videos=[video_tensor], audio=[audio_waveform], return_tensors=\"pt\")",
+        "inputs = {k: v.to(model.device) for k, v in inputs.items()}",
+        "",
+        "# 5. Forward pass — pool penultimate hidden layer, route through domain head",
+        "with torch.no_grad():",
+        "    out = model(**inputs, output_hidden_states=True, use_cache=False)",
+        "    h = out.hidden_states[-2]                            # [B, T, H]",
+        "    mask = inputs[\"attention_mask\"].unsqueeze(-1).float()",
+        "    pooled = (h * mask).sum(1) / mask.sum(1)             # [B, H]",
+        "    logits = domain_heads[domain_to_id[domain]](pooled.float())  # [B, K_d]",
+        "    pred_idx = logits.argmax(dim=-1).item()",
+        "",
+        "label_name = global_classes[domain][pred_idx][\"label\"]",
+        "print(f\"Predicted {domain}: {label_name}\")",
+        "```",
+        "",
+        "### QA / Open-ended generation",
+        "",
+        "```python",
+        "messages = [{\"role\": \"user\", \"content\": [",
+        "    {\"type\": \"video\"},",
+        "    {\"type\": \"audio\"},",
+        "    {\"type\": \"text\", \"text\": \"Describe the emotional state of the person in this video.\"},",
+        "]}]",
+        "text = processor.apply_chat_template(messages, add_generation_prompt=True, tokenize=False)",
+        "inputs = processor(text=[text], videos=[video_tensor], audio=[audio_waveform], return_tensors=\"pt\")",
+        "inputs = {k: v.to(model.device) for k, v in inputs.items()}",
+        "",
+        "with torch.no_grad():",
+        "    generated = model.generate(**inputs, max_new_tokens=128)",
+        "",
+        "answer = processor.decode(generated[0][inputs[\"input_ids\"].shape[1]:], skip_special_tokens=True)",
+        "print(answer)",
+        "```",
+    ]
+    readme_path = os.path.join(backbone_save, "README.md")
+    with open(readme_path, "w") as f:
+        f.write("\n".join(readme_lines) + "\n")
+    print(f"Wrote model card to {readme_path}")
 
 
 def main():
     args = parse_args()
 
     os.makedirs(args.save_dir, exist_ok=True)
+
+    # ------------------------------------------------------------------
+    # README-only mode: regenerate and push just README.md
+    # ------------------------------------------------------------------
+    if args.readme_only:
+        from huggingface_hub import HfApi
+        readme_dir = os.path.join(args.save_dir, "readme_only")
+        os.makedirs(readme_dir, exist_ok=True)
+        _write_readme(args, readme_dir)
+        api = HfApi()
+        api.upload_file(
+            path_or_fileobj=os.path.join(readme_dir, "README.md"),
+            path_in_repo="README.md",
+            repo_id=args.repo_id,
+            repo_type="model",
+            commit_message="Update README.md",
+        )
+        print(f"\nREADME updated at: https://huggingface.co/{args.repo_id}")
+        return
 
     # ------------------------------------------------------------------
     # 1. Load + split state dict
@@ -258,35 +402,7 @@ def main():
     # ------------------------------------------------------------------
     # 6. Write model card (README.md)
     # ------------------------------------------------------------------
-    readme_lines = [
-        "---",
-        "language: en",
-        "license: apache-2.0",
-        "tags:",
-        "  - human-behavior",
-        "  - multimodal",
-        "  - qwen2.5-omni",
-    ]
-    if args.dataset_repo:
-        readme_lines += ["datasets:", f"  - {args.dataset_repo}"]
-    readme_lines += [
-        "---",
-        "",
-        "# OmniSapiens SFT",
-        "",
-        f"Fine-tuned [Qwen2.5-Omni-7B](https://huggingface.co/Qwen/Qwen2.5-Omni-7B) "
-        "for human behavior understanding.",
-    ]
-    if args.dataset_repo:
-        readme_lines += [
-            "",
-            "## Benchmark",
-            f"Evaluated on [{args.dataset_repo}](https://huggingface.co/datasets/{args.dataset_repo}).",
-        ]
-    readme_path = os.path.join(backbone_save, "README.md")
-    with open(readme_path, "w") as f:
-        f.write("\n".join(readme_lines) + "\n")
-    print(f"Wrote model card to {readme_path}")
+    _write_readme(args, backbone_save)
 
     # ------------------------------------------------------------------
     # 7. Push to HuggingFace Hub
