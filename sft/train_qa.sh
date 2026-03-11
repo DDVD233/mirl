@@ -6,10 +6,10 @@ export CUDA_VISIBLE_DEVICES="0,1"
 export CUDA_LAUNCH_BLOCKING=1
 export TORCH_USE_CUDA_DSA=1
 
-TRAIN_FILE="/scratch/keane/human_behaviour/human_behaviour_data/qa_train.jsonl"
-VAL_FILE="/scratch/keane/human_behaviour/human_behaviour_data/qa_test.jsonl"
-TEST_FILE="/scratch/keane/human_behaviour/human_behaviour_data/qa_test.jsonl"
-LABEL_MAP="/home/keaneong/human-behavior/verl/sft/label_maps/unified_label_map_v6.json"
+TRAIN_FILE="/scratch/keane/human_behaviour/human_behaviour_data/final_v8_train_cleaned_2.jsonl"
+VAL_FILE="/scratch/keane/human_behaviour/human_behaviour_data/final_v8_val_cleaned.jsonl"
+TEST_FILE="/scratch/keane/human_behaviour/human_behaviour_data/final_v8_test_cleaned.jsonl"
+LABEL_MAP="/home/keaneong/human-behavior/verl/sft/label_maps/unified_label_map.json"
 LOAD_CHECKPOINT="/scratch/keane/human_behaviour/v6_multi_head_lora_training/step_43539"
 SAVE_DIR="/scratch/keane/human_behaviour/qa_lm_head_training"
 VAL_DIR="$SAVE_DIR/test_results"

@@ -79,6 +79,7 @@ class BaseDataset(Dataset):
         self.filter_overlong_prompts = config.get("filter_overlong_prompts", True)
         self.need_tools_kwargs = config.get("need_tools_kwargs", False)
         self.filter_prompts = config.get("filter_prompts", True)
+        self.task_filter = config.get("task_filter", None)  # "cls" or "qa" or None (no filter)
         self.serialize_dataset = False
         self.return_multi_modal_inputs = config.get("return_multi_modal_inputs", True)
 
@@ -135,6 +136,16 @@ class BaseDataset(Dataset):
 
         self.dataframe: datasets.Dataset = datasets.concatenate_datasets(dataframes)
         print(f"dataset len: {len(self.dataframe)}")
+
+        if self.task_filter is not None:
+            suffix = self.task_filter
+            self.dataframe = self.dataframe.filter(
+                lambda doc: isinstance(doc["task"], str) and
+                            doc["task"].rsplit("_", 1)[-1] == suffix,
+                desc=f"Filtering to task_filter='{suffix}'",
+            )
+            print(f"task_filter='{suffix}': {len(self.dataframe)} rows remaining")
+
         self.dataframe = self._maybe_filter_long_prompts(self.dataframe)
 
     def _maybe_filter_long_prompts(self, dataframe: datasets.Dataset) -> datasets.Dataset:

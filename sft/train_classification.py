@@ -213,7 +213,8 @@ def parse_parameters():
         cfg.dataset_config.truncation = args.truncation
     if args.format_prompt is not None:
         cfg.dataset_config.format_prompt = args.format_prompt
-    
+    cfg.dataset_config.task_filter = "cls"
+
     # Wandb parameters
     if args.use_wandb:
         cfg.wandb.use = True

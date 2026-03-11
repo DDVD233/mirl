@@ -14,14 +14,15 @@ export TORCH_USE_CUDA_DSA=1
 
 TRAIN_JSONL="/scratch/keane/human_behaviour/human_behaviour_data/w_feats_v6_train.jsonl"
 VAL_JSONL="/scratch/keane/human_behaviour/human_behaviour_data/w_feats_v6_test.jsonl"
-LABEL_MAP="/home/keaneong/human-behavior/verl/sft/label_maps/unified_label_map_v6.json"
+LABEL_MAP="/home/keaneong/human-behavior/verl/sft/label_maps/unified_label_map.json"
 LOAD_CHECKPOINT="/scratch/keane/human_behaviour/v6_multi_head_lora_training/step_43539"
 BASE_SAVE_DIR="/scratch/keane/human_behaviour/rha_adapter_training"
 PROJECT_NAME="v6-rha-omni-classifier-multi-head-lora-trial"
 TMP_DIR="/scratch/keane/human_behaviour/human_behaviour_data"
 
 # Datasets to train adapters for (one run per dataset)
-INCLUDE_DATASETS=("mosei_emotion" "mosei_senti" "meld_senti" "ptsd_in_the_wild")
+# BAM will be saved in separate subdirs under BASE_SAVE_DIR, e.g. $BASE_SAVE_DIR/rha_ptsd_in_the_wild, $BASE_SAVE_DIR/rha_another_dataset, etc.
+INCLUDE_DATASETS=("ptsd_in_the_wild")
 
 # ---- helpers ----
 in_list() {

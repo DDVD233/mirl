@@ -130,6 +130,7 @@ def parse_parameters():
     if args.label_key is not None:          cfg.dataset_config.label_key = args.label_key
     if args.filter_overlong_prompts:        cfg.dataset_config.filter_overlong_prompts = True
     if args.truncation is not None:         cfg.dataset_config.truncation = args.truncation
+    cfg.dataset_config.task_filter = "qa"
     if args.use_wandb:                      cfg.wandb.use = True
     if args.project is not None:            cfg.wandb.project = args.project
     if args.entity is not None:             cfg.wandb.entity = args.entity
