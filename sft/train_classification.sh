@@ -9,7 +9,7 @@ export TORCH_USE_CUDA_DSA=1
 TRAIN_FILE="/scratch/keane/human_behaviour/human_behaviour_data/final_v8_train_cleaned_2.jsonl"
 VAL_FILE="/scratch/keane/human_behaviour/human_behaviour_data/final_v8_val_cleaned.jsonl"
 TEST_FILE="/scratch/keane/human_behaviour/human_behaviour_data/final_v8_test_cleaned.jsonl"
-LABEL_MAP="/home/keaneong/human-behavior/verl/sft/label_maps/unified_label_map_v6.json"
+LABEL_MAP="/home/keaneong/human-behavior/verl/sft/label_maps/unified_label_map.json"
 SAVE_DIR="/scratch/keane/human_behaviour/v6_multi_head_lora_training_trial"
 VAL_DIR="$SAVE_DIR/validation_results"
 
