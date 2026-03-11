@@ -1,6 +1,7 @@
 # models/qwen2_5_omni_classifier_heads_decoder.py
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from transformers import Qwen2_5OmniThinkerForConditionalGeneration
 from peft import LoraConfig, get_peft_model, TaskType
 
@@ -162,30 +163,65 @@ class MultiHeadOmniClassifier(nn.Module):
         return logits_all
 
     # ---------- forward ----------
-    def forward(self, input_ids, attention_mask=None, domain_ids=None, **kwargs):
+    def forward(self, input_ids, attention_mask=None, domain_ids=None, lm_labels=None, **kwargs):
         """
         Args:
-          input_ids: [B, T]
+          input_ids:    [B, T]
           attention_mask: [B, T]
-          domain_ids: [B] int in {0..D-1}, selects which domain-head applies per example.
-        Returns:
-          logits_all: [B, global_num_classes], masked with NEG_INF for irrelevant classes.
+          domain_ids:   [B] int in {0..D-1}; -1 for QA rows (receives neg_inf logits)
+          lm_labels:    [B, T] or None.  When provided, runs QA path and returns a dict.
+                        When None, runs CLS path and returns logits tensor [B, global_num_classes].
+        Returns (CLS path):
+          logits_all: [B, global_num_classes], NEG_INF for irrelevant classes.
+        Returns (QA path):
+          {"cls_logits": [B, global_num_classes], "lm_loss": scalar, "lm_output": backbone output}
         """
         if domain_ids is None:
             raise ValueError("domain_ids must be provided: a per-sample domain id is required for multi-head routing.")
 
         out = self.backbone(
             input_ids=input_ids, attention_mask=attention_mask,
-            output_hidden_states=True, **kwargs
+            output_hidden_states=True, use_cache=False, **kwargs
         )
-        h = out.hidden_states[-2]  # [B,T,H]
+        hidden_states = out.hidden_states
+        h = hidden_states[-2]  # [B, T, H]
 
         if attention_mask is not None:
             pooled = (h * attention_mask.unsqueeze(-1)).sum(1) / attention_mask.sum(1, keepdim=True)
         else:
-            pooled = h.mean(dim=1)  # [B,H]
+            pooled = h.mean(dim=1)  # [B, H]
 
-        return self._heads_from_pooled(pooled, domain_ids)
+        # --- CLS path (default) ---
+        if lm_labels is None:
+            return self._heads_from_pooled(pooled, domain_ids)
+
+        # --- QA path ---
+        cls_logits = self._heads_from_pooled(pooled, domain_ids)
+
+        # Apply backbone norm + lm_head to last hidden state
+        maybe_model = getattr(self.backbone, "model", None)
+        h_last = hidden_states[-1]
+        if maybe_model is not None and hasattr(maybe_model, "norm"):
+            h_for_lm = maybe_model.norm(h_last)
+        else:
+            h_for_lm = h_last
+        lm_head = getattr(self.backbone, "lm_head", None)
+        if lm_head is None:
+            raise RuntimeError("Backbone has no lm_head")
+        lm_logits = lm_head(h_for_lm)  # [B, T, V]
+
+        # Teacher-forcing LM loss
+        shift_logits = lm_logits[:, :-1, :].contiguous()
+        shift_labels = lm_labels[:, 1:].contiguous()
+        lm_loss = F.cross_entropy(
+            shift_logits.view(-1, shift_logits.size(-1)),
+            shift_labels.view(-1),
+            ignore_index=-100,
+        )
+
+        out.logits = lm_logits
+        out.loss   = lm_loss
+        return {"cls_logits": cls_logits, "lm_loss": lm_loss, "lm_output": out}
 
     # Convenience: expose mappings
     @property
