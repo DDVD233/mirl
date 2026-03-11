@@ -10,7 +10,7 @@ TRAIN_FILE="/scratch/keane/human_behaviour/human_behaviour_data/w_feats_v6_train
 VAL_FILE="/scratch/keane/human_behaviour/human_behaviour_data/w_feats_v6_val.jsonl"
 TEST_FILE="/scratch/keane/human_behaviour/human_behaviour_data/w_feats_v6_test.jsonl"
 LABEL_MAP="/home/keaneong/human-behavior/verl/sft/label_maps/unified_label_map_v6.json"
-SAVE_DIR="/scratch/keane/human_behaviour/v6_multi_head_lora_training"
+SAVE_DIR="/scratch/keane/human_behaviour/v6_multi_head_lora_training_trial"
 VAL_DIR="$SAVE_DIR/validation_results"
 
 echo "Launching multi-head LoRA training..."

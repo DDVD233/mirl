@@ -14,7 +14,7 @@ VAL_JSONL="/scratch/keane/human_behaviour/human_behaviour_data/w_feats_v6_test.j
 LABEL_MAP="/home/keaneong/human-behavior/verl/sft/label_maps/unified_label_map_v6.json"
 LOAD_CHECKPOINT="/scratch/keane/human_behaviour/v6_multi_head_lora_training/step_43539"
 BASE_SAVE_DIR="/scratch/keane/human_behaviour/rha_adapter_training"
-PROJECT_NAME="v6-rha-omni-classifier-multi-head-lora"
+PROJECT_NAME="v6-rha-omni-classifier-multi-head-lora-trial"
 TMP_DIR="/scratch/keane/human_behaviour/human_behaviour_data"
 
 # Datasets to train adapters for (one run per dataset)
