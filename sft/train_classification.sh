@@ -17,7 +17,7 @@ echo "Launching multi-head LoRA training..."
 accelerate launch --config_file configs/accelerate_config_qwen.yaml train_classification.py \
     --mode train \
     --training_strategy lora \
-    --train_batch_size 216 \
+    --train_batch_size 2 \
     --val_batch_size 2 \
     --test_batch_size 2 \
     --lr 1e-4 \
