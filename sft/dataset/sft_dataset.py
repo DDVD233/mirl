@@ -73,9 +73,10 @@ class OmniClassifierDataset(BaseDataset):
 
         original_answer = row_dict.get(self.label_key, "").lower()
         dataset_name = row_dict.get(self.dataset_key, "").lower()
+        task = str(row_dict.get("task", "")).lower()
 
-        # QA rows: pass raw answer text through for language-model loss
-        if dataset_name in self.qa_datasets:
+        # QA rows: determined by task suffix (_qa) or explicit qa_datasets set
+        if task.endswith("_qa") or dataset_name in self.qa_datasets:
             row_dict["lm_labels"] = original_answer
             row_dict["labels"] = torch.tensor(0, dtype=torch.long)
             return row_dict

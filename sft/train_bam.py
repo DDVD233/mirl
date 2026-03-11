@@ -1,8 +1,13 @@
 """
 Entry point for BAM (Residual Hidden Adapter) training.
 
-Builds video/audio hidden adapters on top of a frozen (or partially frozen)
-multi-head classification model and trains them.
+Trains a single BAM model for a single dataset at a time.
+  --task_type cls  →  BAMCLS model (classification loss)
+  --task_type qa   →  BAMQA  model (LM teacher-forcing loss)
+
+The shell script (train_bam.sh) is responsible for sweeping across datasets and
+calling this script once per dataset, passing the appropriate --task_type and
+per-dataset JSONL files.
 """
 import os
 import sys
@@ -14,7 +19,7 @@ from omegaconf import OmegaConf
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from models.bam_cls_wrap import BAMClassifier
+from models.bam_wrapped_qwen import BAMCLS, BAMQA
 from trainer.bam_trainer import BAMTrainer
 
 
@@ -93,21 +98,23 @@ def parse_parameters():
                         choices=['none', 'mean', 'meanstd', 'meanstdp25p75'])
     parser.add_argument('--bam_audio_norm', type=str, choices=['none', 'l2', 'zscore'])
     parser.add_argument('--bam_video_use_ln', action='store_true')
-    parser.add_argument('--bam_video_use_conf_gain', action='store_true')
-    parser.add_argument('--bam_video_conf_init_gain', type=float)
     parser.add_argument('--bam_video_alpha_init', type=float)
     parser.add_argument('--bam_audio_use_ln', action='store_true')
-    parser.add_argument('--bam_audio_use_conf_gain', action='store_true')
-    parser.add_argument('--bam_audio_conf_init_gain', type=float)
     parser.add_argument('--bam_audio_alpha_init', type=float)
     parser.add_argument('--base_lr', type=float)
     parser.add_argument('--bam_lr', type=float)
-    parser.add_argument('--hard_gamma', type=float)
+    parser.add_argument('--qa_loss_weight', type=float)
 
     # Wandb
     parser.add_argument('--use_wandb', action='store_true')
     parser.add_argument('--project', type=str)
     parser.add_argument('--entity', type=str)
+
+    # Task type + dataset identity
+    parser.add_argument('--task_type', type=str, choices=['cls', 'qa'], default='cls',
+                        help='Model type: cls → BAMCLS, qa → BAMQA')
+    parser.add_argument('--dataset_name', type=str,
+                        help='Dataset identifier (used for logging/checkpointing)')
 
     # Mode
     parser.add_argument('--mode', type=str, choices=['train', 'test'], default='train')
@@ -149,7 +156,7 @@ def parse_parameters():
         cfg.train.warmup_steps = None if args.warmup_steps == -1 else args.warmup_steps
     if args.base_lr is not None:            cfg.train.base_lr = args.base_lr
     if args.bam_lr is not None:             cfg.train.bam_lr = args.bam_lr
-    if args.hard_gamma is not None:         cfg.train.hard_gamma = args.hard_gamma
+    if args.qa_loss_weight is not None:     cfg.train.qa_loss_weight = args.qa_loss_weight
     if args.validate_every_n_epochs is not None: cfg.train.validate_every_n_epochs = args.validate_every_n_epochs
     if args.validate_every_n_steps is not None:  cfg.train.validate_every_n_steps = args.validate_every_n_steps
     if args.early_stopping_patience is not None: cfg.train.early_stopping_patience = args.early_stopping_patience
@@ -164,6 +171,8 @@ def parse_parameters():
 
     if not hasattr(cfg, 'bam'):
         cfg.bam = OmegaConf.create({})
+    cfg.bam.task_type    = args.task_type
+    cfg.bam.dataset_name = args.dataset_name or ""
     if args.use_bam_video:                          cfg.bam.use_bam_video = True
     if args.use_bam_audio:                          cfg.bam.use_bam_audio = True
     if args.bam_stage is not None:                  cfg.bam.bam_stage = args.bam_stage
@@ -179,12 +188,8 @@ def parse_parameters():
     if args.bam_audio_temporal is not None:         cfg.bam.audio_temporal = args.bam_audio_temporal
     if args.bam_audio_norm is not None:             cfg.bam.audio_norm = args.bam_audio_norm
     if args.bam_video_use_ln:                       cfg.bam.video_use_ln = True
-    if args.bam_video_use_conf_gain:                cfg.bam.video_use_conf_gain = True
-    if args.bam_video_conf_init_gain is not None:   cfg.bam.video_conf_init_gain = args.bam_video_conf_init_gain
     if args.bam_video_alpha_init is not None:       cfg.bam.video_alpha_init = args.bam_video_alpha_init
     if args.bam_audio_use_ln:                       cfg.bam.audio_use_ln = True
-    if args.bam_audio_use_conf_gain:                cfg.bam.audio_use_conf_gain = True
-    if args.bam_audio_conf_init_gain is not None:   cfg.bam.audio_conf_init_gain = args.bam_audio_conf_init_gain
     if args.bam_audio_alpha_init is not None:       cfg.bam.audio_alpha_init = args.bam_audio_alpha_init
 
     def _parse_n(v):
@@ -250,8 +255,13 @@ def main():
     tokenizer = AutoTokenizer.from_pretrained(params['tokenizer_name'])
     processor = AutoProcessor.from_pretrained(params['processor_name'])
 
-    print(f"[INFO] Initializing BAMClassifier with {params['num_classes']} classes")
-    model = BAMClassifier(
+    task_type    = bam.get("task_type", "cls")
+    dataset_name = bam.get("dataset_name", "")
+
+    model_cls = BAMCLS if task_type == "cls" else BAMQA
+    print(f"[INFO] Initializing {model_cls.__name__} (task_type={task_type}, dataset={dataset_name}) "
+          f"with {params['num_classes']} classes")
+    model = model_cls(
         full_label_scheme=params['full_label_scheme'],
         freeze_backbone=params['training_strategy'],
         lora_config=params['lora_config'] if params['training_strategy'] == "lora" else None,
@@ -283,6 +293,9 @@ def main():
         'USE_WANDB':                    params['use_wandb'],
         'WANDB_PROJECT':                params['wandb_project'],
         'WANDB_ENTITY':                 params['wandb_entity'],
+        # Task identity
+        'TASK_TYPE':                    task_type,
+        'DATASET_NAME':                 dataset_name,
         # BAM-specific
         'USE_BAM_VIDEO':                bool(_bam('use_bam_video', False)),
         'USE_BAM_AUDIO':                bool(_bam('use_bam_audio', False)),
@@ -297,20 +310,15 @@ def main():
         'D_AUDIO_FEAT':                 _bam('d_audio_feat', None),
         'BAM_VIDEO_TEMPORAL':           _bam('video_temporal', 'meanstd'),
         'BAM_VIDEO_NORM':               _bam('video_norm', None),
-        'BAM_VIDEO_USE_CONF':           bool(_bam('video_use_conf', True)),
         'BAM_AUDIO_TEMPORAL':           _bam('audio_temporal', 'none'),
         'BAM_AUDIO_NORM':               _bam('audio_norm', 'l2'),
         'BAM_VIDEO_USE_LN':             bool(_bam('video_use_ln', False)),
-        'BAM_VIDEO_USE_CONF_GAIN':      bool(_bam('video_use_conf_gain', False)),
-        'BAM_VIDEO_CONF_INIT_GAIN':     float(_bam('video_conf_init_gain', 3.0)),
         'BAM_VIDEO_ALPHA_INIT':         float(_bam('video_alpha_init', 1.0)),
         'BAM_AUDIO_USE_LN':             bool(_bam('audio_use_ln', False)),
-        'BAM_AUDIO_USE_CONF_GAIN':      bool(_bam('audio_use_conf_gain', False)),
-        'BAM_AUDIO_CONF_INIT_GAIN':     float(_bam('audio_conf_init_gain', 3.0)),
         'BAM_AUDIO_ALPHA_INIT':         float(_bam('audio_alpha_init', 1.0)),
         'BASE_LR':                      float(getattr(cfg.train, 'base_lr', params['lr'] * 0.25)),
         'BAM_LR':                       float(getattr(cfg.train, 'bam_lr', params['lr'] * 5.0)),
-        'HARD_GAMMA':                   float(getattr(cfg.train, 'hard_gamma', 0.0)),
+        'QA_LOSS_WEIGHT':               float(getattr(cfg.train, 'qa_loss_weight', 1.0)),
     }
 
     trainer = BAMTrainer(

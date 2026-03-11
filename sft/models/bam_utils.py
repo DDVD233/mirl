@@ -3,7 +3,7 @@
 Utilities for BAM training:
   - Feature extraction from OpenPose (video) and OpenSmile (audio)
   - Temporal pooling and normalization helpers
-  - Building and applying BehavioralAdapterModule instances
+  - Building BehavioralAdapterModule instances
 """
 from typing import Optional, Iterable, Dict, Literal
 import torch
@@ -245,98 +245,51 @@ def build_audio_feats_batch(opensmile_list: Iterable[Dict | None],
 
 
 # ---------------------------------------------------------------------------
-# Building and applying BehavioralAdapterModule instances
+# Building BehavioralAdapterModule instances
 # ---------------------------------------------------------------------------
 
 def maybe_build_hidden_adapters(
     *,
-    domain_id_to_global_indices,
     use_bam_video: bool,
     use_bam_audio: bool,
     bam_hidden_video: int,
     bam_hidden_audio: int,
     p_moddrop_video: float,
     p_moddrop_audio: float,
-    out_dim_hidden: int,            # backbone pooled hidden size H
+    out_dim_hidden: int,         # backbone pooled hidden size H
     d_video_feat: Optional[int] = None,
     d_audio_feat: Optional[int] = None,
     video_use_ln: bool = False,
-    video_use_conf_gain: bool = False,
-    video_conf_init_gain: float = 3.0,
     video_alpha_init: float = 1.0,
     audio_use_ln: bool = False,
-    audio_use_conf_gain: bool = False,
-    audio_conf_init_gain: float = 3.0,
     audio_alpha_init: float = 1.0,
 ):
     """Build hidden-space BAM adapters per modality. Returns (video_adapter, audio_adapter)."""
-    video_hidden_adapter = None
-    audio_hidden_adapter = None
+    video_adapter = None
+    audio_adapter = None
 
     if use_bam_video:
         if d_video_feat is None:
             raise ValueError("USE_BAM_VIDEO=True but d_video_feat was not provided")
-        video_hidden_adapter = BehavioralAdapterModule(
-            domain_id_to_global_indices=domain_id_to_global_indices,
+        video_adapter = BehavioralAdapterModule(
             feat_dim=int(d_video_feat),
             hidden=int(bam_hidden_video),
             out_dim=int(out_dim_hidden),
             p_moddrop=float(p_moddrop_video),
             use_ln=bool(video_use_ln),
-            use_conf_gain=bool(video_use_conf_gain),
-            conf_init_gain=float(video_conf_init_gain),
             alpha_init=float(video_alpha_init),
         )
 
     if use_bam_audio:
         if d_audio_feat is None:
             raise ValueError("USE_BAM_AUDIO=True but d_audio_feat was not provided")
-        audio_hidden_adapter = BehavioralAdapterModule(
-            domain_id_to_global_indices=domain_id_to_global_indices,
+        audio_adapter = BehavioralAdapterModule(
             feat_dim=int(d_audio_feat),
             hidden=int(bam_hidden_audio),
             out_dim=int(out_dim_hidden),
             p_moddrop=float(p_moddrop_audio),
             use_ln=bool(audio_use_ln),
-            use_conf_gain=bool(audio_use_conf_gain),
-            conf_init_gain=float(audio_conf_init_gain),
             alpha_init=float(audio_alpha_init),
         )
 
-    return video_hidden_adapter, audio_hidden_adapter
-
-
-def apply_hidden_adapters(
-    *,
-    h_base: torch.Tensor,                          # [B,H] pooled hidden (pre-heads)
-    domain_ids: torch.Tensor,                      # [B]
-    prelim_global_logits: torch.Tensor,            # [B,C_global] for confidence slicing
-    video_hidden_adapter: Optional[BehavioralAdapterModule],
-    audio_hidden_adapter: Optional[BehavioralAdapterModule],
-    video_feats: Optional[torch.Tensor] = None,    # [B, Dv] or None
-    audio_feats: Optional[torch.Tensor] = None,    # [B, Da] or None
-    train_mode: bool,
-) -> torch.Tensor:
-    """Adds hidden residuals from any present modality adapters."""
-    h = h_base
-    B = h.size(0)
-
-    if (video_hidden_adapter is not None
-            and video_feats is not None
-            and video_feats.numel() > 0
-            and video_feats.size(0) == B):
-        h = video_hidden_adapter(
-            h_base=h, domain_ids=domain_ids,
-            global_logits=prelim_global_logits, feats=video_feats, train_mode=train_mode,
-        )
-
-    if (audio_hidden_adapter is not None
-            and audio_feats is not None
-            and audio_feats.numel() > 0
-            and audio_feats.size(0) == B):
-        h = audio_hidden_adapter(
-            h_base=h, domain_ids=domain_ids,
-            global_logits=prelim_global_logits, feats=audio_feats, train_mode=train_mode,
-        )
-
-    return h
+    return video_adapter, audio_adapter

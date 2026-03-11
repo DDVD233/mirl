@@ -1,6 +1,9 @@
 #!/bin/bash
 # BAM adapter training: loads a frozen multi-head checkpoint and trains
 # per-dataset video/audio residual hidden adapters.
+#
+# One model per dataset, one invocation per dataset.
+# Task type (cls/qa) is inferred automatically from the 'task' field in each dataset's JSONL.
 # Edit the paths below before running.
 
 set -euo pipefail
@@ -60,6 +63,24 @@ with open(sys.argv[1], 'r') as f:
 PY
 }
 
+# Infer task type ('cls' or 'qa') from the first row's 'task' field suffix in a JSONL.
+# e.g. task="emotion_cls" → "cls", task="intent_qa" → "qa"
+get_task_type() {
+  python3 - "$1" <<'PY'
+import sys, json
+with open(sys.argv[1], 'r') as f:
+    for line in f:
+        line = line.strip()
+        if not line: continue
+        try:
+            obj = json.loads(line)
+        except Exception: continue
+        task = obj.get("task", "")
+        print(task.rsplit("_", 1)[-1] if "_" in task else "cls")
+        break
+PY
+}
+
 echo "Collecting dataset names from JSONL files..."
 mapfile -t ALL_DS_ARR < <(
   { list_datasets "$TRAIN_JSONL"; list_datasets "$VAL_JSONL"; } | sort -u
@@ -99,12 +120,17 @@ for DS in "${PROCESS_DS[@]}"; do
   VAL_DIR="${SAVE_DIR}/validation_results"
   mkdir -p "$SAVE_DIR" "$VAL_DIR"
 
+  # Infer task type from the filtered JSONL's task field
+  TASK_TYPE=$(get_task_type "$TRAIN_OUT")
   echo "  train_file: $TRAIN_OUT  ($TRAIN_LINES lines)"
   echo "  val_file:   $VAL_OUT    ($VAL_LINES lines)"
   echo "  save_dir:   $SAVE_DIR"
+  echo "  task_type:  $TASK_TYPE"
 
   accelerate launch --config_file configs/accelerate_config_qwen.yaml train_bam.py \
     --mode train \
+    --task_type "$TASK_TYPE" \
+    --dataset_name "$DS" \
     --bam_resume_diff_training_stage \
     --training_strategy lora \
     --train_batch_size 2 \
@@ -113,7 +139,6 @@ for DS in "${PROCESS_DS[@]}"; do
     --lr 1e-4 \
     --base_lr 1e-4 \
     --bam_lr 5e-4 \
-    --hard_gamma 0.0 \
     --epochs 3 \
     --train_file "$TRAIN_OUT" \
     --val_file "$VAL_OUT" \

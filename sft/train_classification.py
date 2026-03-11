@@ -11,7 +11,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 
 # Local imports
 from models.qwen2_5_omni_classifier_heads_decoder import MultiHeadOmniClassifier
-from trainer.classifier_trainer import ClassifierTrainer
+from trainer.cls_trainer import CLSTrainer
 
 def parse_parameters():
     """
@@ -464,7 +464,7 @@ def main():
         'MODE': MODE
     }
 
-    trainer = ClassifierTrainer(
+    trainer = CLSTrainer(
         data_files=TRAIN_DATA_FILE,
         val_data_files=VAL_DATA_FILE,
         test_data_files=TEST_DATA_FILE,

@@ -8,7 +8,7 @@ this class inherits everything without override.
 from trainer.base_trainer import BaseMultiHeadTrainer
 
 
-class ClassifierTrainer(BaseMultiHeadTrainer):
+class CLSTrainer(BaseMultiHeadTrainer):
     """
     Standard multi-head classification trainer.
     Inherits train / validate / test / checkpoint I/O fully from BaseMultiHeadTrainer.
