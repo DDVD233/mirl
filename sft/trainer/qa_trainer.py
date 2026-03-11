@@ -309,7 +309,7 @@ class QAMultiHeadTrainer(BaseMultiHeadTrainer):
                 for p in head.parameters():
                     p.requires_grad = False
 
-        # ---- unfreeze only lm_head ----
+        # ---- unfreeze only lm_head which is essentially the decoder ----
         assert hasattr(self.model.backbone, "lm_head"), "Expected backbone.lm_head"
         for p in self.model.backbone.lm_head.parameters():
             p.requires_grad = True
