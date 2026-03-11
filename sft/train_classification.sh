@@ -29,7 +29,7 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml train_classi
     --save_checkpoint_dir "$SAVE_DIR" \
     --validation_result_dir "$VAL_DIR" \
     --save_every_n_epochs 1 \
-    --save_every_n_steps 5000 \
+    --save_every_n_steps 200 \
     --validate_every_n_epochs 1 \
     --validate_every_n_steps None \
     --early_stopping_patience 99999999 \
