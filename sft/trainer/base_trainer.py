@@ -103,6 +103,11 @@ class BaseMultiHeadTrainer:
         self.epochs_without_improvement = 0
         self.steps_without_improvement = 0
 
+        # Defaults for subclass attrs referenced by _extra_wandb_config() hooks,
+        # which may be called during _init_wandb() before the subclass __init__ runs.
+        self.qa_datasets = set()
+        self.qa_loss_weight = 1.0
+
         use_wandb = self.global_config.get('USE_WANDB', False)
         self.accelerator = Accelerator(
             gradient_accumulation_steps=gradient_accumulation_steps,
