@@ -13,10 +13,12 @@ LABEL_MAP="/home/keaneong/human-behavior/verl/sft/label_maps/unified_label_map.j
 LOAD_CHECKPOINT="/scratch/keane/human_behaviour/qa_lm_head_training/step_20"
 SAVE_DIR="/scratch/keane/human_behaviour/qa_lm_head_training"
 VAL_DIR="$SAVE_DIR/test_results"
+MODE="train"
 
-echo "Launching QA lm_head training..."
+ACTION=$([ "$MODE" = "test" ] && echo "testing" || echo "training")
+echo "Launching QA lm_head ${ACTION}..."
 accelerate launch --config_file configs/accelerate_config_qwen.yaml train_qa.py \
-    --mode train \
+    --mode "$MODE" \
     --training_strategy lora \
     --train_batch_size 1 \
     --val_batch_size 1 \
@@ -45,4 +47,4 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml train_qa.py 
     --qa_loss_weight 1.0 \
     --project "qa-lm-head-omni-classifier"
 
-echo "QA training completed!"
+echo "QA ${ACTION} completed!"

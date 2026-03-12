@@ -13,10 +13,12 @@ LABEL_MAP="/home/keaneong/human-behavior/verl/sft/label_maps/unified_label_map.j
 LOAD_CHECKPOINT="/scratch/keane/human_behaviour/v6_multi_head_lora_training_trial/step_200"
 SAVE_DIR="/scratch/keane/human_behaviour/v6_multi_head_lora_training_trial"
 VAL_DIR="$SAVE_DIR/validation_results"
+MODE="test"
 
-echo "Launching multi-head LoRA training..."
+ACTION=$([ "$MODE" = "test" ] && echo "testing" || echo "training")
+echo "Launching multi-head LoRA ${ACTION}..."
 accelerate launch --config_file configs/accelerate_config_qwen.yaml train_classification.py \
-    --mode test \
+    --mode "$MODE" \
     --training_strategy lora \
     --train_batch_size 2 \
     --val_batch_size 2 \
@@ -43,4 +45,4 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml train_classi
     --max_prompt_length 4096 \
     --project "v6_omni-classifier-multi-head-lora"
 
-echo "Multi-head training completed!"
+echo "Multi-head ${ACTION} completed!"

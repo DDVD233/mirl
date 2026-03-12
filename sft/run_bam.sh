@@ -12,12 +12,14 @@ export CUDA_VISIBLE_DEVICES="0,1"
 export CUDA_LAUNCH_BLOCKING=1
 export TORCH_USE_CUDA_DSA=1
 
-TRAIN_JSONL="/scratch/keane/human_behaviour/human_behaviour_data/w_feats_v6_train.jsonl"
-VAL_JSONL="/scratch/keane/human_behaviour/human_behaviour_data/w_feats_v6_test.jsonl"
+TRAIN_FILE="/scratch/keane/human_behaviour/human_behaviour_data/final_v8_train_cleaned_2.jsonl"
+VAL_FILE="/scratch/keane/human_behaviour/human_behaviour_data/final_v8_val_cleaned.jsonl"
+TEST_FILE="/scratch/keane/human_behaviour/human_behaviour_data/final_v8_test_cleaned.jsonl"
 LABEL_MAP="/home/keaneong/human-behavior/verl/sft/label_maps/unified_label_map.json"
-LOAD_CHECKPOINT="/scratch/keane/human_behaviour/v6_multi_head_lora_training/step_43539"
+LOAD_CHECKPOINT="/scratch/keane/human_behaviour/v6_multi_head_lora_training_trial/step_200"
 BASE_SAVE_DIR="/scratch/keane/human_behaviour/rha_adapter_training"
 PROJECT_NAME="v6-rha-omni-classifier-multi-head-lora-trial"
+MODE="train"
 TMP_DIR="/scratch/keane/human_behaviour/human_behaviour_data"
 
 # Datasets to train adapters for (one run per dataset)
@@ -101,9 +103,11 @@ if ((${#PROCESS_DS[@]} == 0)); then
   exit 0
 fi
 
+ACTION=$([ "$MODE" = "test" ] && echo "testing" || echo "training")
+
 for DS in "${PROCESS_DS[@]}"; do
   echo "-------------------------------------------"
-  echo "Training RHA adapter for: $DS"
+  echo "Running RHA adapter ${ACTION} for: $DS"
 
   TRAIN_OUT="$TMP_DIR/rha_train_${DS}.jsonl"
   VAL_OUT="$TMP_DIR/rha_val_${DS}.jsonl"
@@ -129,7 +133,7 @@ for DS in "${PROCESS_DS[@]}"; do
   echo "  task_type:  $TASK_TYPE"
 
   accelerate launch --config_file configs/accelerate_config_qwen.yaml train_bam.py \
-    --mode train \
+    --mode "$MODE" \
     --task_type "$TASK_TYPE" \
     --dataset_name "$DS" \
     --bam_resume_diff_training_stage \
@@ -174,7 +178,7 @@ for DS in "${PROCESS_DS[@]}"; do
     --max_prompt_length 4096 \
     --project "${PROJECT_NAME}"
 
-  echo "Finished: $DS"
+  echo "Finished ${ACTION}: $DS"
 done
 
-echo "All RHA adapter runs completed."
+echo "All RHA adapter ${ACTION} runs completed."
