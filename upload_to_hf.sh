@@ -7,14 +7,14 @@
 # README-only update (model already on HF, just refresh the model card):
 #   bash upload_to_hf.sh --readme-only
 
-CKPT_DIR="/scratch/keane/human_behaviour/v6_rha_residual_nogamma_noconf/rla_urfunny/step_856"
-REPO_ID="keentomato/omnisapiens_bam_humour_detection"
+CKPT_DIR="/scratch/keane/human_behaviour/v6_rha_residual_nogamma_noconf/rla_mosei_senti/step_8164"
+REPO_ID="keentomato/omnisapiens_bam_sentiment_polarity_mosei"
 BACKBONE_NAME="Qwen/Qwen2.5-Omni-7B"
 LABEL_SCHEME="/home/keaneong/human-behavior/verl/sft/label_maps/unified_label_map_v6.json"
 SAVE_DIR="/scratch/keane/human_behaviour/hf_staging_bam"
 # Task controls README title/tags/domain example.
 # Choices: sarcasm | emotion | sentiment | humour | mental_health | generic
-TASK="humour"
+TASK="sentiment"
 
 if [[ "$1" == "--readme-only" ]]; then
     python upload_to_hf.py \
