@@ -34,7 +34,7 @@ class BAMTrainer(BaseMultiHeadTrainer):
     Overrides:
       - _extra_wandb_config()
       - save_checkpoint_unified() — adds model_order to meta
-      - load_checkpoint_unified() — adds bam_fresh_start / bam_resume_diff_cfg support
+      - load_checkpoint_unified() — adds bam_fresh_start support
       - validate()               — CLS evaluation (all rows)
       - train()                  — dispatches to _train_cls or _train_qa
       - test()                   — registers per-module opts for ckpt restore
@@ -151,11 +151,8 @@ class BAMTrainer(BaseMultiHeadTrainer):
 
     def load_checkpoint_unified(self, accelerator, model, base_ckpt_dir,
                                 explicit_dir=None, expect_training_strategy=None,
-                                inference_only=False, bam_resume_diff_cfg=False):
-        """
-        Extended: bam_resume_diff_cfg=True resets epoch/offset to 0
-        (fresh training stage, same weights).
-        """
+                                inference_only=False):
+        """Extended: supports inference_only for loading base-model weights without optimizer state."""
         from math import floor
 
         ckpt_dir = explicit_dir or None
@@ -196,11 +193,8 @@ class BAMTrainer(BaseMultiHeadTrainer):
             accelerator.print("[load] invalid len_train_dataloader; starting at epoch 0.")
             return 0, 0, 0, meta, ckpt_dir
 
-        if bam_resume_diff_cfg:
-            start_epoch, start_batch_offset = 0, 0
-        else:
-            start_epoch        = floor((global_step - 1) / len_dl)
-            start_batch_offset = (global_step - 1) % len_dl
+        start_epoch        = floor((global_step - 1) / len_dl)
+        start_batch_offset = (global_step - 1) % len_dl
 
         accelerator.print(
             f"[load] resumed {ckpt_dir} → epoch={start_epoch}, "
@@ -574,7 +568,7 @@ class BAMTrainer(BaseMultiHeadTrainer):
                 base_ckpt_dir=self.checkpoint_dir,
                 explicit_dir=self.load_checkpoint_path or None,
                 expect_training_strategy=self.global_config.get("TRAINING_STRATEGY"),
-                inference_only=True, bam_resume_diff_cfg=True,
+                inference_only=True,
             )
             # 3. Build fresh adapter objects but do NOT register on the FSDP-wrapped model.
             self._build_adapters(attach_to_model=False)
@@ -590,7 +584,6 @@ class BAMTrainer(BaseMultiHeadTrainer):
                 base_ckpt_dir=self.checkpoint_dir,
                 explicit_dir=self.load_checkpoint_path or None,
                 expect_training_strategy=self.global_config.get("TRAINING_STRATEGY"),
-                bam_resume_diff_cfg=False,
             )
 
         bundles = self.prepare_params_for_training(base_lr=base_lr, bam_lr=bam_lr)
@@ -928,9 +921,18 @@ class BAMTrainer(BaseMultiHeadTrainer):
             self.test_data_files, self.test_batch_size, num_workers=self.num_workers, shuffle=False
         )
 
-        self._build_adapters()
+        # BAM checkpoints save base model and adapters as separate files
+        # (pytorch_model_fsdp.bin = index 0, pytorch_model_fsdp_1.bin = index 1+).
+        # Mirror the training structure so accelerate maps files correctly.
+
+        # 1. FSDP-wrap base model WITHOUT adapters.
         train_dataloader, test_dataloader = self._prepare_modules(train_dataloader, test_dataloader)
 
+        # 2. Build adapter objects and DDP-prepare them separately (model index 1+).
+        self._build_adapters(attach_to_model=False)
+        self._prepare_fresh_adapters_separately()
+
+        # 3. Prepare optimizers/schedulers (needed for accelerator.load_state() file count).
         base_lr = self.global_config.get("BASE_LR", self.lr * 0.25)
         bam_lr  = self.global_config.get("BAM_LR",  self.lr * 5.0)
         total_updates = max(1, self.epochs * len(train_dataloader))
@@ -939,12 +941,12 @@ class BAMTrainer(BaseMultiHeadTrainer):
         scheds  = self._build_schedulers(opts, total_updates)
         self._prepare_opts_scheds(opts, scheds)
 
+        # 4. Load BAM checkpoint.
         self.load_checkpoint_unified(
             accelerator=self.accelerator, model=self.model,
             base_ckpt_dir=self.checkpoint_dir,
             explicit_dir=self.load_checkpoint_path or None,
             expect_training_strategy=self.global_config.get("TRAINING_STRATEGY"),
-            bam_resume_diff_cfg=False,
         )
 
         test_results = self.validate(test_dataloader, "test", current_step=1)
