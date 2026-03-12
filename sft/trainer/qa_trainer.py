@@ -200,11 +200,12 @@ class QAMultiHeadTrainer(BaseMultiHeadTrainer):
 
         for _ in range(max_new_tokens):
             domain_ids_q = torch.full((Bq,), -1, dtype=torch.long, device=device)
+            dummy_lm_labels = torch.full_like(input_ids, -100)
             out = self.model(
                 input_ids=input_ids,
                 attention_mask=attn,
                 domain_ids=domain_ids_q,
-                lm_labels=None,
+                lm_labels=dummy_lm_labels,
             )
             next_logits = out["lm_output"].logits[:, -1, :]
             next_tokens = next_logits.argmax(dim=-1)
