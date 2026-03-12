@@ -106,6 +106,7 @@ class BaseMultiHeadTrainer:
         # Defaults for subclass attrs referenced by _extra_wandb_config() hooks,
         # which may be called during _init_wandb() before the subclass __init__ runs.
         self.task_type = self.global_config.get("TASK_TYPE", "cls")
+        self.bam_hidden = self.global_config.get("BAM_HIDDEN", 128)
         self.qa_datasets = set()
         self.qa_loss_weight = 1.0
 

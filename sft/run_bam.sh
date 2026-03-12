@@ -115,8 +115,10 @@ for DS in "${PROCESS_DS[@]}"; do
 
   TRAIN_OUT="$TMP_DIR/bam_train_${DS}.jsonl"
   VAL_OUT="$TMP_DIR/bam_val_${DS}.jsonl"
+  TEST_OUT="$TMP_DIR/bam_test_${DS}.jsonl"
   filter_jsonl "$TRAIN_FILE" "$DS" "$TRAIN_OUT"
   filter_jsonl "$VAL_FILE"   "$DS" "$VAL_OUT"
+  filter_jsonl "$TEST_FILE"  "$DS" "$TEST_OUT"
 
   TRAIN_LINES=$(wc -l < "$TRAIN_OUT" || echo 0)
   VAL_LINES=$(wc -l < "$VAL_OUT" || echo 0)
@@ -133,6 +135,7 @@ for DS in "${PROCESS_DS[@]}"; do
   TASK_TYPE=$(get_task_type "$TRAIN_OUT")
   echo "  train_file: $TRAIN_OUT  ($TRAIN_LINES lines)"
   echo "  val_file:   $VAL_OUT    ($VAL_LINES lines)"
+  echo "  test_file:  $TEST_OUT"
   echo "  save_dir:   $SAVE_DIR"
   echo "  task_type:  $TASK_TYPE"
 
@@ -151,7 +154,7 @@ for DS in "${PROCESS_DS[@]}"; do
     --epochs 3 \
     --train_file "$TRAIN_OUT" \
     --val_file "$VAL_OUT" \
-    --test_file "$VAL_OUT" \
+    --test_file "$TEST_OUT" \
     --label_map_path "$LABEL_MAP" \
     --load_checkpoint_path "$LOAD_CHECKPOINT" \
     --save_checkpoint_dir "$SAVE_DIR" \
