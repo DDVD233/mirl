@@ -11,14 +11,14 @@
 # /scratch/keane/human_behaviour/v6_rha_residual_nogamma_noconf/rla_urfunny/step_856
 # "/scratch/keane/human_behaviour/v6_rha_residual_nogamma_noconf/rla_mosei_senti/step_8164"
 
-CKPT_DIR="/scratch/keane/human_behaviour/v6_rha_residual_nogamma_noconf/rla_mmsd/step_484"
-REPO_ID="keentomato/omnisapiens_bam_sarcasm_detection"
+CKPT_DIR="/scratch/keane/human_behaviour/v6_rha_residual_nogamma_noconf/rla_urfunny/step_856"
+REPO_ID="keentomato/omnisapiens_bam_humour_detection"
 BACKBONE_NAME="Qwen/Qwen2.5-Omni-7B"
 LABEL_SCHEME="/home/keaneong/human-behavior/verl/sft/label_maps/unified_label_map_v6.json"
 SAVE_DIR="/scratch/keane/human_behaviour/hf_staging_bam"
 # Task controls README title/tags/domain example.
 # Choices: sarcasm | emotion | sentiment | humour | mental_health | generic
-TASK="sarcasm"
+TASK="humour"
 
 if [[ "$1" == "--readme-only" ]]; then
     python upload_to_hf.py \
