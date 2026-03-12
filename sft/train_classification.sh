@@ -16,7 +16,7 @@ VAL_DIR="$SAVE_DIR/validation_results"
 
 echo "Launching multi-head LoRA training..."
 accelerate launch --config_file configs/accelerate_config_qwen.yaml train_classification.py \
-    --mode train \
+    --mode test \
     --training_strategy lora \
     --train_batch_size 2 \
     --val_batch_size 2 \
