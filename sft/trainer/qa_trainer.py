@@ -255,6 +255,8 @@ class QAMultiHeadTrainer(BaseMultiHeadTrainer):
                     all_pred_texts.extend(pred_texts)
                     all_gold_texts.extend(gathered_lm_labels)
                     all_qa_datasets.extend(gathered_datasets)
+                
+                break
 
         if self.accelerator.is_main_process:
             out_dir = self.validation_result_dir or "."
