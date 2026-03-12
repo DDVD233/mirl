@@ -160,7 +160,7 @@ for DS in "${PROCESS_DS[@]}"; do
     --save_checkpoint_dir "$SAVE_DIR" \
     --validation_result_dir "$VAL_DIR" \
     --save_every_n_epochs None \
-    --save_every_n_steps None \
+    --save_every_n_steps 10 \
     --validate_every_n_epochs 1 \
     --validate_every_n_steps None \
     --early_stopping_patience 99999 \
