@@ -84,7 +84,7 @@ def parse_parameters():
     parser.add_argument('--use_bam_audio', action='store_true')
     parser.add_argument('--bam_stage', type=str,
                         choices=['bam_only', 'bam_and_classifier_heads_only', 'bam_and_full_model'])
-    parser.add_argument('--bam_resume_diff_training_stage', action='store_true')
+    parser.add_argument('--bam_fresh_start', action='store_true')
     parser.add_argument('--bam_hidden_video', type=int)
     parser.add_argument('--bam_hidden_audio', type=int)
     parser.add_argument('--bam_p_moddrop_video', type=float)
@@ -177,7 +177,7 @@ def parse_parameters():
     if args.use_bam_video:                          cfg.bam.use_bam_video = True
     if args.use_bam_audio:                          cfg.bam.use_bam_audio = True
     if args.bam_stage is not None:                  cfg.bam.bam_stage = args.bam_stage
-    if args.bam_resume_diff_training_stage:         cfg.bam.resume_diff_training_stage = True
+    if args.bam_fresh_start:                        cfg.bam.fresh_start = True
     if args.bam_hidden_video is not None:           cfg.bam.bam_hidden_video = args.bam_hidden_video
     if args.bam_hidden_audio is not None:           cfg.bam.bam_hidden_audio = args.bam_hidden_audio
     if args.bam_p_moddrop_video is not None:        cfg.bam.bam_p_moddrop_video = args.bam_p_moddrop_video
@@ -301,7 +301,7 @@ def main():
         'USE_BAM_VIDEO':                bool(_bam('use_bam_video', False)),
         'USE_BAM_AUDIO':                bool(_bam('use_bam_audio', False)),
         'BAM_STAGE':                    _bam('bam_stage', 'bam_only'),
-        'BAM_RESUME_DIFF_TRAINING_STAGE': bool(_bam('resume_diff_training_stage', False)),
+        'BAM_FRESH_START':              bool(_bam('fresh_start', False)),
         'BAM_HIDDEN':                   int(_bam('bam_hidden', 128)),
         'BAM_HIDDEN_VIDEO':             int(_bam('bam_hidden_video', 128)),
         'BAM_HIDDEN_AUDIO':             int(_bam('bam_hidden_audio', 128)),

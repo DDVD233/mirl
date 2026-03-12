@@ -34,7 +34,7 @@ class BAMTrainer(BaseMultiHeadTrainer):
     Overrides:
       - _extra_wandb_config()
       - save_checkpoint_unified() — adds model_order to meta
-      - load_checkpoint_unified() — adds bam_resume_diff_cfg support
+      - load_checkpoint_unified() — adds bam_fresh_start / bam_resume_diff_cfg support
       - validate()               — CLS evaluation (all rows)
       - train()                  — dispatches to _train_cls or _train_qa
       - test()                   — registers per-module opts for ckpt restore
@@ -52,7 +52,7 @@ class BAMTrainer(BaseMultiHeadTrainer):
 
         # Stage: "bam_only" | "bam_and_classifier_heads_only" | "bam_and_full_model"
         self.bam_stage = cfg.get("BAM_STAGE", "bam_only")
-        self.bam_resume_diff_training_stage = bool(cfg.get("BAM_RESUME_DIFF_TRAINING_STAGE", False))
+        self.bam_fresh_start = bool(cfg.get("BAM_FRESH_START", False))
 
         self.bam_hidden = cfg.get("BAM_HIDDEN", 128)
         self.bam_hidden_video = int(cfg.get("BAM_HIDDEN_VIDEO", self.bam_hidden))
@@ -94,7 +94,7 @@ class BAMTrainer(BaseMultiHeadTrainer):
             "bam_use_video":               bool(cfg.get("USE_BAM_VIDEO", False)),
             "bam_use_audio":               bool(cfg.get("USE_BAM_AUDIO", False)),
             "bam_stage":                   cfg.get("BAM_STAGE", "bam_only"),
-            "bam_resume_diff_stage":       bool(cfg.get("BAM_RESUME_DIFF_TRAINING_STAGE", False)),
+            "bam_fresh_start":             bool(cfg.get("BAM_FRESH_START", False)),
             "bam_d_video_feat":            cfg.get("D_VIDEO_FEAT", None),
             "bam_d_audio_feat":            cfg.get("D_AUDIO_FEAT", None),
             "bam_video_temporal":          cfg.get("BAM_VIDEO_TEMPORAL", "meanstd"),
@@ -212,8 +212,14 @@ class BAMTrainer(BaseMultiHeadTrainer):
     # Adapter build + preparation
     # -------------------------------------------------------------------------
 
-    def _build_adapters(self):
-        """Build adapters and register them as submodules on the model wrapper."""
+    def _build_adapters(self, attach_to_model=True):
+        """Build adapters and optionally register them as submodules on the model wrapper.
+
+        attach_to_model=False is used in the bam_fresh_start path: the base model is
+        already FSDP-wrapped before adapters are built, so we must NOT register them on
+        self.model (the FSDP wrapper). _prepare_fresh_adapters_separately() attaches them
+        to the inner model instead.
+        """
         H = getattr(self.model, "hidden_size", None)
         if H is None:
             raise RuntimeError("Model must expose .hidden_size for BAM out_dim")
@@ -233,10 +239,11 @@ class BAMTrainer(BaseMultiHeadTrainer):
             audio_use_ln=bool(cfg.get("BAM_AUDIO_USE_LN", False)),
             audio_alpha_init=float(cfg.get("BAM_AUDIO_ALPHA_INIT", 1.0)),
         )
-        # Register as submodules so accelerator.prepare(model) wraps them together.
-        # nn.Module.__setattr__ auto-registers nn.Module values as submodules.
-        self.model.video_adapter = self.video_adapter
-        self.model.audio_adapter = self.audio_adapter
+        if attach_to_model:
+            # Register as submodules so accelerator.prepare(model) wraps them together.
+            # nn.Module.__setattr__ auto-registers nn.Module values as submodules.
+            self.model.video_adapter = self.video_adapter
+            self.model.audio_adapter = self.audio_adapter
 
     def _prepare_modules(self, train_dl, val_dl):
         """Prepare model (with adapters as submodules) + dataloaders with accelerator."""
@@ -549,15 +556,19 @@ class BAMTrainer(BaseMultiHeadTrainer):
 
     def _setup_training(self, train_dl, val_dl):
         """Shared setup: build adapters, prepare, load checkpoint, build optimizers."""
-        self._build_adapters()
+        # NOTE: _build_adapters() is called inside the branches below (not here) so that
+        # the bam_fresh_start path can FSDP-wrap the base model before adapters are built.
 
         total_updates = self.epochs * len(train_dl)
         base_lr = self.global_config.get("BASE_LR", self.lr * 0.25)
         bam_lr  = self.global_config.get("BAM_LR",  self.lr * 5.0)
         self.prepared_opts, self.prepared_scheds = [], []
 
-        if self.bam_resume_diff_training_stage:
+        if self.bam_fresh_start:
+            # 1. FSDP-wrap the base model WITHOUT adapters registered.
+            #    This ensures the strict checkpoint load succeeds (no adapter keys in model).
             train_dl, val_dl = self._prepare_modules(train_dl, val_dl)
+            # 2. Load base checkpoint — strict load works because no adapter keys in model.
             self.load_checkpoint_unified(
                 accelerator=self.accelerator, model=self.model,
                 base_ckpt_dir=self.checkpoint_dir,
@@ -565,9 +576,14 @@ class BAMTrainer(BaseMultiHeadTrainer):
                 expect_training_strategy=self.global_config.get("TRAINING_STRATEGY"),
                 inference_only=True, bam_resume_diff_cfg=True,
             )
+            # 3. Build fresh adapter objects but do NOT register on the FSDP-wrapped model.
+            self._build_adapters(attach_to_model=False)
+            # 4. DDP-prepare adapters and attach them to the inner model.
             self._prepare_fresh_adapters_separately()
             start_epoch, start_batch_offset = 0, 0
         else:
+            # Normal resume: attach adapters before FSDP so they are one wrapped unit.
+            self._build_adapters()
             train_dl, val_dl = self._prepare_modules(train_dl, val_dl)
             start_epoch, start_batch_offset, _, _, _ = self.load_checkpoint_unified(
                 accelerator=self.accelerator, model=self.model,

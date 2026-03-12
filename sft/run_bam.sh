@@ -143,7 +143,7 @@ for DS in "${PROCESS_DS[@]}"; do
     --mode "$MODE" \
     --task_type "$TASK_TYPE" \
     --dataset_name "$DS" \
-    --bam_resume_diff_training_stage \
+    --bam_fresh_start \
     --training_strategy lora \
     --train_batch_size 2 \
     --val_batch_size 2 \
