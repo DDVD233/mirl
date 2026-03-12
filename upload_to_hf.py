@@ -69,6 +69,16 @@ def split_state_dict(state_dict: dict):
 
 
 def load_state_dict(ckpt_dir: str) -> dict:
+    """Load the full model state dict, including BAM adapter shards if present.
+
+    BAM checkpoints saved by accelerate with multiple prepared modules use the
+    model_order field in meta.json to map shard indices to component names:
+      pytorch_model_fsdp.bin   → base model (backbone + heads)
+      pytorch_model_fsdp_1.bin → model_order[1]  (e.g. video adapter)
+      pytorch_model_fsdp_2.bin → model_order[2]  (e.g. audio adapter)
+
+    Adapter weights are prefixed as {name}_adapter.* before merging.
+    """
     ckpt_file = os.path.join(ckpt_dir, "pytorch_model_fsdp.bin")
     if not os.path.isfile(ckpt_file):
         ckpt_file = os.path.join(ckpt_dir, "pytorch_model_fsdp_0.bin")
@@ -78,11 +88,31 @@ def load_state_dict(ckpt_dir: str) -> dict:
                 "If sharded across multiple ranks, consolidate first with "
                 "FSDP's full_state_dict utility."
             )
-    print(f"Loading state dict from {ckpt_file} ...")
+    print(f"Loading base state dict from {ckpt_file} ...")
     sd = torch.load(ckpt_file, map_location="cpu")
     if isinstance(sd, dict) and "state" in sd and isinstance(sd["state"], dict):
         sd = sd["state"]
-    return strip_fsdp_prefix(sd)
+    combined = strip_fsdp_prefix(sd)
+
+    # Load adapter shards based on model_order in meta.json
+    meta_path = os.path.join(ckpt_dir, "meta.json")
+    if os.path.isfile(meta_path):
+        with open(meta_path) as f:
+            meta = json.load(f)
+        model_order = meta.get("model_order", ["base"])
+        for i, name in enumerate(model_order[1:], start=1):
+            shard_file = os.path.join(ckpt_dir, f"pytorch_model_fsdp_{i}.bin")
+            if not os.path.isfile(shard_file):
+                print(f"[warn] Expected adapter shard {shard_file} for '{name}' but not found")
+                continue
+            print(f"Loading {name} adapter shard from {shard_file} ...")
+            adapter_sd = torch.load(shard_file, map_location="cpu")
+            prefix = f"{name}_adapter"
+            for k, v in adapter_sd.items():
+                combined[f"{prefix}.{k}"] = v
+            print(f"  Added {len(adapter_sd)} keys as '{prefix}.*'")
+
+    return combined
 
 
 # ---------------------------------------------------------------------------
@@ -227,7 +257,7 @@ _TASK_META = {
 }
 
 
-def _write_readme(args, backbone_save: str) -> None:
+def _write_readme(args, backbone_save: str, has_adapters: bool = False) -> None:
     """Write README.md into backbone_save."""
     meta = _TASK_META.get(args.task, _TASK_META["generic"])
 
@@ -323,6 +353,9 @@ def _write_readme(args, backbone_save: str) -> None:
         "label_name = global_classes[domain][pred_idx][\"label\"]",
         "print(f\"Predicted {domain}: {label_name}\")",
         "```",
+    ]
+    if has_adapters:
+        readme_lines += [
         "",
         "### Behavioral Descriptors (BAM Adapters)",
         "",
@@ -386,7 +419,7 @@ def _write_readme(args, backbone_save: str) -> None:
         "        def __init__(self): super().__init__(); self.mlp = mlp; self.alpha = alpha",
         "        def forward(self, x): return self.mlp(x) * self.alpha",
         "    m = _Adapter()",
-        "    m.load_state_dict({k[len(prefix)+1:]: v for k, v in sd.items() if k.startswith(prefix)})",
+        "    m.load_state_dict({k[len(prefix)+1:]: v for k, v in sd.items() if k.startswith(prefix)}, strict=False)",
         "    return m.eval()",
         "",
         "video_adapter = _make_adapter(\"video_adapter\", adapters_sd).to(model.device).half()",
@@ -406,7 +439,7 @@ def _write_readme(args, backbone_save: str) -> None:
         "label_name = global_classes[domain][pred_idx][\"label\"]",
         "print(f\"Predicted {domain}: {label_name}\")",
         "```",
-    ]
+        ]  # end has_adapters block
     readme_path = os.path.join(backbone_save, "README.md")
     with open(readme_path, "w") as f:
         f.write("\n".join(readme_lines) + "\n")
@@ -530,7 +563,7 @@ def main():
     # ------------------------------------------------------------------
     # 6. Write model card (README.md)
     # ------------------------------------------------------------------
-    _write_readme(args, backbone_save)
+    _write_readme(args, backbone_save, has_adapters=bool(adapters_sd))
 
     # ------------------------------------------------------------------
     # 7. Push to HuggingFace Hub

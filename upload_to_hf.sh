@@ -7,6 +7,9 @@
 # README-only update (model already on HF, just refresh the model card):
 #   bash upload_to_hf.sh --readme-only
 
+# /scratch/keane/human_behaviour/v6_rha_residual_nogamma_noconf/rla_mmsd/step_484
+# /scratch/keane/human_behaviour/v6_rha_residual_nogamma_noconf/rla_urfunny/step_856
+
 CKPT_DIR="/scratch/keane/human_behaviour/v6_rha_residual_nogamma_noconf/rla_mosei_senti/step_8164"
 REPO_ID="keentomato/omnisapiens_bam_sentiment_polarity_mosei"
 BACKBONE_NAME="Qwen/Qwen2.5-Omni-7B"
