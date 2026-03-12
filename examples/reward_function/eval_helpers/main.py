@@ -300,7 +300,7 @@ def evaluate_predictions(
 
 if __name__ == "__main__":
     # Example synthetic test set covering all three domains
-    label_map_path = "/Users/keane/Desktop/research/human-behavior/data/unified_scheme/label_maps/final_unified_scheme_binarymmpsy_no_vptd_chalearn_lmvd_esconv_full_label_map.json"
+    label_map_path = "/path/to/label_maps/final_unified_scheme_binarymmpsy_no_vptd_chalearn_lmvd_esconv_full_label_map.json"
 
     # Convenience aliases (global indices from your JSON)
     HNEG, NEG, WNEG, NEU, WPOS, POS, HPOS = 0, 1, 2, 3, 4, 5, 6
