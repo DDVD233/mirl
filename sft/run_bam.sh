@@ -16,10 +16,10 @@ TRAIN_FILE="/scratch/keane/human_behaviour/human_behaviour_data/final_v8_train_c
 VAL_FILE="/scratch/keane/human_behaviour/human_behaviour_data/final_v8_val_cleaned.jsonl"
 TEST_FILE="/scratch/keane/human_behaviour/human_behaviour_data/final_v8_test_cleaned.jsonl"
 LABEL_MAP="/home/keaneong/human-behavior/verl/sft/label_maps/unified_label_map.json"
-LOAD_CHECKPOINT="/scratch/keane/human_behaviour/qa_lm_head_training/step_20"
+LOAD_CHECKPOINT="/scratch/keane/human_behaviour/bam_adapter_training/bam_ptsd_in_the_wild/step_10"
 BASE_SAVE_DIR="/scratch/keane/human_behaviour/bam_adapter_training"
 PROJECT_NAME="v6-bam-omni-classifier-multi-head-lora-trial"
-MODE="train"
+MODE="test"
 TMP_DIR="/scratch/keane/human_behaviour/human_behaviour_data"
 
 # Datasets to train adapters for (one run per dataset)
