@@ -16,7 +16,7 @@ VAL_DIR="$SAVE_DIR/test_results"
 
 echo "Launching QA lm_head training..."
 accelerate launch --config_file configs/accelerate_config_qwen.yaml train_qa.py \
-    --mode test \
+    --mode train \
     --training_strategy lora \
     --train_batch_size 1 \
     --val_batch_size 1 \

@@ -18,11 +18,11 @@ WANDB_RUN_NAME="harpo_v2_experiment_$(date +%Y%m%d_%H%M%S)"
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
     case $1 in
-        --results_path)
+        --predictions_to_eval_path)
             RESULTS_PATH="$2"
             shift 2
             ;;
-        --save_path)
+        --grading_results_path)
             SAVE_PATH="$2"
             shift 2
             ;;
@@ -46,8 +46,8 @@ while [[ $# -gt 0 ]]; do
             echo "Usage: $0 [options]"
             echo ""
             echo "Options:"
-            echo "  --results_path PATH       Path to the results JSON file"
-            echo "  --save_path PATH          Path to save graded results as JSON"
+            echo "  --predictions_to_eval_path PATH       Path to the results JSON file"
+            echo "  --grading_results_path PATH          Path to save graded results as JSON"
             echo "  --provider PROVIDER       LLM provider (openai or anthropic)"
             echo "  --wandb_project PROJECT   W&B project name"
             echo "  --wandb_run_name NAME     W&B run/experiment name"
@@ -55,7 +55,7 @@ while [[ $# -gt 0 ]]; do
             echo "  -h, --help                Show this help message"
             echo ""
             echo "Examples:"
-            echo "  $0 --results_path input.json --wandb_run_name my_experiment"
+            echo "  $0 --predictions_to_eval_path input.json --wandb_run_name my_experiment"
             echo "  $0 --provider anthropic --no-wandb"
             exit 0
             ;;
@@ -105,7 +105,7 @@ echo "=========================================="
 echo ""
 
 # Build the command
-CMD="python llm_judge_eval.py --results_path \"$RESULTS_PATH\" --save_path \"$SAVE_PATH\" --provider $PROVIDER"
+CMD="python llm_judge_eval.py --predictions_to_eval_path \"$RESULTS_PATH\" --grading_results_path \"$SAVE_PATH\" --provider $PROVIDER"
 
 if [ -n "$WANDB_PROJECT" ]; then
     CMD="$CMD --wandb_project \"$WANDB_PROJECT\" --wandb_run_name \"$WANDB_RUN_NAME\""

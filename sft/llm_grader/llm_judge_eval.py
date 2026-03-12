@@ -230,8 +230,8 @@ async def evaluate_worker(semaphore, question: str, candidate_answer: str, refer
         return evaluation
 
 
-def load_annotations(annotations_root_dir):
-    annotation_path = Path(annotations_root_dir)
+def load_annotations(ground_truth_annotations_root_dir):
+    annotation_path = Path(ground_truth_annotations_root_dir)
 
     # Load annotation files
     mimeqa_annotation_path = annotation_path / "mimeqa" / "metadata.csv"
@@ -404,24 +404,24 @@ def calculate_accuracy(graded_results):
 
 async def main():
     parser = argparse.ArgumentParser(description="Process results and calculate accuracy")
-    parser.add_argument("--results_path", help="Path to the results JSON file", default=None)
-    parser.add_argument("--save_path", help="Optional path to save graded results as JSON", default=None)
+    parser.add_argument("--predictions_to_eval_path", help="Path to the results JSON file", default=None)
+    parser.add_argument("--grading_results_path", help="Optional path to save graded results as JSON", default=None)
     parser.add_argument("--provider", choices=["openai", "anthropic"], default="openai",
                        help="LLM provider to use (default: openai)")
     parser.add_argument("--wandb_project", help="Weights & Biases project name", default="temp_llm_judge_test")
     parser.add_argument("--wandb_run_name", help="Weights & Biases run/experiment name", default="temp_llm_judge_test")
-    parser.add_argument("--annotations_root_dir", required=True,
+    parser.add_argument("--ground_truth_annotations_root_dir", required=True,
                         help="Path to the human_behaviour_data annotation directory")
 
     args = parser.parse_args()
 
     # If running from debugger without args, set defaults here
-    if args.results_path is None:
+    if args.predictions_to_eval_path is None:
         pass
 
-    if args.save_path is None:
+    if args.grading_results_path is None:
         # Optionally set a default save path for debugging
-        # args.save_path = "/path/to/data/graded_results.json"
+        # args.grading_results_path = "/path/to/data/graded_results.json"
         pass
 
     if args.provider == "anthropic":
@@ -438,14 +438,14 @@ async def main():
             config={
                 "provider": args.provider,
                 "model": model,
-                "results_path": args.results_path,
+                "predictions_to_eval_path": args.predictions_to_eval_path,
             }
         )
         print(f"Initialized W&B project: {args.wandb_project}, run: {args.wandb_run_name}")
 
     # Check if results file exists
-    if not os.path.exists(args.results_path):
-        print(f"Error: Results file '{args.results_path}' not found")
+    if not os.path.exists(args.predictions_to_eval_path):
+        print(f"Error: Results file '{args.predictions_to_eval_path}' not found")
         sys.exit(1)
 
     # Check for required environment variables based on provider
@@ -457,8 +457,8 @@ async def main():
         sys.exit(1)
 
     # Load results
-    print(f"Loading results from {args.results_path}")
-    with open(args.results_path, 'r') as f:
+    print(f"Loading results from {args.predictions_to_eval_path}")
+    with open(args.predictions_to_eval_path, 'r') as f:
         data = json.load(f)
 
     # Convert to results format if needed
@@ -475,7 +475,7 @@ async def main():
 
     # Load annotations and create mappings
     print("Loading annotation data...")
-    answer_question_maps = load_annotations(args.annotations_root_dir)
+    answer_question_maps = load_annotations(args.ground_truth_annotations_root_dir)
 
     # Filter results and get only those with valid annotations
     filtered_question_results_sets = augment_results_with_questions(results_json, answer_question_maps)
@@ -538,9 +538,9 @@ async def main():
         print(f"\nLogged results to W&B project: {args.wandb_project}")
 
     # Save graded results if path provided
-    if args.save_path:
-        print(f"\nSaving graded results to {args.save_path}")
-        with open(args.save_path, 'w') as f:
+    if args.grading_results_path:
+        print(f"\nSaving graded results to {args.grading_results_path}")
+        with open(args.grading_results_path, 'w') as f:
             json.dump(graded_results, f, indent=2)
         print("Results saved successfully!")
 

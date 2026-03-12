@@ -10,12 +10,13 @@ TRAIN_FILE="/scratch/keane/human_behaviour/human_behaviour_data/final_v8_train_c
 VAL_FILE="/scratch/keane/human_behaviour/human_behaviour_data/final_v8_val_cleaned.jsonl"
 TEST_FILE="/scratch/keane/human_behaviour/human_behaviour_data/final_v8_test_cleaned.jsonl"
 LABEL_MAP="/home/keaneong/human-behavior/verl/sft/label_maps/unified_label_map.json"
+LOAD_CHECKPOINT="/scratch/keane/human_behaviour/v6_multi_head_lora_training_trial/step_200"
 SAVE_DIR="/scratch/keane/human_behaviour/v6_multi_head_lora_training_trial"
 VAL_DIR="$SAVE_DIR/validation_results"
 
 echo "Launching multi-head LoRA training..."
 accelerate launch --config_file configs/accelerate_config_qwen.yaml train_classification.py \
-    --mode train \
+    --mode test \
     --training_strategy lora \
     --train_batch_size 2 \
     --val_batch_size 2 \
@@ -26,6 +27,7 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml train_classi
     --val_file "$VAL_FILE" \
     --test_file "$TEST_FILE" \
     --label_map_path "$LABEL_MAP" \
+    --load_checkpoint_path "$LOAD_CHECKPOINT" \
     --save_checkpoint_dir "$SAVE_DIR" \
     --validation_result_dir "$VAL_DIR" \
     --save_every_n_epochs 1 \
