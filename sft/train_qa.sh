@@ -40,7 +40,7 @@ accelerate launch --config_file configs/accelerate_config_qwen.yaml train_qa.py 
     --scheduler_type cosine \
     --warmup_steps 50 \
     --format_prompt "" \
-    --max_prompt_length 8096 \
+    --max_prompt_length 4096 \
     --qa_datasets intentqa mimeqa siq2 \
     --qa_loss_weight 1.0 \
     --project "qa-lm-head-omni-classifier"
