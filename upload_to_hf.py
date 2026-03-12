@@ -55,11 +55,17 @@ def strip_fsdp_prefix(state_dict: dict) -> dict:
 
 
 def split_state_dict(state_dict: dict):
-    """Split into backbone_sd (strip 'backbone.' prefix) and heads_sd."""
+    """Split into backbone_sd (strip 'backbone.' prefix), heads_sd, and adapters_sd.
+
+    BAM checkpoints additionally contain video_adapter.* and audio_adapter.* keys
+    which are saved separately as adapters.bin.
+    """
     backbone_sd = {k[len("backbone."):]: v
                    for k, v in state_dict.items() if k.startswith("backbone.")}
     heads_sd = {k: v for k, v in state_dict.items() if k.startswith("heads.")}
-    return backbone_sd, heads_sd
+    adapters_sd = {k: v for k, v in state_dict.items()
+                   if k.startswith("video_adapter.") or k.startswith("audio_adapter.")}
+    return backbone_sd, heads_sd, adapters_sd
 
 
 def load_state_dict(ckpt_dir: str) -> dict:
@@ -328,12 +334,17 @@ def main():
     # 1. Load + split state dict
     # ------------------------------------------------------------------
     sd = load_state_dict(args.ckpt_dir)
-    backbone_sd, heads_sd = split_state_dict(sd)
-    print(f"State dict: {len(backbone_sd)} backbone keys, {len(heads_sd)} head keys")
+    backbone_sd, heads_sd, adapters_sd = split_state_dict(sd)
+    print(f"State dict: {len(backbone_sd)} backbone keys, {len(heads_sd)} head keys, "
+          f"{len(adapters_sd)} adapter keys")
 
     if not backbone_sd:
         heads_sd = {k: v for k, v in sd.items() if k.startswith("heads.")}
-        backbone_sd = {k: v for k, v in sd.items() if not k.startswith("heads.")}
+        adapters_sd = {k: v for k, v in sd.items()
+                       if k.startswith("video_adapter.") or k.startswith("audio_adapter.")}
+        backbone_sd = {k: v for k, v in sd.items()
+                       if not k.startswith("heads.") and not k.startswith("video_adapter.")
+                       and not k.startswith("audio_adapter.")}
         print(f"[fallback] treating {len(backbone_sd)} keys as backbone")
 
     # ------------------------------------------------------------------
@@ -382,6 +393,16 @@ def main():
         torch.save(heads_sd, heads_file)
     else:
         print("[info] No classification head weights found in checkpoint.")
+
+    # ------------------------------------------------------------------
+    # 4b. Save BAM adapters (video_adapter / audio_adapter)
+    # ------------------------------------------------------------------
+    if adapters_sd:
+        adapters_file = os.path.join(backbone_save, "adapters.bin")
+        print(f"Saving {len(adapters_sd)} adapter tensors to {adapters_file} ...")
+        torch.save(adapters_sd, adapters_file)
+    else:
+        print("[info] No BAM adapter weights found in checkpoint.")
 
     # ------------------------------------------------------------------
     # 5. Copy meta.json and label_scheme.json
