@@ -359,7 +359,7 @@ def _write_readme(args, backbone_save: str, has_adapters: bool = False) -> None:
         "",
         "### Behavioral Descriptors (BAM Adapters)",
         "",
-        "If `adapters.bin` is present in the repo, the model supports side-channel",
+        "As `adapters.bin` is present in the repo, the model supports side-channel",
         "behavioral descriptors extracted from OpenPose (video) and OpenSmile (audio).",
         "These replace the raw video/audio inputs to the backbone with pre-computed",
         "behavioral feature vectors that are injected via lightweight MLP adapters.",
