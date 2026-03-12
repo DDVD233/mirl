@@ -111,7 +111,7 @@ ACTION=$([ "$MODE" = "test" ] && echo "testing" || echo "training")
 
 for DS in "${PROCESS_DS[@]}"; do
   echo "-------------------------------------------"
-  echo "Running RHA adapter ${ACTION} for: $DS"
+  echo "Running BAM adapter ${ACTION} for: $DS"
 
   TRAIN_OUT="$TMP_DIR/bam_train_${DS}.jsonl"
   VAL_OUT="$TMP_DIR/bam_val_${DS}.jsonl"
@@ -185,4 +185,4 @@ for DS in "${PROCESS_DS[@]}"; do
   echo "Finished ${ACTION}: $DS"
 done
 
-echo "All RHA adapter ${ACTION} runs completed."
+echo "All BAM adapter ${ACTION} runs completed."
