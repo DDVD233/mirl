@@ -17,13 +17,13 @@ VAL_FILE="/scratch/keane/human_behaviour/human_behaviour_data/final_v8_val_clean
 TEST_FILE="/scratch/keane/human_behaviour/human_behaviour_data/final_v8_test_cleaned.jsonl"
 LABEL_MAP="/home/keaneong/human-behavior/verl/sft/label_maps/unified_label_map.json"
 LOAD_CHECKPOINT="/scratch/keane/human_behaviour/v6_multi_head_lora_training_trial/step_200"
-BASE_SAVE_DIR="/scratch/keane/human_behaviour/rha_adapter_training"
-PROJECT_NAME="v6-rha-omni-classifier-multi-head-lora-trial"
+BASE_SAVE_DIR="/scratch/keane/human_behaviour/bam_adapter_training"
+PROJECT_NAME="v6-bam-omni-classifier-multi-head-lora-trial"
 MODE="train"
 TMP_DIR="/scratch/keane/human_behaviour/human_behaviour_data"
 
 # Datasets to train adapters for (one run per dataset)
-# BAM will be saved in separate subdirs under BASE_SAVE_DIR, e.g. $BASE_SAVE_DIR/rha_ptsd_in_the_wild, $BASE_SAVE_DIR/rha_another_dataset, etc.
+# BAM will be saved in separate subdirs under BASE_SAVE_DIR, e.g. $BASE_SAVE_DIR/bam_ptsd_in_the_wild, $BASE_SAVE_DIR/bam_another_dataset, etc.
 INCLUDE_DATASETS=("ptsd_in_the_wild")
 
 # ---- helpers ----
@@ -113,8 +113,8 @@ for DS in "${PROCESS_DS[@]}"; do
   echo "-------------------------------------------"
   echo "Running RHA adapter ${ACTION} for: $DS"
 
-  TRAIN_OUT="$TMP_DIR/rha_train_${DS}.jsonl"
-  VAL_OUT="$TMP_DIR/rha_val_${DS}.jsonl"
+  TRAIN_OUT="$TMP_DIR/bam_train_${DS}.jsonl"
+  VAL_OUT="$TMP_DIR/bam_val_${DS}.jsonl"
   filter_jsonl "$TRAIN_FILE" "$DS" "$TRAIN_OUT"
   filter_jsonl "$VAL_FILE"   "$DS" "$VAL_OUT"
 
@@ -125,7 +125,7 @@ for DS in "${PROCESS_DS[@]}"; do
     continue
   fi
 
-  SAVE_DIR="${BASE_SAVE_DIR}/rha_${DS}"
+  SAVE_DIR="${BASE_SAVE_DIR}/bam_${DS}"
   VAL_DIR="${SAVE_DIR}/validation_results"
   mkdir -p "$SAVE_DIR" "$VAL_DIR"
 
