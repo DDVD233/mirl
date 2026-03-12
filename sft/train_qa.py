@@ -134,6 +134,7 @@ def parse_parameters():
     if args.use_wandb:                      cfg.wandb.use = True
     if args.project is not None:            cfg.wandb.project = args.project
     if args.entity is not None:             cfg.wandb.entity = args.entity
+    if args.mode is not None:               cfg.mode = args.mode
 
     def _parse_n(v):
         if v is None or v == "None":
