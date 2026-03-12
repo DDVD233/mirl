@@ -86,17 +86,21 @@ PY
 
 echo "Collecting dataset names from JSONL files..."
 mapfile -t ALL_DS_ARR < <(
-  { list_datasets "$TRAIN_JSONL"; list_datasets "$VAL_JSONL"; } | sort -u
+  { list_datasets "$TRAIN_FILE"; list_datasets "$VAL_FILE"; } | sort -u
 )
 
-PROCESS_DS=()
-for DS in "${INCLUDE_DATASETS[@]}"; do
-  if in_list "$DS" "${ALL_DS_ARR[@]}"; then
-    PROCESS_DS+=("$DS")
-  else
-    echo "Warning: '$DS' not found in JSONLs; skipping."
-  fi
-done
+if [[ ${#INCLUDE_DATASETS[@]} -eq 1 && "${INCLUDE_DATASETS[0]}" == "all" ]]; then
+  PROCESS_DS=("${ALL_DS_ARR[@]}")
+else
+  PROCESS_DS=()
+  for DS in "${INCLUDE_DATASETS[@]}"; do
+    if in_list "$DS" "${ALL_DS_ARR[@]}"; then
+      PROCESS_DS+=("$DS")
+    else
+      echo "Warning: '$DS' not found in JSONLs; skipping."
+    fi
+  done
+fi
 
 if ((${#PROCESS_DS[@]} == 0)); then
   echo "No datasets to process. Exiting."
@@ -111,8 +115,8 @@ for DS in "${PROCESS_DS[@]}"; do
 
   TRAIN_OUT="$TMP_DIR/rha_train_${DS}.jsonl"
   VAL_OUT="$TMP_DIR/rha_val_${DS}.jsonl"
-  filter_jsonl "$TRAIN_JSONL" "$DS" "$TRAIN_OUT"
-  filter_jsonl "$VAL_JSONL"   "$DS" "$VAL_OUT"
+  filter_jsonl "$TRAIN_FILE" "$DS" "$TRAIN_OUT"
+  filter_jsonl "$VAL_FILE"   "$DS" "$VAL_OUT"
 
   TRAIN_LINES=$(wc -l < "$TRAIN_OUT" || echo 0)
   VAL_LINES=$(wc -l < "$VAL_OUT" || echo 0)
