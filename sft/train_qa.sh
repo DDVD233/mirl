@@ -18,9 +18,9 @@ echo "Launching QA lm_head training..."
 accelerate launch --config_file configs/accelerate_config_qwen.yaml train_qa.py \
     --mode train \
     --training_strategy lora \
-    --train_batch_size 2 \
-    --val_batch_size 2 \
-    --test_batch_size 2 \
+    --train_batch_size 1 \
+    --val_batch_size 1 \
+    --test_batch_size 1 \
     --lr 1e-4 \
     --epochs 5 \
     --train_file "$TRAIN_FILE" \
