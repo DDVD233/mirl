@@ -180,29 +180,75 @@ def parse_args():
                         "(e.g. keentomato/human_behaviour_atlas)")
     p.add_argument("--readme_only", action="store_true",
                    help="Skip checkpoint loading; only regenerate and push README.md")
+    p.add_argument("--task", default="sarcasm",
+                   choices=["sarcasm", "emotion", "sentiment", "humour", "mental_health", "generic"],
+                   help="Task type — controls README title, tags, and domain example")
     return p.parse_args()
+
+
+# Task metadata used by _write_readme
+_TASK_META = {
+    "sarcasm": {
+        "title":       "OmniSapiens BAM — Sarcasm Detection",
+        "description": "multimodal sarcasm detection on the MUStARD/MMSD benchmark",
+        "tags":        ["sarcasm-detection", "sarcasm"],
+        "domain":      "sarcasm",
+    },
+    "emotion": {
+        "title":       "OmniSapiens BAM — Emotion Recognition",
+        "description": "multimodal emotion recognition",
+        "tags":        ["emotion-recognition", "emotion"],
+        "domain":      "emotion",
+    },
+    "sentiment": {
+        "title":       "OmniSapiens BAM — Sentiment Polarity",
+        "description": "multimodal sentiment polarity classification",
+        "tags":        ["sentiment-analysis", "sentiment"],
+        "domain":      "sentiment_intensity",
+    },
+    "humour": {
+        "title":       "OmniSapiens BAM — Humour Detection",
+        "description": "multimodal humour detection",
+        "tags":        ["humor-detection", "humor"],
+        "domain":      "humour",
+    },
+    "mental_health": {
+        "title":       "OmniSapiens BAM — Mental Health Detection",
+        "description": "multimodal mental health indicator detection",
+        "tags":        ["mental-health"],
+        "domain":      "mental_health_ptsd",
+    },
+    "generic": {
+        "title":       "OmniSapiens BAM",
+        "description": "multimodal human behavior understanding",
+        "tags":        [],
+        "domain":      "sarcasm",
+    },
+}
 
 
 def _write_readme(args, backbone_save: str) -> None:
     """Write README.md into backbone_save."""
+    meta = _TASK_META.get(args.task, _TASK_META["generic"])
+
+    base_tags = ["human-behavior", "multimodal", "qwen2.5-omni"] + meta["tags"]
     readme_lines = [
         "---",
         "language: en",
         "license: apache-2.0",
         "tags:",
-        "  - human-behavior",
-        "  - multimodal",
-        "  - qwen2.5-omni",
-    ]
+    ] + [f"  - {t}" for t in base_tags]
+
     if args.dataset_repo:
         readme_lines += ["datasets:", f"  - {args.dataset_repo}"]
     readme_lines += [
         "---",
         "",
-        "# OmniSapiens SFT",
+        f"# {meta['title']}",
         "",
         f"Fine-tuned [Qwen2.5-Omni-7B](https://huggingface.co/Qwen/Qwen2.5-Omni-7B) "
-        "for human behavior understanding.",
+        f"for {meta['description']}. "
+        "Uses LoRA adapters merged into the backbone and a lightweight classification head.",
     ]
     if args.dataset_repo:
         readme_lines += [
@@ -255,10 +301,7 @@ def _write_readme(args, backbone_save: str) -> None:
         "# 4. Prepare multimodal inputs",
         "# video_tensor: [T, C, H, W] tensor or list of PIL images",
         "# audio_waveform: 1-D numpy array / tensor at 16 kHz",
-        "domain = \"emotion\"  # one of: " + ", ".join(f'"{d}"' for d in [
-            "sentiment_intensity", "emotion", "mental_health_ptsd",
-            "mental_health_depression", "mental_health_anxiety", "sarcasm", "humour",
-        ]),
+        f'domain = "{meta["domain"]}"',
         "messages = [{\"role\": \"user\", \"content\": [",
         "    {\"type\": \"video\"},",
         "    {\"type\": \"audio\"},",
@@ -279,25 +322,6 @@ def _write_readme(args, backbone_save: str) -> None:
         "",
         "label_name = global_classes[domain][pred_idx][\"label\"]",
         "print(f\"Predicted {domain}: {label_name}\")",
-        "```",
-        "",
-        "### QA / Open-ended generation",
-        "",
-        "```python",
-        "messages = [{\"role\": \"user\", \"content\": [",
-        "    {\"type\": \"video\"},",
-        "    {\"type\": \"audio\"},",
-        "    {\"type\": \"text\", \"text\": \"Describe the emotional state of the person in this video.\"},",
-        "]}]",
-        "text = processor.apply_chat_template(messages, add_generation_prompt=True, tokenize=False)",
-        "inputs = processor(text=[text], videos=[video_tensor], audio=[audio_waveform], return_tensors=\"pt\")",
-        "inputs = {k: v.to(model.device) for k, v in inputs.items()}",
-        "",
-        "with torch.no_grad():",
-        "    generated = model.generate(**inputs, max_new_tokens=128)",
-        "",
-        "answer = processor.decode(generated[0][inputs[\"input_ids\"].shape[1]:], skip_special_tokens=True)",
-        "print(answer)",
         "```",
     ]
     readme_path = os.path.join(backbone_save, "README.md")

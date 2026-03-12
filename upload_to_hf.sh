@@ -12,12 +12,16 @@ REPO_ID="keentomato/omnisapiens_bam_sarcasm_detection"
 BACKBONE_NAME="Qwen/Qwen2.5-Omni-7B"
 LABEL_SCHEME="/home/keaneong/human-behavior/verl/sft/label_maps/unified_label_map_v6.json"
 SAVE_DIR="/scratch/keane/human_behaviour/hf_staging_bam"
+# Task controls README title/tags/domain example.
+# Choices: sarcasm | emotion | sentiment | humour | mental_health | generic
+TASK="sarcasm"
 
 if [[ "$1" == "--readme-only" ]]; then
     python upload_to_hf.py \
         --ckpt_dir   "$CKPT_DIR" \
         --repo_id    "$REPO_ID" \
         --save_dir   "$SAVE_DIR" \
+        --task       "$TASK" \
         --dataset_repo "keentomato/human_behavior_atlas" \
         --readme_only
 else
@@ -27,6 +31,7 @@ else
         --backbone_name "$BACKBONE_NAME" \
         --label_scheme  "$LABEL_SCHEME" \
         --save_dir   "$SAVE_DIR" \
+        --task       "$TASK" \
         --dataset_repo "keentomato/human_behavior_atlas" \
         --private
 fi
