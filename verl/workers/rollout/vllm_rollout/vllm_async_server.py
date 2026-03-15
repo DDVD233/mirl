@@ -506,12 +506,13 @@ class vLLMHttpServer:
         """Generate sequence with token-in-token-out."""
         # Calculate the maximum possible new tokens based on available context space
         # This serves as a safety upper bound
-        max_possible_tokens = self.config.max_model_len - len(prompt_ids)
-        if max_possible_tokens < 0:
-            raise ValueError(
-                f"Prompt length ({len(prompt_ids)}) exceeds the model's maximum context length "
-                f"({self.config.max_model_len})."
+        if len(prompt_ids) > self.config.max_model_len:
+            logger.warning(
+                "Prompt length (%d) exceeds max_model_len (%d), skipping generation.",
+                len(prompt_ids), self.config.max_model_len,
             )
+            return TokenOutput(token_ids=[], log_probs=[])
+        max_possible_tokens = self.config.max_model_len - len(prompt_ids)
 
         # Determine max_tokens from sampling_params or use configured response_length as default
         if "max_tokens" in sampling_params:

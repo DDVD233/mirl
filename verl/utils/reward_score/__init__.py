@@ -102,6 +102,23 @@ def default_compute_score(
 
         res = tactile.compute_score(solution_str, ground_truth)
     elif data_source in [
+        "cremad", "chsimsv2", "daicwoz", "intentqa",
+        "meld_emotion", "meld_senti", "mimeqa",
+        "mmpsy_anxiety", "mmpsy_depression", "mmsd",
+        "mosei_emotion", "mosei_senti", "ptsd_in_the_wild",
+        "siq2", "tess", "urfunny",
+    ]:
+        from . import human_behaviour
+
+        res = human_behaviour.compute_score(solution_str, ground_truth)
+    elif data_source in [
+        "chest_xray", "ct", "derm", "fundus", "mammo",
+        "mri", "pathology", "ultrasound",
+    ]:
+        from . import medical
+
+        res = medical.compute_score(solution_str, ground_truth)
+    elif data_source in [
         "searchR1_nq",
         "searchR1_triviaqa",
         "searchR1_popqa",

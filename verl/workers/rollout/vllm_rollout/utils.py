@@ -311,7 +311,8 @@ class vLLMColocateWorkerExtension:
         """Get ZMQ handle for communication."""
         if not hasattr(self, "device_uuid") or not self.device_uuid:
             self.device_uuid = get_device_uuid(self.device.index)
-        return f"ipc:///tmp/rl-colocate-zmq-{self.device_uuid}.sock"
+        zmq_dir = os.path.join("/tmp", f"verl-zmq-{os.getuid()}")
+        return f"ipc://{zmq_dir}/rl-colocate-zmq-{self.device_uuid}.sock"
 
 
 class SuppressSignalInThread:

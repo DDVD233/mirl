@@ -95,7 +95,15 @@ class ServerAdapter(BaseRollout):
 
         self.device_uuid = get_device_uuid(get_device_id())
         self.zmq_context = zmq.Context()
-        self.zmq_handle = f"ipc:///tmp/rl-colocate-zmq-{self.device_uuid}.sock"
+        zmq_dir = os.path.join("/tmp", f"verl-zmq-{os.getuid()}")
+        os.makedirs(zmq_dir, exist_ok=True)
+        sock_path = os.path.join(zmq_dir, f"rl-colocate-zmq-{self.device_uuid}.sock")
+        if os.path.exists(sock_path):
+            try:
+                os.remove(sock_path)
+            except OSError:
+                pass
+        self.zmq_handle = f"ipc://{sock_path}"
 
         self.use_shm = not is_support_ipc()
         if self.use_shm:
@@ -227,6 +235,12 @@ class ServerAdapter(BaseRollout):
 
         # clean up
         s.close()
+        sock_path = self.zmq_handle.replace("ipc://", "")
+        if os.path.exists(sock_path):
+            try:
+                os.remove(sock_path)
+            except OSError:
+                pass
         del buffer
         if shm is not None:
             shm.close()
