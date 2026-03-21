@@ -101,6 +101,10 @@ def default_compute_score(
         from . import tactile
 
         res = tactile.compute_score(solution_str, ground_truth)
+    elif data_source.startswith("mimic"):
+        from . import mimic
+
+        res = mimic.compute_score(predict_str=solution_str, ground_truth=ground_truth, extra_info=extra_info)
     elif data_source in [
         "searchR1_nq",
         "searchR1_triviaqa",
