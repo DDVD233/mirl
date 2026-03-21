@@ -17,8 +17,8 @@ CP=${CP:-2}
 TP=${TP:-2}
 PP=${PP:-1}
 
-train_path="$HOME/scratch/multimodal/mimiciv/qa_train.json"
-test_path="$HOME/scratch/multimodal/mimiciv/qa_test_mini.json"
+train_path="$HOME/scratch/high_modality/multimodal/mimiciv/qa_train.json"
+test_path="$HOME/scratch/high_modality/multimodal/mimiciv/qa_test_mini.json"
 
 python3 -m verl.trainer.main_ppo --config-path=config \
     --config-name='ppo_megatron_trainer.yaml'\
