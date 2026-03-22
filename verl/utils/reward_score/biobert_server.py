@@ -27,7 +27,7 @@ _lock = asyncio.Lock()
 def _load_model(device: str):
     global _model, _tokenizer, _device
     _device = torch.device(device)
-    model_name = "dmis-lab/biobert-base-cased-v1.2"
+    model_name = "medicalai/ClinicalBERT"
     _tokenizer = AutoTokenizer.from_pretrained(model_name)
     _model = AutoModel.from_pretrained(model_name).to(_device)
     _model.eval()
