@@ -526,11 +526,23 @@ class vLLMHttpServer:
         # Clamp max_tokens to the valid range [0, max_possible_tokens]
         max_tokens = max(0, min(max_tokens, max_possible_tokens))
         if max_tokens == 0:
+            # Count image/video pad tokens vs text tokens for debugging
+            n_image_tokens = 0
+            n_video_tokens = 0
+            if self.model_config.processor is not None:
+                proc = self.model_config.processor
+                for tid in prompt_ids:
+                    if hasattr(proc, "image_token_id") and tid == proc.image_token_id:
+                        n_image_tokens += 1
+                    elif hasattr(proc, "video_token_id") and tid == proc.video_token_id:
+                        n_video_tokens += 1
+            n_text_tokens = len(prompt_ids) - n_image_tokens - n_video_tokens
             logger.warning(
                 f"max_tokens is set to 0 after clamping, which means no new tokens will be generated. "
                 f"Please check if the prompt length ({len(prompt_ids)}) is close to or exceeds the model's "
                 f"maximum context length ({self.config.max_model_len}). Response length: {self.config.response_length}, "
-                f"prompt length config: {self.config.prompt_length}."
+                f"prompt length config: {self.config.prompt_length}. "
+                f"Token breakdown: text={n_text_tokens}, image_pad={n_image_tokens}, video_pad={n_video_tokens}."
             )
 
         assert max_tokens <= max_possible_tokens, (

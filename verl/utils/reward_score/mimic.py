@@ -128,17 +128,16 @@ def compute_score(
     if qa_type in LONG_RESPONSE_TYPES:
         boxed = extract_boxed_answer(predict_str)
         sim = embedding_similarity(boxed or "", ground_truth)
+        acc = 0.0
         score = (1.0 - format_weight) * sim + format_weight * fmt
-        return {
-            "score": score,
-            "similarity": sim,
-            "format": fmt,
-        }
     else:
         acc = mc_accuracy(predict_str, ground_truth)
+        sim = 0.0
         score = (1.0 - format_weight) * acc + format_weight * fmt
-        return {
-            "score": score,
-            "acc": acc,
-            "format": fmt,
-        }
+
+    return {
+        "score": score,
+        "acc": acc,
+        "similarity": sim,
+        "format": fmt,
+    }
