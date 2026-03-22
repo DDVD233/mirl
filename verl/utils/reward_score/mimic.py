@@ -3,14 +3,24 @@
 Supports two formats:
 - Multiple choice (q3, q5, q6): exact string match on \\boxed{} content.
 - Long response (q1, q2): BioBERT embedding cosine similarity between
-  \\boxed{} content and ground truth. Runs on CPU since the reward model
-  may not have GPU access.
+  \\boxed{} content and ground truth. Queries a separate BioBERT server
+  to avoid torch dispatch mode conflicts inside Ray workers.
+
+Start the server before training:
+    python -m verl.utils.reward_score.biobert_server [--port 5100] [--device cuda]
+
+Set BIOBERT_SERVER_URL env var if not using default (http://localhost:5100).
 """
 
+import os
 import re
+
+import requests
 
 # Long-response qa_types (free-text diagnosis answers)
 LONG_RESPONSE_TYPES = {"1", "2"}
+
+BIOBERT_SERVER_URL = os.environ.get("BIOBERT_SERVER_URL", "http://localhost:5100")
 
 
 def extract_boxed_answer(predict_str: str) -> str | None:
@@ -38,62 +48,30 @@ def format_reward(predict_str: str) -> float:
 
 
 # ---------------------------------------------------------------------------
-# BioBERT embedding similarity (CPU-only)
+# BioBERT embedding similarity via external server
 # ---------------------------------------------------------------------------
 
 
-def _get_biobert():
-    import torch
-    from transformers import AutoModel, AutoTokenizer
-
-    model_name = "dmis-lab/biobert-base-cased-v1.2"
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
-    # Force loading on CPU with no device_map inference to avoid meta tensors
-    # in Ray worker environments
-    with torch.device("cpu"):
-        model = AutoModel.from_pretrained(
-            model_name, device_map=None, low_cpu_mem_usage=False
-        )
-    model.eval()
-    return tokenizer, model
-
-
-def _embed(text: str):
-    """Return a mean-pooled BioBERT embedding on CPU."""
-    import torch
-    from torch.utils._python_dispatch import _disable_current_modes
-
-    # Disable any active dispatch modes (e.g. FakeTensorMode from training)
-    # to ensure real CPU tensors are used
-    with _disable_current_modes():
-        tokenizer, model = _get_biobert()
-        inputs = tokenizer(text, return_tensors="pt", truncation=True, max_length=512)
-        inputs = {k: v.to(torch.device("cpu")) for k, v in inputs.items()}
-        with torch.no_grad():
-            outputs = model(**inputs)
-        # Mean pool over token dimension
-        mask = inputs["attention_mask"].unsqueeze(-1).float()
-        embedding = (outputs.last_hidden_state * mask).sum(dim=1) / mask.sum(dim=1)
-        return embedding.squeeze(0)
-
-
 def embedding_similarity(pred_text: str, gt_text: str) -> float:
-    """Cosine similarity between BioBERT embeddings of pred and gt."""
-    import time
-    import torch
-
+    """Cosine similarity between BioBERT embeddings via external server."""
     if not pred_text or not gt_text:
         print(f"[mimic reward] embedding_similarity: empty input, pred={repr(pred_text[:100])}, gt={repr(gt_text[:100])}, sim=0.0")
         return 0.0
-    t0 = time.time()
-    pred_emb = _embed(pred_text)
-    gt_emb = _embed(gt_text)
-    cos_sim = torch.nn.functional.cosine_similarity(pred_emb.unsqueeze(0), gt_emb.unsqueeze(0)).item()
-    # Clamp to [0, 1] since negative similarity is not meaningful here
-    result = max(0.0, cos_sim)
-    elapsed = time.time() - t0
-    print(f"[mimic reward] embedding_similarity: sim={result:.4f}, time={elapsed:.3f}s, pred={repr(pred_text[:80])}, gt={repr(gt_text[:80])}")
-    return result
+    try:
+        resp = requests.post(
+            f"{BIOBERT_SERVER_URL}/similarity",
+            json={"pred": pred_text, "gt": gt_text},
+            timeout=30,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        result = data["similarity"]
+        elapsed = data["time"]
+        print(f"[mimic reward] embedding_similarity: sim={result:.4f}, time={elapsed:.3f}s, pred={repr(pred_text[:80])}, gt={repr(gt_text[:80])}")
+        return result
+    except Exception as e:
+        print(f"[mimic reward] embedding_similarity: server error: {e}, returning 0.0")
+        return 0.0
 
 
 # ---------------------------------------------------------------------------
