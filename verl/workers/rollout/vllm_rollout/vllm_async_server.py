@@ -525,6 +525,13 @@ class vLLMHttpServer:
 
         # Clamp max_tokens to the valid range [0, max_possible_tokens]
         max_tokens = max(0, min(max_tokens, max_possible_tokens))
+        if max_tokens == 0:
+            logger.warning(
+                f"max_tokens is set to 0 after clamping, which means no new tokens will be generated. "
+                f"Please check if the prompt length ({len(prompt_ids)}) is close to or exceeds the model's "
+                f"maximum context length ({self.config.max_model_len}). Response length: {self.config.response_length}, "
+                f"prompt length config: {self.config.prompt_length}."
+            )
 
         assert max_tokens <= max_possible_tokens, (
             f"max_tokens {max_tokens} exceeds available context space {max_possible_tokens}"
