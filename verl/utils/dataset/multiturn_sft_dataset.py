@@ -281,7 +281,13 @@ class MultiTurnSFTDataset(Dataset):
             segments = [item for item in segments if item != ""]
             for segment in segments:
                 if segment == "<image>":
-                    image = process_image(images[image_offset], image_patch_size=self.image_patch_size)
+                    image_input = images[image_offset]
+                    if isinstance(image_input, dict) and "image" in image_input and isinstance(image_input["image"], str) and not os.path.isabs(image_input["image"]):
+                        image_input = dict(image_input)
+                        image_input["image"] = os.path.join(self.data_source_dir, image_input["image"])
+                    elif isinstance(image_input, str) and not os.path.isabs(image_input):
+                        image_input = os.path.join(self.data_source_dir, image_input)
+                    image = process_image(image_input, image_patch_size=self.image_patch_size)
                     content_list.append({"type": "image", "image": image})
                     image_offset += 1
                 elif segment == "<video>":
