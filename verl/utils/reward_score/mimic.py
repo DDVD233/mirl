@@ -61,16 +61,20 @@ def _get_biobert():
 def _embed(text: str):
     """Return a mean-pooled BioBERT embedding on CPU."""
     import torch
+    from torch.utils._python_dispatch import _disable_current_modes
 
-    tokenizer, model = _get_biobert()
-    inputs = tokenizer(text, return_tensors="pt", truncation=True, max_length=512)
-    inputs = {k: v.to(torch.device("cpu")) for k, v in inputs.items()}
-    with torch.no_grad():
-        outputs = model(**inputs)
-    # Mean pool over token dimension
-    mask = inputs["attention_mask"].unsqueeze(-1).float()
-    embedding = (outputs.last_hidden_state * mask).sum(dim=1) / mask.sum(dim=1)
-    return embedding.squeeze(0)
+    # Disable any active dispatch modes (e.g. FakeTensorMode from training)
+    # to ensure real CPU tensors are used
+    with _disable_current_modes():
+        tokenizer, model = _get_biobert()
+        inputs = tokenizer(text, return_tensors="pt", truncation=True, max_length=512)
+        inputs = {k: v.to(torch.device("cpu")) for k, v in inputs.items()}
+        with torch.no_grad():
+            outputs = model(**inputs)
+        # Mean pool over token dimension
+        mask = inputs["attention_mask"].unsqueeze(-1).float()
+        embedding = (outputs.last_hidden_state * mask).sum(dim=1) / mask.sum(dim=1)
+        return embedding.squeeze(0)
 
 
 def embedding_similarity(pred_text: str, gt_text: str) -> float:
