@@ -38,24 +38,20 @@ def format_reward(predict_str: str) -> float:
 
 
 # ---------------------------------------------------------------------------
-# BioBERT embedding similarity (lazy-loaded, CPU-only)
+# BioBERT embedding similarity (CPU-only)
 # ---------------------------------------------------------------------------
-_biobert_model = None
-_biobert_tokenizer = None
 
 
 def _get_biobert():
-    global _biobert_model, _biobert_tokenizer
-    if _biobert_model is None:
-        import torch
-        from transformers import AutoModel, AutoTokenizer
+    import torch
+    from transformers import AutoModel, AutoTokenizer
 
-        model_name = "dmis-lab/biobert-base-cased-v1.2"
-        _biobert_tokenizer = AutoTokenizer.from_pretrained(model_name)
-        _biobert_model = AutoModel.from_pretrained(model_name)
-        _biobert_model.eval()
-        _biobert_model.to(torch.device("cpu"))
-    return _biobert_tokenizer, _biobert_model
+    model_name = "dmis-lab/biobert-base-cased-v1.2"
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    model = AutoModel.from_pretrained(model_name)
+    model.to(torch.device("cpu"))
+    model.eval()
+    return tokenizer, model
 
 
 def _embed(text: str):
@@ -75,15 +71,21 @@ def _embed(text: str):
 
 def embedding_similarity(pred_text: str, gt_text: str) -> float:
     """Cosine similarity between BioBERT embeddings of pred and gt."""
+    import time
     import torch
 
     if not pred_text or not gt_text:
+        print(f"[mimic reward] embedding_similarity: empty input, pred={repr(pred_text[:100])}, gt={repr(gt_text[:100])}, sim=0.0")
         return 0.0
+    t0 = time.time()
     pred_emb = _embed(pred_text)
     gt_emb = _embed(gt_text)
     cos_sim = torch.nn.functional.cosine_similarity(pred_emb.unsqueeze(0), gt_emb.unsqueeze(0)).item()
     # Clamp to [0, 1] since negative similarity is not meaningful here
-    return max(0.0, cos_sim)
+    result = max(0.0, cos_sim)
+    elapsed = time.time() - t0
+    print(f"[mimic reward] embedding_similarity: sim={result:.4f}, time={elapsed:.3f}s, pred={repr(pred_text[:80])}, gt={repr(gt_text[:80])}")
+    return result
 
 
 # ---------------------------------------------------------------------------
