@@ -48,8 +48,12 @@ def _get_biobert():
 
     model_name = "dmis-lab/biobert-base-cased-v1.2"
     tokenizer = AutoTokenizer.from_pretrained(model_name)
-    model = AutoModel.from_pretrained(model_name)
-    model.to(torch.device("cpu"))
+    # Force loading on CPU with no device_map inference to avoid meta tensors
+    # in Ray worker environments
+    with torch.device("cpu"):
+        model = AutoModel.from_pretrained(
+            model_name, device_map=None, low_cpu_mem_usage=False
+        )
     model.eval()
     return tokenizer, model
 
