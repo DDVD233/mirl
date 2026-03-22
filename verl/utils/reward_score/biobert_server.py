@@ -5,20 +5,23 @@ Usage:
 
 The reward function in mimic.py queries this server instead of loading
 BioBERT inside the Ray worker, avoiding torch dispatch mode conflicts.
+
+Uses FastAPI + uvicorn. Concurrent requests are handled by the async
+event loop but GPU inference is serialized via a lock to avoid conflicts.
 """
 
 import argparse
+import asyncio
 import time
-
 import torch
-from flask import Flask, jsonify, request
+from fastapi import FastAPI
+from pydantic import BaseModel
 from transformers import AutoModel, AutoTokenizer
-
-app = Flask(__name__)
 
 _model = None
 _tokenizer = None
 _device = None
+_lock = asyncio.Lock()
 
 
 def _load_model(device: str):
@@ -41,37 +44,50 @@ def _embed(text: str):
     return embedding.squeeze(0)
 
 
-@app.route("/similarity", methods=["POST"])
-def similarity():
-    data = request.get_json()
-    pred_text = data.get("pred", "")
-    gt_text = data.get("gt", "")
-
-    if not pred_text or not gt_text:
-        return jsonify({"similarity": 0.0, "time": 0.0})
-
-    t0 = time.time()
+def _compute_similarity(pred_text: str, gt_text: str) -> float:
     pred_emb = _embed(pred_text)
     gt_emb = _embed(gt_text)
     cos_sim = torch.nn.functional.cosine_similarity(
         pred_emb.unsqueeze(0), gt_emb.unsqueeze(0)
     ).item()
-    result = max(0.0, cos_sim)
-    elapsed = time.time() - t0
-
-    return jsonify({"similarity": result, "time": elapsed})
+    return max(0.0, cos_sim)
 
 
-@app.route("/health", methods=["GET"])
-def health():
-    return jsonify({"status": "ok"})
+class SimilarityRequest(BaseModel):
+    pred: str
+    gt: str
+
+
+app = FastAPI()
+
+
+@app.post("/similarity")
+async def similarity(req: SimilarityRequest):
+    if not req.pred or not req.gt:
+        return {"similarity": 0.0, "time": 0.0}
+
+    async with _lock:
+        t0 = time.time()
+        result = _compute_similarity(req.pred, req.gt)
+        elapsed = time.time() - t0
+
+    print(f"[biobert_server] sim={result:.4f}, time={elapsed:.3f}s")
+    return {"similarity": result, "time": elapsed}
+
+
+@app.get("/health")
+async def health():
+    return {"status": "ok"}
 
 
 if __name__ == "__main__":
+    import uvicorn
+
     parser = argparse.ArgumentParser()
     parser.add_argument("--port", type=int, default=5100)
     parser.add_argument("--device", type=str, default="cuda")
     args = parser.parse_args()
 
     _load_model(args.device)
-    app.run(host="0.0.0.0", port=args.port)
+    # Single worker to keep one model on GPU
+    uvicorn.run(app, host="0.0.0.0", port=args.port, workers=1)
