@@ -21,7 +21,7 @@ VIDEO_BASE = Path("/orcd/compute/ppliang/001/generated_videos_base_prompt/India"
 SYSTEM_PROMPT = """\
 You are an expert cultural anthropologist and visual evaluator assessing the cultural faithfulness of a generated video.
 
-When answering each question, you MUST reason within <think> </think> tags following these steps:
+Before giving your final answer, reason through these steps:
 1. **Identify the visual evidence**: Describe exactly what you observe in the video frames — specific objects, clothing details, spatial arrangements, architectural elements, lighting, and colors.
 2. **Assess cultural accuracy**: Compare your observations against the culturally specific visual descriptions embedded in the question. Do not rely on implicit cultural knowledge — only evaluate what the question explicitly describes.
 3. **Evaluate temporal and physical coherence** (for action questions): Examine the sequence, duration, physics, and progression of movements across frames. Note whether actions follow the temporal grounding specified in the question.
@@ -71,20 +71,11 @@ def build_eval_items(rows: list[dict], questions: dict) -> list[dict]:
 
 
 def parse_response(text: str) -> tuple[str, str]:
-    """Extract reasoning from <think>/<tool_call> tags and answer from \\boxed{}."""
-    reasoning = ""
-    # Try <think> first, fall back to <tool_call> (model sometimes uses it instead)
-    think_match = re.search(r"<think>(.*?)</think>", text, re.DOTALL)
-    if not think_match:
-        # Match first <tool_call>...</tool_call> or between two <tool_call> tags
-        think_match = re.search(r"<tool_call>\n?(.*?)\n?<tool_call>", text, re.DOTALL)
-    if not think_match:
-        think_match = re.search(r"<tool_call>\n?(.*?)\n?</tool_call>", text, re.DOTALL)
-    if think_match:
-        reasoning = think_match.group(1).strip()
-
+    """Extract reasoning (everything before \\boxed) and answer (inside \\boxed{})."""
     answer = ""
-    # Match \\boxed{...}, handling nested \\text{...} inside
+    reasoning = text.strip()
+
+    # Extract answer from \\boxed{...}
     boxed_match = re.search(r"\\boxed\{(.*)\}", text, re.DOTALL)
     if boxed_match:
         answer = boxed_match.group(1).strip()
@@ -92,6 +83,10 @@ def parse_response(text: str) -> tuple[str, str]:
         text_match = re.match(r"^\\text\{(.*)\}$", answer, re.DOTALL)
         if text_match:
             answer = text_match.group(1).strip()
+        # Everything before \boxed is reasoning
+        reasoning = text[: boxed_match.start()].strip()
+        # Strip any surrounding tags (<think>, <tool_call>, etc.)
+        reasoning = re.sub(r"</?(?:think|tool_call)>", "", reasoning).strip()
 
     return reasoning, answer
 
