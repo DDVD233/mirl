@@ -43,14 +43,14 @@ def load_csv(path: Path) -> list[dict]:
         return [row for row in reader if row["country"] == "India"]
 
 
-def build_eval_items(rows: list[dict], questions: dict) -> list[dict]:
+def build_eval_items(rows: list[dict], questions: dict, video_base: Path) -> list[dict]:
     """Build flat list of (video_path, prompt, question_text, category) dicts."""
     items = []
     for row in rows:
         prompt = row["prompt"]
         category = row["category"]
         video_id = row["id"]
-        video_path = str(VIDEO_BASE / category / f"{video_id}.mp4")
+        video_path = str(video_base / category / f"{video_id}.mp4")
 
         if prompt not in questions:
             print(f"WARNING: prompt not found in questions.json: {prompt}")
@@ -100,7 +100,7 @@ def build_messages(item: dict) -> list[dict]:
                 {
                     "type": "video",
                     "video": f"file://{item['video_path']}",
-                    "fps": 1.0,
+                    "fps": 2.0,
                 },
                 {"type": "text", "text": item["question"]},
             ],
@@ -128,16 +128,22 @@ def prepare_llm_input(messages: list[dict], processor) -> dict:
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--output", default=str(SCRIPT_DIR / "eval_results.json"))
+    parser.add_argument("--output", default="eval_results.json")
     parser.add_argument("--batch-size", type=int, default=4)
     parser.add_argument("--model", default="Qwen/Qwen3-VL-235B-A22B-Instruct-FP8")
+    parser.add_argument("--video-base", default=str(VIDEO_BASE),
+                        help="Base directory for video files")
+    parser.add_argument("--questions", default="question.json",
+                        help="Path to questions JSON file")
+    parser.add_argument("--annotations", default="culturalframes_balanced_sample.csv",
+                        help="Path to annotations CSV file")
     args = parser.parse_args()
 
-    questions = load_questions(SCRIPT_DIR / "question.json")
-    rows = load_csv(SCRIPT_DIR / "culturalframes_balanced_sample.csv")
+    questions = load_questions(Path(args.questions))
+    rows = load_csv(Path(args.annotations))
     print(f"Loaded {len(rows)} India videos, {len(questions)} prompts in question.json")
 
-    items = build_eval_items(rows, questions)
+    items = build_eval_items(rows, questions, Path(args.video_base))
     print(f"Total evaluation items (video x question): {len(items)}")
 
     processor = AutoProcessor.from_pretrained(args.model)

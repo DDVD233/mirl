@@ -12,9 +12,9 @@ export CUDA_DEVICE_MAX_CONNECTIONS=1 # For megatron communication/computation ov
 
 export VLLM_ALLREDUCE_USE_SYMM_MEM=0 # for vllm0.11.0 with TP
 
-GEN_TP=${GEN_TP:-4}
+GEN_TP=${GEN_TP:-2}
 CP=${CP:-2}
-TP=${TP:-2}
+TP=${TP:-1}
 PP=${PP:-1}
 
 train_path="$HOME/scratch/high_modality/multimodal/mimiciv/qa_train.json"
@@ -82,7 +82,7 @@ python3 -m verl.trainer.main_ppo --config-path=config \
     trainer.logger='["console","wandb"]' \
     trainer.project_name='verl_mimic' \
     trainer.experiment_name='qoq3_dapo_new' \
-    trainer.n_gpus_per_node=4 \
+    trainer.n_gpus_per_node=2 \
     trainer.nnodes=1 \
     trainer.save_freq=20 \
     trainer.test_freq=5 \
