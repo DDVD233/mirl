@@ -27,7 +27,7 @@ Before giving your final answer, reason through these steps:
 3. **Evaluate temporal and physical coherence** (for action questions): Examine the sequence, duration, physics, and progression of movements across frames. Note whether actions follow the temporal grounding specified in the question.
 4. **Check for stereotyping or inauthenticity**: Flag if the video substitutes Western-centric defaults, hyper-exoticized elements, or generic representations in place of the specific cultural markers described in the question.
 
-After your reasoning, provide the final answer as either Yes or No. "Yes" means the video is culturally faithful for what the question asks. "No" means it fails or is culturally inaccurate.
+After your reasoning, provide the final answer given the {question} ONLY as "Yes" or "No".
 
 The final answer MUST BE put in \\boxed{}. For example: \\boxed{Yes} or \\boxed{No}."""
 
