@@ -21,7 +21,8 @@ VIDEO_BASE = Path("/orcd/compute/ppliang/001/generated_videos_base_prompt/India"
 SYSTEM_PROMPT = (
     "You FIRST think about the reasoning process as an internal monologue "
     "and then provide the final answer. The reasoning process MUST BE enclosed "
-    "within <think> </think> tags. The final answer MUST BE put in \\boxed{}."
+    "within <think> </think> tags. The final answer MUST BE either Yes or No, "
+    "put in \\boxed{}. For example: \\boxed{Yes} or \\boxed{No}."
 )
 
 
@@ -64,16 +65,27 @@ def build_eval_items(rows: list[dict], questions: dict) -> list[dict]:
 
 
 def parse_response(text: str) -> tuple[str, str]:
-    """Extract reasoning from <think> tags and answer from \\boxed{}."""
+    """Extract reasoning from <think>/<tool_call> tags and answer from \\boxed{}."""
     reasoning = ""
+    # Try <think> first, fall back to <tool_call> (model sometimes uses it instead)
     think_match = re.search(r"<think>(.*?)</think>", text, re.DOTALL)
+    if not think_match:
+        # Match first <tool_call>...</tool_call> or between two <tool_call> tags
+        think_match = re.search(r"<tool_call>\n?(.*?)\n?<tool_call>", text, re.DOTALL)
+    if not think_match:
+        think_match = re.search(r"<tool_call>\n?(.*?)\n?</tool_call>", text, re.DOTALL)
     if think_match:
         reasoning = think_match.group(1).strip()
 
     answer = ""
-    boxed_match = re.search(r"\\boxed\{(.*?)\}", text, re.DOTALL)
+    # Match \\boxed{...}, handling nested \\text{...} inside
+    boxed_match = re.search(r"\\boxed\{(.*)\}", text, re.DOTALL)
     if boxed_match:
         answer = boxed_match.group(1).strip()
+        # Unwrap \\text{...} if present
+        text_match = re.match(r"^\\text\{(.*)\}$", answer, re.DOTALL)
+        if text_match:
+            answer = text_match.group(1).strip()
 
     return reasoning, answer
 
