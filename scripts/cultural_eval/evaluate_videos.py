@@ -112,7 +112,6 @@ def main():
         model=args.model,
         tensor_parallel_size=4,
         max_model_len=262144,
-        kv_cache_max_size="30G",
         limit_mm_per_prompt={"video": 1},
         enable_expert_parallel=True,
         async_scheduling=True,
