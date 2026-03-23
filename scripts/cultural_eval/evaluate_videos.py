@@ -1,5 +1,5 @@
 """
-Evaluate generated videos against cultural questions using Qwen3-VL-8B-Instruct via vLLM.
+Evaluate generated videos against cultural questions using Qwen3-VL via vLLM.
 
 Usage:
     python scripts/cultural_eval/evaluate_videos.py [--output results.json]
@@ -8,10 +8,11 @@ Usage:
 import argparse
 import csv
 import json
-import os
 import re
 from pathlib import Path
 
+from transformers import AutoProcessor
+from qwen_vl_utils import process_vision_info
 from vllm import LLM, SamplingParams
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -94,6 +95,20 @@ def build_messages(item: dict) -> list[dict]:
     ]
 
 
+def prepare_llm_input(messages: list[dict], processor) -> dict:
+    """Apply chat template and extract video data for llm.generate()."""
+    prompt = processor.apply_chat_template(
+        messages, tokenize=False, add_generation_prompt=True
+    )
+    image_inputs, video_inputs = process_vision_info(messages)
+    mm_data = {}
+    if video_inputs is not None:
+        mm_data["video"] = video_inputs
+    if image_inputs is not None:
+        mm_data["image"] = image_inputs
+    return {"prompt": prompt, "multi_modal_data": mm_data}
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", default=str(SCRIPT_DIR / "eval_results.json"))
@@ -107,6 +122,8 @@ def main():
 
     items = build_eval_items(rows, questions)
     print(f"Total evaluation items (video x question): {len(items)}")
+
+    processor = AutoProcessor.from_pretrained(args.model)
 
     llm = LLM(
         model=args.model,
@@ -126,8 +143,9 @@ def main():
     for batch_start in range(0, len(items), args.batch_size):
         batch = items[batch_start : batch_start + args.batch_size]
         conversations = [build_messages(item) for item in batch]
+        llm_inputs = [prepare_llm_input(msgs, processor) for msgs in conversations]
 
-        outputs = llm.chat(conversations, sampling_params=sampling_params)
+        outputs = llm.generate(llm_inputs, sampling_params=sampling_params)
 
         for item, output in zip(batch, outputs):
             text = output.outputs[0].text
