@@ -18,12 +18,18 @@ from vllm import LLM, SamplingParams
 SCRIPT_DIR = Path(__file__).resolve().parent
 VIDEO_BASE = Path("/orcd/compute/ppliang/001/generated_videos_base_prompt/India")
 
-SYSTEM_PROMPT = (
-    "You FIRST think about the reasoning process as an internal monologue "
-    "and then provide the final answer. The reasoning process MUST BE enclosed "
-    "within <think> </think> tags. The final answer MUST BE either Yes or No, "
-    "put in \\boxed{}. For example: \\boxed{Yes} or \\boxed{No}."
-)
+SYSTEM_PROMPT = """\
+You are an expert cultural anthropologist and visual evaluator assessing the cultural faithfulness of a generated video.
+
+When answering each question, you MUST reason within <think> </think> tags following these steps:
+1. **Identify the visual evidence**: Describe exactly what you observe in the video frames — specific objects, clothing details, spatial arrangements, architectural elements, lighting, and colors.
+2. **Assess cultural accuracy**: Compare your observations against the culturally specific visual descriptions embedded in the question. Do not rely on implicit cultural knowledge — only evaluate what the question explicitly describes.
+3. **Evaluate temporal and physical coherence** (for action questions): Examine the sequence, duration, physics, and progression of movements across frames. Note whether actions follow the temporal grounding specified in the question.
+4. **Check for stereotyping or inauthenticity**: Flag if the video substitutes Western-centric defaults, hyper-exoticized elements, or generic representations in place of the specific cultural markers described in the question.
+
+After your reasoning, provide the final answer as either Yes or No. "Yes" means the video is culturally faithful for what the question asks. "No" means it fails or is culturally inaccurate.
+
+The final answer MUST BE put in \\boxed{}. For example: \\boxed{Yes} or \\boxed{No}."""
 
 
 def load_questions(path: Path) -> dict:
