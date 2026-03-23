@@ -100,10 +100,16 @@ def prepare_llm_input(messages: list[dict], processor) -> dict:
     prompt = processor.apply_chat_template(
         messages, tokenize=False, add_generation_prompt=True
     )
-    image_inputs, video_inputs = process_vision_info(messages)
+    image_inputs, video_inputs, video_kwargs = process_vision_info(
+        messages, return_video_kwargs=True, return_video_metadata=True
+    )
     mm_data = {}
     if video_inputs is not None:
+        video_inputs, video_metadatas = zip(*video_inputs)
+        video_inputs = list(video_inputs)
+        video_metadatas = list(video_metadatas)
         mm_data["video"] = video_inputs
+        mm_data["video_metadata"] = video_metadatas
     if image_inputs is not None:
         mm_data["image"] = image_inputs
     return {"prompt": prompt, "multi_modal_data": mm_data}
