@@ -1,42 +1,84 @@
-import pandas as pd
-import subprocess
 import json
+import subprocess
+import pandas as pd
 import time
 import random
 import os
 
-# 1. Load the Cultural Data to extract Action, Scene, and Object tags
-cultural_data_path = "cultural_data.json"
 
-with open(cultural_data_path, 'r') as f:
-    cultural_data = json.load(f)
+# --- PART 1: DATA RESTRUCTURING & MAPPING ---
 
-# Extract unique keys from each category
-actions = list(cultural_data.get('Action', {}).keys())
-scenes = list(cultural_data.get('Scene', {}).keys())
-objects = list(cultural_data.get('Object', {}).keys())
+def restructure_and_map(cultural_source_data, framework_path):
+    # Load the Evaluation Framework (Questions/Weights)
+    with open(framework_path, 'r') as f:
+        framework = json.load(f)
 
-# Create a mapping so we know if a query was an action_tag, scene_tag, or object_tag
-query_map = {}
-for a in actions: query_map[a] = "action_tag"
-for s in scenes: query_map[s] = "scene_tag"
-for o in objects: query_map[o] = "object_tag"
+    final_list = []
 
-# Master list of unique queries
-all_queries = list(query_map.keys())
+    # Access the primary groups from your raw input
+    actions_map = cultural_source_data.get("Action", {})
+    scenes_map = cultural_source_data.get("Scene", {})
+    objects_map = cultural_source_data.get("Object", {})
 
+    # Iterate through 'Action' as the source of truth to build records
+    for action_tag, items in actions_map.items():
+        if not isinstance(items, list): continue
+
+        for item in items:
+            if not isinstance(item, dict): continue
+            prompt = item.get("prompt", "")
+
+            # Crash-proof tag lookup for Scene and Object
+            scene_tag = "General"
+            for s_tag, s_items in scenes_map.items():
+                if isinstance(s_items, list):
+                    if any(i.get("prompt") == prompt for i in s_items if isinstance(i, dict)):
+                        scene_tag = s_tag
+                        break
+
+            object_tag = "General"
+            for o_tag, o_items in objects_map.items():
+                if isinstance(o_items, list):
+                    if any(i.get("prompt") == prompt for i in o_items if isinstance(i, dict)):
+                        object_tag = o_tag
+                        break
+
+            # Build the record structure
+            record = {
+                "id": item.get("id"),
+                "prompt": prompt,
+                "country": item.get("country"),
+                "category": item.get("category"),
+                "action_tag": action_tag,
+                "scene_tag": scene_tag,
+                "object_tag": object_tag,
+                "action": [],
+                "scene": [],
+                "object": []
+            }
+
+            # Map Ground Truth from framework using prompt as the key
+            if prompt in framework:
+                gt = framework[prompt]
+                record["action"] = gt.get("actions", [])
+                record["scene"] = gt.get("scene", [])
+                record["object"] = gt.get("objects", [])
+
+            final_list.append(record)
+
+    return final_list
+
+
+# --- PART 2: YOUTUBE METADATA COLLECTION ---
 
 def get_metadata_videos(query, tag_type):
-    """
-    Search YouTube for top 10 videos under 10 minutes for a specific query.
-    """
-    # Filter for duration < 600s (10 mins)
+    """Search YouTube for top 10 videos under 10 minutes."""
     search_string = f"{query} -stock -motion"
 
     cmd = [
         "yt-dlp",
         f"ytsearch10:{search_string}",
-        "--match-filter", "duration < 600",  # Changed from 60 to 600
+        "--match-filter", "duration < 600",
         "--flat-playlist",
         "--dump-single-json",
         "--quiet"
@@ -44,8 +86,7 @@ def get_metadata_videos(query, tag_type):
 
     try:
         result = subprocess.run(cmd, capture_output=True, text=True)
-        if not result.stdout:
-            return []
+        if not result.stdout: return []
 
         data = json.loads(result.stdout)
         videos = []
@@ -55,7 +96,7 @@ def get_metadata_videos(query, tag_type):
             if not entry: continue
             videos.append({
                 'query_term': query,
-                'tag_type': tag_type,  # Stores if it was action_tag, scene_tag, etc.
+                'tag_type': tag_type,
                 'video_title': entry.get('title'),
                 'video_url': f"https://www.youtube.com/watch?v={entry.get('id')}",
                 'channel_name': entry.get('uploader'),
@@ -70,9 +111,32 @@ def get_metadata_videos(query, tag_type):
         return []
 
 
+# --- PART 3: MAIN EXECUTION ---
+
+# 1. Paths
+# Assuming 'data' (your raw nested JSON) is already loaded into the script
+framework_path = "/Users/anku/Desktop/greeting_ground_truth_experiments/youtube/india_evaluation_frameworks.json"
+output_json_path = "cultural_data_final.json"
+
+# 2. Process Cultural Data
+print("📊 Restructuring cultural data and mapping ground truth...")
+processed_records = restructure_and_map(data, framework_path)
+
+# Save the JSON version for your records
+with open(output_json_path, 'w') as f:
+    json.dump(processed_records, f, indent=4)
+
+# 3. Extract Unique Search Queries
+query_map = {}
+for rec in processed_records:
+    if rec["action_tag"]: query_map[rec["action_tag"]] = "action_tag"
+    if rec["scene_tag"]: query_map[rec["scene_tag"]] = "scene_tag"
+    if rec["object_tag"]: query_map[rec["object_tag"]] = "object_tag"
+
+all_queries = list(query_map.keys())
 final_metadata_store = []
 
-print(f"🚀 Starting Collection for {len(all_queries)} unique tags...")
+print(f"🚀 Starting YouTube collection for {len(all_queries)} unique tags...")
 
 for i, q in enumerate(all_queries):
     tag_type = query_map[q]
@@ -82,18 +146,14 @@ for i, q in enumerate(all_queries):
     final_metadata_store.extend(vids)
 
     # Adaptive sleep to avoid YouTube rate limits
-    time.sleep(random.uniform(1.5, 3))
+    time.sleep(random.uniform(2, 4))
 
-# 2. Process and Save
+# 4. Save to CSV
 df_results = pd.DataFrame(final_metadata_store)
-
 if not df_results.empty:
-    # Convert dates
     df_results['upload_date'] = pd.to_datetime(df_results['upload_date'], format='%Y%m%d', errors='coerce')
-
-    # Save results
-    output_file = 'india_youtube_metadata_v2.csv'
-    df_results.to_csv(output_file, index=False)
-    print(f"✅ Success! Collected {len(df_results)} video records and saved to {output_file}.")
+    output_csv = 'india_youtube_metadata_v2.csv'
+    df_results.to_csv(output_csv, index=False)
+    print(f"✅ Success! Saved {len(df_results)} video records to {output_csv}.")
 else:
-    print("❌ No videos found. Check your yt-dlp installation or connection.")
+    print("❌ No videos found.")
