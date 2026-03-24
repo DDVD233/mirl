@@ -115,7 +115,7 @@ def get_metadata_videos(query, tag_type):
 
 # 1. Paths
 # Assuming 'data' (your raw nested JSON) is already loaded into the script
-framework_path = "/Users/anku/Desktop/greeting_ground_truth_experiments/youtube/india_evaluation_frameworks.json"
+framework_path = "question.json"
 output_json_path = "cultural_data_final.json"
 
 # 2. Process Cultural Data
