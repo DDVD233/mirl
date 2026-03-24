@@ -1,160 +1,157 @@
+"""
+Download YouTube videos referenced in all_evaluation_frameworks.json.
+- Deduplicates: each video downloaded once by video ID
+- Resumable: skips already-downloaded videos
+- Updates JSON with local_path field in each video object
+- Saves to: videos/{country}/{video_id}.mp4
+"""
+
 import json
+import os
 import subprocess
-import pandas as pd
 import time
 import random
-import os
+
+INPUT_FILE   = "all_evaluation_frameworks.json"
+DOWNLOAD_DIR = "videos"
+DELAY        = 1.0  # seconds between downloads
+
+TAG_FIELDS = [
+    "object_tag_youtube_video",
+    "action_tag_youtube_video",
+    "scene_tag_youtube_video",
+]
 
 
-# --- PART 1: DATA RESTRUCTURING & MAPPING ---
-
-def restructure_and_map(cultural_source_data, framework_path):
-    # Load the Evaluation Framework (Questions/Weights)
-    with open(framework_path, 'r') as f:
-        framework = json.load(f)
-
-    final_list = []
-
-    # Access the primary groups from your raw input
-    actions_map = cultural_source_data.get("Action", {})
-    scenes_map = cultural_source_data.get("Scene", {})
-    objects_map = cultural_source_data.get("Object", {})
-
-    # Iterate through 'Action' as the source of truth to build records
-    for action_tag, items in actions_map.items():
-        if not isinstance(items, list): continue
-
-        for item in items:
-            if not isinstance(item, dict): continue
-            prompt = item.get("prompt", "")
-
-            # Crash-proof tag lookup for Scene and Object
-            scene_tag = "General"
-            for s_tag, s_items in scenes_map.items():
-                if isinstance(s_items, list):
-                    if any(i.get("prompt") == prompt for i in s_items if isinstance(i, dict)):
-                        scene_tag = s_tag
-                        break
-
-            object_tag = "General"
-            for o_tag, o_items in objects_map.items():
-                if isinstance(o_items, list):
-                    if any(i.get("prompt") == prompt for i in o_items if isinstance(i, dict)):
-                        object_tag = o_tag
-                        break
-
-            # Build the record structure
-            record = {
-                "id": item.get("id"),
-                "prompt": prompt,
-                "country": item.get("country"),
-                "category": item.get("category"),
-                "action_tag": action_tag,
-                "scene_tag": scene_tag,
-                "object_tag": object_tag,
-                "action": [],
-                "scene": [],
-                "object": []
-            }
-
-            # Map Ground Truth from framework using prompt as the key
-            if prompt in framework:
-                gt = framework[prompt]
-                record["action"] = gt.get("actions", [])
-                record["scene"] = gt.get("scene", [])
-                record["object"] = gt.get("objects", [])
-
-            final_list.append(record)
-
-    return final_list
+def get_video_id(url):
+    return url.split("watch?v=")[-1]
 
 
-# --- PART 2: YOUTUBE METADATA COLLECTION ---
+def collect_videos(data):
+    """Return dict of {video_id: {url, country, ...}} — deduplicated."""
+    videos = {}
+    for entry in data.values():
+        country = entry.get("country", "unknown").replace("_", "-")
+        for field in TAG_FIELDS:
+            for v in entry.get(field, []):
+                url = v.get("video_url")
+                if not url:
+                    continue
+                vid_id = get_video_id(url)
+                if vid_id not in videos:
+                    videos[vid_id] = {"url": url, "country": country}
+    return videos
 
-def get_metadata_videos(query, tag_type):
-    """Search YouTube for top 10 videos under 10 minutes."""
-    search_string = f"{query} -stock -motion"
+
+def expected_path(country, video_id):
+    return os.path.join(DOWNLOAD_DIR, country, f"{video_id}.mp4")
+
+
+def download_video(url, country, video_id):
+    out_dir = os.path.join(DOWNLOAD_DIR, country)
+    os.makedirs(out_dir, exist_ok=True)
+    out_path = os.path.join(out_dir, f"{video_id}.%(ext)s")
 
     cmd = [
         "yt-dlp",
-        f"ytsearch10:{search_string}",
-        "--match-filter", "duration < 600",
-        "--flat-playlist",
-        "--dump-single-json",
-        "--quiet"
+        "-f", "bestvideo[ext=mp4][height<=720]+bestaudio[ext=m4a]/best[ext=mp4][height<=720]/best",
+        "--merge-output-format", "mp4",
+        "-o", out_path,
+        "--no-playlist",
+        "--quiet",
+        "--no-warnings",
+        url,
     ]
 
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True)
-        if not result.stdout: return []
-
-        data = json.loads(result.stdout)
-        videos = []
-        entries = data.get('entries', [])
-
-        for entry in entries:
-            if not entry: continue
-            videos.append({
-                'query_term': query,
-                'tag_type': tag_type,
-                'video_title': entry.get('title'),
-                'video_url': f"https://www.youtube.com/watch?v={entry.get('id')}",
-                'channel_name': entry.get('uploader'),
-                'view_count': entry.get('view_count'),
-                'upload_date': entry.get('upload_date'),
-                'duration': entry.get('duration'),
-                'description': entry.get('description')[:300] if entry.get('description') else ""
-            })
-        return videos
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        final_path = os.path.join(out_dir, f"{video_id}.mp4")
+        if os.path.exists(final_path):
+            return final_path
+        # Check for any file with this video_id (ext may differ)
+        for f in os.listdir(out_dir):
+            if f.startswith(video_id):
+                return os.path.join(out_dir, f)
+        return None
+    except subprocess.TimeoutExpired:
+        print(f"  Timeout: {url}")
+        return None
     except Exception as e:
-        print(f"Error for '{query}': {e}")
-        return []
+        print(f"  Error: {e}")
+        return None
 
 
-# --- PART 3: MAIN EXECUTION ---
+def update_json_paths(data, path_map):
+    """Add local_path to each video object in the JSON."""
+    for entry in data.values():
+        for field in TAG_FIELDS:
+            for v in entry.get(field, []):
+                url = v.get("video_url")
+                if url:
+                    vid_id = get_video_id(url)
+                    if vid_id in path_map:
+                        v["local_path"] = path_map[vid_id]
 
-# 1. Paths
-# Assuming 'data' (your raw nested JSON) is already loaded into the script
-framework_path = "question.json"
-output_json_path = "cultural_data_final.json"
 
-# 2. Process Cultural Data
-print("📊 Restructuring cultural data and mapping ground truth...")
-data = pd.read_json("cultural_data.json")
-processed_records = restructure_and_map(data, framework_path)
+def main():
+    with open(INPUT_FILE) as f:
+        data = json.load(f)
 
-# Save the JSON version for your records
-with open(output_json_path, 'w') as f:
-    json.dump(processed_records, f, indent=4)
+    all_videos = collect_videos(data)
+    total = len(all_videos)
+    print(f"Total unique videos: {total}")
 
-# 3. Extract Unique Search Queries
-query_map = {}
-for rec in processed_records:
-    if rec["action_tag"]: query_map[rec["action_tag"]] = "action_tag"
-    if rec["scene_tag"]: query_map[rec["scene_tag"]] = "scene_tag"
-    if rec["object_tag"]: query_map[rec["object_tag"]] = "object_tag"
+    # Check already downloaded
+    path_map = {}
+    to_download = []
+    for vid_id, info in all_videos.items():
+        path = expected_path(info["country"], vid_id)
+        # Also check if already downloaded (any extension)
+        country_dir = os.path.join(DOWNLOAD_DIR, info["country"])
+        found = None
+        if os.path.isdir(country_dir):
+            for f in os.listdir(country_dir):
+                if f.startswith(vid_id):
+                    found = os.path.join(country_dir, f)
+                    break
+        if found:
+            path_map[vid_id] = found
+        else:
+            to_download.append((vid_id, info))
 
-all_queries = list(query_map.keys())
-final_metadata_store = []
+    print(f"Already downloaded: {len(path_map)}")
+    print(f"To download: {len(to_download)}")
+    print()
 
-print(f"🚀 Starting YouTube collection for {len(all_queries)} unique tags...")
+    for i, (vid_id, info) in enumerate(to_download, 1):
+        print(f"[{i}/{len(to_download)}] {vid_id} ({info['country']})")
+        path = download_video(info["url"], info["country"], vid_id)
+        if path:
+            path_map[vid_id] = path
+            print(f"  Saved: {path}")
+        else:
+            print(f"  Failed: {info['url']}")
+        wait_time = random.uniform(5.0, 15.0)
+        print(f"  Waiting {wait_time:.2f}s before next request...")
+        time.sleep(wait_time)
 
-for i, q in enumerate(all_queries):
-    tag_type = query_map[q]
-    print(f"[{i + 1}/{len(all_queries)}] Searching {tag_type}: {q}")
+        # Save JSON every 100 downloads
+        if i % 100 == 0:
+            update_json_paths(data, path_map)
+            with open(INPUT_FILE, "w") as f:
+                json.dump(data, f, indent=2)
+            print(f"  >> JSON updated ({i}/{len(to_download)})")
 
-    vids = get_metadata_videos(q, tag_type)
-    final_metadata_store.extend(vids)
+    # Final JSON update
+    update_json_paths(data, path_map)
+    with open(INPUT_FILE, "w") as f:
+        json.dump(data, f, indent=2)
 
-    # Adaptive sleep to avoid YouTube rate limits
-    time.sleep(random.uniform(2, 4))
+    print(f"\nDone! Downloaded {len(path_map)}/{total} videos.")
+    failed = total - len(path_map)
+    if failed:
+        print(f"Failed/unavailable: {failed}")
 
-# 4. Save to CSV
-df_results = pd.DataFrame(final_metadata_store)
-if not df_results.empty:
-    df_results['upload_date'] = pd.to_datetime(df_results['upload_date'], format='%Y%m%d', errors='coerce')
-    output_csv = 'india_youtube_metadata_v2.csv'
-    df_results.to_csv(output_csv, index=False)
-    print(f"✅ Success! Saved {len(df_results)} video records to {output_csv}.")
-else:
-    print("❌ No videos found.")
+
+if __name__ == "__main__":
+    main()
