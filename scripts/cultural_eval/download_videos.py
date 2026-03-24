@@ -120,6 +120,7 @@ output_json_path = "cultural_data_final.json"
 
 # 2. Process Cultural Data
 print("📊 Restructuring cultural data and mapping ground truth...")
+data = pd.read_json("cultural_data.json")
 processed_records = restructure_and_map(data, framework_path)
 
 # Save the JSON version for your records
