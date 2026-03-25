@@ -23,7 +23,7 @@ from transformers import AutoProcessor
 from qwen_vl_utils import process_vision_info
 from vllm import LLM, SamplingParams
 
-VIDEO_BASE = Path("/orcd/compute/ppliang/001/videos")
+VIDEO_BASE = Path("/orcd/compute/ppliang/001/downloaded_cultural_videos/videos")
 
 # Maps each youtube-video field to the evaluation question category it should use
 TAG_TO_EVAL_CATEGORY = {
