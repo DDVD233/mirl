@@ -10,7 +10,6 @@ import json
 import os
 import subprocess
 import time
-import random
 
 INPUT_FILE   = "all_evaluation_frameworks.json"
 DOWNLOAD_DIR = "videos"
@@ -47,10 +46,22 @@ def expected_path(country, video_id):
     return os.path.join(DOWNLOAD_DIR, country, f"{video_id}.mp4")
 
 
+def cleanup_partial(out_dir, video_id):
+    """Remove .part and intermediate files for a video ID."""
+    if not os.path.isdir(out_dir):
+        return
+    for f in os.listdir(out_dir):
+        if f.startswith(video_id) and (".part" in f or ".f1" in f or ".f2" in f or ".f3" in f):
+            os.remove(os.path.join(out_dir, f))
+
+
 def download_video(url, country, video_id):
     out_dir = os.path.join(DOWNLOAD_DIR, country)
     os.makedirs(out_dir, exist_ok=True)
     out_path = os.path.join(out_dir, f"{video_id}.%(ext)s")
+
+    # Clean up any leftover .part files from previous attempts
+    cleanup_partial(out_dir, video_id)
 
     cmd = [
         "yt-dlp",
@@ -64,20 +75,20 @@ def download_video(url, country, video_id):
     ]
 
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
         final_path = os.path.join(out_dir, f"{video_id}.mp4")
         if os.path.exists(final_path):
             return final_path
-        # Check for any file with this video_id (ext may differ)
-        for f in os.listdir(out_dir):
-            if f.startswith(video_id):
-                return os.path.join(out_dir, f)
+        # Download failed or left partial files — clean up
+        cleanup_partial(out_dir, video_id)
         return None
     except subprocess.TimeoutExpired:
         print(f"  Timeout: {url}")
+        cleanup_partial(out_dir, video_id)
         return None
     except Exception as e:
         print(f"  Error: {e}")
+        cleanup_partial(out_dir, video_id)
         return None
 
 
@@ -111,7 +122,7 @@ def main():
         found = None
         if os.path.isdir(country_dir):
             for f in os.listdir(country_dir):
-                if f.startswith(vid_id):
+                if f.startswith(vid_id) and f.endswith(".mp4") and ".part" not in f:
                     found = os.path.join(country_dir, f)
                     break
         if found:
@@ -123,7 +134,7 @@ def main():
     print(f"To download: {len(to_download)}")
     print()
 
-    for i, (vid_id, info) in enumerate(to_download, 1):
+    for i, (vid_id, info) in enumerate(to_download[2499:], 2500):
         print(f"[{i}/{len(to_download)}] {vid_id} ({info['country']})")
         path = download_video(info["url"], info["country"], vid_id)
         if path:
@@ -131,9 +142,7 @@ def main():
             print(f"  Saved: {path}")
         else:
             print(f"  Failed: {info['url']}")
-        wait_time = random.uniform(5.0, 15.0)
-        print(f"  Waiting {wait_time:.2f}s before next request...")
-        time.sleep(wait_time)
+        time.sleep(DELAY)
 
         # Save JSON every 100 downloads
         if i % 100 == 0:
