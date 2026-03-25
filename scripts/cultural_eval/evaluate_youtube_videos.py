@@ -174,8 +174,19 @@ def main():
     items = build_eval_items(frameworks, Path(args.video_base))
     print(f"Total evaluation items (youtube video x question): {len(items)}")
 
+    # Resume from partial results if output file already exists
+    results = []
+    if os.path.isfile(args.output):
+        with open(args.output) as f:
+            results = json.load(f)
+        print(f"Loaded {len(results)} existing results from {args.output}")
+        # Build set of already-evaluated (video_path, question) pairs
+        done = {(r["path"], r["question"]) for r in results}
+        items = [it for it in items if (it["video_path"], it["question"]) not in done]
+        print(f"Remaining items after skipping completed: {len(items)}")
+
     if not items:
-        print("No items to evaluate. Check that video files exist under --video-base.")
+        print("No items to evaluate.")
         return
 
     processor = AutoProcessor.from_pretrained(args.model)
@@ -194,7 +205,6 @@ def main():
         max_tokens=4096,
     )
 
-    results = []
     for batch_start in range(0, len(items), args.batch_size):
         batch = items[batch_start : batch_start + args.batch_size]
         conversations = [build_messages(item) for item in batch]
@@ -231,10 +241,9 @@ def main():
         print(f"Processed {min(batch_start + args.batch_size, len(items))}/{len(items)}")
 
         if len(results) % 1000 < args.batch_size:
-            partial_path = args.output.replace(".json", f"_partial_{len(results)}.json")
-            with open(partial_path, "w") as f:
+            with open(args.output, "w") as f:
                 json.dump(results, f, indent=2)
-            print(f"Saved partial results ({len(results)} items) to {partial_path}")
+            print(f"Saved partial results ({len(results)} items) to {args.output}")
 
     with open(args.output, "w") as f:
         json.dump(results, f, indent=2)
