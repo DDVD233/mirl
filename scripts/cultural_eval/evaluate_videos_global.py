@@ -171,6 +171,7 @@ def main():
                 "raw_response": text,
                 "gt_answer": item["gt_answer"],
                 "weight": item["weight"],
+                "prompt_type": Path(args.video_base).name,
             }
             results.append(result)
             print(json.dumps(result, indent=2))
