@@ -11,6 +11,7 @@ Usage:
 
 import argparse
 import json
+import os
 import re
 from pathlib import Path
 
@@ -47,6 +48,8 @@ def build_eval_items(frameworks: dict, video_base: Path) -> list[dict]:
         country = entry["country"]
         category = entry["category"]
         video_path = str(video_base / country / category / f"{video_id}.mp4")
+        if not os.path.isfile(video_path):
+            continue
 
         evaluation = entry.get("evaluation", {})
         for q_category, q_list in evaluation.items():

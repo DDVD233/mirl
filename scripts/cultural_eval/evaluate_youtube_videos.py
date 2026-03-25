@@ -230,6 +230,12 @@ def main():
 
         print(f"Processed {min(batch_start + args.batch_size, len(items))}/{len(items)}")
 
+        if len(results) % 1000 < args.batch_size:
+            partial_path = args.output.replace(".json", f"_partial_{len(results)}.json")
+            with open(partial_path, "w") as f:
+                json.dump(results, f, indent=2)
+            print(f"Saved partial results ({len(results)} items) to {partial_path}")
+
     with open(args.output, "w") as f:
         json.dump(results, f, indent=2)
     print(f"Saved {len(results)} results to {args.output}")
