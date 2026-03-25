@@ -80,6 +80,9 @@ def build_eval_items(frameworks: dict, video_base: Path) -> list[dict]:
                 youtube_id = Path(local_path).stem
                 video_url = yt_video.get("video_url", "")
                 video_title = yt_video.get("video_title", "")
+                # e.g. "object_tag_youtube_video" -> "object_tag"
+                tag_key = tag_field.removesuffix("_youtube_video")
+                tag_value = entry.get(tag_key, "")
 
                 for q in questions:
                     items.append({
@@ -89,6 +92,8 @@ def build_eval_items(frameworks: dict, video_base: Path) -> list[dict]:
                         "country": country,
                         "category": category,
                         "tag_field": tag_field,
+                        "tag_key": tag_key,
+                        "tag_value": tag_value,
                         "youtube_id": youtube_id,
                         "video_url": video_url,
                         "video_title": video_title,
@@ -206,6 +211,7 @@ def main():
                 "country": item["country"],
                 "category": item["category"],
                 "tag_field": item["tag_field"],
+                item["tag_key"]: item["tag_value"],
                 "youtube_id": item["youtube_id"],
                 "video_url": item["video_url"],
                 "video_title": item["video_title"],
