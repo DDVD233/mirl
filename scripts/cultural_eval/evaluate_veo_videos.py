@@ -193,12 +193,12 @@ def parse_response(text: str) -> tuple[str, str]:
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--output", default="veo_qa_input_json_part2.json")
+    parser.add_argument("--output", default="veo_part2.json")
     parser.add_argument("--batch-size", type=int, default=64)
     parser.add_argument("--num-workers", type=int, default=4,
                         help="DataLoader workers for async video loading")
     parser.add_argument("--model", default="Qwen/Qwen3-VL-235B-A22B-Instruct-FP8")
-    parser.add_argument("--frameworks", default="veo_qa_input_json_part_2.json",
+    parser.add_argument("--frameworks", default="veo_qa_input_json_part2.json",
                         help="Path to evaluation frameworks JSON file")
     args = parser.parse_args()
 
