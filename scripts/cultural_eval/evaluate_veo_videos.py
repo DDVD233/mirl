@@ -29,12 +29,12 @@ from transformers import AutoProcessor
 from qwen_vl_utils import process_vision_info
 from vllm import LLM, SamplingParams
 
-VIDEO_ROOT = Path("/orcd/compute/ppliang/001")
+VIDEO_ROOT = Path("/orcd/compute/ppliang/001/veo_part 2")
 
 VIDEO_BASES = [
-    VIDEO_ROOT / "generated_videos_base_prompt",
-    VIDEO_ROOT / "generated_videos_extended_prompt",
-    VIDEO_ROOT / "generated_videos_no_country",
+    VIDEO_ROOT / "base prompt",
+    VIDEO_ROOT / "extended_prompt",
+    VIDEO_ROOT / "no_country",
 ]
 
 SYSTEM_PROMPT = """\
@@ -193,12 +193,12 @@ def parse_response(text: str) -> tuple[str, str]:
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--output", default="eval_results_veo.json")
+    parser.add_argument("--output", default="eval_results_veo_part_2.json")
     parser.add_argument("--batch-size", type=int, default=64)
     parser.add_argument("--num-workers", type=int, default=4,
                         help="DataLoader workers for async video loading")
     parser.add_argument("--model", default="Qwen/Qwen3-VL-235B-A22B-Instruct-FP8")
-    parser.add_argument("--frameworks", default="veo_qa_input_json.json",
+    parser.add_argument("--frameworks", default="veo_qa_input_json_part_2.json",
                         help="Path to evaluation frameworks JSON file")
     args = parser.parse_args()
 
