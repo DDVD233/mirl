@@ -44,4 +44,8 @@ def get_ppo_ray_runtime_env():
     for key in list(runtime_env["env_vars"].keys()):
         if os.environ.get(key) is not None:
             runtime_env["env_vars"].pop(key, None)
+    # Propagate PYTHONPATH so Ray workers can find packages set via shell export
+    pythonpath = os.environ.get("PYTHONPATH")
+    if pythonpath:
+        runtime_env["env_vars"]["PYTHONPATH"] = pythonpath
     return runtime_env
