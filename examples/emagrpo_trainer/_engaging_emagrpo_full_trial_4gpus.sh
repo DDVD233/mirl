@@ -10,8 +10,8 @@ export NCCL_ASYNC_ERROR_HANDLING=1
 
     python3 -m verl.trainer.main_ppo \
         algorithm.adv_estimator=emagrpo \
-        data.train_files=/scratch/keane/human_behaviour_data/final_v8_train_cleaned_2.jsonl \
-        data.val_files=/scratch/keane/human_behaviour_data/final_v8_test_cleaned.jsonl \
+        data.train_files=/scratch/keane/human_behaviour/human_behaviour_data/final_v8_train_cleaned_2.jsonl \
+        data.val_files=/scratch/keane/human_behaviour/human_behaviour_data/final_v8_test_cleaned.jsonl \
         data.train_batch_size=256 \
         data.val_batch_size=64 \
         data.max_prompt_length=4096 \
@@ -67,9 +67,9 @@ export NCCL_ASYNC_ERROR_HANDLING=1
         trainer.save_freq=50 \
         trainer.val_before_train=False \
         trainer.val_only=False \
-        trainer.validation_data_dir=/scratch/keane/hb_atlas_models/emagrpo_engaging_baseline \
+        trainer.validation_data_dir=/scratch/keane/human_behaviour/emagrpo_engaging_baseline \
         trainer.test_freq=99999 \
         trainer.total_epochs=5 \
-        trainer.advantage_save_dir=/scratch/keane/hb_atlas_models/emagrpo_engaging_baseline/advantages \
+        trainer.advantage_save_dir=/scratch/keane/human_behaviour/emagrpo_engaging_baseline/advantages \
         trainer.advantage_plot_freq=15 $@ \
-        trainer.default_local_dir=/scratch/keane/hb_atlas_models/emagrpo_engaging_baseline
+        trainer.default_local_dir=/scratch/keane/human_behaviour/emagrpo_engaging_baseline
