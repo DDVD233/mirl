@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 set -x
 
-# Pin to GPUs 0,1,2,3 (adjust as needed)
-export CUDA_VISIBLE_DEVICES=0,1,2,3
+export CUDA_VISIBLE_DEVICES=0,1
 unset ROCR_VISIBLE_DEVICES
 export PYTHONUNBUFFERED=1
 export HYDRA_FULL_ERROR=1
