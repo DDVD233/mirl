@@ -1,0 +1,2896 @@
+{
+  "64bd1d46551ba41781d63cb0232a28196cd9a4ceb834a421a607b62566ab0ce9_gpt-image": {
+    "id": "64bd1d46551ba41781d63cb0232a28196cd9a4ceb834a421a607b62566ab0ce9_gpt-image",
+    "prompt": "Vibrant samba parade in Rio de Janeiro streets",
+    "country": "Brazil",
+    "category": "dates-of-significance",
+    "evaluation": {
+      "scene": [
+        {
+          "question": "Does the environment feature architectural markers consistent with Rio de Janeiro, such as colonial-style buildings with colorful facades or the distinctive 'pedra portuguesa' (wave-patterned black and white stone) pavement?",
+          "answer": "Yes",
+          "weight": 7,
+          "explanation": "Authentic urban textures prevent the scene from looking like a generic or non-specific tropical location."
+        },
+        {
+          "question": "Is the crowd composition demographically diverse, reflecting Brazil's specific Afro-Brazilian and Euro-Brazilian racial mix rather than a monolithic or Western-centric demographic?",
+          "answer": "Yes",
+          "weight": 8,
+          "explanation": "Cultural faithfulness requires representing the correct demographic reality of Rio de Janeiro's population."
+        },
+        {
+          "question": "Does the scene avoid hyper-exoticized or out-of-place religious symbols, focusing instead on the secular, celebratory nature of a street parade (bloco)?",
+          "answer": "Yes",
+          "weight": 6,
+          "explanation": "Maintaining focus on the festive street context avoids common Western-centric tropes that conflate all Latin American festivities with generic religious imagery."
+        }
+      ],
+      "objects": [
+        {
+          "question": "Are the dancers' costumes (fantasias) constructed with structural integrity, featuring 'resplendores' (large headpieces or back-frames) adorned with individual ostrich or pheasant-style feathers and shimmering sequins?",
+          "answer": "Yes",
+          "weight": 9,
+          "explanation": "The 'fantasia' is the core visual identifier of a Samba parade; generic feathers or 'Las Vegas' style showgirl outfits lack cultural specificity."
+        },
+        {
+          "question": "Are the percussion instruments visually accurate to the 'Bateria', including the large 'surdo' (cylindrical bass drum), 'tamborim' (small frame drum played with a multi-pronged stick), and 'cuíca' (friction drum with a bamboo stick visible inside)?",
+          "answer": "Yes",
+          "weight": 9,
+          "explanation": "Specific instruments are mandatory for a Samba parade's visual and cultural identity; generic drums are inaccurate."
+        },
+        {
+          "question": "If present, do the floats (carros alegóricos) feature intricate, multi-layered decorations and moving parts, rather than appearing as simple flatbeds or generic carnival floats?",
+          "answer": "Yes",
+          "weight": 5,
+          "explanation": "High-fidelity Samba floats are known for their scale and mechanical complexity, even in street-level representations."
+        }
+      ],
+      "actions": [
+        {
+          "question": "Do the lead dancers perform the 'samba no pé', characterized by a rapid, rhythmic weight shift between feet where one foot steps back under the body while the other stays forward, causing the hips to oscillate in a fast, fluid motion?",
+          "answer": "Yes",
+          "weight": 10,
+          "explanation": "The 'samba no pé' is the definitive movement of the culture; generic dancing or 'salsa' movements are culturally incorrect."
+        },
+        {
+          "question": "Does the percussion section (Bateria) move in a synchronized 'marcha', where the players step in unison while maintaining a high-frequency striking rhythm on their instruments throughout the duration of the shot?",
+          "answer": "Yes",
+          "weight": 8,
+          "explanation": "The rhythmic coordination of the battery is essential for the temporal physics of a Samba parade."
+        },
+        {
+          "question": "Does the parade exhibit a continuous, flowing forward progression through the street, rather than staying static, with dancers and performers maintaining energy and movement even as they exit the frame?",
+          "answer": "Yes",
+          "weight": 7,
+          "explanation": "A parade is defined by its transit (desfile); temporal grounding requires the sense of an ongoing procession."
+        }
+      ]
+    },
+    "object_tag": "Brazilian Samba parade participants",
+    "action_tag": "Brazilian Parading",
+    "scene_tag": "Brazilian Vibrant streets of Rio de Janeiro"
+  },
+  "7773b54c52c2f8338d85aaea0f2ad2ec4177c897fc960622d91fb6f5c713bbdc_imagegen3": {
+    "id": "7773b54c52c2f8338d85aaea0f2ad2ec4177c897fc960622d91fb6f5c713bbdc_imagegen3",
+    "prompt": "Samba dancers performing on a lively Brazilian street",
+    "country": "Brazil",
+    "category": "dates-of-significance",
+    "evaluation": {
+      "scene": [
+        {
+          "question": "Does the street setting feature Brazilian architectural elements such as pastel-colored colonial facades with tall wooden window frames or textured 'paralelepípedo' (cobblestone) paving, rather than generic tropical or Western urban backgrounds?",
+          "answer": "Yes",
+          "weight": 7,
+          "explanation": "Authentic Brazilian street scenes, especially for Samba, are often associated with historic districts or specific urban textures that ground the performance in a real locale."
+        },
+        {
+          "question": "Is the 'lively' atmosphere depicted through a diverse crowd of onlookers wearing casual contemporary clothing, avoiding the stereotype of every bystander also being in costume?",
+          "answer": "Yes",
+          "weight": 6,
+          "explanation": "A culturally faithful street scene reflects a community event where the focus is on the performers while the spectators represent a realistic, non-exoticized population."
+        },
+        {
+          "question": "Does the lighting represent the natural vibrancy of a Brazilian outdoor environment, using bright, high-contrast sunlight or warm evening street lighting without applying unnatural 'sepia' or 'yellow' filters often used to depict South America?",
+          "answer": "Yes",
+          "weight": 5,
+          "explanation": "Avoiding biased color grading ensures the visual fidelity of the actual climate and atmosphere of a Brazilian city."
+        }
+      ],
+      "objects": [
+        {
+          "question": "Are the dancers' costumes (fantasias) composed of authentic components like the 'resplendor' (large feathered back piece), 'cabeça' (intricate headpiece), and beaded 'bikini' or 'body', all appearing as structured garments rather than loose fabric?",
+          "answer": "Yes",
+          "weight": 10,
+          "explanation": "The 'Fantasia' is a highly technical and structured costume; its physical construction is central to the visual identity of a Samba dancer."
+        },
+        {
+          "question": "If musicians are visible, are they using specific Samba instruments such as the 'tamborim' (small frame drum hit with a plastic stick), the 'pandeiro' (tambourine with flat jingles), or the 'surdo' (large bass drum) suspended by a shoulder strap?",
+          "answer": "Yes",
+          "weight": 9,
+          "explanation": "Specific percussion instruments are the heartbeat of Samba; generic drums or rock-style kits would be culturally inaccurate for a street performance."
+        },
+        {
+          "question": "Are the dancers wearing 'salto alto' (high heels) that are specifically T-strap or ankle-strap sandals designed for dance, providing visible stability on the street surface?",
+          "answer": "Yes",
+          "weight": 8,
+          "explanation": "Footwear for street Samba is functional and specific to the athletic demands of the dance; generic stilettos or flats would be incorrect for a professional-style 'Passista'."
+        }
+      ],
+      "actions": [
+        {
+          "question": "Does the 'Samba no pé' movement consist of a rapid, rhythmic exchange of weight where one foot slides slightly behind the other on the upbeat, while the hips move in a continuous, lateral figure-eight motion?",
+          "answer": "Yes",
+          "weight": 10,
+          "explanation": "The 'Samba no pé' is the foundational step; it must involve specific weight distribution and hip isolation to be culturally authentic."
+        },
+        {
+          "question": "Throughout the video, do the dancers maintain 'braços abertos' (open arms) held at or below shoulder height to frame the body, with the hands performing fluid, expressive gestures that avoid rigid or repetitive boxing-like movements?",
+          "answer": "Yes",
+          "weight": 8,
+          "explanation": "Arm placement in Samba is used to balance the rapid lower-body movement and project energy to the crowd; it follows a specific grace and flow."
+        },
+        {
+          "question": "Does the progression of the dancers show them moving 'no fluxo' (in the flow) down the street, maintaining a forward or circular orientation relative to the camera while their feet maintain a constant, high-tempo vibration?",
+          "answer": "Yes",
+          "weight": 9,
+          "explanation": "Street Samba is a processional art form; the movement must feel directional and continuous rather than static or like a stationary stage dance."
+        }
+      ]
+    },
+    "object_tag": "Brazilian Samba dancers",
+    "action_tag": "Brazilian Performing",
+    "scene_tag": "Lively Brazilian street"
+  },
+  "9d38ace4ed023465c8b2d1feb5b2b7b647bf6335f5982ba11f3544ac5b8108d9_flux": {
+    "id": "9d38ace4ed023465c8b2d1feb5b2b7b647bf6335f5982ba11f3544ac5b8108d9_flux",
+    "prompt": "Female student initiating handshake with male teacher in Brazil classroom",
+    "country": "Brazil",
+    "category": "greetings",
+    "evaluation": {
+      "scene": [
+        {
+          "question": "Is the classroom environment depicted with standard educational infrastructure such as a white or green board and individual student desks, while avoiding over-exoticized or tropicalized decorative elements?",
+          "answer": "Yes",
+          "weight": 7,
+          "explanation": "Ensures the setting reflects a standard Brazilian educational environment without falling into regional stereotypes."
+        },
+        {
+          "question": "Is the lighting in the scene bright and natural, consistent with the large windows and open-air ventilation commonly found in Brazilian school architecture?",
+          "answer": "Yes",
+          "weight": 5,
+          "explanation": "Lighting provides a subtle but important cue for geographical and architectural authenticity."
+        }
+      ],
+      "objects": [
+        {
+          "question": "Is the female student wearing a characteristic Brazilian school uniform, specifically a short-sleeved cotton t-shirt featuring a screen-printed school emblem on the chest?",
+          "answer": "Yes",
+          "weight": 10,
+          "explanation": "Uniforms are a central, non-negotiable visual identifier of the student experience in both public and private Brazilian schools."
+        },
+        {
+          "question": "Is the male teacher wearing 'casual professional' attire, such as a short-sleeved polo shirt or a button-down shirt without a tie, reflecting the typical Brazilian academic dress code?",
+          "answer": "Yes",
+          "weight": 8,
+          "explanation": "Teachers in Brazil rarely wear formal suits or ties, and localizing his attire is key to avoiding a Western-centric corporate look."
+        },
+        {
+          "question": "Are the textbooks or posters visible on the walls written in Portuguese, utilizing correct orthography and avoiding generic or English-language placeholders?",
+          "answer": "Yes",
+          "weight": 9,
+          "explanation": "Language is a primary cultural marker; English text would immediately break the immersion of a Brazilian setting."
+        }
+      ],
+      "actions": [
+        {
+          "question": "Does the female student initiate the contact by extending her right hand forward with the palm vertical, moving her arm in a steady, confident trajectory toward the teacher?",
+          "answer": "Yes",
+          "weight": 10,
+          "explanation": "This directly measures the primary explicit request of the prompt: the initiation of the handshake."
+        },
+        {
+          "question": "Does the handshake interaction follow a temporal sequence where the hands meet, clasp briefly with a firm grip for 1-2 seconds, and then release smoothly without lingering?",
+          "answer": "Yes",
+          "weight": 8,
+          "explanation": "Temporal grounding ensures the physics and social timing of the handshake are realistic and not awkward or excessively formal."
+        },
+        {
+          "question": "Does the student maintain a comfortable social distance—neither stiffly far nor overly intimate—consistent with the friendly but respectful 'cordialidade' typical of Brazilian student-teacher dynamics?",
+          "answer": "Yes",
+          "weight": 7,
+          "explanation": "Social proxemics in Brazil are generally closer than in Northern Europe/US but must remain professional in a classroom context."
+        },
+        {
+          "question": "Is the handshake accompanied by a brief, simultaneous nod of the head and eye contact, occurring exactly as the hands make physical contact?",
+          "answer": "Yes",
+          "weight": 6,
+          "explanation": "This secondary action reinforces the cultural nuance of warmth and mutual respect inherent in the greeting."
+        }
+      ]
+    },
+    "object_tag": "Brazilian Female student and male teacher",
+    "action_tag": "Brazilian Initiating handshake",
+    "scene_tag": "Brazil classroom"
+  },
+  "81b55135d543355685414ad7a0ccdba39f059b520746bea8203fe024c755ed5c_gpt-image": {
+    "id": "81b55135d543355685414ad7a0ccdba39f059b520746bea8203fe024c755ed5c_gpt-image",
+    "prompt": "Warm embrace between friends at a Brazilian beach gathering",
+    "country": "Brazil",
+    "category": "greetings",
+    "evaluation": {
+      "scene": [
+        {
+          "question": "Is the beach setting characterized by an informal, dense arrangement of colorful fabric parasols (guardas-sóis) and lightweight aluminum chairs (cadeiras de praia) clustered into social groups rather than structured, commercial rows?",
+          "answer": "Yes",
+          "weight": 7,
+          "explanation": "Brazilian beach culture is defined by 'barracas' and social clusters where people sit close together in an informal, non-linear fashion."
+        },
+        {
+          "question": "Does the background include diverse body types and ages, reflecting the inclusive social atmosphere of a Brazilian public 'praia'?",
+          "answer": "Yes",
+          "weight": 5,
+          "explanation": "Brazilian beaches are highly democratic spaces; representing a variety of demographics is more authentic than a homogenous or idealized cast."
+        },
+        {
+          "question": "Does the scene avoid over-relying on 'Carnaval' or religious tropes (like statues or feathers), focusing instead on the mundane reality of a 'resenha' or casual hangout?",
+          "answer": "Yes",
+          "weight": 8,
+          "explanation": "Authenticity requires avoiding the hyper-exoticization of everyday Brazilian social life."
+        }
+      ],
+      "objects": [
+        {
+          "question": "Are the beachgoers using 'cangas'—thin, colorful, rectangular patterned cloths spread on the sand or worn—instead of heavy, thick terry-cloth towels?",
+          "answer": "Yes",
+          "weight": 9,
+          "explanation": "The 'canga' is a ubiquitous and essential cultural object in Brazilian beach life, serving multiple functions."
+        },
+        {
+          "question": "Are 'sungas' (tight-fitting, square-cut swim briefs) visible on some male participants, reflecting standard Brazilian swimwear norms for men?",
+          "answer": "Yes",
+          "weight": 8,
+          "explanation": "The 'sunga' is a primary cultural marker for Brazilian men's beach attire, distinct from the longer board shorts common in the US."
+        },
+        {
+          "question": "Is there a green 'coco verde' with a straw or a 'isopor' (styrofoam cooler) present in the vicinity of the group?",
+          "answer": "Yes",
+          "weight": 6,
+          "explanation": "These are the primary vessels for hydration and social lubrication in the Brazilian beach context."
+        }
+      ],
+      "actions": [
+        {
+          "question": "Does the embrace begin with an enthusiastic approach and culminate in a full-body contact 'abraço' that lasts for more than a fleeting second, indicating genuine warmth?",
+          "answer": "Yes",
+          "weight": 10,
+          "explanation": "Brazilian greetings are physically closer and more sustained than the brief, space-conscious greetings of many Western cultures."
+        },
+        {
+          "question": "If the interaction is between two men, does the embrace include the 'mão no ombro' or rhythmic, firm pats on the back during the contact?",
+          "answer": "Yes",
+          "weight": 9,
+          "explanation": "The 'tap' on the back is a specific temporal and tactile marker of male friendship in Brazil."
+        },
+        {
+          "question": "Do the characters maintain animated facial expressions and hand gestures both immediately before and after the physical contact, showing a continuous flow of conversation?",
+          "answer": "Yes",
+          "weight": 7,
+          "explanation": "Brazilian social interaction is high-context and expressive; a static or silent approach/departure would feel culturally 'cold'."
+        }
+      ]
+    },
+    "object_tag": "Brazilian friends",
+    "action_tag": "Brazilian Warm embrace",
+    "scene_tag": "Brazilian beach gathering"
+  },
+  "24be61a3796fbb2153c8b49756d95127c85983a79ca63b2c44320ada0d6a283c_gpt-image": {
+    "id": "24be61a3796fbb2153c8b49756d95127c85983a79ca63b2c44320ada0d6a283c_gpt-image",
+    "prompt": "Friends laughing over a casual dinner in a Brazilian home.",
+    "country": "Brazil",
+    "category": "etiquette",
+    "evaluation": {
+      "scene": [
+        {
+          "question": "Is the flooring composed of ceramic tiles or polished stone, which are characteristic of Brazilian residential interiors to maintain coolness, rather than wall-to-wall carpeting?",
+          "answer": "Yes",
+          "weight": 7,
+          "explanation": "Tiled floors are a standard architectural feature in Brazilian homes due to the tropical climate; carpeting is extremely rare."
+        },
+        {
+          "question": "Are the walls finished with smooth plaster and painted in light or vibrant solid tones, avoiding the heavy wallpapering or exposed dark wood paneling common in Northern Hemisphere homes?",
+          "answer": "Yes",
+          "weight": 5,
+          "explanation": "Brazilian interior aesthetics typically favor masonry and plaster finishes over wood or paper-heavy wall treatments."
+        },
+        {
+          "question": "Does the room feature bright, functional lighting, such as an overhead fixture or natural light from large windows, rather than the dim, accent-heavy 'mood lighting' typical of Western fine dining?",
+          "answer": "Yes",
+          "weight": 6,
+          "explanation": "Casual Brazilian dinners are typically well-lit, social environments reflecting a warm and open domestic atmosphere."
+        }
+      ],
+      "objects": [
+        {
+          "question": "Are there separate serving bowls containing fluffy white rice and dark, liquid-heavy beans (either black or brown/carioca), which constitute the foundational Brazilian staple meal?",
+          "answer": "Yes",
+          "weight": 10,
+          "explanation": "Rice and beans are the non-negotiable cultural centerpiece of a Brazilian 'jantar' (dinner)."
+        },
+        {
+          "question": "Is there a bowl of 'farofa' (toasted cassava flour, appearing as a coarse, golden-yellow granulate) present on the table as a side dish?",
+          "answer": "Yes",
+          "weight": 8,
+          "explanation": "Farofa is a ubiquitous Brazilian side dish that distinguishes the meal from other Latin American cuisines."
+        },
+        {
+          "question": "Is there a bottle of Guaraná soda or a pitcher of fresh fruit juice (suco natural) on the table, rather than a primary focus on wine bottles or hard spirits?",
+          "answer": "Yes",
+          "weight": 7,
+          "explanation": "Guaraná and fresh juices are the standard beverages for casual family and friend gatherings in Brazil."
+        },
+        {
+          "question": "Is there a small vertical napkin holder containing folded paper napkins present on the table, reflecting the Brazilian custom of using napkins for almost all finger-contact with food?",
+          "answer": "Yes",
+          "weight": 4,
+          "explanation": "Small paper napkin dispensers are a specific and common detail in Brazilian dining setups."
+        }
+      ],
+      "actions": [
+        {
+          "question": "As the friends laugh, do they engage in frequent hand gestures and light physical touch, such as a hand briefly touching a friend's forearm or shoulder, maintained throughout the conversation?",
+          "answer": "Yes",
+          "weight": 9,
+          "explanation": "Brazilian social interaction is characterized by high-affect communication and physical proximity compared to more reserved cultures."
+        },
+        {
+          "question": "Does the laughter sequence involve the subjects leaning back or tilting their heads while keeping their mouths wide, showing a progression from a smile to a high-energy vocalization over at least 2 seconds?",
+          "answer": "Yes",
+          "weight": 8,
+          "explanation": "Capturing the temporal build-up of a 'gargalhada' (loud laugh) is essential for the high-energy vibe of a Brazilian gathering."
+        },
+        {
+          "question": "When serving food, do the subjects use communal spoons to transfer rice and beans from central bowls to their individual plates in a fluid, non-ceremonial motion?",
+          "answer": "Yes",
+          "weight": 7,
+          "explanation": "Casual Brazilian dinners are served 'family style' where guests serve themselves from central platters."
+        },
+        {
+          "question": "Are the subjects holding their cutlery in the continental style (fork in the left hand, knife in the right) while eating, which is the standard practice in Brazil?",
+          "answer": "Yes",
+          "weight": 6,
+          "explanation": "Brazil follows European table manners regarding cutlery usage, unlike the American 'switch' method."
+        }
+      ]
+    },
+    "object_tag": "Brazilian Friends",
+    "action_tag": "Brazilian Laughing",
+    "scene_tag": "Casual dinner in a Brazilian home"
+  },
+  "70c9574e790b6a4217e65d0ac8c21f50217d5aa353498063160ae8030c1919e0_SD35": {
+    "id": "70c9574e790b6a4217e65d0ac8c21f50217d5aa353498063160ae8030c1919e0_SD35",
+    "prompt": "Friends enjoying feijoada together at a Brazilian home.",
+    "country": "Brazil",
+    "category": "etiquette",
+    "evaluation": {
+      "scene": [
+        {
+          "question": "Is the dining setting a domestic Brazilian home interior, characterized by practical elements such as ceramic tile or wood flooring and a large communal table, rather than a generic commercial restaurant or a hyper-exoticized jungle backdrop?",
+          "answer": "Yes",
+          "weight": 8,
+          "explanation": "Authentic Brazilian feijoada is primarily a domestic social ritual; the architectural context must reflect a realistic home environment to avoid stereotypes."
+        },
+        {
+          "question": "Is the lighting warm and natural, suggesting a typical Saturday afternoon 'feijoada completa' gathering, with soft light hitting the table and avoiding the high-contrast cinematic lighting typical of Western film sets?",
+          "answer": "Yes",
+          "weight": 5,
+          "explanation": "Feijoada is traditionally a weekend lunch meal; the temporal and atmospheric lighting reinforces the cultural timing of the event."
+        }
+      ],
+      "objects": [
+        {
+          "question": "Is the feijoada served in a 'panela de barro' (a traditional heavy, black or dark brown clay pot) containing a thick, viscous black bean stew with visible meat components like sliced calabresa sausage and salted pork?",
+          "answer": "Yes",
+          "weight": 10,
+          "explanation": "The clay pot and the specific consistency of black beans are the central identifiers of the dish."
+        },
+        {
+          "question": "Are the mandatory side dishes present on the table, specifically 'farofa' (toasted yellow/beige cassava flour), 'couve' (very thinly shredded and sautéed dark green kale), and plates of fresh, sliced oranges?",
+          "answer": "Yes",
+          "weight": 9,
+          "explanation": "A culturally faithful feijoada is never served alone; the specific combination of farofa, couve, and orange is essential for the authentic culinary profile."
+        },
+        {
+          "question": "Is the rice presented as 'arroz soltinho' (fluffy, non-sticky white rice) served in a separate bowl rather than being pre-mixed into the bean pot?",
+          "answer": "Yes",
+          "weight": 7,
+          "explanation": "The texture and presentation of the rice are specific cultural markers of Brazilian cooking techniques."
+        }
+      ],
+      "actions": [
+        {
+          "question": "Does the action of serving involve a person using a ladle to scoop the stew, with the liquid showing a thick, slow-moving consistency as it is poured directly over the rice, causing the black sauce to gradually saturate the white grains?",
+          "answer": "Yes",
+          "weight": 9,
+          "explanation": "Temporal and physical accuracy in how the food behaves (viscosity) and the sequence of plating (beans over rice) is critical for realism."
+        },
+        {
+          "question": "Does at least one person perform the specific motion of sprinkling farofa over their plate, with the dry granules falling loosely from a spoon or fingers and settling on top of the moist stew without dissolving immediately?",
+          "answer": "Yes",
+          "weight": 7,
+          "explanation": "This specific interaction with the food components captures the textural contrast central to the eating experience."
+        },
+        {
+          "question": "Do the friends maintain a high level of social engagement throughout the video, featuring overlapping conversations, expressive hand gestures, and shared laughter, reflecting the 'descontraído' (informal) social physics of a Brazilian gathering?",
+          "answer": "Yes",
+          "weight": 8,
+          "explanation": "The social dynamics and body language ('ginga' and warmth) are as important to the cultural faithfulness as the food itself."
+        }
+      ]
+    },
+    "object_tag": "Brazilian Friends",
+    "action_tag": "Brazilian Enjoying feijoada together",
+    "scene_tag": "Brazilian home"
+  },
+  "6c2a80ca456df09b9751d7dd3b576e149bd19713a7cfe52c2113b578b45554ea_gpt-image": {
+    "id": "6c2a80ca456df09b9751d7dd3b576e149bd19713a7cfe52c2113b578b45554ea_gpt-image",
+    "prompt": "Guests admiring indigenous art at a Canadian home entrance",
+    "country": "Canada",
+    "category": "etiquette",
+    "evaluation": {
+      "scene": [
+        {
+          "question": "Is the home entrance depicted as a distinct foyer or mudroom area containing practical elements like a shoe rack, a bench, or a coat closet, which characterizes the typical Canadian residential transition space for varied climates?",
+          "answer": "Yes",
+          "weight": 7,
+          "explanation": "Authentic Canadian home design frequently prioritizes a functional entrance space for removing outdoor gear."
+        },
+        {
+          "question": "Does the scene correctly depict the cultural practice of 'shoes off' by showing the guests in socks or indoor slippers, with their outdoor footwear placed neatly by the door?",
+          "answer": "Yes",
+          "weight": 9,
+          "explanation": "Removing shoes upon entering a home is a nearly universal social norm in Canada; failure to show this breaks domestic cultural realism."
+        },
+        {
+          "question": "Is the lighting in the entrance focused and soft, highlighting the artwork without creating a commercial gallery aesthetic, thereby maintaining the intimacy of a private residence?",
+          "answer": "Yes",
+          "weight": 5,
+          "explanation": "Domestic faithfulness requires the lighting to feel like home lighting rather than a museum or retail display."
+        }
+      ],
+      "objects": [
+        {
+          "question": "Does the Indigenous art feature authentic stylistic elements, such as the specific black and red formline motifs (ovoids and U-shapes) of West Coast First Nations or the smooth, organic contours of Inuit soapstone carvings?",
+          "answer": "Yes",
+          "weight": 10,
+          "explanation": "Accuracy in the specific visual language of Indigenous art is critical to avoid generic or 'pan-Indigenous' stereotypes."
+        },
+        {
+          "question": "Is the artwork displayed with dignity, positioned at eye level or on a dedicated pedestal, reflecting the respect typically shown toward Indigenous heritage in a contemporary Canadian home?",
+          "answer": "Yes",
+          "weight": 8,
+          "explanation": "The placement of the object indicates the owner's value of the piece and cultural sensitivity."
+        },
+        {
+          "question": "Do the surrounding decor items, such as a sturdy wooden bench or heavy-duty floor mat, appear appropriate for Canadian weather conditions without being hyper-stylized or cluttered?",
+          "answer": "Yes",
+          "weight": 4,
+          "explanation": "These secondary objects provide the necessary environmental grounding for the specific geographic context."
+        }
+      ],
+      "actions": [
+        {
+          "question": "Do the guests' eyes follow the specific lines and textures of the artwork in a continuous scanning motion that lasts for several seconds, indicating genuine observation rather than a glance?",
+          "answer": "Yes",
+          "weight": 8,
+          "explanation": "Faithful 'admiring' requires a temporal commitment of the gaze to the object's details."
+        },
+        {
+          "question": "Does the lead guest slowly extend a hand to gesture toward a specific feature of the art without making physical contact, maintaining a respectful distance of at least several inches from the surface?",
+          "answer": "Yes",
+          "weight": 7,
+          "explanation": "Physical restraint and gesturing without touching demonstrate cultural respect for the integrity of the artwork."
+        },
+        {
+          "question": "Does the physical posture of the guests evolve from a walking pace into a stable, slightly leaned-forward stance as they approach the art, showing a natural transition from 'entering' to 'observing'?",
+          "answer": "Yes",
+          "weight": 6,
+          "explanation": "The physics of the movement must show the weight shift and deceleration associated with stopping to appreciate an object."
+        }
+      ]
+    },
+    "object_tag": "Canadian Guests",
+    "action_tag": "Canadian Admiring",
+    "scene_tag": "Indigenous art at a Canadian home entrance"
+  },
+  "f27d8eb530f1f9a653cf747d0b6f783bd1e76a2a8fb9d871dbde8fdc315ebbed_SD35": {
+    "id": "f27d8eb530f1f9a653cf747d0b6f783bd1e76a2a8fb9d871dbde8fdc315ebbed_SD35",
+    "prompt": "Polite request for directions at a snowy Vancouver street corner",
+    "country": "Canada",
+    "category": "etiquette",
+    "evaluation": {
+      "scene": [
+        {
+          "question": "Does the street corner feature the specific visual identifiers of Vancouver, such as the white-on-green street name signs or the blue-and-yellow TransLink transit signage, rather than generic or non-Canadian markers?",
+          "answer": "Yes",
+          "weight": 8,
+          "explanation": "Specific local infrastructure is the primary marker of geographic authenticity for a city-specific prompt."
+        },
+        {
+          "question": "Is the environment depicted with the heavy, wet, and slushy snow consistency characteristic of the Pacific Northwest maritime climate, avoiding the appearance of dry, powdery Arctic snow?",
+          "answer": "Yes",
+          "weight": 6,
+          "explanation": "Vancouver's geography dictates a specific type of 'wet' snow and overcast lighting that differs from continental or high-altitude climates."
+        },
+        {
+          "question": "Does the background architecture consist of a mix of modern glass high-rises and heritage brick structures consistent with Vancouver neighborhoods like Gastown or the West End?",
+          "answer": "Yes",
+          "weight": 5,
+          "explanation": "Vancouver's 'City of Glass' reputation combined with older brickwork provides the necessary urban context."
+        }
+      ],
+      "objects": [
+        {
+          "question": "Are the pedestrians wearing layered, technical outdoor apparel such as waterproof shells, beanies, and insulated vests typical of West Coast Canadian fashion, rather than formal wool overcoats or heavy fur-lined parkas?",
+          "answer": "Yes",
+          "weight": 7,
+          "explanation": "Clothing choices reflect the local culture of functional, outdoor-oriented fashion common in British Columbia."
+        },
+        {
+          "question": "Does the scene include localized urban elements like black metal waste bins with integrated recycling slots or the distinct grey-and-blue 'bus loop' style poles?",
+          "answer": "Yes",
+          "weight": 4,
+          "explanation": "Minor municipal details anchor the scene in a realistic, non-generic Canadian urban environment."
+        }
+      ],
+      "actions": [
+        {
+          "question": "Does the person seeking directions initiate the interaction by pausing at a respectful social distance of approximately one to two meters before speaking, reflecting Canadian norms of personal space?",
+          "answer": "Yes",
+          "weight": 9,
+          "explanation": "Respecting personal space is a critical component of the 'polite' cultural requirement in the prompt."
+        },
+        {
+          "question": "Does the interaction involve a sequence where the person giving directions points clearly in a direction, followed by the requester performing a visible head nod and a small hand gesture of gratitude before moving away?",
+          "answer": "Yes",
+          "weight": 8,
+          "explanation": "This temporal sequence captures the specific flow of a polite social transaction in a Canadian context."
+        },
+        {
+          "question": "Do the characters demonstrate the physical struggle of walking through wet slush by lifting their feet slightly higher and looking down periodically at the ground to avoid puddles or ice?",
+          "answer": "Yes",
+          "weight": 6,
+          "explanation": "Temporal grounding of movement in relation to the snowy environment ensures the physics of the scene are culturally and environmentally authentic."
+        }
+      ]
+    },
+    "object_tag": "Canadian People",
+    "action_tag": "Canadian Requesting directions",
+    "scene_tag": "Canadian Snowy Vancouver street corner"
+  },
+  "703682e4fe078c8e1f386c081c33d499b1de46ff9c1a1de0c7659fdc258a126b_SD35": {
+    "id": "703682e4fe078c8e1f386c081c33d499b1de46ff9c1a1de0c7659fdc258a126b_SD35",
+    "prompt": "Middle-aged Canadians amicably co-parenting after divorce",
+    "country": "Canada",
+    "category": "family",
+    "evaluation": {
+      "scene": [
+        {
+          "question": "Is the setting a suburban residential street featuring architecture typical of Canadian municipalities, such as a detached or semi-detached house with a mix of brick and horizontal siding, a prominent driveway, and a front lawn without high perimeter walls?",
+          "answer": "Yes",
+          "weight": 7,
+          "explanation": "Provides the essential spatial context for a middle-class Canadian co-parenting transition, avoiding generic or overly urbanized international styles."
+        },
+        {
+          "question": "Does the environment depict a temperate Canadian season through subtle visual cues such as deciduous trees with orange-yellow foliage or light morning frost on a vehicle's windshield, rather than extreme arctic or tropical weather?",
+          "answer": "Yes",
+          "weight": 5,
+          "explanation": "Establishes a realistic Canadian climate context that informs the characters' clothing and the overall mood of the scene."
+        }
+      ],
+      "objects": [
+        {
+          "question": "Are the adults wearing practical, layered clothing common in Canadian casual fashion, such as quilted vests, wool-blend sweaters, or sturdy leather boots, appropriate for middle-aged individuals in a cool climate?",
+          "answer": "Yes",
+          "weight": 6,
+          "explanation": "Authentic attire for the demographic and location prevents the characters from appearing as generic models or being inappropriately dressed for the setting."
+        },
+        {
+          "question": "Is there a realistic child-related transition object present, such as a structured school backpack or a hockey equipment bag, being physically held or moved between the two parents?",
+          "answer": "Yes",
+          "weight": 8,
+          "explanation": "The presence of a transition object is a critical visual shorthand for the act of co-parenting and the physical logistics of moving a child between households."
+        },
+        {
+          "question": "If a vehicle is present, does it reflect common Canadian household choices, such as a clean, mid-sized SUV or a hatchback parked in a designated driveway or at the curb?",
+          "answer": "Yes",
+          "weight": 4,
+          "explanation": "Supports the socioeconomic and logistical reality of suburban co-parenting transitions."
+        }
+      ],
+      "actions": [
+        {
+          "question": "Does the interaction begin with the two adults standing at a respectful distance, making sustained eye contact and exchanging a visible smile or a friendly nod of acknowledgment?",
+          "answer": "Yes",
+          "weight": 9,
+          "explanation": "Critically defines the 'amicable' aspect of the prompt through non-verbal social cues and body language."
+        },
+        {
+          "question": "Does the video capture a smooth sequence where one parent hands over a bag or guides a child toward the other, with both adults briefly engaging in a calm, non-confrontational verbal exchange?",
+          "answer": "Yes",
+          "weight": 10,
+          "explanation": "This is the core action requested; the smoothness and lack of tension are essential for portraying 'amicable co-parenting'."
+        },
+        {
+          "question": "Is the movement of the child fluid, showing the child comfortably transitioning from the proximity of one parent to the other without hesitation, while both parents maintain relaxed, open shoulder postures?",
+          "answer": "Yes",
+          "weight": 9,
+          "explanation": "The child's ease and the parents' body language are the primary indicators of a successful, healthy post-divorce dynamic."
+        },
+        {
+          "question": "Does the scene conclude with a temporal progression showing one parent waving or giving a parting gesture as the other turns toward their house or car, signifying a peaceful end to the interaction?",
+          "answer": "Yes",
+          "weight": 8,
+          "explanation": "Ensures the 'amicable' nature persists through the duration of the transition and the end of the video sequence."
+        }
+      ]
+    },
+    "object_tag": "Middle-aged Canadians",
+    "action_tag": "Canadian Amicably co-parenting",
+    "scene_tag": "Canadian After divorce"
+  },
+  "d02c8a6c4f0caaf6fc7cbe6fca7865497e4fa703d137dd397ab68669f72130fb_imagegen3": {
+    "id": "d02c8a6c4f0caaf6fc7cbe6fca7865497e4fa703d137dd397ab68669f72130fb_imagegen3",
+    "prompt": "Same-sex couple enjoying picnic under Canadian autumn foliage",
+    "country": "Canada",
+    "category": "family",
+    "evaluation": {
+      "scene": [
+        {
+          "question": "Does the environment feature a dense canopy of deciduous trees, specifically Acer saccharum (sugar maple), identified by their distinct five-lobed leaves in a palette of vibrant crimson, deep orange, and bright gold?",
+          "answer": "Yes",
+          "weight": 9,
+          "explanation": "Maple foliage is the primary visual signifier of a Canadian autumn and is critical for regional specificity."
+        },
+        {
+          "question": "Is the ground surface covered in a layer of fallen, dried leaves that realistically compress or shift slightly when the couple moves upon them?",
+          "answer": "Yes",
+          "weight": 5,
+          "explanation": "Ground cover adds to the immersion of the autumn setting and verifies physical interaction with the environment."
+        },
+        {
+          "question": "Is the lighting characterized by a soft, low-angle 'golden hour' glow or the diffused white light of a crisp, overcast day typical of Northern latitudes in October?",
+          "answer": "Yes",
+          "weight": 6,
+          "explanation": "Lighting defines the atmospheric quality and temporal placement of a Canadian autumn scene."
+        }
+      ],
+      "objects": [
+        {
+          "question": "Is the picnic blanket made of a heavy, textured fabric such as wool or flannel, potentially featuring a culturally resonant pattern like the red-and-black Buffalo plaid?",
+          "answer": "Yes",
+          "weight": 7,
+          "explanation": "Plaid flannel is a staple of Canadian outdoor culture and provides a specific regional aesthetic."
+        },
+        {
+          "question": "Is the couple dressed in functional autumn layers, including knit 'toques' (beanies), quilted vests, or heavy sweaters, appropriate for temperatures between 5 and 15 degrees Celsius?",
+          "answer": "Yes",
+          "weight": 8,
+          "explanation": "Clothing must reflect the physical reality of the climate to maintain cultural and environmental authenticity."
+        },
+        {
+          "question": "Are the picnic items representative of local fare, such as a thermos for warm cider or coffee, apples, or pastries, rather than generic fast food or tropical fruits?",
+          "answer": "Yes",
+          "weight": 4,
+          "explanation": "Contextual objects enhance the narrative of a local Canadian outing."
+        }
+      ],
+      "actions": [
+        {
+          "question": "Do the two individuals maintain a consistent, affectionate physical connection, such as leaning shoulders together or clasping hands, that persists naturally across the duration of the clip?",
+          "answer": "Yes",
+          "weight": 10,
+          "explanation": "The primary prompt requirement is the representation of a same-sex couple; consistent interaction is key to this identity."
+        },
+        {
+          "question": "Do individual leaves detach from the trees and fall with a slow, oscillating descent toward the ground, following a path influenced by a gentle breeze rather than falling in a straight vertical line?",
+          "answer": "Yes",
+          "weight": 7,
+          "explanation": "Temporal physics of falling leaves are essential for a believable, high-quality video of an autumn scene."
+        },
+        {
+          "question": "When one person reaches for a cup or food item, does the arm move in a continuous, multi-jointed arc from the torso to the object without any clipping through the picnic blanket or sudden frame skips?",
+          "answer": "Yes",
+          "weight": 8,
+          "explanation": "Fluidity of motion and avoidance of clipping are critical for visual fidelity and anatomical realism in human actions."
+        }
+      ]
+    },
+    "object_tag": "Canadian Same-sex couple",
+    "action_tag": "Canadian Enjoying picnic",
+    "scene_tag": "Under Canadian autumn foliage"
+  },
+  "286fe914befa0560398cd11d83e6d305c57fe2d3c2227f7983bf02ade6f2b222_gpt-image": {
+    "id": "286fe914befa0560398cd11d83e6d305c57fe2d3c2227f7983bf02ade6f2b222_gpt-image",
+    "prompt": "Guest presenting wine at a Chilean home entrance",
+    "country": "Chile",
+    "category": "etiquette",
+    "evaluation": {
+      "scene": [
+        {
+          "question": "Is the entrance to the Chilean home depicted with contemporary urban or suburban architectural features, such as a solid wooden or metal door and a visible 'citófono' (intercom) or doorbell button, avoiding rustic or hyper-exoticized stereotypes?",
+          "answer": "Yes",
+          "weight": 7,
+          "explanation": "Authentic Chilean social visits occur in modern residential settings; using 'citófonos' is a specific cultural marker of urban life."
+        },
+        {
+          "question": "Does the lighting and atmosphere suggest a late afternoon or evening setting, aligning with the traditional timing for a Chilean 'once' (tea time) or dinner gathering?",
+          "answer": "Yes",
+          "weight": 5,
+          "explanation": "Social visits involving wine typically occur in the evening or late afternoon, marking the transition to social hours."
+        },
+        {
+          "question": "Are the characters depicted with typical Chilean Mediterranean-Mestizo phenotypes, avoiding over-generalized Western or purely indigenous stereotypes for a contemporary middle-class home setting?",
+          "answer": "Yes",
+          "weight": 8,
+          "explanation": "Accurate representation of the local population is critical for cultural faithfulness in a domestic scene."
+        }
+      ],
+      "objects": [
+        {
+          "question": "Is the wine bottle a standard 750ml glass bottle, featuring a label that resembles Chilean vineyard branding—specifically showing varieties like Carménère or Cabernet Sauvignon—rather than a generic or unbranded vessel?",
+          "answer": "Yes",
+          "weight": 10,
+          "explanation": "Chile is world-renowned for its wine; the specific variety and bottle shape are central to the prompt's cultural identity."
+        },
+        {
+          "question": "Are the guest and host wearing contemporary 'sport elegant' or smart-casual attire, such as knit sweaters, collared shirts, or clean denim, reflecting modern Chilean social etiquette for home visits?",
+          "answer": "Yes",
+          "weight": 6,
+          "explanation": "Chilean social norms for 'visitas' usually involve a level of neatness that is casual yet respectful."
+        },
+        {
+          "question": "If the wine is in a bag, is it a slender, vertical paper or fabric gift bag designed specifically for a single bottle, which is the standard way to present alcohol gifts in Chile?",
+          "answer": "Yes",
+          "weight": 4,
+          "explanation": "A secondary detail that reinforces the social etiquette of gift-giving in Chilean culture."
+        }
+      ],
+      "actions": [
+        {
+          "question": "As the door opens, does the guest perform a single light kiss on the right cheek ('un beso') with the host, rather than the European double-kiss or a formal, distant handshake?",
+          "answer": "Yes",
+          "weight": 9,
+          "explanation": "The single kiss on the right cheek is the absolute standard for Chilean social greetings between friends or acquaintances of different or the same gender (among women)."
+        },
+        {
+          "question": "Does the sequence of motion show the guest extending the wine bottle forward shortly after the initial greeting, with the host's hands moving to receive the gift in a fluid, welcoming motion as they invite the guest inside?",
+          "answer": "Yes",
+          "weight": 8,
+          "explanation": "The timing of the gift presentation is crucial; it typically happens at the threshold or immediately after the physical greeting."
+        },
+        {
+          "question": "Does the guest's movement show them leaning in slightly for the greeting while maintaining a close, warm personal distance (proxemics) typical of South American social interactions, before stepping over the threshold?",
+          "answer": "Yes",
+          "weight": 7,
+          "explanation": "Chilean culture has a smaller personal space bubble during greetings compared to North American or Northern European cultures; the physics of the lean is a key cultural signifier."
+        }
+      ]
+    },
+    "object_tag": "Chilean Guest",
+    "action_tag": "Chilean Presenting wine",
+    "scene_tag": "Chilean home entrance"
+  },
+  "36a25f93e5ef7c5083795d878e0e8e3a65a7a7f80c6577ed29b21b618f13b57d_gpt-image": {
+    "id": "36a25f93e5ef7c5083795d878e0e8e3a65a7a7f80c6577ed29b21b618f13b57d_gpt-image",
+    "prompt": "Tourist takes off sunglasses at Valparaíso cathedral entrance.",
+    "country": "Chile",
+    "category": "etiquette",
+    "evaluation": {
+      "scene": [
+        {
+          "question": "Is the cathedral entrance depicted with the specific Neo-Gothic architectural elements of the Catedral de San Pedro in Valparaíso, featuring pointed arches and a facade of textured stone or painted masonry typical of the Plaza Victoria area?",
+          "answer": "Yes",
+          "weight": 9,
+          "explanation": "Authenticity of the specific landmark is critical for cultural faithfulness in a localized prompt."
+        },
+        {
+          "question": "Does the environment reflect the bright, direct coastal lighting characteristic of central Chile's maritime climate, creating sharp shadows on the cathedral's stone portal?",
+          "answer": "Yes",
+          "weight": 5,
+          "explanation": "Lighting conditions are vital for geographic grounding in a port city like Valparaíso."
+        },
+        {
+          "question": "Does the scene avoid hyper-exoticized or 'old world' European stereotypes by including contemporary Chilean urban elements like paved sidewalks or modern street furniture in the periphery?",
+          "answer": "Yes",
+          "weight": 6,
+          "explanation": "Ensures the setting is a living, modern city rather than a generic or historicized caricature."
+        }
+      ],
+      "objects": [
+        {
+          "question": "Are the sunglasses rendered as a modern accessory with two dark lenses, a bridge, and folding temples, held naturally by the tourist?",
+          "answer": "Yes",
+          "weight": 4,
+          "explanation": "Sunglasses are a standard modern object; their physical accuracy supports visual coherence."
+        },
+        {
+          "question": "Are the cathedral doors shown as heavy, oversized wooden portals with metal hardware or decorative carvings, consistent with the scale and material of Latin American ecclesiastical architecture?",
+          "answer": "Yes",
+          "weight": 8,
+          "explanation": "The doors are a focal point of the interaction and represent the transition to a sacred space."
+        }
+      ],
+      "actions": [
+        {
+          "question": "Does the action begin with the tourist's hand reaching toward their face, grasping the sunglasses, and pulling them forward and down in one fluid, continuous motion?",
+          "answer": "Yes",
+          "weight": 10,
+          "explanation": "This is the primary action of the prompt and requires high temporal and physical fidelity."
+        },
+        {
+          "question": "As the sunglasses are removed, does the tourist's gait slow or pause momentarily, signifying a gesture of respect and transition before entering the religious site?",
+          "answer": "Yes",
+          "weight": 8,
+          "explanation": "Taking off sunglasses is a cultural norm for entering a church in Chile; the timing of the pause reflects this intent."
+        },
+        {
+          "question": "Does the tourist either fold the temples of the sunglasses or hold them by the frame in a single hand after removal, maintaining consistent physics and object permanence across the frames?",
+          "answer": "Yes",
+          "weight": 7,
+          "explanation": "Ensures the object does not disappear or change state unnaturally after the main action is completed."
+        }
+      ]
+    },
+    "object_tag": "Chilean Tourist",
+    "action_tag": "Chilean Takes off sunglasses",
+    "scene_tag": "Chilean Valparaíso cathedral entrance"
+  },
+  "e031d3f45756e0d7f212afd34b72a13df0af7f6ad9e63cef81cd40b24c1ceded_flux": {
+    "id": "e031d3f45756e0d7f212afd34b72a13df0af7f6ad9e63cef81cd40b24c1ceded_flux",
+    "prompt": "Chilean wedding reception with guests toasting",
+    "country": "Chile",
+    "category": "greetings",
+    "evaluation": {
+      "scene": [
+        {
+          "question": "Is the reception set in a festive environment such as an indoor 'centro de eventos' or an outdoor 'parcela' with long banquet tables, white linens, and floral centerpieces, rather than a generic bar or religious temple?",
+          "answer": "Yes",
+          "weight": 7,
+          "explanation": "Chilean weddings typically take place in dedicated event spaces or countryside estates, characterized by a specific balance of formal and rustic aesthetics."
+        },
+        {
+          "question": "Is the lighting warm and celebratory, utilizing a combination of ambient hall lights and decorative string lights or candles common in Chilean 'fiesta de matrimonio' aesthetics?",
+          "answer": "Yes",
+          "weight": 5,
+          "explanation": "Lighting sets the appropriate evening reception mood and avoids a sterile or daylight-office appearance."
+        },
+        {
+          "question": "Does the background avoid hyper-exoticized Latin American stereotypes, such as tropical jungle foliage or desert ruins, in favor of Central Valley or modern urban Chilean architecture?",
+          "answer": "Yes",
+          "weight": 6,
+          "explanation": "Authenticity requires avoiding the 'tropicalization' of Southern Cone cultures like Chile."
+        }
+      ],
+      "objects": [
+        {
+          "question": "Are the guests holding clear, stemmed wine glasses (copas) containing deep red liquid (resembling Carmenere or Cabernet Sauvignon) or pale gold liquid (resembling Sauvignon Blanc), reflecting Chilean wine culture?",
+          "answer": "Yes",
+          "weight": 9,
+          "explanation": "Wine is the central element of a Chilean toast; using inappropriate vessels like beer mugs or plastic cups would be culturally inaccurate for a formal wedding."
+        },
+        {
+          "question": "Are the guests dressed in formal 'gala' attire, with men in dark suits and ties and women in evening dresses, consistent with the high formal standard of Chilean wedding receptions?",
+          "answer": "Yes",
+          "weight": 8,
+          "explanation": "Chilean weddings are traditionally formal events; casual wear would indicate a failure in contextual faithfulness."
+        },
+        {
+          "question": "If food is visible on the tables, does it include small hors d'oeuvres like 'empanaditas de pino' (small savory pastries) or 'machas a la parmesana' (clams) rather than generic fast food?",
+          "answer": "Yes",
+          "weight": 4,
+          "explanation": "Secondary objects like traditional appetizers enhance the cultural specificity of the Chilean setting."
+        }
+      ],
+      "actions": [
+        {
+          "question": "Does the toast begin with the guests raising their glasses to eye level and making direct eye contact with their companions before the glasses physically touch?",
+          "answer": "Yes",
+          "weight": 10,
+          "explanation": "In Chilean and broader Latin culture, eye contact during a toast (el brindis) is a mandatory social norm to show respect and sincerity."
+        },
+        {
+          "question": "Is the physical clinking of the glasses (the 'chinchín') followed by a sequence where the guests bring the glass to their mouths to take a sip before placing the glass back on the table?",
+          "answer": "Yes",
+          "weight": 8,
+          "explanation": "The temporal sequence of a toast requires the 'sip' immediately following the clink to be considered a completed social ritual."
+        },
+        {
+          "question": "Do the guests' facial expressions and mouth movements synchronize with the clinking of glasses to suggest the vocalization of '¡Salud!' or '¡Chinchín!'?",
+          "answer": "Yes",
+          "weight": 7,
+          "explanation": "The toast is a verbal as well as physical action; capturing the social engagement and the common Chilean exclamation is key to realism."
+        },
+        {
+          "question": "Does the camera capture a fluid, steady movement of the glasses toward the center of the group, avoiding jerky or teleporting frames that break the physics of a coordinated social gesture?",
+          "answer": "Yes",
+          "weight": 6,
+          "explanation": "Temporal consistency in the physics of the toast ensures the video is a believable representation of human interaction."
+        }
+      ]
+    },
+    "object_tag": "Chilean Guests",
+    "action_tag": "Chilean Toasting",
+    "scene_tag": "Chilean wedding reception"
+  },
+  "7869c91f8fa016a327afcd86363a8a9c5c08c06b473e547d09059c3184c94415_flux": {
+    "id": "7869c91f8fa016a327afcd86363a8a9c5c08c06b473e547d09059c3184c94415_flux",
+    "prompt": "Chilean friends exchanging gifts during a festive dinner party",
+    "country": "Chile",
+    "category": "greetings",
+    "evaluation": {
+      "scene": [
+        {
+          "question": "Is the setting a domestic indoor environment characterized by a 'sobremesa' atmosphere, where people remain seated or standing around a dinner table still cluttered with used plates, half-empty wine glasses, and bread crumbs?",
+          "answer": "Yes",
+          "weight": 9,
+          "explanation": "The 'sobremesa' (post-dinner conversation) is a foundational Chilean social ritual; a clean or empty table would look culturally sterile."
+        },
+        {
+          "question": "Does the group of friends display a range of Mediterranean-influenced South American phenotypes (mestizo and European ancestry), avoiding both mono-ethnic casting and exaggerated 'tropical' or 'Caribbean' stereotypes?",
+          "answer": "Yes",
+          "weight": 8,
+          "explanation": "Chilean demographics are distinct from other LatAm regions; visual representation must avoid generic 'exoticism' to be faithful."
+        },
+        {
+          "question": "Is the lighting warm and nocturnal, suggesting an evening gathering rather than a daytime event, consistent with the late hour at which Chilean festive dinners typically occur?",
+          "answer": "Yes",
+          "weight": 5,
+          "explanation": "Festive dinners in Chile are late-night affairs; the lighting should reflect an indoor party atmosphere."
+        }
+      ],
+      "objects": [
+        {
+          "question": "Are the wine bottles visible on the table consistent with Chilean viticulture, featuring dark glass, slender silhouettes (like Cabernet or Carmenere bottles), and labels that resemble local vineyard branding?",
+          "answer": "Yes",
+          "weight": 8,
+          "explanation": "Wine is a central element of Chilean social identity and a staple of festive dinners."
+        },
+        {
+          "question": "Are the gifts wrapped in standard festive paper and ribbons, appearing as physical volumes with tangible weight that causes a slight visible strain or adjustment in the hands of the person holding them?",
+          "answer": "Yes",
+          "weight": 6,
+          "explanation": "Ensures the objects have physical presence and interact realistically with the subjects."
+        },
+        {
+          "question": "If food is visible, does it include culturally appropriate items such as 'pan amasado' (round, dense homemade bread) or 'pebre' (salsa in a small bowl), rather than generic tacos or burritos?",
+          "answer": "Yes",
+          "weight": 7,
+          "explanation": "Avoids the 'taco-fication' of Latin American cultures by providing region-specific food cues."
+        }
+      ],
+      "actions": [
+        {
+          "question": "During the gift exchange, do the friends perform a 'beso en la mejilla'—a single kiss on the right cheek—involving a slight lean-in and cheek-to-cheek contact as the gift is handed over?",
+          "answer": "Yes",
+          "weight": 10,
+          "explanation": "The single right-cheek kiss is the mandatory social greeting and 'thank you' in Chile; a double kiss or a handshake would be culturally incorrect."
+        },
+        {
+          "question": "Does the exchange involve high-intensity physical proximity, such as a hand placed on a shoulder or a brief hug (abrazo), reflecting the tactile nature of Chilean friendship during festive moments?",
+          "answer": "Yes",
+          "weight": 8,
+          "explanation": "Chilean social interaction is characterized by low physical distance and frequent touch between friends."
+        },
+        {
+          "question": "Is the motion of handing the gift a fluid, continuous sequence where the giver extends their arms, the recipient's hands close around the object, and both maintain eye contact throughout the transition?",
+          "answer": "Yes",
+          "weight": 7,
+          "explanation": "Checks for temporal consistency and the social connection inherent in the act of giving."
+        },
+        {
+          "question": "Do the characters exhibit animated facial expressions and hand gestures (ademanes) consistent with high-engagement conversation typical of a Chilean social gathering?",
+          "answer": "Yes",
+          "weight": 6,
+          "explanation": "Captures the lively, often loud and expressive nature of Chilean festive environments."
+        }
+      ]
+    },
+    "object_tag": "Chilean friends",
+    "action_tag": "Chilean Exchanging gifts",
+    "scene_tag": "Chilean Festive dinner party"
+  },
+  "ef9b1be8693e67e50b8ce686ff0ec58ed5fb12c6c4b7279a037bc955251323cf_imagegen3": {
+    "id": "ef9b1be8693e67e50b8ce686ff0ec58ed5fb12c6c4b7279a037bc955251323cf_imagegen3",
+    "prompt": "Chilean cathedral hosting interfaith dialogue for human rights awareness",
+    "country": "Chile",
+    "category": "religion",
+    "evaluation": {
+      "scene": [
+        {
+          "question": "Is the cathedral's interior architecture consistent with Chilean Neoclassical or Baroque styles, specifically featuring high barrel-vaulted ceilings, stone pillars with ornate capitals, and lateral chapels rather than a generic wooden or modern Protestant design?",
+          "answer": "Yes",
+          "weight": 8,
+          "explanation": "Authentic architectural grounding in Chilean history, particularly the Metropolitan Cathedral style, is essential for identifying the specific geographic and cultural setting."
+        },
+        {
+          "question": "Does the lighting maintain a natural, diffused quality typical of large stone structures, filtering through high clerestory windows to illuminate the assembly without using hyper-exoticized, neon, or artificial colorful 'cinematic' spotlights?",
+          "answer": "Yes",
+          "weight": 5,
+          "explanation": "Maintains the solemnity and realism of a human rights event in a sacred space, avoiding visual sensationalism."
+        },
+        {
+          "question": "Is the assembly arranged in a way that suggests a dialogue, such as a semi-circle of chairs or a designated forum space near the altar or transept, rather than a standard unidirectional mass or liturgy?",
+          "answer": "Yes",
+          "weight": 7,
+          "explanation": "Reflects the 'dialogue' aspect of the prompt, showing a functional shift from religious ritual to communal discussion."
+        }
+      ],
+      "objects": [
+        {
+          "question": "Are there visual markers of Chilean human rights history present, such as 'arpilleras' (hand-stitched textile tapestries) or small black-and-white photographs of individuals representing the 'detenidos desaparecidos' (disappeared) placed respectfully in the space?",
+          "answer": "Yes",
+          "weight": 10,
+          "explanation": "These are the most specific and critical cultural symbols of human rights activism in the Chilean context, particularly within the church's historical role (Vicariate of Solidarity)."
+        },
+        {
+          "question": "Does the Mapuche representative wear authentic traditional attire, including a 'makuñ' (woven poncho) and a 'trarilonko' (silver or woven headband), rather than generic 'native' or North American indigenous clothing?",
+          "answer": "Yes",
+          "weight": 9,
+          "explanation": "Accurate representation of the Mapuche people is vital for a faithful depiction of Chilean interfaith and social dialogue."
+        },
+        {
+          "question": "If text is visible on banners or posters, is it written in standard Spanish (e.g., 'Derechos Humanos', 'Verdad y Justicia') with clean, legible typography, avoiding stereotypical or 'distressed' font styles?",
+          "answer": "Yes",
+          "weight": 4,
+          "explanation": "Ensures linguistic accuracy and avoids Western-centric design tropes regarding social movements."
+        }
+      ],
+      "actions": [
+        {
+          "question": "Does the movement of the participants consist of sustained, quiet interactions, such as leaning in to listen, nodding, and gesturing slowly with open palms, maintaining a consistent and respectful temporal rhythm throughout the video?",
+          "answer": "Yes",
+          "weight": 7,
+          "explanation": "Establishes the 'interfaith dialogue' through specific social kinesis and respectful pacing."
+        },
+        {
+          "question": "If a speaker is gesturing, does the hand movement originate from a seated or standing position of dignity, with the arm extending and returning to a rest position smoothly without abrupt or aggressive 'preaching' motions?",
+          "answer": "Yes",
+          "weight": 6,
+          "explanation": "Distinguishes a collaborative dialogue from a sermon or a protest, emphasizing the 'awareness' and 'dialogue' context."
+        },
+        {
+          "question": "Is there a collective temporal moment, such as a shared moment of silence or the slow, synchronized lighting of a candle, where the motion of multiple people slows down in unison to signify shared purpose?",
+          "answer": "Yes",
+          "weight": 8,
+          "explanation": "This demonstrates the 'interfaith' unity and the gravity of 'human rights' through a coordinated, non-verbal action."
+        }
+      ]
+    },
+    "object_tag": "Chilean Interfaith dialogue participants",
+    "action_tag": "Chilean Engaging in dialogue",
+    "scene_tag": "Chilean cathedral for human rights awareness"
+  },
+  "c16032d7183b8c8d253775cddb7c4714a5393345965d765fea6832d79efcc1ee_flux": {
+    "id": "c16032d7183b8c8d253775cddb7c4714a5393345965d765fea6832d79efcc1ee_flux",
+    "prompt": "Procession honoring Virgin of Carmen through streets of Santiago, Chile",
+    "country": "Chile",
+    "category": "religion",
+    "evaluation": {
+      "scene": [
+        {
+          "question": "Does the background architecture depict the urban landscape of Santiago, Chile, characterized by a mix of neoclassical stone buildings and 20th-century urban structures, rather than generic tropical or Mediterranean styles?",
+          "answer": "Yes",
+          "weight": 7,
+          "explanation": "Santiago has a specific temperate urban aesthetic that distinguishes it from other Latin American capitals; architectural accuracy prevents generic stereotyping."
+        },
+        {
+          "question": "Is the crowd composition diverse, including both laypeople in modern city attire and participants in traditional Chilean festive dress, reflecting the heterogeneous nature of Santiago's population?",
+          "answer": "Yes",
+          "weight": 5,
+          "explanation": "The Virgin of Carmen procession is a major civic-religious event attracting all social strata of the city."
+        },
+        {
+          "question": "Does the scene avoid hyper-exoticized or tropical motifs, such as palm trees or colorful colonial facades that are not characteristic of central Santiago streets like the Alameda or Plaza de Armas?",
+          "answer": "Yes",
+          "weight": 6,
+          "explanation": "Maintaining geographical specificity is key to avoiding 'latino-generic' visual biases."
+        }
+      ],
+      "objects": [
+        {
+          "question": "Is the statue of the Virgin of Carmen dressed in the traditional Carmelite brown habit with a gold-embroidered scapular and a large ornate crown, consistent with her depiction as the Patroness of Chile?",
+          "answer": "Yes",
+          "weight": 10,
+          "explanation": "The specific iconography of the 'Virgen del Carmen' is the central requirement for cultural faithfulness."
+        },
+        {
+          "question": "Are Chilean flags visible within the procession, featuring the single white five-pointed star on a blue square in the top left canton, with horizontal white and red stripes?",
+          "answer": "Yes",
+          "weight": 9,
+          "explanation": "The Virgin of Carmen is deeply tied to Chilean national identity and the Armed Forces, making the national flag a mandatory implicit object."
+        },
+        {
+          "question": "Do the 'Huasos' (Chilean horsemen) wear the traditional 'chamanto' (a short, woven, reversible poncho) and flat-topped black hats, rather than wider Mexican-style sombreros?",
+          "answer": "Yes",
+          "weight": 9,
+          "explanation": "Distinguishing the Huaso from other Latin American horsemen is critical for regional accuracy."
+        },
+        {
+          "question": "Is the 'anda' (the platform carrying the statue) decorated with fresh flowers and supported by thick wooden beams carried on the shoulders of several people?",
+          "answer": "Yes",
+          "weight": 7,
+          "explanation": "The physical structure of the procession's centerpiece must follow traditional Catholic devotional logistics."
+        }
+      ],
+      "actions": [
+        {
+          "question": "Does the movement of the platform (anda) exhibit a rhythmic, slow swaying motion as the carriers synchronize their steps, maintaining the statue's verticality throughout the frame sequence?",
+          "answer": "Yes",
+          "weight": 8,
+          "explanation": "The physical physics of a heavy, shoulder-borne platform requires a specific cadence and swaying motion across frames."
+        },
+        {
+          "question": "If Huasos are present on horseback, do the horses maintain a slow, dignified walking pace without sudden erratic movements, reflecting the solemnity of the religious event?",
+          "answer": "Yes",
+          "weight": 7,
+          "explanation": "Temporal grounding of the horse's gait ensures the scene remains a solemn procession rather than a parade or race."
+        },
+        {
+          "question": "Do members of the crowd perform the 'sign of the cross' or wave white handkerchiefs (pañuelos) in a slow, circular motion as the statue passes their position?",
+          "answer": "Yes",
+          "weight": 8,
+          "explanation": "Waving white handkerchiefs is a specific Chilean gesture of greeting and devotion during religious and national celebrations."
+        },
+        {
+          "question": "Does the procession flow continuously in a single direction down the street, with the crowd along the edges remaining relatively static or following behind in an organized manner?",
+          "answer": "Yes",
+          "weight": 6,
+          "explanation": "A procession is defined by its directional, linear progression; lack of clear directional movement breaks the logic of the action."
+        }
+      ]
+    },
+    "object_tag": "Chilean Procession",
+    "action_tag": "Chilean Honoring",
+    "scene_tag": "Virgin of Carmen through streets of Santiago, Chile"
+  },
+  "271824d011aa1ddc6e3fd1339d32c340807b04d0e5e5412299b93c23824f7e70_SD35": {
+    "id": "271824d011aa1ddc6e3fd1339d32c340807b04d0e5e5412299b93c23824f7e70_SD35",
+    "prompt": "Colorful dragon boats racing on a Chinese river",
+    "country": "China",
+    "category": "dates-of-significance",
+    "evaluation": {
+      "scene": [
+        {
+          "question": "Is the river setting characterized by visual markers of a Chinese landscape, such as stone-paved embankments, weeping willow trees along the banks, or traditional Ming-Qing style architecture with flared eaves in the background?",
+          "answer": "Yes",
+          "weight": 7,
+          "explanation": "Establishes the geographical and cultural context of the race, ensuring the environment is not a generic or Westernized riverfront."
+        },
+        {
+          "question": "Does the water surface show the turbid or silt-heavy greenish-brown tint typical of major Chinese river systems like the Yangtze or Pearl River, rather than the crystal-blue clarity of an alpine lake?",
+          "answer": "Yes",
+          "weight": 5,
+          "explanation": "Adds environmental realism specific to the regional locations where dragon boat racing typically occurs."
+        },
+        {
+          "question": "Is the atmosphere characterized by a festive, humid summer daylight consistent with the Duanwu Festival, avoiding hyper-exoticized or mystical lighting effects?",
+          "answer": "Yes",
+          "weight": 4,
+          "explanation": "Ensures the scene feels like a contemporary or historical sporting event rather than a fantasy trope."
+        }
+      ],
+      "objects": [
+        {
+          "question": "Is the boat a long, narrow wooden hull featuring a distinct, brightly painted dragon head at the prow with bulging eyes and a mane, and a matching upward-curling dragon tail at the stern?",
+          "answer": "Yes",
+          "weight": 10,
+          "explanation": "The specific anatomy of the dragon boat is the most critical cultural identifier of the prompt."
+        },
+        {
+          "question": "Does each boat contain a large, upright ceremonial drum positioned near the bow or center, with a drummer facing the paddlers?",
+          "answer": "Yes",
+          "weight": 9,
+          "explanation": "The drum is functional and symbolic, essential for the rhythm of the race and the cultural identity of the vessel."
+        },
+        {
+          "question": "Are the paddlers using single-blade T-handle paddles, held with one hand on the top grip and the other on the shaft, rather than double-bladed oars or rowlocks?",
+          "answer": "Yes",
+          "weight": 8,
+          "explanation": "Correct equipment and grip are vital to distinguishing dragon boat racing from other water sports like rowing or canoeing."
+        }
+      ],
+      "actions": [
+        {
+          "question": "Do the paddlers move in a highly synchronized temporal loop where all blades reach forward, submerge simultaneously, and pull back in a unified stroke following the drummer's rhythm?",
+          "answer": "Yes",
+          "weight": 10,
+          "explanation": "Synchronization is the defining physical characteristic of dragon boat racing; lack of sync indicates a failure of the cultural movement."
+        },
+        {
+          "question": "Does the drummer strike the drum in a consistent vertical motion that aligns temporally with the exact moment the paddlers' blades enter the water?",
+          "answer": "Yes",
+          "weight": 9,
+          "explanation": "Checks the causal relationship between the drum beat and the athletic action, which is central to the sport's physics."
+        },
+        {
+          "question": "Does the boat's progression show a surge-and-glide physical pattern, where the vessel visibly accelerates forward during the power phase of the stroke and creates a rhythmic V-shaped wake?",
+          "answer": "Yes",
+          "weight": 6,
+          "explanation": "Ensures the physics of the water displacement match the intensity and timing of the human movement."
+        }
+      ]
+    },
+    "object_tag": "Chinese Colorful dragon boats",
+    "action_tag": "Chinese Racing",
+    "scene_tag": "Chinese river"
+  },
+  "cea10c1eb66971f7a2a98b4926e4500d0df9d24cf6a7464203fd930386107098_flux": {
+    "id": "cea10c1eb66971f7a2a98b4926e4500d0df9d24cf6a7464203fd930386107098_flux",
+    "prompt": "Chrysanthemum flower arrangements at Chongyang Festival gathering",
+    "country": "China",
+    "category": "dates-of-significance",
+    "evaluation": {
+      "scene": [
+        {
+          "question": "Does the setting feature traditional Chinese architectural elements such as grey-tiled roofs, wooden lattice windows, or stone-paved courtyards consistent with a formal gathering space?",
+          "answer": "Yes",
+          "weight": 8,
+          "explanation": "Traditional architecture establishes the cultural time and place of the Double Ninth Festival."
+        },
+        {
+          "question": "Is the environment depicted with clear autumnal cues, including golden-yellow foliage, warm late-afternoon sunlight, and a lack of spring-specific blossoms like cherry blossoms?",
+          "answer": "Yes",
+          "weight": 7,
+          "explanation": "The Chongyang Festival is intrinsically linked to the peak of autumn and the ninth lunar month."
+        },
+        {
+          "question": "Does the gathering avoid Western-centric celebratory tropes, such as colorful latex balloons, streamers, or tiered western-style cakes, in favor of traditional festive decor?",
+          "answer": "Yes",
+          "weight": 6,
+          "explanation": "Maintaining cultural integrity requires avoiding anachronistic or cross-cultural party decorations."
+        }
+      ],
+      "objects": [
+        {
+          "question": "Are the chrysanthemums depicted as diverse, high-quality varieties such as spider chrysanthemums with long, curling tubular petals or large globular pom-pon varieties?",
+          "answer": "Yes",
+          "weight": 9,
+          "explanation": "The chrysanthemum is the central symbol of this festival; its specific botanical variety signifies cultural attention to detail."
+        },
+        {
+          "question": "Are the flower vessels traditional Chinese ceramics, such as blue-and-white porcelain, celadon vases, or earthy stoneware with narrow necks?",
+          "answer": "Yes",
+          "weight": 7,
+          "explanation": "Vessel choice reflects the aesthetic standards of traditional Chinese floral arrangement (Huaniao)."
+        },
+        {
+          "question": "If food is present, does it include 'Chongyang cake,' characterized by a layered, steamed structure topped with jujubes, chestnuts, or small colorful flags?",
+          "answer": "Yes",
+          "weight": 8,
+          "explanation": "Chongyang cake is a specific ritual food mandatory for the authenticity of this festival's gathering."
+        },
+        {
+          "question": "If wine is served, is it 'Chrysanthemum Wine,' appearing as a clear or pale yellow liquid served in small, shallow ceramic or jade-like cups?",
+          "answer": "Yes",
+          "weight": 7,
+          "explanation": "Drinking chrysanthemum wine is a core ritual for longevity during this specific festival."
+        }
+      ],
+      "actions": [
+        {
+          "question": "Does the act of placing a flower into a vase involve the person holding the stem with both hands or supporting the bloom, followed by a slow, deliberate insertion and a pause to adjust its angle?",
+          "answer": "Yes",
+          "weight": 8,
+          "explanation": "Traditional flower arrangement is a meditative process, not a rushed or casual movement."
+        },
+        {
+          "question": "When people interact or toast, do they hold their cups with two hands or use one hand to support the base of the cup while the other holds the body?",
+          "answer": "Yes",
+          "weight": 9,
+          "explanation": "The two-handed grasp is a critical sign of respect in formal Chinese social gatherings and festivals."
+        },
+        {
+          "question": "Does the camera movement remain steady and fluid, emulating a respectful observer rather than using aggressive, fast-paced pans or handheld jitters?",
+          "answer": "Yes",
+          "weight": 5,
+          "explanation": "The tone of Chongyang is typically one of reverence, peace, and 'climbing high' for longevity, which is best reflected in stable cinematography."
+        }
+      ]
+    },
+    "object_tag": "Chinese Chrysanthemum flower arrangements",
+    "action_tag": "Chinese Displayed",
+    "scene_tag": "Chinese Chongyang Festival gathering"
+  },
+  "1f9a68feea245f3d3ad953df0f0e70e13ca0c97492e00128c9422cb8510cc9f7_SD35": {
+    "id": "1f9a68feea245f3d3ad953df0f0e70e13ca0c97492e00128c9422cb8510cc9f7_SD35",
+    "prompt": "Chinese birthday celebration with elaborately wrapped gifts on display",
+    "country": "China",
+    "category": "etiquette",
+    "evaluation": {
+      "scene": [
+        {
+          "question": "Is the celebratory space predominantly decorated in vibrant reds and golds, specifically including red lanterns or square red papers with gold calligraphy (Dui Lian) that signify auspiciousness, while avoiding the use of white or black as primary decorative colors?",
+          "answer": "Yes",
+          "weight": 9,
+          "explanation": "Red and gold are the primary colors for celebration in Chinese culture, while white and black are traditionally associated with mourning."
+        },
+        {
+          "question": "Does the background environment reflect a contemporary or traditional Chinese interior, such as including round dining tables, wooden furniture with lattice patterns, or silk-screen partitions, rather than a generic Western-style living room?",
+          "answer": "Yes",
+          "weight": 6,
+          "explanation": "Contextual furniture and architecture ground the scene in its specific cultural setting."
+        },
+        {
+          "question": "Is the lighting warm and bright throughout the scene, consistent with a festive indoor gathering, and does it highlight the reflective surfaces of the gold decorations without creating somber shadows?",
+          "answer": "Yes",
+          "weight": 4,
+          "explanation": "A festive 'Re Nao' (lively and noisy) atmosphere requires bright, inviting lighting rather than moody or dim cinematic lighting."
+        }
+      ],
+      "objects": [
+        {
+          "question": "Are the gifts wrapped in paper that is primarily red, gold, or bright yellow, featuring smooth surfaces or auspicious patterns like peonies, dragons, or 'Shou' (longevity) characters?",
+          "answer": "Yes",
+          "weight": 10,
+          "explanation": "The color and patterning of gift wrapping are critical; white, blue, or black wrapping would be a major cultural faux pas."
+        },
+        {
+          "question": "Are the gifts arranged in a tidy, deliberate display on a table or altar-like surface, often stacked in a way that shows the volume of gifts without appearing cluttered or disorganized?",
+          "answer": "Yes",
+          "weight": 7,
+          "explanation": "Presentation and 'face' are important in gift-giving; a neat display reflects respect for the guests and the host."
+        },
+        {
+          "question": "Do the gift decorations avoid '4' items in a cluster (e.g., exactly four ribbons or four stacked boxes) and instead favor even numbers like 2, 6, or 8, or the use of longevity peaches (Shou Tao) as decorative motifs?",
+          "answer": "Yes",
+          "weight": 8,
+          "explanation": "The number 4 is a homophone for 'death' and is strictly avoided in birthday contexts, whereas peaches symbolize long life."
+        }
+      ],
+      "actions": [
+        {
+          "question": "When a person is shown interacting with a gift, do they use both hands to hold, offer, or receive the item, maintaining a slight bow of the head throughout the duration of the hand-off?",
+          "answer": "Yes",
+          "weight": 10,
+          "explanation": "Using two hands is a fundamental sign of respect in Chinese etiquette during gift exchange."
+        },
+        {
+          "question": "Does the action of placing a gift on the display involve a slow, controlled descent where the hands remain in contact with the gift until it is fully stable on the surface?",
+          "answer": "Yes",
+          "weight": 7,
+          "explanation": "Deliberate movement signifies the value of the gift and the relationship, as opposed to casual or hurried placement."
+        },
+        {
+          "question": "If people are gathered around the gifts, are they engaging in 're nao' behavior, characterized by animated conversation, pointing at the gifts with open palms rather than single fingers, and smiling gestures?",
+          "answer": "Yes",
+          "weight": 5,
+          "explanation": "Cultural gestures like using an open palm for pointing and maintaining a lively social energy are key to the authenticity of a Chinese celebration."
+        }
+      ]
+    },
+    "object_tag": "Chinese people",
+    "action_tag": "Chinese Celebrating",
+    "scene_tag": "Chinese birthday celebration with elaborately wrapped gifts on display"
+  },
+  "2a60afd0ae88f2c22d20f57402ac732cd5de8fbd753c752b8754ef230ca117b6_imagegen3": {
+    "id": "2a60afd0ae88f2c22d20f57402ac732cd5de8fbd753c752b8754ef230ca117b6_imagegen3",
+    "prompt": "Guests presenting fruit basket at traditional Chinese wedding",
+    "country": "China",
+    "category": "etiquette",
+    "evaluation": {
+      "scene": [
+        {
+          "question": "Is the wedding environment dominated by a vibrant palette of deep reds and gold accents, including the presence of the 'Double Happiness' (Shuangxi) character displayed as a symmetrical red cutout on the background wall or furniture?",
+          "answer": "Yes",
+          "weight": 9,
+          "explanation": "The color red and the Double Happiness symbol are the most critical visual markers of a traditional Chinese wedding, symbolizing luck and joy."
+        },
+        {
+          "question": "Does the indoor setting feature traditional architectural elements such as dark wood lattice screens (window frames or room dividers) rather than a generic modern Western banquet hall?",
+          "answer": "Yes",
+          "weight": 6,
+          "explanation": "Contextual authenticity is enhanced by traditional woodwork which distinguishes the setting from a globalized event space."
+        },
+        {
+          "question": "Are there red lanterns or floral arrangements featuring red peonies or lilies positioned in the background to provide a culturally specific festive atmosphere?",
+          "answer": "Yes",
+          "weight": 5,
+          "explanation": "These secondary decor elements reinforce the specific aesthetic of a Chinese celebration without relying on exoticized stereotypes."
+        }
+      ],
+      "objects": [
+        {
+          "question": "Does the fruit basket contain specific auspicious fruits such as round oranges (representing wealth) or pomelos, and are the fruits free of bruising or imperfections?",
+          "answer": "Yes",
+          "weight": 8,
+          "explanation": "Specific fruits are chosen in Chinese culture for their homophonic associations with luck and prosperity; oranges are mandatory for 'gold'."
+        },
+        {
+          "question": "Is the fruit basket itself made of natural woven materials like bamboo or wicker, and is it decorated with a red silk ribbon or a red 'Fu' (blessing) sticker?",
+          "answer": "Yes",
+          "weight": 7,
+          "explanation": "The physical construction and the addition of red decorations on the gift are necessary to transform a generic object into a ceremonial gift."
+        },
+        {
+          "question": "Are the guests wearing formal attire that avoids solid black or solid white—colors associated with funerals—opting instead for bright colors or traditional garments like the Qipao or Tang suit with mandarin collars?",
+          "answer": "Yes",
+          "weight": 10,
+          "explanation": "In Chinese tradition, wearing white or black to a wedding is a major cultural faux pas; avoiding this is critical for faithfulness."
+        }
+      ],
+      "actions": [
+        {
+          "question": "Does the guest initiate the presentation by holding the basket with both hands at the base or handles, extending it forward as a sign of respect?",
+          "answer": "Yes",
+          "weight": 10,
+          "explanation": "Using two hands to give or receive items is a fundamental gesture of respect in Chinese etiquette, especially during formal ceremonies."
+        },
+        {
+          "question": "As the basket is offered, does the guest perform a slight forward bow of the torso and head that remains held until the recipient's hands make contact with the basket?",
+          "answer": "Yes",
+          "weight": 8,
+          "explanation": "The temporal overlap of the bow and the hand-off captures the social hierarchy and etiquette required in a traditional wedding interaction."
+        },
+        {
+          "question": "Does the recipient of the basket also use both hands to accept the gift, with the entire exchange occurring at a slow, deliberate pace rather than a hurried or casual hand-off?",
+          "answer": "Yes",
+          "weight": 7,
+          "explanation": "The speed and gravity of the movement reflect the importance of the ritual exchange and the relationship between the guests and the hosts."
+        }
+      ]
+    },
+    "object_tag": "Chinese Guests",
+    "action_tag": "Chinese Presenting fruit basket",
+    "scene_tag": "Traditional Chinese wedding"
+  },
+  "bac511fe349e7eda564e966b43845b98e31daff21872d202efc49f9fecc6735a_gpt-image": {
+    "id": "bac511fe349e7eda564e966b43845b98e31daff21872d202efc49f9fecc6735a_gpt-image",
+    "prompt": "Chinese couple receiving parental blessings in traditional attire",
+    "country": "China",
+    "category": "family",
+    "evaluation": {
+      "scene": [
+        {
+          "question": "Is the indoor setting decorated with auspicious red elements, such as the 'Double Happiness' (Shuangxi) character or red silk scrolls, maintaining a traditional family-oriented aesthetic rather than a generic or exoticized backdrop?",
+          "answer": "Yes",
+          "weight": 8,
+          "explanation": "Visual markers like the 'Double Happiness' symbol and red decor are critical identifiers for a traditional blessing or wedding scene."
+        },
+        {
+          "question": "Does the arrangement of furniture place the parents in central, elevated, or primary seating (such as armchairs) with the couple positioned in front of them to establish a clear generational hierarchy?",
+          "answer": "Yes",
+          "weight": 7,
+          "explanation": "Spatial hierarchy is a cornerstone of Chinese filial piety and ritual propriety."
+        },
+        {
+          "question": "Is the lighting warm and diffused, avoiding harsh shadows or neon colors that would detract from the solemn and celebratory nature of a domestic ritual?",
+          "answer": "Yes",
+          "weight": 4,
+          "explanation": "Appropriate lighting ensures the tone remains respectful and culturally aligned with a traditional ceremony."
+        }
+      ],
+      "objects": [
+        {
+          "question": "Is the couple's attire wrapped left-over-right (Yingxin) with mandarin collars and frog button closures, avoiding the right-over-left wrapping associated with funeral rites?",
+          "answer": "Yes",
+          "weight": 10,
+          "explanation": "The direction of the lapel (left-over-right) is an absolute cultural boundary in Chinese dress; the opposite is reserved for the deceased."
+        },
+        {
+          "question": "Are the tea cups used for the blessing small, handleless porcelain vessels, often resting on a saucer or presented on a flat wooden or lacquered tray?",
+          "answer": "Yes",
+          "weight": 9,
+          "explanation": "Specific tea apparatus is essential for the 'Tea Ceremony' which is the standard medium for receiving parental blessings."
+        },
+        {
+          "question": "Are the red envelopes (Hongbao) held by the parents rectangular, vibrant red, and decorated with gold calligraphy or patterns signifying luck and prosperity?",
+          "answer": "Yes",
+          "weight": 8,
+          "explanation": "Hongbao are the primary physical representation of a parental blessing and must be visually accurate in color and shape."
+        }
+      ],
+      "actions": [
+        {
+          "question": "Does the couple offer the tea by holding the cup or tray with both hands, extending their arms forward while keeping their heads slightly bowed throughout the exchange?",
+          "answer": "Yes",
+          "weight": 9,
+          "explanation": "Using two hands to offer items is a mandatory sign of respect in Chinese culture; one-handed offering would be considered rude."
+        },
+        {
+          "question": "Does the sequence of the blessing involve the couple kneeling on cushions (Kowtow) or bowing deeply before the parents, with the movement appearing slow, deliberate, and fluid?",
+          "answer": "Yes",
+          "weight": 9,
+          "explanation": "The physical act of kneeling or deep bowing signifies the receipt of a blessing and must be temporally stable to show respect."
+        },
+        {
+          "question": "Does the parent receive the tea cup with both hands, take a measured sip, and then place the cup back before reaching for and presenting a red envelope in a continuous motion?",
+          "answer": "Yes",
+          "weight": 8,
+          "explanation": "This specific sequence of receiving, consuming, and then gifting follows the temporal logic of the blessing ritual."
+        },
+        {
+          "question": "Do the parents perform a secondary gesture of blessing, such as placing a hand on the couple's shoulder or hands, with the contact appearing gentle and lasting for several frames to signify a physical transfer of approval?",
+          "answer": "Yes",
+          "weight": 6,
+          "explanation": "Physical touch from the elder to the younger reinforces the emotional and cultural weight of the 'blessing' action."
+        }
+      ]
+    },
+    "object_tag": "Chinese couple",
+    "action_tag": "Chinese Receiving parental blessings",
+    "scene_tag": "Chinese In traditional attire"
+  },
+  "615502522988d13e8a19d32224ef5346fa2bb44be8c63f6242ca38ced6e15eaf_gpt-image": {
+    "id": "615502522988d13e8a19d32224ef5346fa2bb44be8c63f6242ca38ced6e15eaf_gpt-image",
+    "prompt": "Chinese couple signing marriage contract at local government office",
+    "country": "China",
+    "category": "family",
+    "evaluation": {
+      "scene": [
+        {
+          "question": "Is the background dominated by a formal, functional office setting characteristic of a Chinese Civil Affairs Bureau (Minzhengju), including a prominent national emblem of the People's Republic of China featuring the Gate of Heavenly Peace and five stars on the wall?",
+          "answer": "Yes",
+          "weight": 9,
+          "explanation": "The national emblem and the specific bureaucratic setting are essential to distinguish a legal registration from a purely ceremonial event."
+        },
+        {
+          "question": "Is there a dedicated area or booth within the scene featuring a solid, bright red backdrop used for the standardized marriage certificate photographs?",
+          "answer": "Yes",
+          "weight": 7,
+          "explanation": "Official Chinese marriage photos are strictly required to have a red background, making this a key visual marker of the local government office."
+        },
+        {
+          "question": "Does the office environment avoid religious iconography and instead feature secular, administrative elements like official signage in simplified Chinese characters and functional desks?",
+          "answer": "Yes",
+          "weight": 8,
+          "explanation": "Marriage registration in China is a strictly secular administrative process; religious symbols would be culturally and legally inaccurate for a government office."
+        }
+      ],
+      "objects": [
+        {
+          "question": "Are the marriage certificates depicted as small, rectangular red booklets with gold-embossed text and the national emblem on the front cover?",
+          "answer": "Yes",
+          "weight": 10,
+          "explanation": "The 'Jiehun Zheng' (Marriage Certificate) is a specific red booklet; its appearance is the primary evidence of the contract being signed."
+        },
+        {
+          "question": "Is there a red ink pad (yinnitai) present on the desk, used for the traditional and legal requirement of fingerprinting the documents?",
+          "answer": "Yes",
+          "weight": 8,
+          "explanation": "Fingerprinting with red ink alongside a signature is a standard legal practice in China that adds significant cultural authenticity to the scene."
+        },
+        {
+          "question": "Are the couple's identity cards, specifically the Second-Generation Resident Identity Cards with a light blue patterned background, visible on the desk during the signing?",
+          "answer": "Yes",
+          "weight": 5,
+          "explanation": "These specific ID cards are the mandatory identification required for the registration process."
+        }
+      ],
+      "actions": [
+        {
+          "question": "Does the motion capture the sequence of a person pressing their right thumb onto a red ink pad and then carefully pressing the inked thumb onto the white paper next to their signature?",
+          "answer": "Yes",
+          "weight": 9,
+          "explanation": "The temporal sequence of thumb-to-ink-to-paper is a distinct and mandatory part of the legal signing process in this context."
+        },
+        {
+          "question": "Does the official hand the finalized red marriage booklets to the couple using both hands in a synchronized motion, indicating formal respect?",
+          "answer": "Yes",
+          "weight": 6,
+          "explanation": "Handing over important items with two hands is a fundamental cultural etiquette in Chinese formal and administrative interactions."
+        },
+        {
+          "question": "Does the couple sign the documents in a focused, sequential manner using black ink pens, followed by a brief moment of mutual acknowledgement or looking at the camera for the official photo?",
+          "answer": "Yes",
+          "weight": 7,
+          "explanation": "This captures the progression from the administrative task to the celebratory confirmation typical of the registration visit."
+        }
+      ]
+    },
+    "object_tag": "Chinese couple",
+    "action_tag": "Chinese Signing marriage contract",
+    "scene_tag": "Chinese Local government office"
+  },
+  "c47108852c694536bd306b6ad0d62c7002c86fa16225adc8308cd0a6845a37be_imagegen3": {
+    "id": "c47108852c694536bd306b6ad0d62c7002c86fa16225adc8308cd0a6845a37be_imagegen3",
+    "prompt": "German colleagues shaking hands at Oktoberfest",
+    "country": "Germany",
+    "category": "greetings",
+    "evaluation": {
+      "scene": [
+        {
+          "question": "Is the setting a large festival tent (Bierzelt) featuring high, vaulted ceilings with suspended fabric swags and a background of long, heavy wooden 'Bierbänke' (benches) and 'Biertische' (tables) arranged in dense parallel rows?",
+          "answer": "Yes",
+          "weight": 8,
+          "explanation": "Essential setting for Oktoberfest; the specific furniture and scale define the location."
+        },
+        {
+          "question": "Are the decorative elements consistent with Bavarian tradition, specifically utilizing the 'Rautenmuster' (a blue and white lozenge/checkered pattern) on banners or tablecloths rather than generic or non-German festive decorations?",
+          "answer": "Yes",
+          "weight": 6,
+          "explanation": "Ensures regional specificity to Munich/Bavaria rather than a generic beer festival."
+        },
+        {
+          "question": "Is the lighting bright and warm, characteristic of daylight filtering through a semi-translucent tent canvas, avoiding overly dark or club-like artificial lighting?",
+          "answer": "Yes",
+          "weight": 4,
+          "explanation": "Authentic atmosphere of a daytime festival tent."
+        }
+      ],
+      "objects": [
+        {
+          "question": "Are the glass mugs 'Maßkrüge', characterized as heavy 1-liter vessels with a dimpled exterior texture and a thick handle, containing golden beer topped with a dense white foam head?",
+          "answer": "Yes",
+          "weight": 9,
+          "explanation": "The 'Maß' is the iconic object of Oktoberfest; improper glassware is a major cultural inaccuracy."
+        },
+        {
+          "question": "If the colleagues are wearing 'Tracht', do the garments include 'Lederhosen' with 'H-Träger' (H-shaped suspenders) for men or 'Dirndl' featuring a bodice, white blouse, and a waist-tied apron for women, without looking like cheap costume replicas?",
+          "answer": "Yes",
+          "weight": 8,
+          "explanation": "Traditional attire is common at the festival, but must be visually accurate to avoid the 'costume' look."
+        },
+        {
+          "question": "Is the beer's foam head (Schaumkrone) visually stable throughout the duration of the shot, maintaining a height of roughly two finger-widths without instantly dissolving?",
+          "answer": "Yes",
+          "weight": 3,
+          "explanation": "Indicates high-quality German beer and visual fidelity."
+        }
+      ],
+      "actions": [
+        {
+          "question": "Does the handshake begin with a deliberate reach and a firm, single-handed grip, where the participants make direct and sustained eye contact as their palms meet?",
+          "answer": "Yes",
+          "weight": 9,
+          "explanation": "In German culture, eye contact during a handshake is a critical sign of respect and professionalism."
+        },
+        {
+          "question": "Does the handshake involve a controlled, rhythmic vertical movement (up and down) that persists for approximately one second before a clean and prompt release of the hands?",
+          "answer": "Yes",
+          "weight": 7,
+          "explanation": "Ensures the temporal physics of the handshake are realistic and not overly limp or excessively long."
+        },
+        {
+          "question": "Do the colleagues maintain a professional physical distance of approximately an arm's length during the shake, avoiding excessive body contact like back-slapping or shoulder-grabbing?",
+          "answer": "Yes",
+          "weight": 5,
+          "explanation": "Maintains the 'colleague' dynamic within German social norms, which value professional personal space."
+        }
+      ]
+    },
+    "object_tag": "German colleagues",
+    "action_tag": "German Shaking hands",
+    "scene_tag": "German Oktoberfest"
+  },
+  "2a49673b911ca288eba70033b0c198620e46487d8fc5106a3e0e2e6d3c8527b2_flux": {
+    "id": "2a49673b911ca288eba70033b0c198620e46487d8fc5106a3e0e2e6d3c8527b2_flux",
+    "prompt": "German business meeting, people shaking hands, using titles Herr and Frau.",
+    "country": "Germany",
+    "category": "greetings",
+    "evaluation": {
+      "scene": [
+        {
+          "question": "Is the meeting environment a formal professional setting characterized by a structured layout, such as a conference table with neutral-toned chairs, and a clean, minimalist aesthetic devoid of excessive clutter or overly casual decor?",
+          "answer": "Yes",
+          "weight": 7,
+          "explanation": "German business culture typically favors a sober, organized, and functional professional environment."
+        },
+        {
+          "question": "Do the participants maintain a respectful physical distance from one another, roughly an arm's length apart, during both standing and seated interactions, reflecting German norms of professional personal space?",
+          "answer": "Yes",
+          "weight": 6,
+          "explanation": "Maintaining personal space is a hallmark of German professional etiquette to show respect and maintain boundaries."
+        }
+      ],
+      "objects": [
+        {
+          "question": "Are the participants dressed in 'Business Formal' or 'Business Casual' attire, specifically featuring structured suits, blazers, or button-down shirts for men, and tailored blazers or professional blouses for women, avoiding casual elements like t-shirts or hoodies?",
+          "answer": "Yes",
+          "weight": 9,
+          "explanation": "Formal attire is a critical explicit indicator of the professional status required by the prompt's context."
+        },
+        {
+          "question": "If visible, are the beverages on the table presented in individual glass bottles (often mineral water) and poured into clean glasses, rather than drinking directly from plastic bottles or using disposable paper cups?",
+          "answer": "Yes",
+          "weight": 4,
+          "explanation": "Standard German office hospitality often involves bottled water (sparkling or still) and glassware as a sign of professional preparation."
+        },
+        {
+          "question": "Are the participants' accessories professional and understated, such as analog or smartwatches, leather-bound notebooks, or tablets, avoiding flashy or distracting jewelry?",
+          "answer": "Yes",
+          "weight": 5,
+          "explanation": "Subtlety in accessories aligns with the German business value of 'Sachlichkeit' (objectivity and focus on the task)."
+        }
+      ],
+      "actions": [
+        {
+          "question": "Does the handshake consist of a single, firm grip with a brief, controlled up-and-down movement lasting approximately 1-2 seconds, followed by an immediate release?",
+          "answer": "Yes",
+          "weight": 10,
+          "explanation": "A firm, brief handshake is the standard greeting in German business; a limp or overly long handshake is culturally inaccurate."
+        },
+        {
+          "question": "During the handshake, do the participants maintain direct, steady eye contact from the moment of physical contact until the hands are released?",
+          "answer": "Yes",
+          "weight": 9,
+          "explanation": "Direct eye contact during a greeting is essential in Germany to signify honesty, confidence, and respect."
+        },
+        {
+          "question": "When addressing one another, is there visual or audible evidence that the participants use 'Herr' or 'Frau' followed by a surname, with mouth movements and body language indicating a formal tone rather than casual first-name usage?",
+          "answer": "Yes",
+          "weight": 10,
+          "explanation": "The prompt explicitly requires the use of formal titles, which is a core pillar of German professional hierarchy and distance ('Sie-Form')."
+        },
+        {
+          "question": "If a participant was previously seated, do they stand up fully to a vertical position before initiating or receiving the handshake?",
+          "answer": "Yes",
+          "weight": 8,
+          "explanation": "Standing to greet someone is a mandatory sign of respect in formal German business settings."
+        }
+      ]
+    },
+    "object_tag": "German People",
+    "action_tag": "German Shaking hands",
+    "scene_tag": "German business meeting"
+  },
+  "1961c259e054ded557bc10a1dc2e9c05da2ee610d74e8abd9bfc49eac3e65401_gpt-image": {
+    "id": "1961c259e054ded557bc10a1dc2e9c05da2ee610d74e8abd9bfc49eac3e65401_gpt-image",
+    "prompt": "Indian woman leading a corporate meeting, colleagues listening",
+    "country": "India",
+    "category": "family",
+    "evaluation": {
+      "scene": [
+        {
+          "question": "Is the corporate setting depicted as a contemporary, professional office environment with neutral-colored walls and ergonomic furniture, avoiding hyper-exoticized Indian motifs or unnecessary religious iconography?",
+          "answer": "Yes",
+          "weight": 8,
+          "explanation": "Authentic Indian corporate environments in Tier-1 cities are globally standardized and modern; avoiding stereotypes is critical for faithfulness."
+        },
+        {
+          "question": "Does the lighting in the room remain consistent with indoor office environments, featuring a blend of diffuse overhead LED panels and natural light through glass partitions?",
+          "answer": "Yes",
+          "weight": 5,
+          "explanation": "Ensures the visual atmosphere aligns with a professional work setting rather than a cinematic or overly dramatic stage."
+        },
+        {
+          "question": "Is the diversity of the colleagues represented such that they appear as a mix of Indian professionals with varied skin tones and ages, rather than a monolithic or Western-only group?",
+          "answer": "Yes",
+          "weight": 7,
+          "explanation": "Reflects the actual demographics of a high-level corporate meeting in an Indian metropolitan context."
+        }
+      ],
+      "objects": [
+        {
+          "question": "If the woman is wearing a Saree, is it draped in a professional Nivi style with the pallu (the loose end of the cloth) neatly pleated and pinned to the left shoulder?",
+          "answer": "Yes",
+          "weight": 10,
+          "explanation": "Correct draping is a fundamental indicator of cultural accuracy and professional context for Indian formal wear."
+        },
+        {
+          "question": "If the woman wears a Bindi, is it a small, understated circular mark positioned precisely between the eyebrows, consistent with modern corporate grooming?",
+          "answer": "Yes",
+          "weight": 6,
+          "explanation": "A Bindi is common in professional settings but must be subtle to remain consistent with a corporate leadership role."
+        },
+        {
+          "question": "Are the laptops, tablets, and digital displays in the scene thin-bezeled and powered on, showing graphs or text that remain stable and do not morph across frames?",
+          "answer": "Yes",
+          "weight": 4,
+          "explanation": "The technical tools must be high-fidelity and consistent to maintain the 'corporate' aspect of the prompt."
+        }
+      ],
+      "actions": [
+        {
+          "question": "Does the lead woman's speaking motion involve fluid, open-palmed hand gestures that originate from the elbows and synchronize with the visible rhythm of her speech across the clip?",
+          "answer": "Yes",
+          "weight": 9,
+          "explanation": "Temporal synchronization of speech and gesture is key to portraying a confident and authoritative leader."
+        },
+        {
+          "question": "When a colleague nods in agreement, does the movement follow a natural physical arc—starting with a slight downward dip, followed by a soft rebound, and settling back to a neutral position over 1-2 seconds?",
+          "answer": "Yes",
+          "weight": 7,
+          "explanation": "Evaluates the physics and temporal realism of the 'listening' colleagues to ensure they don't appear as static backgrounds."
+        },
+        {
+          "question": "Does the woman maintain consistent eye contact by scanning the room, with her head moving in a slow, continuous horizontal path that pauses momentarily as she addresses specific colleagues?",
+          "answer": "Yes",
+          "weight": 8,
+          "explanation": "Leadership is visually communicated through controlled, intentional movements and temporal focus on the audience."
+        }
+      ]
+    },
+    "object_tag": "Indian woman and colleagues",
+    "action_tag": "Indian Leading and listening",
+    "scene_tag": "Indian Corporate meeting"
+  },
+  "28ac43d13f00a9a0a7f9d66f45d784e9462883deca05b95497992ebb2fa9d49d_gpt-image": {
+    "id": "28ac43d13f00a9a0a7f9d66f45d784e9462883deca05b95497992ebb2fa9d49d_gpt-image",
+    "prompt": "Indian women preparing meal, men discussing, traditional setting",
+    "country": "India",
+    "category": "family",
+    "evaluation": {
+      "scene": [
+        {
+          "question": "Is the traditional setting depicted as an 'Angan' (central open courtyard) or a semi-open veranda with earthen-plastered walls and stone flooring, rather than a generic modern kitchen or a hyper-ornate palace?",
+          "answer": "Yes",
+          "weight": 7,
+          "explanation": "Authentic traditional Indian homes, especially in rural or semi-urban contexts, revolve around open-air communal spaces for cooking and socializing."
+        },
+        {
+          "question": "Is the lighting consistent with a sub-tropical environment, featuring bright, high-contrast natural sunlight in the courtyard transitioning to soft, warm shadows in the shaded areas where the men are seated?",
+          "answer": "Yes",
+          "weight": 4,
+          "explanation": "Lighting provides environmental realism and reinforces the geographic context of the scene."
+        },
+        {
+          "question": "Does the spatial layout maintain a culturally accurate social distance between the women's cooking area and the men's discussion area, showing them as distinct functional zones within the same visual frame?",
+          "answer": "Yes",
+          "weight": 6,
+          "explanation": "Traditional households often have gender-specific spatial usage during formal activities like meal preparation and communal discussion."
+        }
+      ],
+      "objects": [
+        {
+          "question": "Are the women wearing traditional attire such as sarees with the 'pallu' (decorative end) draped over the shoulder or head, or Salwar Kameez with a 'dupatta' (scarf) draped modestly, avoiding Westernized interpretations of ethnic wear?",
+          "answer": "Yes",
+          "weight": 10,
+          "explanation": "Correct attire is the most visible marker of cultural identity and traditional adherence."
+        },
+        {
+          "question": "Is the cooking equipment culturally specific, featuring items like a 'Chulha' (u-shaped clay stove), 'Belan' (slender wooden rolling pin), and 'Chakla' (circular rolling board) rather than modern Western appliances?",
+          "answer": "Yes",
+          "weight": 9,
+          "explanation": "Traditional meal preparation relies on specific tactile tools that define the visual 'Indian-ness' of the kitchen."
+        },
+        {
+          "question": "Are the men seated on a 'Charpai' (a traditional bed made of woven ropes on a wooden frame) or 'Modhas' (low stools made of bamboo and reed) while they discuss?",
+          "answer": "Yes",
+          "weight": 8,
+          "explanation": "The furniture used for social gatherings in traditional settings is a critical cultural signifier."
+        },
+        {
+          "question": "Are the kitchen vessels made of stainless steel, brass, or copper, including 'Thalis' (large round plates) and 'Katoris' (small bowls) arranged in a neat stack or spread?",
+          "answer": "Yes",
+          "weight": 5,
+          "explanation": "Materiality of domestic objects adds a layer of high-fidelity cultural realism."
+        }
+      ],
+      "actions": [
+        {
+          "question": "Does the woman rolling the 'Roti' (flatbread) use a rhythmic circular motion with the rolling pin, causing the dough to rotate and expand into a symmetrical circle over several seconds?",
+          "answer": "Yes",
+          "weight": 9,
+          "explanation": "The physics and sequence of making flatbread are unique and highly specific to Indian culinary culture."
+        },
+        {
+          "question": "When the men are discussing, do they exhibit culturally specific body language, such as the 'Indian head nod' (a lateral tilt) and expressive hand gestures with open palms, while maintaining a relaxed, cross-legged seated posture?",
+          "answer": "Yes",
+          "weight": 7,
+          "explanation": "Gestural vocabulary is a subtle but deep-rooted aspect of cultural faithfulness in human interaction."
+        },
+        {
+          "question": "Does the action of adding spices involve a specific temporal sequence where a pinch or spoonful is taken from a 'Masala Dabba' (spice box), hovered briefly over the pot, and then sprinkled in, followed by a slow stirring motion?",
+          "answer": "Yes",
+          "weight": 8,
+          "explanation": "The sequence of spice addition is a foundational ritual in Indian cooking that differentiates it from other cuisines."
+        },
+        {
+          "question": "Do the characters interact with their environment naturally—for example, a man adjusting his 'Kurta' (tunic) while shifting weight on the charpai, or a woman tucking her saree at the waist before lifting a heavy vessel?",
+          "answer": "Yes",
+          "weight": 4,
+          "explanation": "Secondary micro-actions grounding the characters in their clothing and environment prevent the scene from looking like a static tableau."
+        }
+      ]
+    },
+    "object_tag": "Indian women, men",
+    "action_tag": "Indian Preparing meal, discussing",
+    "scene_tag": "Indian Traditional setting"
+  },
+  "064195ff70448e70f5aa26a36e891e58c85146fd10043e71df8604a24dc87e11_gpt-image": {
+    "id": "064195ff70448e70f5aa26a36e891e58c85146fd10043e71df8604a24dc87e11_gpt-image",
+    "prompt": "Indian festival, people exchanging greetings with joyful expressions",
+    "country": "India",
+    "category": "greetings",
+    "evaluation": {
+      "scene": [
+        {
+          "question": "Does the background environment feature culturally specific festive decorations like vibrant orange and yellow marigold garlands or small earthen oil lamps (diyas) placed along walkways or ledges, rather than generic Western party decor?",
+          "answer": "Yes",
+          "weight": 8,
+          "explanation": "Indian festivals are visually defined by specific flora and light sources; generic decor would break cultural immersion."
+        },
+        {
+          "question": "Is the lighting consistent with a celebratory atmosphere, utilizing warm, golden tones that suggest either evening lamp-light or bright, celebratory daytime sunlight throughout the duration of the clip?",
+          "answer": "Yes",
+          "weight": 5,
+          "explanation": "Lighting sets the emotional tone for joy and festivity in an Indian cultural context."
+        }
+      ],
+      "objects": [
+        {
+          "question": "Are the female characters wearing traditional attire such as saris, characterized by a long unstitched fabric draped over a blouse, or salwar kameez, consisting of a tunic and trousers, with visible embroidery or traditional patterns?",
+          "answer": "Yes",
+          "weight": 9,
+          "explanation": "Traditional clothing is a primary identifier of Indian cultural participation during festivals."
+        },
+        {
+          "question": "Are the male characters dressed in kurtas, featuring long tunics that reach the knees with side slits, rather than standard Western suits or casual t-shirts?",
+          "answer": "Yes",
+          "weight": 8,
+          "explanation": "Kurtas are the standard festive wear for men in India and represent the appropriate level of formality for a festival."
+        },
+        {
+          "question": "Do the characters display subtle cultural markers such as a bindi (a small colored dot on the forehead) or traditional jewelry like glass or gold bangles that remain visually stable as the characters move?",
+          "answer": "Yes",
+          "weight": 6,
+          "explanation": "These details provide the high-fidelity nuance required for authentic cultural representation."
+        }
+      ],
+      "actions": [
+        {
+          "question": "Does the greeting action involve the 'Namaste' gesture, where the characters press their palms together at chest height with fingers pointing upward and a slight, respectful tilt of the head, and is this held for at least a full second?",
+          "answer": "Yes",
+          "weight": 10,
+          "explanation": "Namaste is the most iconic and respectful form of greeting in Indian culture; its physical accuracy is critical."
+        },
+        {
+          "question": "Does the joyful expression manifest through a sequence starting with direct eye contact, followed by a wide smile that reaches the eyes (Duchenne smile), and maintained throughout the physical greeting gesture?",
+          "answer": "Yes",
+          "weight": 7,
+          "explanation": "Joy in a social greeting must be temporally synchronized with the gesture to appear authentic and not forced."
+        },
+        {
+          "question": "If the characters engage in a hug or 'Milap', does the motion involve a gentle lean toward each other with the head moving to one side, followed by a brief, respectful embrace that avoids aggressive slapping on the back?",
+          "answer": "Yes",
+          "weight": 7,
+          "explanation": "Festive hugs (Milap) in South Asian contexts have a specific cadence of warmth and restraint."
+        }
+      ]
+    },
+    "object_tag": "Indian people",
+    "action_tag": "Indian exchanging greetings with joyful expressions",
+    "scene_tag": "Indian festival"
+  },
+  "9bb1266cac67efd9a9c676917112d91ecc3e2537dbc163938eccbeeb96affac5_flux": {
+    "id": "9bb1266cac67efd9a9c676917112d91ecc3e2537dbc163938eccbeeb96affac5_flux",
+    "prompt": "Gujarati marketplace, vendors greeting customers with warm smiles",
+    "country": "India",
+    "category": "greetings",
+    "evaluation": {
+      "scene": [
+        {
+          "question": "Is the marketplace architecture characterized by 'Pol' style narrow streets with buildings featuring ornate wooden brackets known as 'Todalos' and intricately carved facades common in Gujarat?",
+          "answer": "Yes",
+          "weight": 8,
+          "explanation": "Pol architecture is a defining spatial characteristic of Gujarati urban centers like Ahmedabad and is essential for geographic specificity."
+        },
+        {
+          "question": "Does the marketplace signage utilize the Gujarati script, which is characterized by its rounded characters and the absence of the continuous horizontal bar (shirorekha) found in Devanagari?",
+          "answer": "Yes",
+          "weight": 6,
+          "explanation": "Correct linguistic signage is a primary indicator of cultural and regional authenticity."
+        },
+        {
+          "question": "Is the marketplace environment depicted as vibrant and bustling with a warm, sun-drenched palette, avoiding generic Western tropes of 'poverty' or 'monochromatic dust'?",
+          "answer": "Yes",
+          "weight": 7,
+          "explanation": "Gujarati markets are known for their lively, colorful atmosphere; avoiding stereotypes is crucial for authentic representation."
+        }
+      ],
+      "objects": [
+        {
+          "question": "Are female vendors or customers wearing sarees in the traditional Gujarati 'Seedha Pallu' style, where the decorative end of the saree (pallu) is draped from back-to-front over the right shoulder?",
+          "answer": "Yes",
+          "weight": 10,
+          "explanation": "The Seedha Pallu drape is a non-negotiable cultural marker for Gujarati identity in women's traditional attire."
+        },
+        {
+          "question": "Are there displays of Bandhani textiles, recognizable by their distinct tie-dye patterns of small, intricate white or yellow dots forming geometric shapes on brightly colored fabric?",
+          "answer": "Yes",
+          "weight": 7,
+          "explanation": "Bandhani is a signature handicraft of the Gujarat region and serves as a significant secondary visual anchor."
+        },
+        {
+          "question": "Are traditional snacks such as Dhokla (yellow, porous steamed cakes) or Fafda (long, thin, pale yellow fried strips) displayed on steel platters or in baskets?",
+          "answer": "Yes",
+          "weight": 5,
+          "explanation": "Regional culinary objects enhance the specificity of the marketplace setting."
+        }
+      ],
+      "actions": [
+        {
+          "question": "Does the greeting action begin with the vendor pausing their current task, followed by the palms coming together at the chest (Anjali Mudra) or a respectful slight bow of the head?",
+          "answer": "Yes",
+          "weight": 9,
+          "explanation": "The sequence of the greeting is vital; a sudden or static smile without the accompanying physical gesture of respect lacks cultural depth."
+        },
+        {
+          "question": "Does the 'warm smile' develop naturally, starting with a softening of the eyes (Duchenne smile) followed by the upward curve of the lips as they acknowledge the customer?",
+          "answer": "Yes",
+          "weight": 8,
+          "explanation": "Temporal progression of facial expressions prevents the 'uncanny valley' effect and ensures the warmth feels authentic rather than painted on."
+        },
+        {
+          "question": "When the vendor speaks, is there a rhythmic 'head bobble' or tilt that synchronizes with the cadence of their greeting, typical of Indian non-verbal communication?",
+          "answer": "Yes",
+          "weight": 6,
+          "explanation": "Subtle kinesis such as head tilts are critical for capturing the specific physical vernacular of the Indian subcontinent."
+        }
+      ]
+    },
+    "object_tag": "Indian Vendors",
+    "action_tag": "Indian Greeting customers with warm smiles",
+    "scene_tag": "Indian Gujarati marketplace"
+  },
+  "9d382d06671fe59ac56dc3b9ed5538eceb9bc4261b3cf19c5977a7ea23672a78_gpt-image": {
+    "id": "9d382d06671fe59ac56dc3b9ed5538eceb9bc4261b3cf19c5977a7ea23672a78_gpt-image",
+    "prompt": "Iranian women choosing colorful hijabs in a bustling Tehran market",
+    "country": "Iran",
+    "category": "religion",
+    "evaluation": {
+      "scene": [
+        {
+          "question": "Does the market architecture feature traditional Persian bazaar elements, such as vaulted brick ceilings (taj) with small circular apertures (karbandi) providing natural light shafts, rather than generic open-air or modern stalls?",
+          "answer": "Yes",
+          "weight": 8,
+          "explanation": "Authentic Tehran bazaars, like the Grand Bazaar, are characterized by historic masonry vaults which create a specific lighting and spatial atmosphere."
+        },
+        {
+          "question": "Is the background crowd composition diverse, showing women in varying styles of dress—ranging from black chadors to colorful manteaux and headscarves—and men in contemporary Western-style clothing (shirts and trousers), reflecting Tehran's urban demographic?",
+          "answer": "Yes",
+          "weight": 7,
+          "explanation": "Avoiding a monolithic 'exotic' look is crucial for authenticity; Tehran is a modern city with varied interpretations of modest dress."
+        },
+        {
+          "question": "Does the market display fabrics and goods in the tiered, dense manner typical of Persian 'hujra' (small shops), with textiles hanging vertically from the ceiling and folded neatly on counters?",
+          "answer": "Yes",
+          "weight": 6,
+          "explanation": "The spatial organization of a Persian bazaar involves specific vertical and horizontal layering of merchandise."
+        }
+      ],
+      "objects": [
+        {
+          "question": "Are the women depicted wearing a 'manteau' (a long-sleeved, modest overcoat or tunic reaching at least mid-thigh) over trousers, rather than a single-piece dress or generic 'abaya'?",
+          "answer": "Yes",
+          "weight": 10,
+          "explanation": "The manteau-and-trousers combination is the specific legal and cultural standard for public dress in Iran, distinct from other Middle Eastern styles."
+        },
+        {
+          "question": "Are the hijabs being selected shown as 'rusari' (large square scarves) or 'shawls' (long rectangular wraps) made of materials like silk, cotton, or pashmina, featuring intricate Persian patterns or vibrant solid colors?",
+          "answer": "Yes",
+          "weight": 9,
+          "explanation": "Specific fabric types and shapes (square vs. rectangle) define the Iranian hijab style compared to the simple veils of other regions."
+        },
+        {
+          "question": "If price tags or shop signs are visible, do they utilize Persian script (Farsi) and Eastern Arabic numerals (e.g., ۱, ۲, ۳) rather than standard Latin characters or standard Arabic numerals?",
+          "answer": "Yes",
+          "weight": 5,
+          "explanation": "Linguistic accuracy in signage is a subtle but critical indicator of geographic and cultural specificity."
+        }
+      ],
+      "actions": [
+        {
+          "question": "Does the woman’s action of 'choosing' begin with her fingers delicately rubbing the fabric to test its texture, followed by unfolding it to its full width across her torso?",
+          "answer": "Yes",
+          "weight": 7,
+          "explanation": "Tactile inspection is a universal but culturally grounded market behavior; the sequence must be logical for fabric shopping."
+        },
+        {
+          "question": "Does the woman hold the selected scarf up to her face or drape it loosely over her existing headcovering while looking toward a mirror to check the color against her complexion?",
+          "answer": "Yes",
+          "weight": 9,
+          "explanation": "This temporal sequence—lift, drape, and check reflection—is the specific physical process of selecting a headscarf in a public market."
+        },
+        {
+          "question": "During the interaction with the shopkeeper, does the video depict a moment of social exchange, such as nodding or gesturing with the hands, rather than a purely mechanical transaction?",
+          "answer": "Yes",
+          "weight": 6,
+          "explanation": "Iranian market culture is highly social and involves specific codes of politeness (Taarof) that should manifest in physical gestures."
+        }
+      ]
+    },
+    "object_tag": "Iranian women",
+    "action_tag": "Iranian Choosing",
+    "scene_tag": "Iranian a bustling Tehran market"
+  },
+  "b1cee391da539de41872ea1d39a6eba2f79a8434c36621702bf04522573cadfc_gpt-image": {
+    "id": "b1cee391da539de41872ea1d39a6eba2f79a8434c36621702bf04522573cadfc_gpt-image",
+    "prompt": "Iranian cleric with long beard teaching at a mosque",
+    "country": "Iran",
+    "category": "religion",
+    "evaluation": {
+      "scene": [
+        {
+          "question": "Is the mosque interior characterized by Persian architectural elements, specifically featuring blue-toned 'Haft Rang' (seven-colored) tilework or intricate geometric 'Girih' patterns on the walls?",
+          "answer": "Yes",
+          "weight": 8,
+          "explanation": "Iranian mosques are distinct from other Islamic architecture through their specific use of turquoise/cobalt tilework and specific geometric motifs; generic architecture would be culturally inaccurate."
+        },
+        {
+          "question": "Is the flooring covered with traditional Persian rugs with central medallions or repetitive floral motifs, rather than generic modern carpeting?",
+          "answer": "Yes",
+          "weight": 5,
+          "explanation": "Persian rugs are a hallmark of Iranian cultural spaces and add to the specific regional authenticity of the setting."
+        },
+        {
+          "question": "Does the lighting in the scene appear natural, emanating from high arched windows or traditional chandeliers, avoiding 'exoticized' over-saturated orange or neon glows?",
+          "answer": "Yes",
+          "weight": 4,
+          "explanation": "Avoiding 'Orientalist' lighting tropes is essential for a realistic and respectful depiction of a contemporary or historical religious setting."
+        }
+      ],
+      "objects": [
+        {
+          "question": "Is the cleric wearing a traditional 'Ammameh' (turban) that is wrapped in a flat, circular, and compact manner, either in white or black?",
+          "answer": "Yes",
+          "weight": 10,
+          "explanation": "The specific style of the turban is the primary identifier of an Iranian cleric's rank and lineage (black for Sayyids, white for others)."
+        },
+        {
+          "question": "Is the cleric's outer garment an 'Aba' (a loose, sleeveless cloak worn over the shoulders) layered over a long-sleeved, buttoned 'Qaba' or 'Lubada'?",
+          "answer": "Yes",
+          "weight": 9,
+          "explanation": "The layered combination of the Qaba and Aba is the standard formal attire for Iranian Shia clergy."
+        },
+        {
+          "question": "Does the cleric possess a long, well-groomed beard that covers the chin and jawline without being excessively unkempt?",
+          "answer": "Yes",
+          "weight": 7,
+          "explanation": "A beard is a mandatory religious aesthetic for a cleric, and its grooming reflects the specific clerical standards of the region."
+        },
+        {
+          "question": "If a text is visible, is it placed on a 'Rehal' (an X-shaped folding wooden book stand) or held with both hands with the spine facing downwards?",
+          "answer": "Yes",
+          "weight": 6,
+          "explanation": "The Rehal is the traditional and respectful way to support religious texts in a mosque setting."
+        }
+      ],
+      "actions": [
+        {
+          "question": "Does the cleric use measured, rhythmic hand gestures, such as opening his palms or pointing to a text, to emphasize points as he speaks throughout the video?",
+          "answer": "Yes",
+          "weight": 8,
+          "explanation": "Clerical teaching in Iran involves specific oratorical styles and dignified hand movements to convey authority and wisdom."
+        },
+        {
+          "question": "If the cleric is reading, does his gaze and the movement of his head follow a right-to-left progression consistent with Persian or Arabic script?",
+          "answer": "Yes",
+          "weight": 9,
+          "explanation": "Temporal accuracy in reading direction is a critical check for script-based cultural authenticity."
+        },
+        {
+          "question": "Does the cleric maintain a steady, dignified seated posture—either sitting cross-legged on the carpet or on a low wooden chair—without abrupt or aggressive movements?",
+          "answer": "Yes",
+          "weight": 7,
+          "explanation": "The physical composure of a cleric during a lesson (dars) is expected to be calm and formal, reflecting a state of 'Waqar' (dignity)."
+        }
+      ]
+    },
+    "object_tag": "Iranian cleric with long beard",
+    "action_tag": "Iranian teaching",
+    "scene_tag": "Iranian a mosque"
+  },
+  "d49e56e9059d6439e612fc2f32b10b045d8a9d39ee7ea4288ccec221bb0e2984_SD35": {
+    "id": "d49e56e9059d6439e612fc2f32b10b045d8a9d39ee7ea4288ccec221bb0e2984_SD35",
+    "prompt": "Japanese students practicing calligraphy at a cultural event",
+    "country": "Japan",
+    "category": "greetings",
+    "evaluation": {
+      "scene": [
+        {
+          "question": "Is the setting a school gymnasium or community hall featuring light-colored wooden floors or green/blue protective mats, rather than an outdoor or generic fantasy setting?",
+          "answer": "Yes",
+          "weight": 7,
+          "explanation": "Authentic cultural events for students typically take place in functional educational or civic spaces."
+        },
+        {
+          "question": "Are the students dressed in either standard Japanese school uniforms (such as blazers or sailor-style uniforms) or traditional hakama (wide-legged trousers worn over a kimono), avoiding overly ornate or non-Japanese costumes?",
+          "answer": "Yes",
+          "weight": 8,
+          "explanation": "Correct attire is critical for establishing the specific cultural identity of the participants."
+        },
+        {
+          "question": "Does the background contain vertical banners or signs written in legible Japanese characters (Kanji/Kana) that announce the event name, avoiding gibberish or pseudo-Asian strokes?",
+          "answer": "Yes",
+          "weight": 6,
+          "explanation": "Legible and context-appropriate text is a hallmark of high-fidelity cultural representation."
+        }
+      ],
+      "objects": [
+        {
+          "question": "Is the calligraphy brush (fude) depicted with a tapered point made of animal hair attached to a bamboo or wooden handle, and is it held vertically rather than at a slanted angle?",
+          "answer": "Yes",
+          "weight": 10,
+          "explanation": "The vertical grip and specific brush anatomy are fundamental to the physics and culture of Shodo."
+        },
+        {
+          "question": "Is the paper (hanshi) thin, white, and rectangular, held flat on a dark felt mat (shitaji) by a long, thin metal paperweight (bunchin) placed at the top?",
+          "answer": "Yes",
+          "weight": 7,
+          "explanation": "These auxiliary tools are mandatory for the practice of calligraphy and demonstrate attention to detail."
+        },
+        {
+          "question": "Is the ink (sumi) deep black and contained in a rectangular stone inkwell (suzuri) with a sloping interior, rather than in a western-style ink bottle or colorful paint pot?",
+          "answer": "Yes",
+          "weight": 8,
+          "explanation": "The specific material and form of the suzuri are essential artifacts of the calligraphy tradition."
+        }
+      ],
+      "actions": [
+        {
+          "question": "Does the student's hand move in a steady, deliberate motion from the shoulder or elbow, maintaining a vertical brush orientation throughout the duration of a single stroke?",
+          "answer": "Yes",
+          "weight": 9,
+          "explanation": "Calligraphy movement originates from the arm rather than the wrist, which is a key temporal and physical marker."
+        },
+        {
+          "question": "As the brush completes a stroke, does the student lift it slowly and vertically to create a tapered 'harai' (sweep) or press down briefly before lifting to create a 'tome' (stop)?",
+          "answer": "Yes",
+          "weight": 9,
+          "explanation": "The terminal physics of a stroke define the character's aesthetic and the practitioner's skill."
+        },
+        {
+          "question": "Does the non-writing hand remain flat on the paper or the table to provide stability, rather than being tucked away or held in the air?",
+          "answer": "Yes",
+          "weight": 5,
+          "explanation": "Using the secondary hand for stabilization is the standard posture taught to Japanese students."
+        }
+      ]
+    },
+    "object_tag": "Japanese students",
+    "action_tag": "Japanese Practicing calligraphy",
+    "scene_tag": "Japanese Cultural event"
+  },
+  "27bf4392f09239bba33ac42e842f499815290526c56cbad6bde689f555150c93_gpt-image": {
+    "id": "27bf4392f09239bba33ac42e842f499815290526c56cbad6bde689f555150c93_gpt-image",
+    "prompt": "Students in Japan bowing before entering a dojo for practice",
+    "country": "Japan",
+    "category": "greetings",
+    "evaluation": {
+      "scene": [
+        {
+          "question": "Is the entrance to the training hall depicted with traditional Japanese architectural elements such as a raised wooden threshold, polished wooden flooring, and sliding doors (shoji) or an open doorway without Western-style swinging hinges?",
+          "answer": "Yes",
+          "weight": 8,
+          "explanation": "Authentic dojo architecture is fundamental to the spatial context of Japanese martial arts; Western doors would be a cultural mismatch."
+        },
+        {
+          "question": "Is the genkan (entryway) clearly demarcated, showing a lower level for outdoor shoes and a higher wooden level for the dojo interior?",
+          "answer": "Yes",
+          "weight": 7,
+          "explanation": "The physical separation between 'outside' (dirty) and 'inside' (sacred/clean) is a critical cultural boundary in Japanese dojos."
+        },
+        {
+          "question": "Does the background avoid 'orientalist' tropes such as excessive neon, irrelevant religious statues, or non-Japanese signage, instead favoring minimalist wooden walls or calligraphic scrolls?",
+          "answer": "Yes",
+          "weight": 5,
+          "explanation": "Ensures the scene is grounded in realistic daily practice rather than exoticized stereotypes."
+        }
+      ],
+      "objects": [
+        {
+          "question": "Are the students wearing appropriate martial arts attire (dogi), characterized by a heavy white cotton jacket with the left lapel wrapped over the right, and a fabric belt (obi) tied at the waist?",
+          "answer": "Yes",
+          "weight": 10,
+          "explanation": "The 'left-over-right' wrap is a strict cultural rule (right-over-left is reserved for the deceased); the belt is the core symbol of rank."
+        },
+        {
+          "question": "Are the students' shoes or outdoor footwear visibly removed and placed neatly in a rack or on the floor outside the dojo threshold?",
+          "answer": "Yes",
+          "weight": 9,
+          "explanation": "Entering a dojo with shoes on is a significant cultural transgression in Japan."
+        },
+        {
+          "question": "If there is signage above the entrance, does it feature Japanese Kanji characters representing the name of the dojo or martial art rather than generic symbols or gibberish?",
+          "answer": "Yes",
+          "weight": 4,
+          "explanation": "Kanji accuracy adds high-fidelity nuance to the specific cultural location."
+        }
+      ],
+      "actions": [
+        {
+          "question": "Does the bowing action (ritsurei) begin with the student coming to a complete stop before the threshold, followed by a pivot at the hips with a straight back and the head remaining in line with the spine?",
+          "answer": "Yes",
+          "weight": 10,
+          "explanation": "The mechanics of the bow—specifically hinging at the hips rather than bending the neck—are the primary indicators of authentic Japanese etiquette."
+        },
+        {
+          "question": "During the descent of the bow, do the students' hands remain straight at their sides or slide slightly down the front of the thighs, avoiding a 'prayer' position (palms together at the chest)?",
+          "answer": "Yes",
+          "weight": 9,
+          "explanation": "Palms-together (anjali mudra) is a religious gesture; dojo etiquette (rei) typically uses formal secular or martial hand placement."
+        },
+        {
+          "question": "Does the student hold the lowest point of the bow for a brief pause (approximately one second) before rising at the same speed as the descent, maintaining a respectful and controlled tempo?",
+          "answer": "Yes",
+          "weight": 6,
+          "explanation": "Temporal control in the bow signifies mindfulness and respect; a rushed or 'bobbing' motion is considered disrespectful."
+        }
+      ]
+    },
+    "object_tag": "Japanese Students",
+    "action_tag": "Japanese Bowing before entering a dojo",
+    "scene_tag": "A dojo for practice in Japan"
+  },
+  "f0ae00d6f0a2e377872ec8c79e58d4067f623280341ae3df6a4e99f1bc84270d_SD35": {
+    "id": "f0ae00d6f0a2e377872ec8c79e58d4067f623280341ae3df6a4e99f1bc84270d_SD35",
+    "prompt": "Shintō priest performing purification ritual at a rural shrine",
+    "country": "Japan",
+    "category": "religion",
+    "evaluation": {
+      "scene": [
+        {
+          "question": "Is the shrine architecture characterized by a 'Torii' gate at the entrance, featuring two vertical pillars connected by two horizontal crossbeams (the top 'Kasagi' and the lower 'Nuki')?",
+          "answer": "Yes",
+          "weight": 9,
+          "explanation": "A Torii gate is the primary visual marker indicating the transition from the profane to the sacred space in Shintoism."
+        },
+        {
+          "question": "Does the shrine building (Haiden) exhibit unpainted, weathered wood or natural cedar textures with a gabled roof, avoiding the excessive red lacquer typical of urban 'Inari' shrines or Buddhist temples?",
+          "answer": "Yes",
+          "weight": 7,
+          "explanation": "Rural shrines often emphasize 'Wabi-sabi' and natural materials to blend with the forest environment."
+        },
+        {
+          "question": "Is the ground surface composed of gravel (Sando) or natural earth surrounded by dense evergreen trees like Cryptomeria (Sugi) or Cypress (Hinoki)?",
+          "answer": "Yes",
+          "weight": 5,
+          "explanation": "Shinto shrines are intrinsically linked to nature; specific tree types enhance the geographic and cultural accuracy of a Japanese rural setting."
+        }
+      ],
+      "objects": [
+        {
+          "question": "Is the priest wearing 'Joe' or 'Kariginu' liturgical robes, characterized by voluminous, wide sleeves with cords (Sode-kukuri) and high-waisted, pleated 'Hakama' trousers?",
+          "answer": "Yes",
+          "weight": 10,
+          "explanation": "Correct liturgical vestments are critical to distinguish a Shinto priest (Kannushi) from other religious figures."
+        },
+        {
+          "question": "Does the priest hold an 'Onusa' purification wand, consisting of a wooden staff with multiple zig-zagged white paper streamers (Shide) attached to the head?",
+          "answer": "Yes",
+          "weight": 10,
+          "explanation": "The Onusa is the primary tool for the purification ritual (Harae); its absence renders the action culturally meaningless."
+        },
+        {
+          "question": "Is the priest wearing an 'Eboshi,' a black, lacquered, stiff silk hat that is either rounded or tall and folded?",
+          "answer": "Yes",
+          "weight": 8,
+          "explanation": "The Eboshi is the mandatory headwear for Shinto priests during formal rituals."
+        }
+      ],
+      "actions": [
+        {
+          "question": "Does the priest perform the 'Left-Right-Left' (Sa-U-Sa) waving motion with the Onusa, where the staff is swung horizontally across the person or area being purified in three distinct beats?",
+          "answer": "Yes",
+          "weight": 10,
+          "explanation": "The specific sequence of 'Left-Right-Left' is the orthodox liturgical requirement for Shinto purification."
+        },
+        {
+          "question": "During the swing, do the white paper streamers (Shide) follow the physics of the staff, trailing behind the motion and creating a visible rustling effect rather than remaining stiff?",
+          "answer": "Yes",
+          "weight": 8,
+          "explanation": "Correct physical interaction between the object and the air demonstrates temporal and material realism in the ritual."
+        },
+        {
+          "question": "Does the priest maintain a focused, dignified posture with a slight bow of the head (O-jigi) throughout the ritual sequence?",
+          "answer": "Yes",
+          "weight": 7,
+          "explanation": "Shinto rituals require a specific 'Rei' (etiquette) characterized by controlled, solemn movements and a respectful stance."
+        }
+      ]
+    },
+    "object_tag": "Japanese Shintō priest",
+    "action_tag": "Japanese Performing purification ritual",
+    "scene_tag": "Japanese Rural shrine"
+  },
+  "fa64515d0c7790a5f495d34e629df04f1b92302aa73e09ab329f1e503dbb5f11_imagegen3": {
+    "id": "fa64515d0c7790a5f495d34e629df04f1b92302aa73e09ab329f1e503dbb5f11_imagegen3",
+    "prompt": "Ceremony honoring Amaterasu at a Shintō shrine",
+    "country": "Japan",
+    "category": "religion",
+    "evaluation": {
+      "scene": [
+        {
+          "question": "Is the shrine architecture characterized by natural, unpainted wood (likely cypress) with a 'Gongen-zukuri' or 'Nagare-zukuri' roof style, avoiding the brightly colored, ornate aesthetics common in Buddhist temples?",
+          "answer": "Yes",
+          "weight": 9,
+          "explanation": "Shinto aesthetics emphasize 'Wabi-sabi' and natural purity; distinct architectural styles are critical for distinguishing shrines from other religious sites."
+        },
+        {
+          "question": "Does the environment feature a 'Torii' gate at the transition point, consisting of two vertical pillars and two horizontal crossbeams (the 'Kasagi' and 'Nuki')?",
+          "answer": "Yes",
+          "weight": 10,
+          "explanation": "The Torii is the universal signifier of a Shinto sacred space and is mandatory for a ceremony context."
+        },
+        {
+          "question": "Is the ground of the shrine courtyard covered in 'Tamajari' (clean white gravel or small stones) rather than grass or bare dirt?",
+          "answer": "Yes",
+          "weight": 6,
+          "explanation": "White gravel represents purity and is a standard feature of high-ranking Shinto shrines like Ise Jingu, dedicated to Amaterasu."
+        },
+        {
+          "question": "Does the scene avoid hyper-exoticized elements like excessive incense smoke or golden statues, which are not characteristic of Shinto worship?",
+          "answer": "Yes",
+          "weight": 7,
+          "explanation": "Maintains cultural accuracy by avoiding the 'Orient-as-monolith' trope and distinguishing Shinto from other Asian traditions."
+        }
+      ],
+      "objects": [
+        {
+          "question": "Is the 'Shimenawa' (sacred rice-straw rope) thick and twisted, featuring 'Shide' (zigzag-shaped white paper streamers) hanging at regular intervals?",
+          "answer": "Yes",
+          "weight": 8,
+          "explanation": "These items mark the presence of a 'Kami' and are essential for a ceremony honoring a major deity like Amaterasu."
+        },
+        {
+          "question": "Are the ritual offerings ('Shinsen') presented on unglazed ceramic or wooden 'Sanbo' stands, including specific items like sake in white 'Heishi' jars and small mounds of salt and rice?",
+          "answer": "Yes",
+          "weight": 7,
+          "explanation": "Specific offering vessels are required for formal Shinto rituals; using generic plates would be a cultural inaccuracy."
+        },
+        {
+          "question": "Is the 'Tamagushi' (the ritual offering branch) a sprig of the evergreen Sakaki tree adorned with 'Shide' paper strips?",
+          "answer": "Yes",
+          "weight": 9,
+          "explanation": "The Tamagushi is the central physical object through which a practitioner connects with the deity during a ceremony."
+        },
+        {
+          "question": "Does the priest's attire consist of a 'Kariginu' or 'Jo-e' (voluminous robe with wide sleeves) and a tall, black 'Eboshi' hat, without any Buddhist 'Kasa' or robes?",
+          "answer": "Yes",
+          "weight": 9,
+          "explanation": "Accurate vestments are required to establish the correct religious hierarchy and tradition."
+        }
+      ],
+      "actions": [
+        {
+          "question": "When presenting the 'Tamagushi', does the participant hold the branch with both hands, rotate it clockwise 180 degrees so the stem faces the altar, and then place it down smoothly?",
+          "answer": "Yes",
+          "weight": 10,
+          "explanation": "The specific rotation and orientation of the Tamagushi is a highly codified ritual action in Shinto."
+        },
+        {
+          "question": "Does the 'Kashiwade' (clapping) sequence consist of exactly two claps, where the hands meet with the right hand slightly lower than the left initially, before pulling back to produce a crisp sound?",
+          "answer": "Yes",
+          "weight": 10,
+          "explanation": "The 'Two Bows, Two Claps, One Bow' sequence is the fundamental ritual grammar of Shinto worship."
+        },
+        {
+          "question": "Do the participants move with 'Suri-ashi' (sliding steps), where the feet remain in constant contact with the ground, maintaining a steady, low center of gravity throughout the movement?",
+          "answer": "Yes",
+          "weight": 8,
+          "explanation": "Formal movement in Japanese ritual is characterized by grounding and the absence of a vertical bounce in the gait."
+        },
+        {
+          "question": "If a purification ('Harae') is shown, does the priest wave the 'Haraegushi' (wand with paper streamers) in a precise 'left-right-left' rhythmic sequence over the heads of the participants?",
+          "answer": "Yes",
+          "weight": 9,
+          "explanation": "The directional sequence of purification is specific and must be followed for the action to be culturally valid."
+        }
+      ]
+    },
+    "object_tag": "Japanese Worshippers",
+    "action_tag": "Japanese Honoring Amaterasu",
+    "scene_tag": "Japanese Shintō shrine"
+  },
+  "2226ccf44381cf7c4e091a2de311d90c48693537312c599760ac2fae86de9901_imagegen3": {
+    "id": "2226ccf44381cf7c4e091a2de311d90c48693537312c599760ac2fae86de9901_imagegen3",
+    "prompt": "Polish wedding guests greeting each other with handshakes at reception",
+    "country": "Poland",
+    "category": "greetings",
+    "evaluation": {
+      "scene": [
+        {
+          "question": "Is the setting a banquet hall or 'Sala Weselna' characterized by festive decorations such as white linens, floral centerpieces, and warm ambient lighting, avoiding generic or exoticized religious backdrops?",
+          "answer": "Yes",
+          "weight": 6,
+          "explanation": "Provides the culturally specific context of a Polish wedding reception hall while avoiding stereotypes."
+        },
+        {
+          "question": "Do the guests appear in formal attire, with men in well-fitted suits or tuxedos and women in elegant cocktail or evening dresses that are explicitly not white?",
+          "answer": "Yes",
+          "weight": 9,
+          "explanation": "Formal dress code is a critical boundary; wearing white as a guest is a significant cultural faux pas in Poland."
+        }
+      ],
+      "objects": [
+        {
+          "question": "Are the tables in the background set with characteristic elements such as bottles of clear vodka and platters of 'zimna płyta' (cold appetizers like meats and pickles)?",
+          "answer": "Yes",
+          "weight": 7,
+          "explanation": "Vodka and cold platters are ubiquitous and mandatory implicit objects for an authentic Polish wedding table setting."
+        },
+        {
+          "question": "Does the male guests' attire include traditional formal accessories like leather dress shoes and neckties or bowties, maintained neatly throughout the scene?",
+          "answer": "Yes",
+          "weight": 4,
+          "explanation": "Standard formal accessories enhance the realism of a European wedding context."
+        }
+      ],
+      "actions": [
+        {
+          "question": "Does the handshake involve a firm right-hand grip with the guests maintaining steady, direct eye contact from the start of the reach until the hands are released?",
+          "answer": "Yes",
+          "weight": 10,
+          "explanation": "Direct eye contact and a firm grip are the most critical cultural signifiers of respect and sincerity in a Polish greeting."
+        },
+        {
+          "question": "If a guest is seated when approached, do they stand up fully before the hands meet, rather than remaining seated during the handshake?",
+          "answer": "Yes",
+          "weight": 8,
+          "explanation": "Standing to greet someone is a mandatory sign of respect in Polish culture; remaining seated is considered rude."
+        },
+        {
+          "question": "Does the handshake follow a specific temporal sequence: an approach, a brief clasp with 2-3 vertical pumps, and a clean release without lingering or an overly long duration?",
+          "answer": "Yes",
+          "weight": 5,
+          "explanation": "Ensures the physical movement of the handshake respects local norms of duration and physics without becoming awkward."
+        },
+        {
+          "question": "Is the handshake performed with the right hand only, and does the guest avoid putting their left hand in their pocket during the interaction?",
+          "answer": "Yes",
+          "weight": 7,
+          "explanation": "Keeping a hand in the pocket while shaking hands is viewed as highly disrespectful and 'sloppy' in formal Polish etiquette."
+        }
+      ]
+    },
+    "object_tag": "Polish wedding guests",
+    "action_tag": "Polish Greeting each other with handshakes",
+    "scene_tag": "Polish Reception"
+  },
+  "3f55520231a3b78c6dd36abdf0a8d0c8aa293c0b19f8baf0bbf3f15d5bdcc3df_SD35": {
+    "id": "3f55520231a3b78c6dd36abdf0a8d0c8aa293c0b19f8baf0bbf3f15d5bdcc3df_SD35",
+    "prompt": "Polish couple exchanging formal greetings at a wedding reception",
+    "country": "Poland",
+    "category": "greetings",
+    "evaluation": {
+      "scene": [
+        {
+          "question": "Is the reception venue characterized by a festive interior with elegant table settings, avoiding any hyper-exoticized or stereotypical rural tropes unless specifically requested?",
+          "answer": "Yes",
+          "weight": 6,
+          "explanation": "Ensures the setting is a contemporary Polish wedding reception rather than a caricature."
+        },
+        {
+          "question": "Does the background include a 'powitanie' (welcoming) area, often marked by the presence of a white-clothed table or a decorative floral archway?",
+          "answer": "Yes",
+          "weight": 5,
+          "explanation": "Identifies the specific spatial arrangement typically used for formal greetings in Polish culture."
+        },
+        {
+          "question": "Are the guests and staff dressed in formal attire (suits for men, cocktail or long dresses for women) that reflects a modern European wedding aesthetic?",
+          "answer": "Yes",
+          "weight": 7,
+          "explanation": "Maintains cultural context and avoids outdated or inaccurate costume portrayals."
+        }
+      ],
+      "objects": [
+        {
+          "question": "If the bread and salt (Chleb i Sól) ceremony is visible, is the loaf round, textured, and presented on a traditional linen cloth with a central salt well?",
+          "answer": "Yes",
+          "weight": 10,
+          "explanation": "This is a critical, culturally specific element of Polish wedding greetings."
+        },
+        {
+          "question": "Does the bride wear a traditional white wedding dress and the groom a formal dark suit or tuxedo, adhering to standard Polish formal conventions?",
+          "answer": "Yes",
+          "weight": 8,
+          "explanation": "Essential for the visual identification of the couple in a formal wedding context."
+        },
+        {
+          "question": "Are small bouquets of flowers or ornate greeting cards held by the guests as they wait to approach the couple?",
+          "answer": "Yes",
+          "weight": 4,
+          "explanation": "Standard items brought by guests during the formal greeting phase in Poland."
+        }
+      ],
+      "actions": [
+        {
+          "question": "Does the man perform the formal 'pocałunek w rękę' (hand-kiss) by gently lifting the woman's hand toward his face while bowing his head, ensuring his lips touch her hand lightly without pulling her arm up too high?",
+          "answer": "Yes",
+          "weight": 9,
+          "explanation": "A deeply traditional and specific formal greeting gesture used by Polish men."
+        },
+        {
+          "question": "When performing the 'policzek-policzek' (cheek-to-cheek) greeting, does the action follow a rhythmic three-part sequence starting with the right cheek, then left, then right again?",
+          "answer": "Yes",
+          "weight": 8,
+          "explanation": "The 'triple kiss' is a distinct temporal and physical sequence in Polish formal greetings."
+        },
+        {
+          "question": "Does the greeting exchange begin with a respectful eye contact and a slight tilt of the head before the physical contact is initiated?",
+          "answer": "Yes",
+          "weight": 5,
+          "explanation": "Captures the formal etiquette and pacing required for a respectful Polish greeting."
+        },
+        {
+          "question": "Is the transfer of gifts or flowers timed to occur only after the verbal greeting and the physical kiss/handshake are completed?",
+          "answer": "Yes",
+          "weight": 7,
+          "explanation": "Ensures the temporal sequence of the interaction adheres to formal social norms."
+        }
+      ]
+    },
+    "object_tag": "Polish couple",
+    "action_tag": "Polish Exchanging formal greetings",
+    "scene_tag": "Polish A wedding reception"
+  },
+  "03e2cef2131535acf41dbeb5712b8b6bbbf6cd32ef9dd300fbda97dd60373423_SD35": {
+    "id": "03e2cef2131535acf41dbeb5712b8b6bbbf6cd32ef9dd300fbda97dd60373423_SD35",
+    "prompt": "Handshake exchange at a Johannesburg business conference",
+    "country": "South_Africa",
+    "category": "greetings",
+    "evaluation": {
+      "scene": [
+        {
+          "question": "Is the conference environment depicted as a modern, high-end professional space typical of Johannesburg's Sandton or Midrand districts, featuring contemporary architecture and polished interior finishes rather than a generic or underdeveloped setting?",
+          "answer": "Yes",
+          "weight": 7,
+          "explanation": "Johannesburg is a major global financial hub; the setting must reflect the sophistication of its business sector to avoid 'impoverished' stereotypes."
+        },
+        {
+          "question": "Does the background demographic accurately represent the multicultural 'Rainbow Nation' diversity of South Africa, including a visible mix of Black, White, Coloured, and Indian professionals?",
+          "answer": "Yes",
+          "weight": 9,
+          "explanation": "South Africa's professional landscape is uniquely diverse; a monochromatic crowd would be a significant cultural inaccuracy."
+        },
+        {
+          "question": "Does the lighting in the scene consist of bright, even, overhead professional lighting common in large convention centers, reflecting off clean surfaces without stylized or cinematic grime?",
+          "answer": "Yes",
+          "weight": 4,
+          "explanation": "Contextual accuracy for a high-level business summit requires clean, corporate-grade lighting."
+        }
+      ],
+      "objects": [
+        {
+          "question": "Are the participants wearing professional business attire that includes a mix of standard Western-style corporate suits and contemporary South African professional garments, such as Madiba-style shirts or accessories featuring subtle Shweshwe patterns?",
+          "answer": "Yes",
+          "weight": 8,
+          "explanation": "Reflects the blend of global corporate standards and local cultural identity in South African business circles."
+        },
+        {
+          "question": "Are the conference lanyards clearly visible, consisting of a fabric strap around the neck with a transparent plastic badge holder containing a name tag, resting at the mid-chest level of the participants?",
+          "answer": "Yes",
+          "weight": 6,
+          "explanation": "A mandatory practical element of a professional conference that grounds the scene in reality."
+        },
+        {
+          "question": "If digital screens are visible in the background, do they display professional graphics, text in South African English (e.g., 'Programme' or 'Centre'), or corporate logos consistent with a business summit?",
+          "answer": "Yes",
+          "weight": 5,
+          "explanation": "Linguistic and branding nuances reinforce the specific geographical and professional context."
+        }
+      ],
+      "actions": [
+        {
+          "question": "Does the handshake begin with a confident approach where both parties extend their right hands simultaneously, meeting in the center at waist height with palms making full contact?",
+          "answer": "Yes",
+          "weight": 9,
+          "explanation": "The physical mechanics of the initiation define the professional intent of the scene."
+        },
+        {
+          "question": "Does the handshake movement consist of 2-3 firm, rhythmic vertical oscillations (pumps) that occur at a steady tempo before the hands are cleanly released?",
+          "answer": "Yes",
+          "weight": 8,
+          "explanation": "Temporal grounding of the handshake ensures the motion looks natural and professionally respectful."
+        },
+        {
+          "question": "Do the participants maintain steady, direct eye contact and a neutral or smiling facial expression throughout the entire duration of the physical contact and the subsequent release?",
+          "answer": "Yes",
+          "weight": 8,
+          "explanation": "Eye contact is a critical non-verbal component of professional respect and trust in South African business culture."
+        },
+        {
+          "question": "If the three-part South African handshake is performed, does it transition smoothly from the initial grip to a vertical thumb-lock (clasping thumbs) and then back to a standard palm-to-palm grip before releasing?",
+          "answer": "Yes",
+          "weight": 7,
+          "explanation": "This specific gesture is a high-fidelity cultural identifier for South African interactions, requiring precise temporal sequencing."
+        }
+      ]
+    },
+    "object_tag": "South African People",
+    "action_tag": "South African Handshake exchange",
+    "scene_tag": "South African Johannesburg business conference"
+  },
+  "d2b98b48eae030a490148915d0fe2b8a45a9e87138abd05b07bdc6da49394779_flux": {
+    "id": "d2b98b48eae030a490148915d0fe2b8a45a9e87138abd05b07bdc6da49394779_flux",
+    "prompt": "Two-handed handshake at a rural South African farm meeting",
+    "country": "South_Africa",
+    "category": "greetings",
+    "evaluation": {
+      "scene": [
+        {
+          "question": "Is the background a realistic South African rural landscape featuring the 'veld', characterized by open grasslands with scattered scrub, low-lying acacia trees, and a dry, dusty terrain rather than a lush tropical jungle or generic desert?",
+          "answer": "Yes",
+          "weight": 7,
+          "explanation": "Authentic landscape geography is essential to distinguish South African rurality from generic African stereotypes."
+        },
+        {
+          "question": "Does the meeting occur in a practical farm setting, such as near a galvanized iron structure, a wire-mesh fence, or under the shade of a large tree, avoiding hyper-exoticized or overly modernized environments?",
+          "answer": "Yes",
+          "weight": 6,
+          "explanation": "Rural meetings in SA often take place in functional, communal outdoor or semi-outdoor spaces."
+        }
+      ],
+      "objects": [
+        {
+          "question": "Are the participants dressed in functional rural attire, such as sun-faded khaki shirts, durable denim, or 'velskoene' (suede leather work boots), rather than elaborate ceremonial costumes or formal business suits?",
+          "answer": "Yes",
+          "weight": 8,
+          "explanation": "Accurate representation of daily workwear reflects the social reality of a farm meeting and avoids 'exotic' tropes."
+        },
+        {
+          "question": "If traditional accents are present, are they integrated naturally into everyday clothing (e.g., a simple printed fabric headwrap or 'ishweshwe' pattern) rather than appearing as a theatrical costume?",
+          "answer": "Yes",
+          "weight": 5,
+          "explanation": "Subtle cultural markers indicate a nuanced understanding of modern rural life."
+        }
+      ],
+      "actions": [
+        {
+          "question": "Does the two-handed handshake involve the right hand meeting the other person's right hand while the left hand is placed respectfully on the shaker's own right forearm or elbow throughout the grip?",
+          "answer": "Yes",
+          "weight": 10,
+          "explanation": "This specific gesture of the left hand supporting the right arm is the definitive sign of respect in many South African cultures (Ubuntu etiquette)."
+        },
+        {
+          "question": "As the hands meet, do the participants perform a slight forward inclination of the torso or a respectful head nod that remains held for the duration of the initial grasp?",
+          "answer": "Yes",
+          "weight": 9,
+          "explanation": "The physical posture accompanying the hand gesture is critical for conveying the hierarchical and social respect inherent in a 'meeting' context."
+        },
+        {
+          "question": "Does the motion of the handshake follow a deliberate, rhythmic sequence—contact, a firm but brief vertical movement, and then a clean release—rather than a rapid or chaotic Western-style pump?",
+          "answer": "Yes",
+          "weight": 4,
+          "explanation": "The physics of the movement should reflect the gravitas and deliberate nature of a formal rural greeting."
+        }
+      ]
+    },
+    "object_tag": "South African People",
+    "action_tag": "South African Two-handed handshake",
+    "scene_tag": "Rural South African farm meeting"
+  },
+  "75b5da8f1bf9778d8ece06444a1b61c098967d063b99fc25432d262d5b1dc810_SD35": {
+    "id": "75b5da8f1bf9778d8ece06444a1b61c098967d063b99fc25432d262d5b1dc810_SD35",
+    "prompt": "Outdoor South African baptism by a river with families watching",
+    "country": "South_Africa",
+    "category": "religion",
+    "evaluation": {
+      "scene": [
+        {
+          "question": "Is the river setting depicted as a natural, unpaved landscape featuring native South African vegetation such as reeds, tall veld grass, or river-washed rocks rather than a manicured park or artificial concrete bank?",
+          "answer": "Yes",
+          "weight": 8,
+          "explanation": "Authenticity requires a naturalistic setting common for South African river baptisms, avoiding sanitized or Western-style recreational environments."
+        },
+        {
+          "question": "Does the lighting and atmosphere reflect a realistic outdoor daytime environment with natural sunlight and shadows, avoiding overly dramatic, hyper-saturated, or cinematic 'exotic' filters?",
+          "answer": "Yes",
+          "weight": 5,
+          "explanation": "Maintaining realistic lighting avoids the common pitfall of exoticizing African spiritual practices through artificial visual filters."
+        },
+        {
+          "question": "Are the family members and onlookers positioned in a respectful, communal semi-circle or grouping along the bank, maintaining a proximity that suggests participation in a sacred rite rather than a casual crowd?",
+          "answer": "Yes",
+          "weight": 7,
+          "explanation": "The spatial arrangement of families reflects the communal nature of the event in South African culture."
+        }
+      ],
+      "objects": [
+        {
+          "question": "Are the primary participants wearing long, loose-fitting white robes, often characteristic of Zionist or Apostolic churches, constructed from opaque fabric that covers the body from neck to ankle?",
+          "answer": "Yes",
+          "weight": 10,
+          "explanation": "White robes (moya) are the central liturgical garment for river baptisms in South African AIC (African Initiated Churches) traditions."
+        },
+        {
+          "question": "Do the women in the crowd wear traditional head coverings such as 'doeks' (headscarves) wrapped securely around the head, or specific church-mandated caps?",
+          "answer": "Yes",
+          "weight": 9,
+          "explanation": "Head coverings are a mandatory sign of respect and religious adherence in these cultural contexts."
+        },
+        {
+          "question": "If sashes or capes are present, are they colored in specific combinations like green, yellow, or blue, and worn diagonally across the torso over the white robes?",
+          "answer": "Yes",
+          "weight": 6,
+          "explanation": "These colors signify specific church affiliations (e.g., ZCC or St. John's) and add granular cultural accuracy."
+        }
+      ],
+      "actions": [
+        {
+          "question": "Does the officiant support the person's back and head as they are lowered backward into the water, ensuring the movement is controlled and the head is fully submerged before being lifted back up?",
+          "answer": "Yes",
+          "weight": 10,
+          "explanation": "The physical technique of backward immersion is a core ritualistic action that must be depicted with physical realism and safety."
+        },
+        {
+          "question": "Is the sequence of the baptism depicted as a continuous motion where the person is led into the waist-deep water, submerged, and then helped back to a standing position with clear water displacement physics?",
+          "answer": "Yes",
+          "weight": 9,
+          "explanation": "Temporal grounding requires a logical progression of movement and realistic water interaction to be considered faithful."
+        },
+        {
+          "question": "Do the family members on the bank exhibit synchronized actions such as rhythmic clapping, swaying, or prayerful gestures (like hands clasped or raised) that persist throughout the immersion process?",
+          "answer": "Yes",
+          "weight": 7,
+          "explanation": "The surrounding family is rarely static; their movement (often song or prayer) provides the necessary rhythmic and spiritual context for the action."
+        }
+      ]
+    },
+    "object_tag": "South African families and individuals",
+    "action_tag": "South African Participating in a baptism and watching",
+    "scene_tag": "Outdoor South African river baptism"
+  },
+  "8316dda3a3bb70c3f9aac60c5c85c710424ad5e07d60aae006d120a2cd03ed62_imagegen3": {
+    "id": "8316dda3a3bb70c3f9aac60c5c85c710424ad5e07d60aae006d120a2cd03ed62_imagegen3",
+    "prompt": "Traditional African ceremony in KwaZulu Natal province",
+    "country": "South_Africa",
+    "category": "religion",
+    "evaluation": {
+      "scene": [
+        {
+          "question": "Is the landscape characterized by undulating, lush green hills and valleys typical of the KwaZulu-Natal midlands, rather than an arid desert or flat savannah?",
+          "answer": "Yes",
+          "weight": 7,
+          "explanation": "Geographic accuracy is vital for Zulu cultural context as KZN is topographically distinct."
+        },
+        {
+          "question": "Is the ceremony situated within or near a traditional 'umuzi' (homestead) featuring circular, thatched-roof structures (rondavels) or 'iQukwane' (beehive huts) arranged in a semi-circle around a central 'isibaya' (cattle kraal)?",
+          "answer": "Yes",
+          "weight": 9,
+          "explanation": "The layout of the homestead and the presence of the cattle kraal are central to the spiritual and social structure of Zulu ceremonies."
+        },
+        {
+          "question": "Does the lighting suggest a natural outdoor setting, avoiding the hyper-saturated orange hues often found in 'exoticized' African tropes, reflecting a realistic time of day for community gatherings?",
+          "answer": "Yes",
+          "weight": 5,
+          "explanation": "Awaits exoticized Western filters to maintain a grounded, authentic documentary aesthetic."
+        }
+      ],
+      "objects": [
+        {
+          "question": "Are the male participants wearing 'amabeshu' (calfskin loin coverings) and 'amambatha' (skin shoulder capes), and if elders are present, are they wearing the 'isicoco' (a dark, polished head ring sewn into the hair)?",
+          "answer": "Yes",
+          "weight": 10,
+          "explanation": "These are specific identifiers of Zulu masculine status and traditional dress that distinguish them from other Southern African groups."
+        },
+        {
+          "question": "Do the women wear 'isidwaba' (black pleated skirts made of softened cowhide) and carry 'izicholo' (flared, wide-topped hats) if they are married, accented by geometric beadwork that avoids generic 'tribal' patterns?",
+          "answer": "Yes",
+          "weight": 10,
+          "explanation": "Traditional Zulu female attire conveys marital status and heritage through very specific materials and shapes."
+        },
+        {
+          "question": "Are the dancers carrying 'isihlangu' (large, oval cowhide shields with a vertical wooden spine) and 'iwisa' (knobkerries or clubs), rather than generic round shields or spears used in other cultures?",
+          "answer": "Yes",
+          "weight": 8,
+          "explanation": "The shape and construction of the Zulu shield is an iconic and specific cultural artifact."
+        }
+      ],
+      "actions": [
+        {
+          "question": "During the 'Indlamu' dance, do the performers execute a high-kick sequence where the leg is raised above the head and brought down sharply to strike the ground with the full sole of the foot in a synchronized rhythmic beat?",
+          "answer": "Yes",
+          "weight": 10,
+          "explanation": "The Indlamu is the definitive Zulu traditional dance; the high-kick and heavy footfall are its primary physical signatures."
+        },
+        {
+          "question": "When communal beer (umqombothi) is shared, is the 'ukhamba' (clay pot) passed and received using both hands as a sign of respect, and does the vessel remain upright throughout the transfer?",
+          "answer": "Yes",
+          "weight": 6,
+          "explanation": "Specific physical etiquette regarding the sharing of sorghum beer is a hallmark of Zulu social interaction."
+        },
+        {
+          "question": "Does the group movement maintain a call-and-response vocal structure (isicathamiya or similar choral style) where the leader initiates a phrase and the group follows with a deeper, harmonized rhythmic chant accompanied by synchronized swaying?",
+          "answer": "Yes",
+          "weight": 8,
+          "explanation": "Zulu ceremonies are aurally and physically defined by specific harmonic structures and collective rhythmic movement."
+        }
+      ]
+    },
+    "object_tag": "South African Africans",
+    "action_tag": "South African Performing ceremony",
+    "scene_tag": "South African Traditional African ceremony in KwaZulu Natal province"
+  }
+}
