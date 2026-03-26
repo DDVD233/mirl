@@ -10,6 +10,9 @@ export HYDRA_FULL_ERROR=1
 export PYTHONPATH="/home/keaneong/human-behavior/verl:$PYTHONPATH"
 export NCCL_ASYNC_ERROR_HANDLING=1
 
+SEED=777
+export PYTHONHASHSEED=$SEED
+
 # train modality batching = do one modality at a time;
 
 # --train_file "/scratch/keane/human_behaviour/human_behaviour_data/w_feats_v6_exclude_heldout_train.jsonl" \

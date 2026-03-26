@@ -4,9 +4,9 @@ set -x
 # ============================================
 # CONFIGURATION - Edit these variables
 # ============================================
-CHECKPOINT_FOLDER="/scratch/keane/hb_atlas_models/grpo_mib_baseline"
-ALGO_NAME="grpo"
-MIN_CHECKPOINT_STEP=250  # Only evaluate checkpoints >= this step number (0 = evaluate all)
+CHECKPOINT_FOLDER="/scratch/keane/hb_atlas_models/harpo_no_ema_v2"
+ALGO_NAME="harpo_no_ema_v2"
+MIN_CHECKPOINT_STEP=360  # Only evaluate checkpoints >= this step number (0 = evaluate all)
 # ============================================
 
 if [ ! -d "$CHECKPOINT_FOLDER" ]; then
@@ -122,7 +122,7 @@ for line in "${ckpt_lines[@]}"; do
     actor_rollout_ref.rollout.tensor_model_parallel_size=1 \
     actor_rollout_ref.rollout.name=vllm \
     actor_rollout_ref.rollout.engine_kwargs.vllm.disable_mm_preprocessor_cache=False \
-    actor_rollout_ref.rollout.gpu_memory_utilization=0.7 \
+    actor_rollout_ref.rollout.gpu_memory_utilization=0.6 \
     actor_rollout_ref.rollout.enable_chunked_prefill=False \
     actor_rollout_ref.rollout.enforce_eager=False \
     actor_rollout_ref.rollout.free_cache_engine=True \
