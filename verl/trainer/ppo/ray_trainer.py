@@ -375,6 +375,17 @@ def compute_advantage(
         data.batch["advantages"] = advantages
         data.batch["returns"] = returns
 
+    elif adv_estimator == AdvantageEstimator.EMAGRPO:
+        grpo_calculation_mask = data.batch["response_mask"]
+        advantages, returns = core_algos.compute_emagrpo_outcome_advantage(
+            token_level_rewards=data.batch["token_level_rewards"],
+            response_mask=grpo_calculation_mask,
+            index=data.non_tensor_batch["uid"],
+            task_ids=data.non_tensor_batch.get("task", None),
+        )
+        data.batch["advantages"] = advantages
+        data.batch["returns"] = returns
+
     else:
         # handle all other adv estimator type other than GAE and GRPO
         adv_estimator_fn = core_algos.get_adv_estimator_fn(adv_estimator)
@@ -1514,6 +1525,23 @@ class RayPPOTrainer:
 
         return out
 
+    def _emagrpo_metrics_all(self):
+        """Log per-task EMA-GRPO statistics: m1, sigma, and batch count."""
+
+        def _sanitize_key(x: str) -> str:
+            return str(x).replace("/", "_").replace(" ", "_")
+
+        out = {}
+        for task_id, st in core_algos.emagrpo_task_stats.items():
+            prefix = f"emagrpo/task/{_sanitize_key(str(task_id))}"
+            m1 = float(st.get("m1", 0.0))
+            m2 = float(st.get("m2", 0.0))
+            variance = max(m2 - m1 ** 2, 1e-6)
+            out[f"{prefix}/m1"]    = m1
+            out[f"{prefix}/sigma"] = float(variance ** 0.5)
+            out[f"{prefix}/count"] = int(st.get("count", 0))
+        return out
+
     def fit(self):
         """
         The training loop of PPO.
@@ -1808,6 +1836,14 @@ class RayPPOTrainer:
                             metrics.update(tarpo_metrics)
                     except Exception as e:
                         print(f"[WARN] TARPO metrics logging failed: {e}")
+
+                    # Log EMA-GRPO task stats every step
+                    try:
+                        emagrpo_metrics = self._emagrpo_metrics_all()
+                        if emagrpo_metrics:
+                            metrics.update(emagrpo_metrics)
+                    except Exception as e:
+                        print(f"[WARN] EMA-GRPO metrics logging failed: {e}")
 
                     # Save advantage distributions to JSON and plot (TARPO only)
                     if self.config.algorithm.adv_estimator == AdvantageEstimator.TARPO:

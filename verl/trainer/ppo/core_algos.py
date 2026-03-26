@@ -105,6 +105,7 @@ class AdvantageEstimator(str, Enum):
     GPG = "gpg"
     DRPO = "drpo"
     TARPO = "tarpo"
+    EMAGRPO = "emagrpo"
 
 
 ADV_ESTIMATOR_REGISTRY: dict[str, Any] = {}
@@ -500,6 +501,96 @@ def compute_drpo_outcome_advantage(
     print(f"[HDRPO] global reward mean = {torch.mean(scores):.3f}")
 
     returns = scores.unsqueeze(-1) * response_mask
+    return returns, returns
+
+
+############################################################################ EMA-GRPO #########################################################################
+
+# Per-task EMA state: tracks first and second moments of raw rewards across batches.
+emagrpo_task_stats: Dict[Any, Dict[str, float]] = defaultdict(lambda: {
+    "m1": 0.0,   # EMA of first moment E[R]
+    "m2": 0.0,   # EMA of second moment E[R^2]
+    "count": 0,  # number of batches seen (used for cold-start init)
+})
+
+
+@register_adv_est(AdvantageEstimator.EMAGRPO)
+def compute_emagrpo_outcome_advantage(
+    token_level_rewards: torch.Tensor,  # (B, L)
+    response_mask: torch.Tensor,        # (B, L)
+    index,                              # (B,) question/prompt ids
+    task_ids: List[Any],                # (B,) task id per sample
+    beta: float = 0.99,                 # EMA decay factor (β in the paper)
+    eps: float = EPS_DEFAULT,
+    adv_clip: float = 5.0,              # clip advantages to [-adv_clip, adv_clip]
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """EMA-GRPO advantage estimator (task-wise EMA normalization).
+
+    Advantage: A_i = clip((R_i - mean_group) / σ_τ(t), -adv_clip, adv_clip)
+
+    - mean_group: mean of rollouts for the same prompt (intra-group, like GRPO)
+    - σ_τ(t): task-wise EMA std = sqrt(m2_τ - m1_τ²), updated each batch
+
+    This resolves both imbalances described in the EMA-GRPO paper:
+    - Intra-task: all rollouts of a task share the same normalization scale σ_τ
+    - Inter-task: each task maintains its own independent σ_τ
+    """
+    B, L = token_level_rewards.shape
+
+    # Fallback: if task_ids is None, treat all samples as one task
+    if task_ids is None:
+        task_ids = ["default"] * B
+
+    # 1. Rollout-level scalar rewards
+    raw_scores = token_level_rewards.sum(dim=-1)  # (B,)
+
+    # 2. Group rollouts by question and by task
+    q2rollouts: Dict[Any, List[float]] = defaultdict(list)
+    q2task: Dict[Any, Any] = {}
+    for i in range(B):
+        qid = index[i]
+        q2rollouts[qid].append(raw_scores[i].item())
+        q2task[qid] = task_ids[i]
+
+    # 3. Aggregate all rewards per task (across all questions of that task)
+    task2rewards: Dict[Any, List[float]] = defaultdict(list)
+    for qid, vals in q2rollouts.items():
+        task2rewards[q2task[qid]].extend(vals)
+
+    # 4. Update EMA moments per task
+    for task, rewards in task2rewards.items():
+        arr = np.array(rewards, dtype=np.float64)
+        mu_t = float(arr.mean())           # first moment of this batch
+        nu_t = float((arr ** 2).mean())    # second moment of this batch
+        st = emagrpo_task_stats[task]
+        if st["count"] == 0:
+            # Cold start: initialize directly from first batch
+            st["m1"] = mu_t
+            st["m2"] = nu_t
+        else:
+            st["m1"] = beta * st["m1"] + (1.0 - beta) * mu_t
+            st["m2"] = beta * st["m2"] + (1.0 - beta) * nu_t
+        st["count"] += 1
+
+    # 5. Compute advantages using task-wise EMA std
+    adv_scores = raw_scores.clone()
+    for i in range(B):
+        qid = index[i]
+        task = q2task[qid]
+
+        # Intra-group mean subtraction (same prompt group, like GRPO)
+        group_mean = float(np.mean(q2rollouts[qid]))
+
+        # Task-wise EMA std: σ_τ = sqrt(m2 - m1²)
+        st = emagrpo_task_stats[task]
+        variance = max(st["m2"] - st["m1"] ** 2, eps)
+        sigma_tau = max(math.sqrt(variance), eps)
+
+        adv = (raw_scores[i].item() - group_mean) / sigma_tau
+        adv = max(-adv_clip, min(adv_clip, adv))
+        adv_scores[i] = adv
+
+    returns = adv_scores.unsqueeze(-1) * response_mask
     return returns, returns
 
 
