@@ -2,7 +2,7 @@
 set -x
 
 export CUDA_VISIBLE_DEVICES=0,1
-# unset ROCR_VISIBLE_DEVICES
+unset ROCR_VISIBLE_DEVICES
 export PYTHONUNBUFFERED=1
 export HYDRA_FULL_ERROR=1
 export PYTHONPATH="/home/keaneong/human-behavior/verl:$PYTHONPATH"

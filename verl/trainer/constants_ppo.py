@@ -48,4 +48,9 @@ def get_ppo_ray_runtime_env():
     pythonpath = os.environ.get("PYTHONPATH")
     if pythonpath:
         runtime_env["env_vars"]["PYTHONPATH"] = pythonpath
+    # If ROCR_VISIBLE_DEVICES is not set in the current env (e.g. via `unset`),
+    # explicitly zero it out for workers so they don't inherit a stale value from
+    # a pre-existing Ray cluster, which would conflict with CUDA_VISIBLE_DEVICES.
+    if not os.environ.get("ROCR_VISIBLE_DEVICES"):
+        runtime_env["env_vars"]["ROCR_VISIBLE_DEVICES"] = ""
     return runtime_env
