@@ -9,6 +9,8 @@ Each parent entry has three sets of YouTube videos:
 Videos are located at:
     <video-base>/<Country>/<youtube_id>.mp4
 
+Uses a torch Dataset + DataLoader for async data loading with prefetching.
+
 Usage:
     python evaluate_youtube_videos.py [--output eval_results_youtube.json]
 """
@@ -17,8 +19,11 @@ import argparse
 import json
 import os
 import re
+import traceback
 from pathlib import Path
 
+import torch
+from torch.utils.data import Dataset, DataLoader
 from transformers import AutoProcessor
 from qwen_vl_utils import process_vision_info
 from vllm import LLM, SamplingParams
@@ -105,6 +110,75 @@ def build_eval_items(frameworks: dict, video_base: Path) -> list[dict]:
     return items
 
 
+class EvalDataset(Dataset):
+    """Dataset that preprocesses eval items into LLM inputs with async-friendly loading."""
+
+    def __init__(self, items: list[dict], processor):
+        self.items = items
+        self.processor = processor
+
+    def __len__(self):
+        return len(self.items)
+
+    def __getitem__(self, idx):
+        item = self.items[idx]
+        messages = [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "video",
+                        "video": f"file://{item['video_path']}",
+                        "fps": 2.0,
+                        "min_frames": 4,
+                        "max_frames": 32,
+                    },
+                    {"type": "text", "text": item["question"]},
+                ],
+            },
+        ]
+
+        try:
+            prompt_text = self.processor.apply_chat_template(
+                messages, tokenize=False, add_generation_prompt=True
+            )
+            image_inputs, video_inputs = process_vision_info(
+                messages, return_video_metadata=True
+            )
+        except Exception:
+            traceback.print_exc()
+            print(f"Warning: failed to load video {item['video_path']}, using blank video")
+            blank_video = [torch.zeros(3, 1, 1, dtype=torch.uint8)]
+            prompt_text = self.processor.apply_chat_template(
+                messages, tokenize=False, add_generation_prompt=True
+            )
+            return {
+                "item": item,
+                "prompt": prompt_text,
+                "mm_data": {"video": blank_video},
+                "failed": True,
+            }
+
+        mm_data = {}
+        if video_inputs is not None:
+            mm_data["video"] = video_inputs
+        if image_inputs is not None:
+            mm_data["image"] = image_inputs
+
+        return {
+            "item": item,
+            "prompt": prompt_text,
+            "mm_data": mm_data,
+            "failed": False,
+        }
+
+
+def collate_fn(batch):
+    """Pass through list of dicts without stacking."""
+    return batch
+
+
 def parse_response(text: str) -> tuple[str, str]:
     """Extract reasoning (everything before \\boxed) and answer (inside \\boxed{})."""
     answer = ""
@@ -122,45 +196,12 @@ def parse_response(text: str) -> tuple[str, str]:
     return reasoning, answer
 
 
-def build_messages(item: dict) -> list[dict]:
-    return [
-        {"role": "system", "content": SYSTEM_PROMPT},
-        {
-            "role": "user",
-            "content": [
-                {
-                    "type": "video",
-                    "video": f"file://{item['video_path']}",
-                    "fps": 2.0,
-                    "min_frames": 4,
-                    "max_frames": 32,
-                },
-                {"type": "text", "text": item["question"]},
-            ],
-        },
-    ]
-
-
-def prepare_llm_input(messages: list[dict], processor) -> dict:
-    """Apply chat template and extract video data for llm.generate()."""
-    prompt = processor.apply_chat_template(
-        messages, tokenize=False, add_generation_prompt=True
-    )
-    image_inputs, video_inputs = process_vision_info(
-        messages, return_video_metadata=True
-    )
-    mm_data = {}
-    if video_inputs is not None:
-        mm_data["video"] = video_inputs
-    if image_inputs is not None:
-        mm_data["image"] = image_inputs
-    return {"prompt": prompt, "multi_modal_data": mm_data}
-
-
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", default="eval_results_youtube.json")
     parser.add_argument("--batch-size", type=int, default=4)
+    parser.add_argument("--num-workers", type=int, default=4,
+                        help="DataLoader workers for async video loading")
     parser.add_argument("--model", default="Qwen/Qwen3-VL-235B-A22B-Instruct-FP8")
     parser.add_argument("--video-base", default=str(VIDEO_BASE),
                         help="Base directory for YouTube video files")
@@ -191,6 +232,16 @@ def main():
 
     processor = AutoProcessor.from_pretrained(args.model)
 
+    dataset = EvalDataset(items, processor)
+    dataloader = DataLoader(
+        dataset,
+        batch_size=args.batch_size,
+        num_workers=args.num_workers,
+        collate_fn=collate_fn,
+        prefetch_factor=2,
+        shuffle=False,
+    )
+
     llm = LLM(
         model=args.model,
         tensor_parallel_size=4,
@@ -205,16 +256,13 @@ def main():
         max_tokens=4096,
     )
 
-    for batch_start in range(0, len(items), args.batch_size):
-        batch = items[batch_start : batch_start + args.batch_size]
-        conversations = [build_messages(item) for item in batch]
-        llm_inputs = [prepare_llm_input(msgs, processor) for msgs in conversations]
+    processed = 0
+    for batch in dataloader:
+        valid = [b for b in batch if not b["failed"]]
+        failed = [b for b in batch if b["failed"]]
 
-        outputs = llm.generate(llm_inputs, sampling_params=sampling_params)
-
-        for item, output in zip(batch, outputs):
-            text = output.outputs[0].text
-            reasoning, answer = parse_response(text)
+        for b in failed:
+            item = b["item"]
             result = {
                 "parent_id": item["parent_id"],
                 "prompt": item["prompt"],
@@ -228,17 +276,52 @@ def main():
                 "question": item["question"],
                 "question_category": item["question_category"],
                 "path": item["video_path"],
-                "answer": answer,
-                "reasoning": reasoning,
-                "raw_response": text,
+                "answer": "",
+                "reasoning": "",
+                "raw_response": "",
                 "gt_answer": item["gt_answer"],
                 "weight": item["weight"],
                 "prompt_type": "youtube",
+                "error": "video_load_failed",
             }
             results.append(result)
-            print(json.dumps(result, indent=2))
 
-        print(f"Processed {min(batch_start + args.batch_size, len(items))}/{len(items)}")
+        if valid:
+            llm_inputs = [
+                {"prompt": b["prompt"], "multi_modal_data": b["mm_data"]}
+                for b in valid
+            ]
+            outputs = llm.generate(llm_inputs, sampling_params=sampling_params)
+
+            for b, output in zip(valid, outputs):
+                item = b["item"]
+                text = output.outputs[0].text
+                reasoning, answer = parse_response(text)
+                result = {
+                    "parent_id": item["parent_id"],
+                    "prompt": item["prompt"],
+                    "country": item["country"],
+                    "category": item["category"],
+                    "tag_field": item["tag_field"],
+                    item["tag_key"]: item["tag_value"],
+                    "youtube_id": item["youtube_id"],
+                    "video_url": item["video_url"],
+                    "video_title": item["video_title"],
+                    "question": item["question"],
+                    "question_category": item["question_category"],
+                    "path": item["video_path"],
+                    "answer": answer,
+                    "reasoning": reasoning,
+                    "raw_response": text,
+                    "gt_answer": item["gt_answer"],
+                    "weight": item["weight"],
+                    "prompt_type": "youtube",
+                }
+                results.append(result)
+                print(json.dumps(result, indent=2))
+
+        processed += len(batch)
+        print(f"Processed {processed}/{len(items)}")
 
         if len(results) % 1000 < args.batch_size:
             with open(args.output, "w") as f:
