@@ -2,16 +2,13 @@
 set -x
 
 # Pin to GPUs 0,1
-# export CUDA_VISIBLE_DEVICES=0,1,2,3
 export CUDA_VISIBLE_DEVICES=4,5,6,7
+# export CUDA_VISIBLE_DEVICES=5,6
 unset ROCR_VISIBLE_DEVICES
 export PYTHONUNBUFFERED=1
 export HYDRA_FULL_ERROR=1
 export PYTHONPATH="/home/keaneong/human-behavior/verl:$PYTHONPATH"
 export NCCL_ASYNC_ERROR_HANDLING=1
-
-SEED=777
-export PYTHONHASHSEED=$SEED
 
 # train modality batching = do one modality at a time;
 
@@ -32,12 +29,17 @@ export PYTHONHASHSEED=$SEED
 
 # originally prompt length, response length, max model len is 2048, 2048, 8192 
 
+# trainer.resume_mode=resume_path \
+# trainer.resume_from_path=/scratch/keane/hb_atlas_models/rloo_mib_baseline2/global_step_300 \
+
+# data.train_files=/scratch/keane/human_behaviour_data/final_v8_train_cleaned_2.jsonl \
+
     python3 -m verl.trainer.main_ppo \
-        algorithm.adv_estimator=tarpo \
+        algorithm.adv_estimator=rloo \
         data.train_files=/scratch/keane/human_behaviour_data/final_v8_train_cleaned_2.jsonl \
-        data.val_files=/scratch/keane/human_behaviour_data/final_v8_test_cleaned.jsonl \
+        data.val_files=/scratch/keane/human_behaviour_data/final_v8_val_cleaned.jsonl \
         data.train_batch_size=256 \
-        data.val_batch_size=64 \
+        data.val_batch_size=8 \
         data.max_prompt_length=4096 \
         data.max_response_length=2048 \
         data.filter_overlong_prompts=False \
@@ -68,7 +70,7 @@ export PYTHONHASHSEED=$SEED
         actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=16 \
         actor_rollout_ref.rollout.tensor_model_parallel_size=1 \
         actor_rollout_ref.rollout.name=vllm \
-        actor_rollout_ref.rollout.engine_kwargs.vllm.disable_mm_preprocessor_cache=False \
+        actor_rollout_ref.rollout.engine_kwargs.vllm.disable_mm_preprocessor_cache=True \
         actor_rollout_ref.rollout.gpu_memory_utilization=0.6 \
         actor_rollout_ref.rollout.enable_chunked_prefill=False \
         actor_rollout_ref.rollout.enforce_eager=False \
@@ -85,15 +87,15 @@ export PYTHONHASHSEED=$SEED
         trainer.critic_warmup=0 \
         trainer.logger='["console","wandb"]' \
         trainer.project_name='rl_baselines' \
-        trainer.experiment_name='gpg_test_step_250' \
+        trainer.experiment_name='v2_rloo_mib_baseline' \
         trainer.n_gpus_per_node=4 \
         trainer.nnodes=1 \
-        trainer.save_freq=99999 \
-        trainer.val_before_train=True \
-        trainer.resume_mode=resume_path \
-        trainer.resume_from_path=/scratch/keane/hb_atlas_models/gpg_mib_baseline2/global_step_250 \
-        trainer.val_only=True \
-        trainer.validation_data_dir=/scratch/keane/hb_atlas_models/gpg_mib_baseline2/global_step_250_test \
-        trainer.test_freq=1 \
-        trainer.total_epochs=1 $@ \
-        trainer.default_local_dir=/scratch/keane/hb_atlas_models/gpg_mib_baseline2
+        trainer.save_freq=5 \
+        trainer.val_before_train=False \
+        trainer.val_only=False \
+        trainer.validation_data_dir=/scratch/keane/hb_atlas_models/v2_rloo_mib_baseline \
+        trainer.test_freq=99999 \
+        trainer.total_epochs=5 \
+        trainer.advantage_save_dir=/scratch/keane/hb_atlas_models/v2_rloo_mib_baseline/advantages \
+        trainer.advantage_plot_freq=15 $@ \
+        trainer.default_local_dir=/scratch/keane/hb_atlas_models/v2_rloo_mib_baseline

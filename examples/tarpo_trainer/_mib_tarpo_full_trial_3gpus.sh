@@ -1,28 +1,14 @@
 #!/usr/bin/env bash
 set -x
 
-# ============================================
-# CONFIGURATION - Edit these variables
-# ============================================
-CHECKPOINT_FOLDER="/scratch/keane/hb_atlas_models/harpo_no_ema_v2"
-ALGO_NAME="harpo_no_ema_v2"
-MIN_CHECKPOINT_STEP=360  # Only evaluate checkpoints >= this step number (0 = evaluate all)
-# ============================================
-
-if [ ! -d "$CHECKPOINT_FOLDER" ]; then
-    echo "Error: Checkpoint folder '$CHECKPOINT_FOLDER' does not exist"
-    echo "Please edit the CHECKPOINT_FOLDER variable at the top of this script"
-    exit 1
-fi
-
 # Pin to GPUs 0,1
-export CUDA_VISIBLE_DEVICES=4,5,6,7
-# export CUDA_VISIBLE_DEVICES=0,1,2,3
+export CUDA_VISIBLE_DEVICES=2,3
 unset ROCR_VISIBLE_DEVICES
 export PYTHONUNBUFFERED=1
 export HYDRA_FULL_ERROR=1
 export PYTHONPATH="/home/keaneong/human-behavior/verl:$PYTHONPATH"
 export NCCL_ASYNC_ERROR_HANDLING=1
+export RAY_memory_usage_threshold=0.98
 
 # train modality batching = do one modality at a time;
 
@@ -41,56 +27,14 @@ export NCCL_ASYNC_ERROR_HANDLING=1
 # dataloader num workers set to 8
 # gpu memory set to 0.7 from 0.6
 
-# originally prompt length, response length, max model len is 2048, 2048, 8192
+# originally prompt length, response length, max model len is 2048, 2048, 8192 
 
-# Find all checkpoint directories matching global_step_*
-
-# Bash strict-ish: make glob that matches nothing expand to nothing (not itself)
-shopt -s nullglob
-
-# Build list: "<step>\t<path>"
-mapfile -t ckpt_lines < <(
-  for d in "$CHECKPOINT_FOLDER"/global_step_*; do
-    [ -d "$d" ] || continue
-    bn="$(basename "$d")"
-    step="${bn#global_step_}"
-
-    # keep only purely-numeric steps
-    [[ "$step" =~ ^[0-9]+$ ]] || continue
-
-    # threshold filter
-    if [ "$step" -lt "$MIN_CHECKPOINT_STEP" ]; then
-      echo "Skipping $bn (step $step < $MIN_CHECKPOINT_STEP)" >&2
-      continue
-    fi
-
-    printf '%s\t%s\n' "$step" "$d"
-  done | sort -n -k1,1
-)
-
-# Iterate in numeric order
-for line in "${ckpt_lines[@]}"; do
-  step_number="${line%%$'\t'*}"
-  checkpoint_dir="${line#*$'\t'}"
-
-  checkpoint_name="$(basename "$checkpoint_dir")"
-  validation_dir="$checkpoint_dir/${checkpoint_name}_val"
-  experiment_name="${ALGO_NAME}_${checkpoint_name}"
-
-  echo "=================================================="
-  echo "Processing checkpoint: $checkpoint_name"
-  echo "Step: $step_number"
-  echo "Resume from: $checkpoint_dir"
-  echo "Validation dir: $validation_dir"
-  echo "Experiment name: $experiment_name"
-  echo "=================================================="
-
-  python3 -m verl.trainer.main_ppo \
+python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=tarpo \
     data.train_files=/scratch/keane/human_behaviour_data/final_v8_train_cleaned_2.jsonl \
     data.val_files=/scratch/keane/human_behaviour_data/final_v8_val_cleaned.jsonl \
     data.train_batch_size=256 \
-    data.val_batch_size=1024 \
+    data.val_batch_size=8 \
     data.max_prompt_length=4096 \
     data.max_response_length=2048 \
     data.filter_overlong_prompts=False \
@@ -106,10 +50,10 @@ for line in "${ckpt_lines[@]}"; do
     data.val_modality_batching.drop_last=False \
     data.format_prompt=/home/keaneong/human-behavior/verl/examples/format_prompt/default.jinja \
     actor_rollout_ref.model.path=Qwen/Qwen2.5-Omni-7B \
-    actor_rollout_ref.actor.optim.lr=1e-6 \
+    actor_rollout_ref.actor.optim.lr=5e-7 \
     actor_rollout_ref.model.use_remove_padding=True \
     actor_rollout_ref.actor.ppo_mini_batch_size=128 \
-    actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=16 \
+    actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=1 \
     actor_rollout_ref.actor.use_kl_loss=False \
     actor_rollout_ref.actor.kl_loss_coef=0 \
     actor_rollout_ref.actor.kl_loss_type=low_var_kl \
@@ -118,16 +62,16 @@ for line in "${ckpt_lines[@]}"; do
     actor_rollout_ref.model.enable_gradient_checkpointing=True \
     actor_rollout_ref.actor.fsdp_config.param_offload=False \
     actor_rollout_ref.actor.fsdp_config.optimizer_offload=False \
-    actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=64 \
-    actor_rollout_ref.rollout.tensor_model_parallel_size=1 \
+    actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=1 \
+    actor_rollout_ref.rollout.tensor_model_parallel_size=2 \
     actor_rollout_ref.rollout.name=vllm \
     actor_rollout_ref.rollout.engine_kwargs.vllm.disable_mm_preprocessor_cache=False \
     actor_rollout_ref.rollout.gpu_memory_utilization=0.6 \
-    actor_rollout_ref.rollout.enable_chunked_prefill=False \
+    actor_rollout_ref.rollout.enable_chunked_prefill=True \
     actor_rollout_ref.rollout.enforce_eager=False \
     actor_rollout_ref.rollout.free_cache_engine=True \
     actor_rollout_ref.rollout.n=5 \
-    actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=64 \
+    actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=1 \
     actor_rollout_ref.ref.fsdp_config.param_offload=True \
     actor_rollout_ref.rollout.max_model_len=6192 \
     actor_rollout_ref.rollout.max_num_batched_tokens=6192 \
@@ -137,17 +81,16 @@ for line in "${ckpt_lines[@]}"; do
     reward_model.reward_manager=batch \
     trainer.critic_warmup=0 \
     trainer.logger='["console","wandb"]' \
-    trainer.project_name='rl_baselines' \
-    trainer.experiment_name="$experiment_name" \
-    trainer.n_gpus_per_node=4 \
+    trainer.project_name='rl_omni_heldout' \
+    trainer.experiment_name='trial' \
+    trainer.n_gpus_per_node=2 \
     trainer.nnodes=1 \
-    trainer.save_freq=50 \
-    trainer.val_before_train=True \
-    trainer.resume_mode=resume_path \
-    trainer.resume_from_path="$checkpoint_dir" \
-    trainer.val_only=True \
-    trainer.validation_data_dir="$validation_dir" \
-    trainer.test_freq=1 \
-    trainer.total_epochs=1 \
-    trainer.default_local_dir="$CHECKPOINT_FOLDER"
-done
+    trainer.save_freq=5 \
+    trainer.val_before_train=False \
+    trainer.val_only=False \
+    trainer.validation_data_dir=/scratch/keane/human_behaviour/trial \
+    trainer.test_freq=99999 \
+    trainer.total_epochs=5 \
+    trainer.advantage_save_dir=/scratch/keane/human_behaviour/trial/advantages \
+    trainer.advantage_plot_freq=15 $@ \
+    trainer.default_local_dir=/scratch/keane/human_behaviour/trial

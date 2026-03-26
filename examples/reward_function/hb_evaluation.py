@@ -148,9 +148,10 @@ if __name__ == "__main__":
     #     "DatasetB","DatasetB","DatasetB","DatasetB","DatasetB",
     # ]
 
-    input_filename = "examples/reward_function/gemma3_4b.json"
+    input_filename = "/scratch/keane/human_behaviour_data/avasd_zeroshot_dataset/latest_omnisapiens_rl_results.jsonl"
     with open(input_filename, "r") as f:
         input_data = json.load(f)
+        
     predictions = input_data["predictions"]
     ground_truths = input_data["ground_truths"]
     datasets = input_data["datasets"]
