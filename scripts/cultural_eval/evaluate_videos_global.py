@@ -259,6 +259,11 @@ def main():
         processed += len(batch)
         print(f"Processed {processed}/{len(items)}")
 
+        if len(results) % 1000 < args.batch_size:
+            with open(args.output, "w") as f:
+                json.dump(results, f, indent=2)
+            print(f"Saved partial results ({len(results)} items) to {args.output}")
+
     with open(args.output, "w") as f:
         json.dump(results, f, indent=2)
     print(f"Saved {len(results)} results to {args.output}")
