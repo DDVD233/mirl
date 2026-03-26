@@ -17,6 +17,7 @@ import argparse
 import json
 import os
 import re
+import traceback
 from pathlib import Path
 
 from transformers import AutoProcessor
@@ -141,14 +142,21 @@ def build_messages(item: dict) -> list[dict]:
     ]
 
 
-def prepare_llm_input(messages: list[dict], processor) -> dict:
-    """Apply chat template and extract video data for llm.generate()."""
-    prompt = processor.apply_chat_template(
-        messages, tokenize=False, add_generation_prompt=True
-    )
-    image_inputs, video_inputs = process_vision_info(
-        messages, return_video_metadata=True
-    )
+def prepare_llm_input(messages: list[dict], processor) -> dict | None:
+    """Apply chat template and extract video data for llm.generate().
+
+    Returns None if video loading fails.
+    """
+    try:
+        prompt = processor.apply_chat_template(
+            messages, tokenize=False, add_generation_prompt=True
+        )
+        image_inputs, video_inputs = process_vision_info(
+            messages, return_video_metadata=True
+        )
+    except Exception:
+        traceback.print_exc()
+        return None
     mm_data = {}
     if video_inputs is not None:
         mm_data["video"] = video_inputs
@@ -208,35 +216,69 @@ def main():
     for batch_start in range(0, len(items), args.batch_size):
         batch = items[batch_start : batch_start + args.batch_size]
         conversations = [build_messages(item) for item in batch]
-        llm_inputs = [prepare_llm_input(msgs, processor) for msgs in conversations]
+        paired = [(item, prepare_llm_input(msgs, processor))
+                  for item, msgs in zip(batch, conversations)]
 
-        outputs = llm.generate(llm_inputs, sampling_params=sampling_params)
+        # Record failed items, collect valid ones for LLM
+        valid_items = []
+        valid_inputs = []
+        for item, llm_input in paired:
+            if llm_input is None:
+                print(f"Warning: skipping {item['video_path']} (video load failed)")
+                result = {
+                    "parent_id": item["parent_id"],
+                    "prompt": item["prompt"],
+                    "country": item["country"],
+                    "category": item["category"],
+                    "tag_field": item["tag_field"],
+                    item["tag_key"]: item["tag_value"],
+                    "youtube_id": item["youtube_id"],
+                    "video_url": item["video_url"],
+                    "video_title": item["video_title"],
+                    "question": item["question"],
+                    "question_category": item["question_category"],
+                    "path": item["video_path"],
+                    "answer": "",
+                    "reasoning": "",
+                    "raw_response": "",
+                    "gt_answer": item["gt_answer"],
+                    "weight": item["weight"],
+                    "prompt_type": "youtube",
+                    "error": "video_load_failed",
+                }
+                results.append(result)
+            else:
+                valid_items.append(item)
+                valid_inputs.append(llm_input)
 
-        for item, output in zip(batch, outputs):
-            text = output.outputs[0].text
-            reasoning, answer = parse_response(text)
-            result = {
-                "parent_id": item["parent_id"],
-                "prompt": item["prompt"],
-                "country": item["country"],
-                "category": item["category"],
-                "tag_field": item["tag_field"],
-                item["tag_key"]: item["tag_value"],
-                "youtube_id": item["youtube_id"],
-                "video_url": item["video_url"],
-                "video_title": item["video_title"],
-                "question": item["question"],
-                "question_category": item["question_category"],
-                "path": item["video_path"],
-                "answer": answer,
-                "reasoning": reasoning,
-                "raw_response": text,
-                "gt_answer": item["gt_answer"],
-                "weight": item["weight"],
-                "prompt_type": "youtube",
-            }
-            results.append(result)
-            print(json.dumps(result, indent=2))
+        if valid_inputs:
+            outputs = llm.generate(valid_inputs, sampling_params=sampling_params)
+
+            for item, output in zip(valid_items, outputs):
+                text = output.outputs[0].text
+                reasoning, answer = parse_response(text)
+                result = {
+                    "parent_id": item["parent_id"],
+                    "prompt": item["prompt"],
+                    "country": item["country"],
+                    "category": item["category"],
+                    "tag_field": item["tag_field"],
+                    item["tag_key"]: item["tag_value"],
+                    "youtube_id": item["youtube_id"],
+                    "video_url": item["video_url"],
+                    "video_title": item["video_title"],
+                    "question": item["question"],
+                    "question_category": item["question_category"],
+                    "path": item["video_path"],
+                    "answer": answer,
+                    "reasoning": reasoning,
+                    "raw_response": text,
+                    "gt_answer": item["gt_answer"],
+                    "weight": item["weight"],
+                    "prompt_type": "youtube",
+                }
+                results.append(result)
+                print(json.dumps(result, indent=2))
 
         print(f"Processed {min(batch_start + args.batch_size, len(items))}/{len(items)}")
 
