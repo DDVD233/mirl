@@ -2,7 +2,7 @@
 set -x
 
 # Pin to GPUs 0,1,2,3 (adjust as needed)
-export CUDA_VISIBLE_DEVICES=4,5,6,7
+export CUDA_VISIBLE_DEVICES=0,1,2,3
 unset ROCR_VISIBLE_DEVICES
 export PYTHONUNBUFFERED=1
 export HYDRA_FULL_ERROR=1
@@ -12,9 +12,9 @@ export NCCL_ASYNC_ERROR_HANDLING=1
     python3 -m verl.trainer.main_ppo \
         algorithm.adv_estimator=emagrpo \
         data.train_files=/scratch/keane/human_behaviour_data/final_v8_train_cleaned_2.jsonl \
-        data.val_files=/scratch/keane/human_behaviour_data/final_v8_val_cleaned.jsonl \
+        data.val_files=/scratch/keane/human_behaviour_data/final_v8_test_cleaned.jsonl \
         data.train_batch_size=256 \
-        data.val_batch_size=8 \
+        data.val_batch_size=64 \
         data.max_prompt_length=4096 \
         data.max_response_length=2048 \
         data.filter_overlong_prompts=False \
@@ -33,7 +33,7 @@ export NCCL_ASYNC_ERROR_HANDLING=1
         actor_rollout_ref.actor.optim.lr=1e-6 \
         actor_rollout_ref.model.use_remove_padding=True \
         actor_rollout_ref.actor.ppo_mini_batch_size=128 \
-        actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=16 \
+        actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=4 \
         actor_rollout_ref.actor.use_kl_loss=True \
         actor_rollout_ref.actor.kl_loss_coef=0 \
         actor_rollout_ref.actor.kl_loss_type=low_var_kl \
@@ -42,7 +42,7 @@ export NCCL_ASYNC_ERROR_HANDLING=1
         actor_rollout_ref.model.enable_gradient_checkpointing=True \
         actor_rollout_ref.actor.fsdp_config.param_offload=False \
         actor_rollout_ref.actor.fsdp_config.optimizer_offload=False \
-        actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=16 \
+        actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=4 \
         actor_rollout_ref.rollout.tensor_model_parallel_size=1 \
         actor_rollout_ref.rollout.name=vllm \
         actor_rollout_ref.rollout.engine_kwargs.vllm.disable_mm_preprocessor_cache=True \
@@ -63,9 +63,9 @@ export NCCL_ASYNC_ERROR_HANDLING=1
         trainer.logger='["console","wandb"]' \
         trainer.project_name='rl_omni_heldout' \
         trainer.experiment_name='emagrpo_engaging_baseline' \
-        trainer.n_gpus_per_node=4 \
+        trainer.n_gpus_per_node=2 \
         trainer.nnodes=1 \
-        trainer.save_freq=5 \
+        trainer.save_freq=50 \
         trainer.val_before_train=False \
         trainer.val_only=False \
         trainer.validation_data_dir=/scratch/keane/hb_atlas_models/emagrpo_engaging_baseline \
