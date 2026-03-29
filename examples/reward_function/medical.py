@@ -8,6 +8,94 @@ import numpy as np
 from mathruler.grader import extract_boxed_content
 import wandb
 import random
+
+from google import genai
+from pydantic import BaseModel, Field
+
+
+class ReasoningEvaluation(BaseModel):
+    justification: str = Field(description="Brief justification for the score, explaining which criteria were met or not met.")
+    score: int = Field(description="Reasoning quality score from 1 to 5.")
+
+
+REASONING_EVAL_PROMPT = """You are an expert evaluator of medical reasoning quality. Evaluate the quality of the reasoning in the following model response, independent of whether the final answer is correct.
+
+## Ground Truth Answer
+{ground_truth}
+
+## Model Response
+{solution}
+
+## Scoring Criteria (1-5 scale)
+
+**Score 1 - No meaningful reasoning:**
+- Response lacks any logical reasoning or clinical thought process
+- Contains only a final answer with no explanation
+- Reasoning is completely incoherent or irrelevant to the medical question
+
+**Score 2 - Minimal reasoning:**
+- Shows some attempt at reasoning but is largely superficial
+- May mention relevant medical concepts but fails to connect them logically
+- Reasoning contains major gaps or significant factual errors in the logical chain
+
+**Score 3 - Adequate reasoning:**
+- Demonstrates a coherent chain of thought with identifiable logical steps
+- References relevant medical knowledge and clinical concepts
+- May have minor gaps or imprecisions, but the overall reasoning flow is followable
+- Shows basic differential thinking or consideration of relevant factors
+
+**Score 4 - Strong reasoning:**
+- Presents a well-structured, logical reasoning chain with clear step-by-step analysis
+- Accurately applies relevant medical knowledge and clinical principles
+- Considers multiple relevant factors and their interactions
+- Shows evidence of systematic thinking (e.g., differential diagnosis, ruling out alternatives)
+
+**Score 5 - Excellent reasoning:**
+- Demonstrates comprehensive, expert-level clinical reasoning
+- Thoroughly explores relevant differentials and systematically narrows down
+- Integrates multiple pieces of evidence coherently and accurately
+- Shows nuanced understanding of the medical domain with precise use of terminology
+- Reasoning would be considered high-quality even by domain experts
+
+Evaluate ONLY the reasoning quality, NOT whether the final answer matches the ground truth."""
+
+
+def compute_llm_score(solution_str: str, ground_truth: str) -> tuple[float, str]:
+    """
+    Use Gemini as an LLM judge to evaluate reasoning quality.
+
+    Args:
+        solution_str: The full model response string
+        ground_truth: The ground truth answer string
+
+    Returns:
+        Tuple of (normalized_score, raw_llm_output_str)
+    """
+    try:
+        client = genai.Client()
+        prompt = REASONING_EVAL_PROMPT.format(
+            ground_truth=ground_truth,
+            solution=solution_str,
+        )
+        response = client.models.generate_content(
+            model="gemini-3-flash-preview",
+            contents=prompt,
+            config={
+                "response_mime_type": "application/json",
+                "response_json_schema": ReasoningEvaluation.model_json_schema(),
+            },
+        )
+        evaluation = ReasoningEvaluation.model_validate_json(response.text)
+        raw_score = max(1, min(5, evaluation.score))  # clamp to [1, 5]
+        normalized = (raw_score - 1) / 4.0  # map 1-5 to 0.0-1.0
+        debug_str = f"score={evaluation.score}, justification={evaluation.justification}"
+        print(f"[LLM Judge] {debug_str}")
+        return normalized, debug_str
+    except Exception as e:
+        print(f"[LLM Judge] Error: {e}")
+        return 0.0, f"error: {e}"
+
+
 def strip_thinking_tags(text: str) -> str:
     """Remove <think>...</think> tags and return the content after."""
     # Remove everything within <think>...</think> tags
@@ -326,9 +414,6 @@ def medical_compute_score(solution_str: str, ground_truth: str, **kwargs) -> Dic
         Tuple of (standard_score, bbox_score)
         Note: bbox_score is a combination of IoU score and format score
     """
-    segmentation_mask = None
-    bbox = None
-
     # Calculate standard score
     answer = extract_boxed_content(solution_str)
     if answer == "None":
@@ -367,42 +452,15 @@ def medical_compute_score(solution_str: str, ground_truth: str, **kwargs) -> Dic
     else:
         length_score = len(solution_str) * 0.001
 
-    # Calculate bounding box IoU score
-    iou_score = 0.0
-    # Extract predicted bounding boxes from the response
-    json_data = extract_json_from_response(solution_str)
-    if json_data:
-        # Extract bounding boxes from the JSON
-        try:
-            pred_bboxes = []
-            if isinstance(json_data, list):
-                for item in json_data:
-                    if isinstance(item, dict) and "bbox_2d" in item:
-                        pred_bboxes.append(item["bbox_2d"])
-            elif isinstance(json_data, dict) and "bbox_2d" in json_data:
-                pred_bboxes.append(json_data["bbox_2d"])
-            elif isinstance(json_data, dict) and "objects_of_interest" in json_data:
-                for item in json_data["objects_of_interest"]:
-                    if isinstance(item, dict) and "bbox_2d" in item:
-                        pred_bboxes.append(item["bbox_2d"])
-
-            if random.random() < 0.005:  # print every 0.5%
-                print("[Bounding Box] ", json_data)
-                print("[Formatted Bounding Box] ", pred_bboxes)
-                print("[GT Bounding Box] ", bbox)
-
-            # Calculate IoU between predicted boxes and ground truth
-            if pred_bboxes:
-                iou_score = calculate_bbox_iou(pred_bboxes, segmentation_mask, bbox)
-        except:
-            pass
+    # Calculate LLM-as-a-judge reasoning quality score
+    llm_score, llm_debug = compute_llm_score(solution_str, ground_truth)
 
     scores = {
-        "score": 0.5 * standard_score + 0.2 * iou_score + 0.1 * format_score + 0.2 * similarity_score,
+        "score": 0.6 * standard_score + 0.1 * format_score + 0.3 * llm_score,
         "standard_score": standard_score,
-        "iou_score": iou_score,
         "format_score": format_score,
         "similarity_score": similarity_score,
         "length_score": length_score,
+        "llm_score": llm_score,
     }
     return scores
