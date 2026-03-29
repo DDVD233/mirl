@@ -112,7 +112,8 @@ def compute_llm_score(solution_str: str, ground_truth: str) -> tuple[float, str]
         raw_score = max(1, min(5, evaluation.score))  # clamp to [1, 5]
         normalized = (raw_score - 1) / 4.0  # map 1-5 to 0.0-1.0
         debug_str = f"score={evaluation.score}, justification={evaluation.justification}"
-        print(f"[LLM Judge] {debug_str}")
+        if random.random() < 0.01:
+            print(f"[LLM Judge] {debug_str}")
         return normalized, debug_str
     except Exception as e:
         print(f"[LLM Judge] Error: {e}")
