@@ -9,8 +9,31 @@ from mathruler.grader import extract_boxed_content
 import wandb
 import random
 
+import os
+import subprocess
 from google import genai
 from pydantic import BaseModel, Field
+
+
+def _ensure_gemini_api_key():
+    """Load GEMINI_API_KEY from ~/.zshrc if not already in environment."""
+    if os.environ.get("GEMINI_API_KEY"):
+        return
+    try:
+        zshrc_path = os.path.expanduser("~/.zshrc")
+        with open(zshrc_path, "r") as f:
+            for line in f:
+                line = line.strip()
+                if line.startswith("export GEMINI_API_KEY="):
+                    # extract value, strip quotes
+                    value = line.split("=", 1)[1].strip().strip('"').strip("'")
+                    os.environ["GEMINI_API_KEY"] = value
+                    return
+    except Exception as e:
+        print(f"[LLM Judge] Warning: could not read ~/.zshrc: {e}")
+
+
+_ensure_gemini_api_key()
 
 
 class ReasoningEvaluation(BaseModel):
