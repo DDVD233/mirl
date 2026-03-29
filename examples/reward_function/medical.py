@@ -37,7 +37,7 @@ _ensure_gemini_api_key()
 
 
 class ReasoningEvaluation(BaseModel):
-    justification: str = Field(description="Brief justification for the score, explaining which criteria were met or not met.")
+    justification: str = Field(description="Brief justification for the score in one sentence.")
     score: int = Field(description="Reasoning quality score from 1 to 5.")
 
 
@@ -101,7 +101,7 @@ def compute_llm_score(solution_str: str, ground_truth: str) -> tuple[float, str]
             solution=solution_str,
         )
         response = client.models.generate_content(
-            model="gemini-3-flash-preview",
+            model="gemini-3.1-flash-lite-preview",
             contents=prompt,
             config={
                 "response_mime_type": "application/json",
