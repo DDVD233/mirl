@@ -23,6 +23,7 @@ import cloudpickle as pickle
 import numpy as np
 import ray
 import vllm.entrypoints.cli.serve
+from packaging import version
 import zmq
 from ray.actor import ActorHandle
 from vllm import SamplingParams
@@ -35,8 +36,7 @@ from vllm.inputs import TokensPrompt
 from vllm.lora.request import LoRARequest
 from vllm.outputs import RequestOutput
 from vllm.usage.usage_lib import UsageContext
-from vllm.utils.argparse_utils import FlexibleArgumentParser
-from vllm.utils.network_utils import get_tcp_uri
+from vllm.distributed.utils import get_tcp_uri
 from vllm.v1.engine.async_llm import AsyncLLM
 from vllm.v1.engine.core import EngineCoreProc
 from vllm.v1.engine.utils import CoreEngineProcManager
@@ -57,6 +57,23 @@ from verl.workers.rollout.vllm_rollout.utils import (
 from packaging import version
 
 _VLLM_VERSION = version.parse(vllm.__version__)
+
+if _VLLM_VERSION > version.parse("0.11.0"):
+    from vllm.utils.argparse_utils import FlexibleArgumentParser
+
+    if _VLLM_VERSION == version.parse("0.12.0"):
+        from vllm.entrypoints.harmony_utils import get_encoding
+
+    elif _VLLM_VERSION >= version.parse("0.13.0"):
+        from vllm.entrypoints.openai.parser.harmony_utils import get_encoding
+
+    else:
+        get_encoding = None
+
+    if get_encoding is not None and os.getenv("VERL_USE_GPT_OSS", "0") == "1":
+        get_encoding()
+else:
+    from vllm.utils import FlexibleArgumentParser
 
 logger = logging.getLogger(__file__)
 logger.setLevel(logging.INFO)
