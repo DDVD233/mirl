@@ -2,8 +2,8 @@ set -x
 
 CUDA_VISIBLE_DEVICES=2,4,5,7 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=fair_grpo \
-    data.train_files=/home/dvdai/orcd/scratch/high_modality/geom_train_demo_only.jsonl \
-    data.val_files=/home/dvdai/orcd/scratch/high_modality/geom_valid_demo_only.jsonl \
+    data.train_files=/scratch/high_modality/geom_train_demo_only.jsonl \
+    data.val_files=/scratch/high_modality/geom_valid_demo_only.jsonl \
     data.train_batch_size=512 \
     data.val_batch_size=512 \
     data.max_prompt_length=4096 \
