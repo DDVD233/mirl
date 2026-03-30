@@ -410,7 +410,7 @@ def _cluster_info_question(vectors: List[np.ndarray]) -> Tuple[float, np.ndarray
         return 0.0, np.empty(0, int), np.empty(0), np.empty((0, 0))
 
     X = np.stack(vectors, axis=0)            # (Q,R) – R inferred from data
-    k_opt = _select_k_elbow(X, k_max=1)
+    k_opt = _select_k_elbow(X, k_max=20)
     km    = KMeans(n_clusters=k_opt, n_init="auto", random_state=0).fit(X)
 
     centroids   = km.cluster_centers_        # (k,R)
