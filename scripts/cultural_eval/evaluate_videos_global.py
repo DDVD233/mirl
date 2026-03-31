@@ -170,6 +170,8 @@ def main():
                         help="Base directory for video files (country subdirs expected)")
     parser.add_argument("--frameworks", default="non_india_evaluation_frameworks.json",
                         help="Path to evaluation frameworks JSON file")
+    parser.add_argument("--prompt-type", default=None,
+                        help="Override prompt_type (default: video_base directory name)")
     args = parser.parse_args()
 
     frameworks = load_frameworks(Path(args.frameworks))
@@ -209,25 +211,25 @@ def main():
     for batch in dataloader:
         # Filter out failed loads
         valid = [b for b in batch if not b["failed"]]
-        failed = [b for b in batch if b["failed"]]
-
-        for b in failed:
-            item = b["item"]
-            result = {
-                "prompt": item["prompt"],
-                "country": item["country"],
-                "question": item["question"],
-                "question_category": item["question_category"],
-                "path": item["video_path"],
-                "answer": "",
-                "reasoning": "",
-                "raw_response": "",
-                "gt_answer": item["gt_answer"],
-                "weight": item["weight"],
-                "prompt_type": Path(args.video_base).name,
-                "error": "video_load_failed",
-            }
-            results.append(result)
+        # failed = [b for b in batch if b["failed"]]
+        #
+        # for b in failed:
+        #     item = b["item"]
+        #     result = {
+        #         "prompt": item["prompt"],
+        #         "country": item["country"],
+        #         "question": item["question"],
+        #         "question_category": item["question_category"],
+        #         "path": item["video_path"],
+        #         "answer": "",
+        #         "reasoning": "",
+        #         "raw_response": "",
+        #         "gt_answer": item["gt_answer"],
+        #         "weight": item["weight"],
+        #         "prompt_type": args.prompt_type or Path(args.video_base).name,
+        #         "error": "video_load_failed",
+        #     }
+        #     results.append(result)
 
         if valid:
             llm_inputs = [
@@ -251,7 +253,7 @@ def main():
                     "raw_response": text,
                     "gt_answer": item["gt_answer"],
                     "weight": item["weight"],
-                    "prompt_type": Path(args.video_base).name,
+                    "prompt_type": args.prompt_type or Path(args.video_base).name,
                 }
                 results.append(result)
                 print(json.dumps(result, indent=2))
