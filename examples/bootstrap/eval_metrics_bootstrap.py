@@ -135,9 +135,10 @@ def load_llm_json(path):
             datasets.setdefault(ds, {"preds": [], "gts": [], "source": "llm"})
             datasets[ds]["preds"].append(int(bool(r["graded_result"])))
             datasets[ds]["gts"].append(1)
-    elif isinstance(raw, dict) and "datasets" in raw and "graded_results" in raw:
-        # Parallel arrays format (mirrors CLS JSON): {datasets: [...], graded_results: [...], ...}
-        for ds, grade in zip(raw["datasets"], raw["graded_results"]):
+    elif isinstance(raw, dict) and "datasets" in raw:
+        # Parallel arrays format (mirrors CLS JSON): {datasets: [...], predictions: [...], ...}
+        grades = raw.get("graded_results") or raw.get("predictions")
+        for ds, grade in zip(raw["datasets"], grades):
             datasets.setdefault(ds, {"preds": [], "gts": [], "source": "llm"})
             datasets[ds]["preds"].append(int(bool(grade)))
             datasets[ds]["gts"].append(1)
