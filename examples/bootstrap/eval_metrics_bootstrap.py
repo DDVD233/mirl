@@ -130,8 +130,9 @@ def load_llm_json(path):
     if isinstance(raw, list):
         records = raw
     elif isinstance(raw, dict):
-        # Look for the first list value (e.g. {"results": [...]} or {"data": [...]})
-        list_vals = [v for v in raw.values() if isinstance(v, list)]
+        # Look for the first list value whose elements are dicts (not strings/ints)
+        list_vals = [v for v in raw.values()
+                     if isinstance(v, list) and v and isinstance(v[0], dict)]
         if list_vals:
             records = list_vals[0]
         else:
@@ -141,8 +142,6 @@ def load_llm_json(path):
 
     datasets = {}
     for r in records:
-        if isinstance(r, str):
-            r = json.loads(r)
         ds = r["dataset"]
         datasets.setdefault(ds, {"preds": [], "gts": [], "source": "llm"})
         datasets[ds]["preds"].append(int(bool(r["graded_result"])))
