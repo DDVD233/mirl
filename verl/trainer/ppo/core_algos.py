@@ -772,8 +772,15 @@ domain_nd_stats: Dict[Any, Dict[str, Any]] = defaultdict(
 cluster_alignment_metrics: Dict[str, Any] = {
     "domain_metrics": defaultdict(dict),
     "global_metrics": {},
-    "demo_metrics": defaultdict(dict)
+    "demo_metrics": defaultdict(dict),
+    "contingency": {},        # domain -> {(cluster, demo): count}
+    "stability": {},          # domain -> {"jaccard": float, "iteration": int}
 }
+
+# Previous iteration's cluster assignments for stability tracking
+# Maps domain -> {qid: cluster_idx}
+_prev_cluster_assignments: Dict[Any, Dict[str, int]] = {}
+_stability_iteration: int = 0
 
 @register_adv_est(AdvantageEstimator.FAIR_GRPO_ND)
 def compute_fair_grpo_nd_outcome_advantage(
@@ -1112,6 +1119,66 @@ def _compute_cluster_alignment_metrics(
             "count": len(factors)
         }
 
+    # 5. Cluster-Demographic Contingency Table (per domain)
+    contingency: Dict[Any, Dict[Tuple[int, str], int]] = {}
+    for dom, cache in domain_cluster_cache.items():
+        if not cache or "assign" not in cache:
+            continue
+        gt_demos = cache["gt_demos"]
+        assignments = cache["assign"]
+        table: Dict[Tuple[int, str], int] = defaultdict(int)
+        for cluster_idx, demo in zip(assignments, gt_demos):
+            table[(int(cluster_idx), demo)] += 1
+        contingency[dom] = dict(table)
+    metrics["contingency"] = contingency
+
+    # 6. Cluster Stability Analysis (Jaccard similarity vs previous iteration)
+    global _prev_cluster_assignments, _stability_iteration
+    _stability_iteration += 1
+    current_assignments: Dict[Any, Dict[str, int]] = {}
+    for dom, cache in domain_cluster_cache.items():
+        if not cache or "assign" not in cache:
+            continue
+        q_ids = cache["q_ids"]
+        assignments = cache["assign"]
+        current_assignments[dom] = {
+            qid: int(assignments[idx]) for idx, qid in enumerate(q_ids)
+        }
+
+    stability: Dict[Any, Dict[str, float]] = {}
+    for dom, cur_map in current_assignments.items():
+        prev_map = _prev_cluster_assignments.get(dom, {})
+        # Jaccard on co-assignment: for every pair of shared qids,
+        # check if they were in the same cluster last time vs this time
+        shared_qids = sorted(set(cur_map.keys()) & set(prev_map.keys()))
+        if len(shared_qids) >= 2:
+            agree = 0
+            total_pairs = 0
+            for a_idx in range(len(shared_qids)):
+                for b_idx in range(a_idx + 1, len(shared_qids)):
+                    qa, qb = shared_qids[a_idx], shared_qids[b_idx]
+                    cur_same = (cur_map[qa] == cur_map[qb])
+                    prev_same = (prev_map[qa] == prev_map[qb])
+                    # Jaccard: intersection / union of "same-cluster" pairs
+                    if cur_same or prev_same:
+                        total_pairs += 1
+                        if cur_same and prev_same:
+                            agree += 1
+            jaccard = agree / total_pairs if total_pairs > 0 else 1.0
+            stability[dom] = {
+                "jaccard": jaccard,
+                "shared_qids": len(shared_qids),
+                "iteration": _stability_iteration,
+            }
+        else:
+            stability[dom] = {
+                "jaccard": float("nan"),
+                "shared_qids": len(shared_qids),
+                "iteration": _stability_iteration,
+            }
+    metrics["stability"] = stability
+    _prev_cluster_assignments = current_assignments
+
 
 def _print_alignment_metrics():
     """Print comprehensive alignment metrics report and log to wandb."""
@@ -1183,6 +1250,61 @@ def _print_alignment_metrics():
             wandb_logs[f"fairgrpo_nd/demo_{demo_key}/mean_scale"] = demo_metric['mean_scale']
             wandb_logs[f"fairgrpo_nd/demo_{demo_key}/std_scale"] = demo_metric['std_scale']
             wandb_logs[f"fairgrpo_nd/demo_{demo_key}/count"] = demo_metric['count']
+
+    # 5. Cluster-Demographic Contingency Table
+    if metrics.get("contingency"):
+        print("\n5. Cluster-Demographic Contingency Table:")
+        for dom, table in sorted(metrics["contingency"].items()):
+            print(f"  Domain '{dom}':")
+            # Collect all clusters and demos
+            clusters_in_dom = sorted({k[0] for k in table})
+            demos_in_dom = sorted({k[1] for k in table})
+            # Header
+            header = f"    {'Cluster':<10}" + "".join(f"{d:<15}" for d in demos_in_dom) + "Total"
+            print(header)
+            for c in clusters_in_dom:
+                row_counts = [table.get((c, d), 0) for d in demos_in_dom]
+                row_total = sum(row_counts)
+                row_pcts = [f"{cnt}({100*cnt/row_total:.0f}%)" if row_total > 0 else "0" for cnt in row_counts]
+                row_str = f"    {c:<10}" + "".join(f"{p:<15}" for p in row_pcts) + str(row_total)
+                print(row_str)
+            # Column totals
+            col_totals = [sum(table.get((c, d), 0) for c in clusters_in_dom) for d in demos_in_dom]
+            total_all = sum(col_totals)
+            totals_str = f"    {'Total':<10}" + "".join(f"{t:<15}" for t in col_totals) + str(total_all)
+            print(totals_str)
+
+            # Wandb: log enrichment (max demo fraction) per cluster
+            for c in clusters_in_dom:
+                row_counts = [table.get((c, d), 0) for d in demos_in_dom]
+                row_total = sum(row_counts)
+                if row_total > 0:
+                    max_frac = max(row_counts) / row_total
+                    dominant_demo = demos_in_dom[row_counts.index(max(row_counts))]
+                    wandb_logs[f"fairgrpo_nd/contingency/{dom}/cluster_{c}/dominant_demo_frac"] = max_frac
+                    wandb_logs[f"fairgrpo_nd/contingency/{dom}/cluster_{c}/size"] = row_total
+
+    # 6. Cluster Stability (Jaccard similarity vs previous iteration)
+    if metrics.get("stability"):
+        print("\n6. Cluster Stability (Jaccard co-assignment similarity vs prev iteration):")
+        for dom, stab in sorted(metrics["stability"].items()):
+            jaccard = stab["jaccard"]
+            iteration = stab["iteration"]
+            shared = stab["shared_qids"]
+            if math.isnan(jaccard):
+                print(f"  Domain '{dom}': iteration={iteration}, shared_qids={shared} (too few for Jaccard)")
+            else:
+                print(f"  Domain '{dom}': Jaccard={jaccard:.3f}, iteration={iteration}, shared_qids={shared}")
+            wandb_logs[f"fairgrpo_nd/stability/{dom}/jaccard"] = jaccard if not math.isnan(jaccard) else 0.0
+            wandb_logs[f"fairgrpo_nd/stability/{dom}/iteration"] = iteration
+            wandb_logs[f"fairgrpo_nd/stability/{dom}/shared_qids"] = shared
+
+        # Global average Jaccard across domains
+        valid_jaccards = [s["jaccard"] for s in metrics["stability"].values() if not math.isnan(s["jaccard"])]
+        if valid_jaccards:
+            global_jaccard = sum(valid_jaccards) / len(valid_jaccards)
+            print(f"  Global avg Jaccard: {global_jaccard:.3f} (across {len(valid_jaccards)} domains)")
+            wandb_logs["fairgrpo_nd/stability/global_jaccard"] = global_jaccard
 
     print("=" * 50 + "\n")
 
