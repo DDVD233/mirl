@@ -140,6 +140,10 @@ def load_llm_json(path):
     else:
         raise ValueError(f"Unexpected LLM JSON top-level type: {type(raw)}")
 
+    if records:
+        print(f"[DEBUG] LLM JSON: {len(records)} records. First record keys: {list(records[0].keys())}")
+        print(f"[DEBUG] First record: {records[0]}")
+
     datasets = {}
     for r in records:
         ds = r["dataset"]
