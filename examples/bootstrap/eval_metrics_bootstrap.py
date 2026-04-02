@@ -141,6 +141,8 @@ def load_llm_json(path):
 
     datasets = {}
     for r in records:
+        if isinstance(r, str):
+            r = json.loads(r)
         ds = r["dataset"]
         datasets.setdefault(ds, {"preds": [], "gts": [], "source": "llm"})
         datasets[ds]["preds"].append(int(bool(r["graded_result"])))
