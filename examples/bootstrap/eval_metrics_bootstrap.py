@@ -124,7 +124,21 @@ def load_cls_json(path):
 
 def load_llm_json(path):
     with open(path) as f:
-        records = json.load(f)
+        raw = json.load(f)
+
+    # Normalise: accept a list of records, a dict wrapping a list, or a single record dict
+    if isinstance(raw, list):
+        records = raw
+    elif isinstance(raw, dict):
+        # Look for the first list value (e.g. {"results": [...]} or {"data": [...]})
+        list_vals = [v for v in raw.values() if isinstance(v, list)]
+        if list_vals:
+            records = list_vals[0]
+        else:
+            records = [raw]  # single record stored as a bare dict
+    else:
+        raise ValueError(f"Unexpected LLM JSON top-level type: {type(raw)}")
+
     datasets = {}
     for r in records:
         ds = r["dataset"]
