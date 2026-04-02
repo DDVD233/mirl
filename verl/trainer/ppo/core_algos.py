@@ -651,6 +651,7 @@ def compute_fair_grpo_outcome_advantage(
 
     # 6) Apply two-level scaling ---------------------------------------- #
     scaling_factors: List[float] = []
+    n_clipped_overflow = 0  # nan/inf after scaling
     for i in range(B):
         qid: str = index[i]
         dom = q2domain[qid]
@@ -673,7 +674,7 @@ def compute_fair_grpo_outcome_advantage(
             all_dom_rewards.extend(vec.tolist())
 
         mu_d = float(np.mean(all_dom_rewards)) if all_dom_rewards else epsilon
-        T_d = max(math.sqrt(N_d) * mu_d, epsilon)
+        T_d = max(N_d * mu_d, epsilon)
 
         # Demographic-level statistics within domain
         if demo == "UNK":
@@ -695,13 +696,18 @@ def compute_fair_grpo_outcome_advantage(
             mu_g = float(np.mean(all_rewards)) if all_rewards else raw_scores[i].item()
 
         # Two-level scaling factor
-        factor = T_d * math.sqrt(N_g) * mu_g
+        factor = T_d * N_g * mu_g
         scaling_factors.append(factor)
         scaled_score = scores[i] / factor
         if not math.isnan(scaled_score) and not math.isinf(scaled_score):
             scores[i] = scaled_score
         else:
+            n_clipped_overflow += 1
             print(f"[FairGRPO] {qid} score={scaled_score:.3f}, factor={factor:.3f}, nan/inf detected!")
+
+    # Clipping statistics
+    pct_clipped = 100.0 * n_clipped_overflow / B if B > 0 else 0.0
+    print(f"[FairGRPO] Reward clipping: {n_clipped_overflow}/{B} ({pct_clipped:.1f}%) clipped due to overflow (nan/inf)")
 
     # divide scores by std of scores
     scores_std = torch.std(scores)
@@ -848,6 +854,9 @@ def compute_fair_grpo_nd_outcome_advantage(
     scaling_factors: List[float] = []
     batch_cluster_assignments = []  # Track cluster assignments for this batch
     batch_gt_demos = []  # Track ground truth demos for this batch
+    n_clipped_overflow = 0   # nan/inf after scaling
+    n_clipped_underflow = 0  # factor clamped up to epsilon
+    n_clipped_cap = 0        # factor clamped down to 1e6
 
     for i in range(B):
         qid: str = index[i]
@@ -874,9 +883,14 @@ def compute_fair_grpo_nd_outcome_advantage(
             mu_g = max(mu_g, epsilon)
 
             # Two-level scaling factor with bounds
-            factor = T_d * math.sqrt(N_g) * mu_g
+            raw_factor = T_d * math.sqrt(N_g) * mu_g
+            factor = raw_factor
             # Bound the factor to prevent extreme scaling
+            if factor <= epsilon:
+                n_clipped_underflow += 1
             factor = max(factor, epsilon)  # Prevent division by zero
+            if raw_factor > 1e6:
+                n_clipped_cap += 1
             factor = min(factor, 1e6)  # Prevent too large scaling
 
             scaling_factors.append(factor)
@@ -884,6 +898,7 @@ def compute_fair_grpo_nd_outcome_advantage(
 
             # Check for numerical issues
             if math.isnan(scaled_score) or math.isinf(scaled_score):
+                n_clipped_overflow += 1
                 print(f"[FairGRPO_ND] {qid} numerical issue: score={scores[i]:.3f}, factor={factor:.3f}, scaled={scaled_score}")
                 # Use original score if scaling fails
                 scores[i] = raw_scores[i]
@@ -904,6 +919,16 @@ def compute_fair_grpo_nd_outcome_advantage(
         scaling_factors,
         epsilon
     )
+
+    # Clipping statistics
+    pct_overflow = 100.0 * n_clipped_overflow / B if B > 0 else 0.0
+    pct_underflow = 100.0 * n_clipped_underflow / B if B > 0 else 0.0
+    pct_cap = 100.0 * n_clipped_cap / B if B > 0 else 0.0
+    pct_any = 100.0 * (n_clipped_overflow + n_clipped_underflow + n_clipped_cap) / B if B > 0 else 0.0
+    print(f"[FairGRPO_ND] Reward clipping: overflow(nan/inf)={n_clipped_overflow}/{B} ({pct_overflow:.1f}%), "
+          f"underflow(factor<=eps)={n_clipped_underflow}/{B} ({pct_underflow:.1f}%), "
+          f"cap(factor>1e6)={n_clipped_cap}/{B} ({pct_cap:.1f}%), "
+          f"any={n_clipped_overflow + n_clipped_underflow + n_clipped_cap}/{B} ({pct_any:.1f}%)")
 
     # divide scores by std of scores
     scores_std = torch.std(scores)
