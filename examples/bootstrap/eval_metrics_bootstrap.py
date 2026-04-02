@@ -126,30 +126,27 @@ def load_llm_json(path):
     with open(path) as f:
         raw = json.load(f)
 
-    # Normalise: accept a list of records, a dict wrapping a list, or a single record dict
-    if isinstance(raw, list):
-        records = raw
-    elif isinstance(raw, dict):
-        # Look for the first list value whose elements are dicts (not strings/ints)
-        list_vals = [v for v in raw.values()
-                     if isinstance(v, list) and v and isinstance(v[0], dict)]
-        if list_vals:
-            records = list_vals[0]
-        else:
-            records = [raw]  # single record stored as a bare dict
-    else:
-        raise ValueError(f"Unexpected LLM JSON top-level type: {type(raw)}")
-
-    if records:
-        print(f"[DEBUG] LLM JSON: {len(records)} records. First record keys: {list(records[0].keys())}")
-        print(f"[DEBUG] First record: {records[0]}")
-
     datasets = {}
-    for r in records:
-        ds = r["dataset"]
-        datasets.setdefault(ds, {"preds": [], "gts": [], "source": "llm"})
-        datasets[ds]["preds"].append(int(bool(r["graded_result"])))
-        datasets[ds]["gts"].append(1)
+
+    if isinstance(raw, list):
+        # Per-sample list of dicts: [{dataset, graded_result, ...}, ...]
+        for r in raw:
+            ds = r["dataset"]
+            datasets.setdefault(ds, {"preds": [], "gts": [], "source": "llm"})
+            datasets[ds]["preds"].append(int(bool(r["graded_result"])))
+            datasets[ds]["gts"].append(1)
+    elif isinstance(raw, dict) and "datasets" in raw and "graded_results" in raw:
+        # Parallel arrays format (mirrors CLS JSON): {datasets: [...], graded_results: [...], ...}
+        for ds, grade in zip(raw["datasets"], raw["graded_results"]):
+            datasets.setdefault(ds, {"preds": [], "gts": [], "source": "llm"})
+            datasets[ds]["preds"].append(int(bool(grade)))
+            datasets[ds]["gts"].append(1)
+    else:
+        raise ValueError(
+            f"Unrecognised LLM JSON format. Top-level type: {type(raw)}. "
+            f"Keys (if dict): {list(raw.keys()) if isinstance(raw, dict) else 'N/A'}"
+        )
+
     return datasets
 
 
