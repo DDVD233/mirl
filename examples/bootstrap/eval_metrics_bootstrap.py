@@ -216,6 +216,12 @@ def main():
     parser.add_argument("--output", required=True)
     parser.add_argument("--n_boot", type=int, default=1000,
                         help="Number of bootstrap resamples (default: 1000)")
+    parser.add_argument("--wandb_project", default=None,
+                        help="W&B project name. If set, uploads output JSON as an artifact.")
+    parser.add_argument("--wandb_entity", default=None, help="W&B entity (team/user)")
+    parser.add_argument("--wandb_run_name", default=None, help="W&B run name")
+    parser.add_argument("--wandb_artifact_name", default="bootstrap_eval",
+                        help="W&B artifact name (default: bootstrap_eval)")
     args = parser.parse_args()
 
     # Load label map
@@ -251,6 +257,25 @@ def main():
         json.dump(output, f, indent=2, ensure_ascii=False)
 
     print(f"\nSaved: {args.output}")
+
+    # Upload to W&B as artifact
+    if args.wandb_project:
+        import wandb
+        run = wandb.init(
+            project=args.wandb_project,
+            entity=args.wandb_entity,
+            name=args.wandb_run_name,
+            job_type="bootstrap_eval",
+        )
+        artifact = wandb.Artifact(
+            name=args.wandb_artifact_name,
+            type="eval_metrics",
+            description="Bootstrap evaluation metrics (domain-aware) by task and dataset",
+        )
+        artifact.add_file(args.output)
+        run.log_artifact(artifact)
+        run.finish()
+        print(f"Uploaded to W&B: {args.wandb_project}/{args.wandb_artifact_name}")
 
     # Print summary table
     print(f"\n{'Task':<6} {'Dataset':<22} {'Metric':<26} {'Value'}")

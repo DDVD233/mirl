@@ -5,13 +5,24 @@ LLM_JSON="/scratch/keane/human_behaviour/grpo_full/global_step_600_test/full_tes
 LABEL_MAP="/home/keaneong/human-behavior/verl/sft/label_maps/unified_label_map.json"
 OUTPUT_JSON="/home/keaneong/human-behavior/verl/examples/bootstrap/grpo_test_eval_metrics_bootstrap.json"
 N_BOOT=1000
+WANDB_PROJECT="hb_rebuttal"           # set to your W&B project name to upload artifact, e.g. "human-behavior"
+WANDB_ENTITY=""            # set to your W&B entity (team/user), or leave blank
+WANDB_RUN_NAME="grpo_step600_bootstrap"          # optional run name, e.g. "grpo_step600_bootstrap"
+WANDB_ARTIFACT_NAME="grpo_step600_bootstrap_eval"
 # ─────────────────────────────────────────────────────────────────────────────
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+WANDB_ARGS=""
+[ -n "$WANDB_PROJECT" ] && WANDB_ARGS="--wandb_project $WANDB_PROJECT"
+[ -n "$WANDB_ENTITY" ]  && WANDB_ARGS="$WANDB_ARGS --wandb_entity $WANDB_ENTITY"
+[ -n "$WANDB_RUN_NAME" ] && WANDB_ARGS="$WANDB_ARGS --wandb_run_name $WANDB_RUN_NAME"
+[ -n "$WANDB_ARTIFACT_NAME" ] && WANDB_ARGS="$WANDB_ARGS --wandb_artifact_name $WANDB_ARTIFACT_NAME"
 
 python "$SCRIPT_DIR/eval_metrics_bootstrap.py" \
   --cls_json  "$CLS_JSON"  \
   --llm_json  "$LLM_JSON"  \
   --label_map "$LABEL_MAP" \
   --output    "$OUTPUT_JSON" \
-  --n_boot    "$N_BOOT"
+  --n_boot    "$N_BOOT" \
+  $WANDB_ARGS
