@@ -1,14 +1,14 @@
 #!/bin/bash
 # ── Paths (edit these) ────────────────────────────────────────────────────────
-CLS_JSON="/scratch/keane/human_behaviour/HARPO_Hier_Ema_Rerun/global_step_350_test/cls_val_generations_350.json"
-LLM_JSON="/scratch/keane/human_behaviour/HARPO_Hier_Ema_Rerun/global_step_350_test/full_test_or_val_generation_outputs/step_350_llm_grading_results.json"
+CLS_JSON="/scratch/keane/human_behaviour/HARPO_Hier_Ema_Rerun/global_step_400_test/cls_val_generations_400.json"
+LLM_JSON="/scratch/keane/human_behaviour/HARPO_Hier_Ema_Rerun/global_step_400_test/full_test_or_val_generation_outputs/step_400_llm_grading_results.json"
 LABEL_MAP="/home/keaneong/human-behavior/verl/sft/label_maps/unified_label_map.json"
-OUTPUT_JSON="/home/keaneong/human-behavior/verl/examples/bootstrap/harpo_350_test_eval_metrics_bootstrap.json"
+OUTPUT_JSON="/home/keaneong/human-behavior/verl/examples/bootstrap/harpo_400_test_eval_metrics_bootstrap.json"
 N_BOOT=1000
 WANDB_PROJECT="hb_rebuttal"           # set to your W&B project name to upload artifact, e.g. "human-behavior"
 WANDB_ENTITY=""            # set to your W&B entity (team/user), or leave blank
-WANDB_RUN_NAME="harpo_test_step_350_bootstrap"          # optional run name, e.g. "grpo_step600_bootstrap"
-WANDB_ARTIFACT_NAME="harpo_test_step_350_bootstrap_eval"
+WANDB_RUN_NAME="harpo_test_step_400_bootstrap"          # optional run name, e.g. "grpo_step600_bootstrap"
+WANDB_ARTIFACT_NAME="harpo_test_step_400_bootstrap_eval"
 # ─────────────────────────────────────────────────────────────────────────────
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
