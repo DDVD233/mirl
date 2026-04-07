@@ -4,7 +4,7 @@ import sys
 import os
 import numpy as np
 from concurrent.futures import ProcessPoolExecutor, as_completed
-from scipy.stats import chi2 as chi2_dist
+from scipy.stats import chi2 as chi2_dist, friedmanchisquare
 from sklearn.metrics import f1_score
 
 RNG = np.random.RandomState(42)
@@ -334,6 +334,86 @@ def compute_mcnemar_tests(method_name, all_model_samples, alpha=0.05):
     return results
 
 
+# ── Friedman test ─────────────────────────────────────────────────────────────
+
+def compute_friedman_test(all_model_results, model_names, alpha=0.05):
+    """
+    Friedman test across all individual datasets.
+    Each dataset is a block; each model is a treatment.
+    Uses average ranks within each block (standard for Friedman).
+    Returns chi2 statistic, p-value, df, and per-model average ranks.
+    """
+    first_results = all_model_results[model_names[0]]
+    k = len(model_names)
+
+    blocks = []       # list of [value_m1, value_m2, ...] one entry per dataset
+    block_names = []
+
+    for task in TASK_GROUPS:
+        if task not in first_results:
+            continue
+        task_data = first_results[task]
+        for ds in TASK_GROUPS[task]:
+            if ds not in task_data:
+                continue
+            mk = _get_metric_key(task_data, ds)
+            if mk is None:
+                continue
+            row = []
+            valid = True
+            for mn in model_names:
+                cell = all_model_results.get(mn, {}).get(task, {}).get(ds, {}).get(mk)
+                if cell is None or "mean" not in cell:
+                    valid = False
+                    break
+                row.append(cell["mean"])
+            if valid:
+                blocks.append(row)
+                block_names.append(f"{task}/{ds}")
+
+    n = len(blocks)
+    if n < 2:
+        print("WARNING: Friedman test requires at least 2 complete blocks; skipping.", flush=True)
+        return None
+
+    # scipy expects k separate arrays of length n
+    data_by_model = list(zip(*blocks))
+    stat, p_value = friedmanchisquare(*data_by_model)
+
+    # Compute per-block average ranks for the summary table
+    rank_matrix = []
+    for row in blocks:
+        indexed = list(enumerate(row))
+        indexed.sort(key=lambda x: x[1], reverse=True)
+        row_ranks = [0.0] * k
+        i = 0
+        while i < len(indexed):
+            j = i + 1
+            while j < len(indexed) and indexed[j][1] == indexed[i][1]:
+                j += 1
+            avg_rank = ((i + 1) + j) / 2.0
+            for orig_idx, _ in indexed[i:j]:
+                row_ranks[orig_idx] = avg_rank
+            i = j
+        rank_matrix.append(row_ranks)
+
+    rank_sums = [sum(rank_matrix[i][j] for i in range(n)) for j in range(k)]
+    avg_ranks = [rs / n for rs in rank_sums]
+
+    return {
+        "n_blocks": n,
+        "k_treatments": k,
+        "block_names": block_names,
+        "chi2": round(float(stat), 4),
+        "p_value": round(float(p_value), 6),
+        "df": k - 1,
+        "alpha": alpha,
+        "significant": bool(p_value < alpha),
+        "rank_sums": {mn: round(rank_sums[j], 4) for j, mn in enumerate(model_names)},
+        "avg_ranks": {mn: round(avg_ranks[j], 4) for j, mn in enumerate(model_names)},
+    }
+
+
 # ── markdown generation ───────────────────────────────────────────────────────
 
 def _get_metric_key(task_output, ds_name):
@@ -356,7 +436,8 @@ def _format_rank(rank):
 def _compute_ranks(all_model_results, model_names, task, ds_name, metric_key):
     """
     Rank models by metric mean for one row. Lower rank is better.
-    Tied means receive the average rank across the tied positions.
+    Tied methods receive the dense rank of their group (e.g. 3 tied at top
+    all get rank 1, the next method gets rank 2).
     """
     values = []
     for mn in model_names:
@@ -367,14 +448,15 @@ def _compute_ranks(all_model_results, model_names, task, ds_name, metric_key):
     values.sort(key=lambda item: item[1], reverse=True)
     ranks = {}
     i = 0
+    group = 1
     while i < len(values):
         j = i + 1
         while j < len(values) and values[j][1] == values[i][1]:
             j += 1
-        rank = ((i + 1) + j) / 2.0
         for mn, _ in values[i:j]:
-            ranks[mn] = rank
+            ranks[mn] = group
         i = j
+        group += 1
 
     return ranks
 
@@ -409,7 +491,7 @@ def _append_rank_summary(lines, title, rank_values, model_names):
     lines.append("")
 
 
-def generate_markdown(all_model_results, mcnemar_results, method_name, model_names, mcnemar_alpha=0.05):
+def generate_markdown(all_model_results, mcnemar_results, friedman_result, method_name, model_names, mcnemar_alpha=0.05):
     lines = []
 
     # ── Section 1: Bootstrap Results ─────────────────────────────────────────
@@ -478,7 +560,33 @@ def generate_markdown(all_model_results, mcnemar_results, method_name, model_nam
     lines.append("")
     _append_rank_summary(lines, "Average Rank Across Task Averages", avg_rank_values, model_names)
 
-    # ── Section 3: McNemar Tests ──────────────────────────────────────────────
+    # ── Section 3: Friedman Test ──────────────────────────────────────────────
+    if friedman_result:
+        fr = friedman_result
+        sig_label = f"**Yes** (p < {fr['alpha']:.2f})" if fr["significant"] else f"No (p ≥ {fr['alpha']:.2f})"
+        lines.append("## Friedman Test\n")
+        lines.append(
+            "> Non-parametric test for differences across k={k} models over n={n} dataset blocks "
+            "(one block per individual dataset). Uses average ranks within each block. "
+            "H₀: all models perform equally. df = k−1.\n".format(k=fr["k_treatments"], n=fr["n_blocks"])
+        )
+        lines.append("| Blocks (n) | Treatments (k) | χ²_F | df | p-value | Significant |")
+        lines.append("|------------|----------------|------|----|---------|-------------|")
+        lines.append(
+            f"| {fr['n_blocks']} | {fr['k_treatments']} | {fr['chi2']:.4f} "
+            f"| {fr['df']} | {fr['p_value']:.6f} | {sig_label} |"
+        )
+        lines.append("")
+
+        lines.append("### Average Ranks (lower = better)\n")
+        lines.append("| Model | Rank sum | Average rank |")
+        lines.append("|-------|----------|--------------|")
+        ordered_by_rank = sorted(model_names, key=lambda mn: fr["avg_ranks"][mn])
+        for mn in ordered_by_rank:
+            lines.append(f"| {mn} | {fr['rank_sums'][mn]:.2f} | {fr['avg_ranks'][mn]:.4f} |")
+        lines.append("")
+
+    # ── Section 4: McNemar Tests ──────────────────────────────────────────────
     if mcnemar_results:
         alpha_label = f"{mcnemar_alpha:.2f}"
         lines.append(f"## McNemar Test: {method_name} vs Baselines\n")
@@ -623,11 +731,24 @@ def main():
         print(f"\nComputing McNemar tests at alpha={args.mcnemar_alpha:.2f}...")
         mcnemar_results = compute_mcnemar_tests(method_name, all_model_samples, alpha=args.mcnemar_alpha)
 
+    # ── Friedman test ─────────────────────────────────────────────────────────
+    friedman_result = None
+    if len(model_configs) > 1:
+        print(f"\nComputing Friedman test at alpha={args.mcnemar_alpha:.2f}...")
+        friedman_result = compute_friedman_test(all_model_results, model_names, alpha=args.mcnemar_alpha)
+        if friedman_result:
+            print(
+                f"  Friedman χ²={friedman_result['chi2']:.4f}, "
+                f"p={friedman_result['p_value']:.6f}, "
+                f"significant={friedman_result['significant']}"
+            )
+
     # ── Save JSON ─────────────────────────────────────────────────────────────
     json_output = {
         "models": all_model_results,
         "mcnemar_alpha": args.mcnemar_alpha,
         "mcnemar": mcnemar_results,
+        "friedman": friedman_result,
     }
     with open(args.output, "w") as f:
         json.dump(json_output, f, indent=2, ensure_ascii=False)
@@ -637,6 +758,7 @@ def main():
     md_content = generate_markdown(
         all_model_results,
         mcnemar_results,
+        friedman_result,
         method_name,
         model_names,
         mcnemar_alpha=args.mcnemar_alpha,
