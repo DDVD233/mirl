@@ -9,7 +9,7 @@ LLM_JSON="/scratch/keane/hb_atlas_models/rloo_mib_baseline2/global_step_350_test
 
 LABEL_MAP="/home/keaneong/human-behavior/verl/sft/label_maps/unified_label_map.json"
 OUTPUT_JSON="/home/keaneong/human-behavior/verl/examples/bootstrap/rloo_350_test_eval_metrics_bootstrap.json"
-N_BOOT=1000
+N_BOOT=100000
 WANDB_PROJECT="hb_rebuttal"           # set to your W&B project name to upload artifact, e.g. "human-behavior"
 WANDB_ENTITY=""            # set to your W&B entity (team/user), or leave blank
 WANDB_RUN_NAME="rloo_test_step_350_bootstrap"          # optional run name, e.g. "grpo_step600_bootstrap"
