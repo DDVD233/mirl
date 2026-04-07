@@ -3,7 +3,7 @@
 LABEL_MAP="/home/keaneong/human-behavior/verl/sft/label_maps/unified_label_map.json"
 OUTPUT_JSON="/home/keaneong/human-behavior/verl/examples/bootstrap/v3_multi_model_eval_metrics_bootstrap.json"
 OUTPUT_MD="/home/keaneong/human-behavior/verl/examples/bootstrap/v3_multi_model_eval_metrics_bootstrap.md"
-N_BOOT=100000
+N_BOOT=1000
 
 # Which model name (must match a "name" entry below) is YOUR method for McNemar
 METHOD_NAME="harpo_method"
