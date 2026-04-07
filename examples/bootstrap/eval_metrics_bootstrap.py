@@ -1,6 +1,10 @@
 import argparse
 import json
+import sys
+import os
 import numpy as np
+from concurrent.futures import ProcessPoolExecutor, as_completed
+from scipy.stats import chi2 as chi2_dist
 from sklearn.metrics import f1_score
 
 RNG = np.random.RandomState(42)
@@ -22,9 +26,10 @@ TASK_GROUPS = {
 
 def bootstrap_std(y_true, y_pred, metric_fn, n_boot=1000):
     y_true, y_pred = np.asarray(y_true), np.asarray(y_pred)
+    rng = np.random.RandomState(42)
     scores = []
     for _ in range(n_boot):
-        idx = RNG.randint(0, len(y_true), len(y_true))
+        idx = rng.randint(0, len(y_true), len(y_true))
         scores.append(metric_fn(y_true[idx], y_pred[idx]))
     return float(np.std(scores))
 
@@ -190,7 +195,6 @@ def compute_dataset_result(ds_name, data, dataset_to_domain, senti_fn, n_boot=10
 
 def compute_task_avg(ds_results):
     """Macro-average of dataset means; std across dataset means."""
-    # Collect metric keys (excluding "N")
     metric_keys = set()
     for r in ds_results.values():
         metric_keys.update(k for k in r if k != "N")
@@ -206,45 +210,36 @@ def compute_task_avg(ds_results):
     return avg
 
 
-# ── main ──────────────────────────────────────────────────────────────────────
+# ── single-model bootstrap (runs in subprocess) ───────────────────────────────
 
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--cls_json", required=True)
-    parser.add_argument("--llm_json", required=True)
-    parser.add_argument("--label_map", required=True)
-    parser.add_argument("--output", required=True)
-    parser.add_argument("--n_boot", type=int, default=1000,
-                        help="Number of bootstrap resamples (default: 1000)")
-    parser.add_argument("--wandb_project", default=None,
-                        help="W&B project name. If set, uploads output JSON as an artifact.")
-    parser.add_argument("--wandb_entity", default=None, help="W&B entity (team/user)")
-    parser.add_argument("--wandb_run_name", default=None, help="W&B run name")
-    parser.add_argument("--wandb_artifact_name", default="bootstrap_eval",
-                        help="W&B artifact name (default: bootstrap_eval)")
-    args = parser.parse_args()
+def _run_model_bootstrap(args_tuple):
+    """
+    Top-level function (picklable) for ProcessPoolExecutor.
+    Returns (model_name, task_output, all_datasets_raw).
+    all_datasets_raw: {ds_name: {"preds": [...], "gts": [...], "source": ...}}
+    """
+    model_cfg, label_map_path, n_boot = args_tuple
+    model_name = model_cfg["name"]
 
-    # Load label map
-    with open(args.label_map) as f:
+    print(f"[{model_name}] Loading data...", flush=True)
+
+    with open(label_map_path) as f:
         lm = json.load(f)
     meta = lm["meta"]
     dataset_to_domain = meta.get("dataset_domain", {})
     senti_fn = make_sentiment_f1w2_metric(meta)
 
-    # Load both data sources
     all_datasets = {}
-    all_datasets.update(load_cls_json(args.cls_json))
-    all_datasets.update(load_llm_json(args.llm_json))
+    all_datasets.update(load_cls_json(model_cfg["cls_json"]))
+    all_datasets.update(load_llm_json(model_cfg["llm_json"]))
 
-    # Compute per-dataset results
     ds_results = {}
     for ds_name, data in all_datasets.items():
-        print(f"  Computing {ds_name} (N={len(data['gts'])}, source={data['source']})...")
+        print(f"  [{model_name}] Computing {ds_name} (N={len(data['gts'])}, source={data['source']})...", flush=True)
         ds_results[ds_name] = compute_dataset_result(
-            ds_name, data, dataset_to_domain, senti_fn, n_boot=args.n_boot
+            ds_name, data, dataset_to_domain, senti_fn, n_boot=n_boot
         )
 
-    # Assemble output by task
     output = {}
     for task, members in TASK_GROUPS.items():
         task_ds = {ds: ds_results[ds] for ds in members if ds in ds_results}
@@ -253,12 +248,265 @@ def main():
         output[task] = dict(task_ds)
         output[task]["avg"] = compute_task_avg(task_ds)
 
+    print(f"[{model_name}] Done.", flush=True)
+    return model_name, output, all_datasets
+
+
+# ── McNemar test ──────────────────────────────────────────────────────────────
+
+def compute_mcnemar_tests(method_name, all_model_samples):
+    """
+    For each baseline (every model that is not the method), for each dataset,
+    compute the McNemar test comparing method vs baseline correctness.
+
+    Returns:
+        {baseline_name: {dataset: {N, b, c, chi2, p_value, significant}}}
+    """
+    method_samples = all_model_samples.get(method_name)
+    if method_samples is None:
+        print(f"WARNING: method '{method_name}' not found in model samples. Skipping McNemar.", flush=True)
+        return {}
+
+    results = {}
+    for baseline_name, baseline_samples in all_model_samples.items():
+        if baseline_name == method_name:
+            continue
+        results[baseline_name] = {}
+        for ds_name, m_data in method_samples.items():
+            if ds_name not in baseline_samples:
+                print(f"  WARNING: dataset '{ds_name}' missing from baseline '{baseline_name}', skipping.", flush=True)
+                continue
+            b_data = baseline_samples[ds_name]
+
+            m_preds = np.asarray(m_data["preds"])
+            m_gts   = np.asarray(m_data["gts"])
+            b_preds = np.asarray(b_data["preds"])
+            b_gts   = np.asarray(b_data["gts"])
+
+            if len(m_preds) != len(b_preds):
+                print(
+                    f"  WARNING: sample count mismatch for '{ds_name}': "
+                    f"{method_name}={len(m_preds)}, {baseline_name}={len(b_preds)}. Skipping.",
+                    flush=True,
+                )
+                continue
+
+            m_correct = (m_preds == m_gts).astype(int)
+            b_correct = (b_preds == b_gts).astype(int)
+
+            # b: method correct, baseline wrong
+            # c: method wrong, baseline correct
+            b_count = int(np.sum((m_correct == 1) & (b_correct == 0)))
+            c_count = int(np.sum((m_correct == 0) & (b_correct == 1)))
+            N = len(m_preds)
+
+            if (b_count + c_count) == 0:
+                chi2_stat = 0.0
+                p_value = 1.0
+            else:
+                # Edwards' continuity correction
+                chi2_stat = (abs(b_count - c_count) - 1) ** 2 / (b_count + c_count)
+                p_value = float(1.0 - chi2_dist.cdf(chi2_stat, df=1))
+
+            results[baseline_name][ds_name] = {
+                "N": N,
+                "b": b_count,
+                "c": c_count,
+                "chi2": round(chi2_stat, 4),
+                "p_value": round(p_value, 4),
+                "significant": p_value < 0.05,
+            }
+
+    return results
+
+
+# ── markdown generation ───────────────────────────────────────────────────────
+
+def _get_metric_key(task_output, ds_name):
+    """Return the metric key for a dataset result (first non-N key)."""
+    ds_result = task_output.get(ds_name, {})
+    for k in ds_result:
+        if k != "N":
+            return k
+    return None
+
+
+def generate_markdown(all_model_results, mcnemar_results, method_name, model_names):
+    lines = []
+
+    # ── Section 1: Bootstrap Results ─────────────────────────────────────────
+    lines.append("## Bootstrap Evaluation Results\n")
+
+    # Build header
+    header = "| Task | Dataset | N | Metric |"
+    sep    = "|------|---------|---|--------|"
+    for mn in model_names:
+        header += f" {mn} |"
+        sep    += "----------|"
+    lines.append(header)
+    lines.append(sep)
+
+    # Use the first model's result structure to drive row ordering
+    first_model = model_names[0]
+    first_results = all_model_results[first_model]
+
+    for task in TASK_GROUPS:
+        if task not in first_results:
+            continue
+        task_data = first_results[task]
+        datasets_in_task = [ds for ds in TASK_GROUPS[task] if ds in task_data]
+
+        for ds in datasets_in_task:
+            # Determine metric key from first model
+            mk = _get_metric_key(task_data, ds)
+            if mk is None:
+                continue
+            N = task_data[ds].get("N", "–")
+            row = f"| {task} | {ds} | {N} | {mk} |"
+            for mn in model_names:
+                cell = all_model_results.get(mn, {}).get(task, {}).get(ds, {}).get(mk)
+                row += f" {cell['fmt'] if cell else '–'} |"
+            lines.append(row)
+
+        # avg row
+        mk = _get_metric_key(task_data, "avg") if "avg" in task_data else None
+        if mk:
+            row = f"| {task} | **avg** | – | {mk} |"
+            for mn in model_names:
+                cell = all_model_results.get(mn, {}).get(task, {}).get("avg", {}).get(mk)
+                row += f" {cell['fmt'] if cell else '–'} |"
+            lines.append(row)
+
+    lines.append("")
+
+    # ── Section 2: McNemar Tests ──────────────────────────────────────────────
+    if mcnemar_results:
+        lines.append(f"## McNemar Test: {method_name} vs Baselines\n")
+        lines.append(
+            "> Per-sample correctness test. "
+            "b = method correct & baseline wrong; c = method wrong & baseline correct. "
+            "χ² uses Edwards' continuity correction (df=1). ✓ = p < 0.05.\n"
+        )
+
+        for baseline_name, ds_map in mcnemar_results.items():
+            lines.append(f"### vs {baseline_name}\n")
+            lines.append("| Task | Dataset | N | b (M+/B−) | c (M−/B+) | χ² | p-value | Sig |")
+            lines.append("|------|---------|---|-----------|-----------|-----|---------|-----|")
+
+            # Walk datasets in TASK_GROUPS order
+            for task, members in TASK_GROUPS.items():
+                for ds in members:
+                    if ds not in ds_map:
+                        continue
+                    r = ds_map[ds]
+                    sig = "✓" if r["significant"] else "✗"
+                    lines.append(
+                        f"| {task} | {ds} | {r['N']} | {r['b']} | {r['c']} "
+                        f"| {r['chi2']:.4f} | {r['p_value']:.4f} | {sig} |"
+                    )
+            lines.append("")
+
+    return "\n".join(lines)
+
+
+# ── main ──────────────────────────────────────────────────────────────────────
+
+def main():
+    parser = argparse.ArgumentParser()
+
+    # Multi-model mode
+    parser.add_argument(
+        "--config", default=None,
+        help="Path to JSON config file with 'method' (string) and 'models' (list of {name, cls_json, llm_json}).",
+    )
+
+    # Single-model mode (legacy / convenience)
+    parser.add_argument("--cls_json", default=None)
+    parser.add_argument("--llm_json", default=None)
+    parser.add_argument("--name", default="model", help="Model name when using single-model mode")
+
+    parser.add_argument("--label_map", required=True)
+    parser.add_argument("--output", required=True)
+    parser.add_argument(
+        "--output_md", default=None,
+        help="Path for markdown output. Defaults to <output>.md",
+    )
+    parser.add_argument("--n_boot", type=int, default=1000,
+                        help="Number of bootstrap resamples (default: 1000)")
+    parser.add_argument("--wandb_project", default=None,
+                        help="W&B project name. If set, uploads outputs as an artifact.")
+    parser.add_argument("--wandb_entity", default=None, help="W&B entity (team/user)")
+    parser.add_argument("--wandb_run_name", default=None, help="W&B run name")
+    parser.add_argument("--wandb_artifact_name", default="bootstrap_eval",
+                        help="W&B artifact name (default: bootstrap_eval)")
+    args = parser.parse_args()
+
+    # Resolve output_md path
+    md_path = args.output_md or (
+        os.path.splitext(args.output)[0] + ".md"
+    )
+
+    # ── Build model configs ───────────────────────────────────────────────────
+    if args.config:
+        with open(args.config) as f:
+            cfg = json.load(f)
+        model_configs = cfg["models"]
+        method_name = cfg.get("method", model_configs[0]["name"])
+    elif args.cls_json and args.llm_json:
+        model_configs = [{"name": args.name, "cls_json": args.cls_json, "llm_json": args.llm_json}]
+        method_name = args.name
+    else:
+        parser.error("Provide either --config or both --cls_json and --llm_json.")
+
+    model_names = [m["name"] for m in model_configs]
+
+    # ── Run bootstrap in parallel ─────────────────────────────────────────────
+    all_model_results = {}   # {model_name: task_output}
+    all_model_samples = {}   # {model_name: {dataset: {preds, gts, source}}}
+
+    worker_args = [(mc, args.label_map, args.n_boot) for mc in model_configs]
+
+    n_workers = min(len(model_configs), os.cpu_count() or 1)
+    print(f"Running bootstrap for {len(model_configs)} model(s) with {n_workers} worker(s)...\n")
+
+    with ProcessPoolExecutor(max_workers=n_workers) as executor:
+        futures = {executor.submit(_run_model_bootstrap, wa): wa[0]["name"] for wa in worker_args}
+        for future in as_completed(futures):
+            model_name = futures[future]
+            try:
+                mn, task_output, raw_datasets = future.result()
+                all_model_results[mn] = task_output
+                all_model_samples[mn] = raw_datasets
+            except Exception as exc:
+                print(f"ERROR: model '{model_name}' raised: {exc}", file=sys.stderr)
+                raise
+
+    # Preserve original ordering
+    all_model_results = {mn: all_model_results[mn] for mn in model_names if mn in all_model_results}
+    all_model_samples = {mn: all_model_samples[mn] for mn in model_names if mn in all_model_samples}
+
+    # ── McNemar test ──────────────────────────────────────────────────────────
+    mcnemar_results = {}
+    if len(model_configs) > 1:
+        print("\nComputing McNemar tests...")
+        mcnemar_results = compute_mcnemar_tests(method_name, all_model_samples)
+
+    # ── Save JSON ─────────────────────────────────────────────────────────────
+    json_output = {
+        "models": all_model_results,
+        "mcnemar": mcnemar_results,
+    }
     with open(args.output, "w") as f:
-        json.dump(output, f, indent=2, ensure_ascii=False)
+        json.dump(json_output, f, indent=2, ensure_ascii=False)
+    print(f"\nSaved JSON: {args.output}")
 
-    print(f"\nSaved: {args.output}")
+    # ── Save Markdown ─────────────────────────────────────────────────────────
+    md_content = generate_markdown(all_model_results, mcnemar_results, method_name, model_names)
+    with open(md_path, "w") as f:
+        f.write(md_content)
+    print(f"Saved Markdown: {md_path}")
 
-    # Upload to W&B as artifact
+    # ── Upload to W&B ─────────────────────────────────────────────────────────
     if args.wandb_project:
         import wandb
         run = wandb.init(
@@ -273,20 +521,36 @@ def main():
             description="Bootstrap evaluation metrics (domain-aware) by task and dataset",
         )
         artifact.add_file(args.output)
+        artifact.add_file(md_path)
         run.log_artifact(artifact)
         run.finish()
         print(f"Uploaded to W&B: {args.wandb_project}/{args.wandb_artifact_name}")
 
-    # Print summary table
-    print(f"\n{'Task':<6} {'Dataset':<22} {'Metric':<26} {'Value'}")
-    print("-" * 70)
-    for task, task_data in output.items():
-        for ds, result in task_data.items():
-            for mk, mv in result.items():
+    # ── Print summary table ───────────────────────────────────────────────────
+    print(f"\n{'Task':<6} {'Dataset':<22} {'Metric':<26}", end="")
+    for mn in model_names:
+        print(f"  {mn:<20}", end="")
+    print()
+    print("-" * (56 + 22 * len(model_names)))
+
+    first_results = all_model_results[model_names[0]]
+    for task in TASK_GROUPS:
+        if task not in first_results:
+            continue
+        task_data = first_results[task]
+        for ds in list(TASK_GROUPS[task]) + ["avg"]:
+            if ds not in task_data:
+                continue
+            for mk, mv in task_data[ds].items():
                 if mk == "N":
                     continue
-                n_str = f"(N={result.get('N', '?')})" if ds != "avg" else ""
-                print(f"{task:<6} {ds:<22} {mk:<26} {mv['fmt']}  {n_str}")
+                n_str = f"(N={task_data[ds].get('N', '?')})" if ds != "avg" else ""
+                print(f"{task:<6} {ds:<22} {mk:<26}", end="")
+                for mn in model_names:
+                    cell = all_model_results.get(mn, {}).get(task, {}).get(ds, {}).get(mk)
+                    val = cell["fmt"] if cell else "–"
+                    print(f"  {val:<20}", end="")
+                print(f"  {n_str}")
 
 
 if __name__ == "__main__":
