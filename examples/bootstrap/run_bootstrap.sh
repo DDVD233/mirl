@@ -13,7 +13,7 @@ METHOD_NAME="harpo_method"
 # W&B settings (leave blank to skip upload)
 WANDB_PROJECT="hb_rebuttal"
 WANDB_ENTITY=""
-WANDB_RUN_NAME="v3_multi_model_bootstrap"
+WANDB_RUN_NAME="v4_multi_model_bootstrap"
 WANDB_ARTIFACT_NAME="v3_multi_model_bootstrap_eval"
 # ──────────────────────────────────────────────────────────────────────────────
 
