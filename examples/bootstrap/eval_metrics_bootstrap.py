@@ -254,13 +254,13 @@ def _run_model_bootstrap(args_tuple):
 
 # ── McNemar test ──────────────────────────────────────────────────────────────
 
-def compute_mcnemar_tests(method_name, all_model_samples):
+def compute_mcnemar_tests(method_name, all_model_samples, alpha=0.05):
     """
     For each baseline (every model that is not the method), for each dataset,
     compute the McNemar test comparing method vs baseline correctness.
 
     Returns:
-        {baseline_name: {dataset: {N, b, c, chi2, p_value, significant}}}
+        {baseline_name: {dataset: {N, b, c, chi2, p_value, significant, ...}}}
     """
     method_samples = all_model_samples.get(method_name)
     if method_samples is None:
@@ -308,13 +308,27 @@ def compute_mcnemar_tests(method_name, all_model_samples):
                 chi2_stat = (abs(b_count - c_count) - 1) ** 2 / (b_count + c_count)
                 p_value = float(1.0 - chi2_dist.cdf(chi2_stat, df=1))
 
+            if b_count > c_count:
+                direction = "method"
+            elif c_count > b_count:
+                direction = "baseline"
+            else:
+                direction = "tie"
+
+            significant = p_value < alpha
+
             results[baseline_name][ds_name] = {
                 "N": N,
                 "b": b_count,
                 "c": c_count,
+                "delta_b_minus_c": b_count - c_count,
                 "chi2": round(chi2_stat, 4),
                 "p_value": round(p_value, 4),
-                "significant": p_value < 0.05,
+                "alpha": alpha,
+                "direction": direction,
+                "significant": significant,
+                "method_significant_win": significant and direction == "method",
+                "baseline_significant_win": significant and direction == "baseline",
             }
 
     return results
@@ -331,11 +345,75 @@ def _get_metric_key(task_output, ds_name):
     return None
 
 
-def generate_markdown(all_model_results, mcnemar_results, method_name, model_names):
+def _format_rank(rank):
+    if rank is None:
+        return "–"
+    if float(rank).is_integer():
+        return str(int(rank))
+    return f"{rank:.1f}"
+
+
+def _compute_ranks(all_model_results, model_names, task, ds_name, metric_key):
+    """
+    Rank models by metric mean for one row. Lower rank is better.
+    Tied means receive the average rank across the tied positions.
+    """
+    values = []
+    for mn in model_names:
+        cell = all_model_results.get(mn, {}).get(task, {}).get(ds_name, {}).get(metric_key)
+        if cell is not None and "mean" in cell:
+            values.append((mn, cell["mean"]))
+
+    values.sort(key=lambda item: item[1], reverse=True)
+    ranks = {}
+    i = 0
+    while i < len(values):
+        j = i + 1
+        while j < len(values) and values[j][1] == values[i][1]:
+            j += 1
+        rank = ((i + 1) + j) / 2.0
+        for mn, _ in values[i:j]:
+            ranks[mn] = rank
+        i = j
+
+    return ranks
+
+
+def _format_metric_cell(cell, rank):
+    if cell is None:
+        return "–"
+    return f"{cell['fmt']} (r={_format_rank(rank)})"
+
+
+def _append_rank_summary(lines, title, rank_values, model_names):
+    if not any(rank_values.values()):
+        return
+
+    lines.append(f"### {title}\n")
+    lines.append("| Model | Average rank | Ranked rows |")
+    lines.append("|-------|--------------|-------------|")
+
+    ordered = sorted(
+        model_names,
+        key=lambda mn: (
+            float(np.mean(rank_values[mn])) if rank_values[mn] else float("inf"),
+            model_names.index(mn),
+        ),
+    )
+    for mn in ordered:
+        vals = rank_values[mn]
+        if not vals:
+            lines.append(f"| {mn} | – | 0 |")
+            continue
+        lines.append(f"| {mn} | {float(np.mean(vals)):.2f} | {len(vals)} |")
+    lines.append("")
+
+
+def generate_markdown(all_model_results, mcnemar_results, method_name, model_names, mcnemar_alpha=0.05):
     lines = []
 
     # ── Section 1: Bootstrap Results ─────────────────────────────────────────
-    lines.append("## Bootstrap Evaluation Results\n")
+    lines.append("## Bootstrap Evaluation Results: Individual Datasets\n")
 
     # Build header
     header = "| Task | Dataset | N | Metric |"
@@ -349,6 +427,8 @@ def generate_markdown(all_model_results, mcnemar_results, method_name, model_nam
     # Use the first model's result structure to drive row ordering
     first_model = model_names[0]
     first_results = all_model_results[first_model]
+    dataset_rank_values = {mn: [] for mn in model_names}
+    avg_rank_values = {mn: [] for mn in model_names}
 
     for task in TASK_GROUPS:
         if task not in first_results:
@@ -362,36 +442,72 @@ def generate_markdown(all_model_results, mcnemar_results, method_name, model_nam
             if mk is None:
                 continue
             N = task_data[ds].get("N", "–")
+            ranks = _compute_ranks(all_model_results, model_names, task, ds, mk)
             row = f"| {task} | {ds} | {N} | {mk} |"
             for mn in model_names:
                 cell = all_model_results.get(mn, {}).get(task, {}).get(ds, {}).get(mk)
-                row += f" {cell['fmt'] if cell else '–'} |"
-            lines.append(row)
-
-        # avg row
-        mk = _get_metric_key(task_data, "avg") if "avg" in task_data else None
-        if mk:
-            row = f"| {task} | **avg** | – | {mk} |"
-            for mn in model_names:
-                cell = all_model_results.get(mn, {}).get(task, {}).get("avg", {}).get(mk)
-                row += f" {cell['fmt'] if cell else '–'} |"
+                row += f" {_format_metric_cell(cell, ranks.get(mn))} |"
+                if mn in ranks:
+                    dataset_rank_values[mn].append(ranks[mn])
             lines.append(row)
 
     lines.append("")
+    _append_rank_summary(lines, "Average Rank Across Individual Datasets", dataset_rank_values, model_names)
 
-    # ── Section 2: McNemar Tests ──────────────────────────────────────────────
+    # ── Section 2: Task Average Results ──────────────────────────────────────
+    lines.append("## Bootstrap Evaluation Results: Task Averages\n")
+
+    lines.append(header)
+    lines.append(sep)
+
+    for task in TASK_GROUPS:
+        if task not in first_results:
+            continue
+        task_data = first_results[task]
+        mk = _get_metric_key(task_data, "avg") if "avg" in task_data else None
+        if mk:
+            ranks = _compute_ranks(all_model_results, model_names, task, "avg", mk)
+            row = f"| {task} | **avg** | – | {mk} |"
+            for mn in model_names:
+                cell = all_model_results.get(mn, {}).get(task, {}).get("avg", {}).get(mk)
+                row += f" {_format_metric_cell(cell, ranks.get(mn))} |"
+                if mn in ranks:
+                    avg_rank_values[mn].append(ranks[mn])
+            lines.append(row)
+
+    lines.append("")
+    _append_rank_summary(lines, "Average Rank Across Task Averages", avg_rank_values, model_names)
+
+    # ── Section 3: McNemar Tests ──────────────────────────────────────────────
     if mcnemar_results:
+        alpha_label = f"{mcnemar_alpha:.2f}"
         lines.append(f"## McNemar Test: {method_name} vs Baselines\n")
         lines.append(
             "> Per-sample correctness test. "
             "b = method correct & baseline wrong; c = method wrong & baseline correct. "
-            "χ² uses Edwards' continuity correction (df=1). ✓ = p < 0.05.\n"
+            "χ² uses Edwards' continuity correction (df=1). "
+            f"Sig Method Win = b > c and p < {alpha_label}.\n"
         )
+
+        lines.append("### Summary\n")
+        lines.append("| Baseline | Method-favored datasets | Significant method wins | Significant baseline wins | Not significant |")
+        lines.append("|----------|-------------------------|--------------------------|----------------------------|-----------------|")
+        for baseline_name, ds_map in mcnemar_results.items():
+            method_favored = sum(1 for r in ds_map.values() if r["direction"] == "method")
+            method_sig = sum(1 for r in ds_map.values() if r["method_significant_win"])
+            baseline_sig = sum(1 for r in ds_map.values() if r["baseline_significant_win"])
+            not_sig = sum(1 for r in ds_map.values() if not r["significant"])
+            total = len(ds_map)
+            lines.append(
+                f"| {baseline_name} | {method_favored}/{total} | {method_sig}/{total} "
+                f"| {baseline_sig}/{total} | {not_sig}/{total} |"
+            )
+        lines.append("")
 
         for baseline_name, ds_map in mcnemar_results.items():
             lines.append(f"### vs {baseline_name}\n")
-            lines.append("| Task | Dataset | N | b (M+/B−) | c (M−/B+) | χ² | p-value | Sig |")
-            lines.append("|------|---------|---|-----------|-----------|-----|---------|-----|")
+            lines.append("| Task | Dataset | N | b (M+/B−) | c (M−/B+) | Δ=b−c | χ² | p-value | Favored | Sig Method Win |")
+            lines.append("|------|---------|---|-----------|-----------|-------|-----|---------|---------|----------------|")
 
             # Walk datasets in TASK_GROUPS order
             for task, members in TASK_GROUPS.items():
@@ -399,10 +515,17 @@ def generate_markdown(all_model_results, mcnemar_results, method_name, model_nam
                     if ds not in ds_map:
                         continue
                     r = ds_map[ds]
-                    sig = "✓" if r["significant"] else "✗"
+                    if r["direction"] == "method":
+                        favored = method_name
+                    elif r["direction"] == "baseline":
+                        favored = baseline_name
+                    else:
+                        favored = "tie"
+                    sig = "✓" if r["method_significant_win"] else "✗"
                     lines.append(
                         f"| {task} | {ds} | {r['N']} | {r['b']} | {r['c']} "
-                        f"| {r['chi2']:.4f} | {r['p_value']:.4f} | {sig} |"
+                        f"| {r['delta_b_minus_c']} | {r['chi2']:.4f} | {r['p_value']:.4f} "
+                        f"| {favored} | {sig} |"
                     )
             lines.append("")
 
@@ -433,6 +556,12 @@ def main():
     )
     parser.add_argument("--n_boot", type=int, default=1000,
                         help="Number of bootstrap resamples (default: 1000)")
+    parser.add_argument(
+        "--mcnemar_alpha",
+        type=float,
+        default=0.05,
+        help="Alpha threshold for McNemar significance labels (default: 0.05).",
+    )
     parser.add_argument("--wandb_project", default=None,
                         help="W&B project name. If set, uploads outputs as an artifact.")
     parser.add_argument("--wandb_entity", default=None, help="W&B entity (team/user)")
@@ -440,6 +569,9 @@ def main():
     parser.add_argument("--wandb_artifact_name", default="bootstrap_eval",
                         help="W&B artifact name (default: bootstrap_eval)")
     args = parser.parse_args()
+
+    if not 0.0 < args.mcnemar_alpha < 1.0:
+        parser.error("--mcnemar_alpha must be between 0 and 1.")
 
     # Resolve output_md path
     md_path = args.output_md or (
@@ -488,12 +620,13 @@ def main():
     # ── McNemar test ──────────────────────────────────────────────────────────
     mcnemar_results = {}
     if len(model_configs) > 1:
-        print("\nComputing McNemar tests...")
-        mcnemar_results = compute_mcnemar_tests(method_name, all_model_samples)
+        print(f"\nComputing McNemar tests at alpha={args.mcnemar_alpha:.2f}...")
+        mcnemar_results = compute_mcnemar_tests(method_name, all_model_samples, alpha=args.mcnemar_alpha)
 
     # ── Save JSON ─────────────────────────────────────────────────────────────
     json_output = {
         "models": all_model_results,
+        "mcnemar_alpha": args.mcnemar_alpha,
         "mcnemar": mcnemar_results,
     }
     with open(args.output, "w") as f:
@@ -501,7 +634,13 @@ def main():
     print(f"\nSaved JSON: {args.output}")
 
     # ── Save Markdown ─────────────────────────────────────────────────────────
-    md_content = generate_markdown(all_model_results, mcnemar_results, method_name, model_names)
+    md_content = generate_markdown(
+        all_model_results,
+        mcnemar_results,
+        method_name,
+        model_names,
+        mcnemar_alpha=args.mcnemar_alpha,
+    )
     with open(md_path, "w") as f:
         f.write(md_content)
     print(f"Saved Markdown: {md_path}")

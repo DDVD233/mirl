@@ -4,6 +4,8 @@ LABEL_MAP="/home/keaneong/human-behavior/verl/sft/label_maps/unified_label_map.j
 OUTPUT_JSON="/home/keaneong/human-behavior/verl/examples/bootstrap/v3_multi_model_eval_metrics_bootstrap.json"
 OUTPUT_MD="/home/keaneong/human-behavior/verl/examples/bootstrap/v3_multi_model_eval_metrics_bootstrap.md"
 N_BOOT=1000
+# Use 0.10 only if you want to label exploratory/lenient McNemar significance.
+MCNEMAR_ALPHA=0.10
 
 # Which model name (must match a "name" entry below) is YOUR method for McNemar
 METHOD_NAME="harpo_method"
@@ -67,6 +69,7 @@ python "$SCRIPT_DIR/eval_metrics_bootstrap.py" \
   --output    "$OUTPUT_JSON" \
   --output_md "$OUTPUT_MD"   \
   --n_boot    "$N_BOOT"      \
+  --mcnemar_alpha "$MCNEMAR_ALPHA" \
   $WANDB_ARGS
 
 # Clean up temp config
