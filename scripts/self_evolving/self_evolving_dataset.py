@@ -106,6 +106,8 @@ class SelfEvolvingDataset(Dataset):
         self.question_bank: list[dict] = []
         self.accuracy_history: deque = deque(maxlen=self.accuracy_window)
         self._question_counter = 0  # global counter for unique indices
+        self._wandb_question_table = None  # lazily initialized wandb table
+        self._refill_count = 0  # how many times we refilled
 
         # Seed the initial question bank
         self._refill_bank()
@@ -188,6 +190,7 @@ class SelfEvolvingDataset(Dataset):
 
     def _refill_bank(self) -> None:
         """Generate new questions by calling the proposer API for multiple targets."""
+        self._refill_count += 1
         stats = self._get_accuracy_stats()
         n_targets = min(self.bank_refill_size, len(self.target_questions))
 
@@ -328,11 +331,12 @@ class SelfEvolvingDataset(Dataset):
         return entries
 
     def _log_questions(self, entries: list[dict], target: dict) -> None:
-        """Append proposed questions and their answers to the log file."""
+        """Append proposed questions and their answers to the log file and wandb."""
         target_question = target.get("extra_info", {}).get("question", "")
         target_answer = target.get("reward_model", {}).get("ground_truth", "")
         stats = self._get_accuracy_stats()
 
+        records = []
         with open(self.question_log_path, "a") as f:
             for entry in entries:
                 record = {
@@ -343,20 +347,55 @@ class SelfEvolvingDataset(Dataset):
                     "target_answer": target_answer,
                     "proposed_question": entry.get("extra_info", {}).get("question", ""),
                     "proposed_answer": entry.get("reward_model", {}).get("ground_truth", ""),
-                    "proposed_context": "",  # extract from prompt
+                    "proposed_context": "",
                     "source": entry.get("extra_info", {}).get("source", ""),
                     "index": entry.get("extra_info", {}).get("index", -1),
                 }
-                # Extract context from the user message
                 for msg in entry.get("prompt", []):
                     if msg.get("role") == "user":
                         content = msg["content"]
-                        # Extract the context between "Context:\n" and "\n\nQuestion:"
                         ctx_match = re.search(r'Context:\n(.*?)\n\nQuestion:', content, re.DOTALL)
                         if ctx_match:
                             record["proposed_context"] = ctx_match.group(1)
                         break
                 f.write(json.dumps(record) + "\n")
+                records.append(record)
+
+        # Log to wandb table
+        self._log_questions_to_wandb(records)
+
+    def _log_questions_to_wandb(self, records: list[dict]) -> None:
+        """Log proposed questions to a wandb table."""
+        try:
+            import wandb
+
+            if wandb.run is None:
+                return
+
+            columns = [
+                "refill_batch", "solver_accuracy", "target_question", "target_answer",
+                "proposed_question", "proposed_answer", "proposed_context", "source",
+            ]
+            if self._wandb_question_table is None:
+                self._wandb_question_table = wandb.Table(columns=columns)
+
+            # Recreate table with existing data (wandb workaround)
+            new_table = wandb.Table(columns=columns, data=self._wandb_question_table.data)
+            for r in records:
+                new_table.add_data(
+                    self._refill_count,
+                    r["solver_accuracy"],
+                    r["target_question"],
+                    r["target_answer"],
+                    r["proposed_question"],
+                    r["proposed_answer"],
+                    r["proposed_context"][:500],  # truncate long contexts
+                    r["source"],
+                )
+            self._wandb_question_table = new_table
+            wandb.log({"proposer/questions": new_table})
+        except Exception as e:
+            logger.warning(f"Failed to log questions to wandb: {e}")
 
     def _make_entry_from_target(self, target: dict) -> dict:
         """Create an entry directly from a target question (fallback)."""

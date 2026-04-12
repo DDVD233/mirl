@@ -69,5 +69,5 @@ python3 -m verl.trainer.main_ppo \
     trainer.save_freq=-1 \
     trainer.project_name=self_evolving_medical \
     trainer.experiment_name=pubmedqa_qwen3vl2b \
-    'trainer.logger=["console"]' \
+    'trainer.logger=["console","wandb"]' \
     "$@"
