@@ -8,8 +8,10 @@ and feeds this information back to the proposer for adaptive difficulty.
 
 import json
 import logging
+import os
 import re
 from collections import deque
+from datetime import datetime
 from typing import Optional
 
 import requests
@@ -85,6 +87,13 @@ class SelfEvolvingDataset(Dataset):
         self.accuracy_window = se_config.get("accuracy_window", 32)
         self.bank_refill_size = se_config.get("bank_refill_size", 10)
         self.min_bank_size = se_config.get("min_bank_size", 16)
+        self.log_dir = se_config.get("log_dir", "/scratch/self_evolving_datasets/logs")
+
+        # Set up question log file
+        os.makedirs(self.log_dir, exist_ok=True)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        self.question_log_path = os.path.join(self.log_dir, f"proposed_questions_{timestamp}.jsonl")
+        print(f"Proposer question log: {self.question_log_path}")
 
         # Load seed target questions from JSONL
         self.target_questions = self._load_targets(data_files)
@@ -227,11 +236,13 @@ class SelfEvolvingDataset(Dataset):
         try:
             response = self._api_call(system_prompt, user_prompt)
             questions = self._parse_proposer_response(response, target)
+            self._log_questions(questions, target)
             return questions
         except Exception as e:
             logger.warning(f"Proposer API call failed: {e}. Using target as fallback.")
-            # Fallback: return the target question itself
-            return [self._make_entry_from_target(target)]
+            fallback = [self._make_entry_from_target(target)]
+            self._log_questions(fallback, target)
+            return fallback
 
     def _api_call(self, system_prompt: str, user_prompt: str) -> str:
         """Make a synchronous call to the OpenAI-compatible API."""
@@ -315,6 +326,37 @@ class SelfEvolvingDataset(Dataset):
         if not entries:
             return [self._make_entry_from_target(target)]
         return entries
+
+    def _log_questions(self, entries: list[dict], target: dict) -> None:
+        """Append proposed questions and their answers to the log file."""
+        target_question = target.get("extra_info", {}).get("question", "")
+        target_answer = target.get("reward_model", {}).get("ground_truth", "")
+        stats = self._get_accuracy_stats()
+
+        with open(self.question_log_path, "a") as f:
+            for entry in entries:
+                record = {
+                    "timestamp": datetime.now().isoformat(),
+                    "solver_accuracy": stats["mean"],
+                    "solver_accuracy_count": stats["count"],
+                    "target_question": target_question,
+                    "target_answer": target_answer,
+                    "proposed_question": entry.get("extra_info", {}).get("question", ""),
+                    "proposed_answer": entry.get("reward_model", {}).get("ground_truth", ""),
+                    "proposed_context": "",  # extract from prompt
+                    "source": entry.get("extra_info", {}).get("source", ""),
+                    "index": entry.get("extra_info", {}).get("index", -1),
+                }
+                # Extract context from the user message
+                for msg in entry.get("prompt", []):
+                    if msg.get("role") == "user":
+                        content = msg["content"]
+                        # Extract the context between "Context:\n" and "\n\nQuestion:"
+                        ctx_match = re.search(r'Context:\n(.*?)\n\nQuestion:', content, re.DOTALL)
+                        if ctx_match:
+                            record["proposed_context"] = ctx_match.group(1)
+                        break
+                f.write(json.dumps(record) + "\n")
 
     def _make_entry_from_target(self, target: dict) -> dict:
         """Create an entry directly from a target question (fallback)."""
