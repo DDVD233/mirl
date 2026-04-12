@@ -15,6 +15,7 @@ from typing import Optional
 import requests
 import torch
 from omegaconf import DictConfig
+from PIL import Image
 from torch.utils.data import Dataset
 from transformers import PreTrainedTokenizer, ProcessorMixin
 
@@ -133,6 +134,16 @@ class SelfEvolvingDataset(Dataset):
             "interaction_kwargs": {},
         }
         return row_dict
+
+    @classmethod
+    async def process_vision_info(
+        cls,
+        messages: list[dict],
+        image_patch_size: int = 14,
+        config: DictConfig = None,
+    ) -> tuple[list[Image.Image], list[tuple[torch.Tensor, dict]]]:
+        """No vision data for text-only PubMedQA questions."""
+        return None, None
 
     def on_batch_end(self, batch: DataProto) -> None:
         """Called after each training batch to update accuracy tracking.
