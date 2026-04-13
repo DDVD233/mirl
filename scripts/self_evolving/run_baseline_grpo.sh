@@ -53,7 +53,8 @@ python3 -m verl.trainer.main_ppo \
     trainer.n_gpus_per_node=1 \
     trainer.nnodes=1 \
     trainer.total_epochs=5 \
-    trainer.test_freq=5 \
+    trainer.total_training_steps=1000 \
+    trainer.test_freq=100 \
     trainer.save_freq=-1 \
     trainer.project_name=self_evolving_medical \
     trainer.experiment_name=pubmedqa_baseline_grpo \

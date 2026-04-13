@@ -30,9 +30,9 @@ reasoning on a scale from 1 to 5:
 Output ONLY a single integer from 1 to 5."""
 
 # Weights for reward components
-ACCURACY_WEIGHT = 0.5
-REASONING_WEIGHT = 0.4
-FORMAT_WEIGHT = 0.1
+ACCURACY_WEIGHT = 0.4
+REASONING_WEIGHT = 0.3
+FORMAT_WEIGHT = 0.3
 
 
 def extract_boxed_answer(text: str) -> str | None:

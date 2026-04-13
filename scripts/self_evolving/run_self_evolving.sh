@@ -42,10 +42,8 @@ python3 -m verl.trainer.main_ppo \
     +data.self_evolving.api_key="$API_KEY" \
     +data.self_evolving.model_name="$MODEL_NAME" \
     +data.self_evolving.questions_per_target=5 \
-    +data.self_evolving.target_accuracy=0.5 \
     +data.self_evolving.accuracy_window=32 \
-    +data.self_evolving.bank_refill_size=10 \
-    +data.self_evolving.min_bank_size=16 \
+    +data.self_evolving.dataset_length=100000 \
     reward.custom_reward_function.path=verl/utils/reward_score/self_evolving.py \
     reward.custom_reward_function.name=compute_score \
     +reward.custom_reward_function.reward_kwargs.api_base="$API_BASE" \
@@ -65,8 +63,9 @@ python3 -m verl.trainer.main_ppo \
     critic.enable=False \
     trainer.n_gpus_per_node=1 \
     trainer.nnodes=1 \
-    trainer.total_epochs=5 \
-    trainer.test_freq=5 \
+    trainer.total_epochs=1 \
+    trainer.total_training_steps=1000 \
+    trainer.test_freq=100 \
     trainer.save_freq=-1 \
     trainer.project_name=self_evolving_medical \
     trainer.experiment_name=pubmedqa_qwen3vl2b \
