@@ -443,7 +443,7 @@ class SelfEvolvingDataset(Dataset):
                     r["source"],
                 )
             self._wandb_question_table = new_table
-            wandb.log({"proposer/questions": new_table})
+            wandb.log({"proposer/questions": new_table}, commit=False)
         except Exception as e:
             logger.warning(f"Failed to log questions to wandb: {e}")
 
