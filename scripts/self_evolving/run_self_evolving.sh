@@ -37,6 +37,7 @@ python3 -m verl.trainer.main_ppo \
     data.max_prompt_length=1024 \
     data.max_response_length=256 \
     data.shuffle=False \
+    data.val_batch_size=200 \
     +data.self_evolving.api_base="$API_BASE" \
     +data.self_evolving.api_key="$API_KEY" \
     +data.self_evolving.model_name="$MODEL_NAME" \

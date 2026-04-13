@@ -77,7 +77,32 @@ class SelfEvolvingDataset(Dataset):
         self.tokenizer = tokenizer
         self.config = config
 
-        # Load self-evolving config
+        # Detect if this is a val dataset (val_files != train_files).
+        # If so, just load the JSONL statically without proposer.
+        if isinstance(data_files, str):
+            data_files_list = [data_files]
+        else:
+            data_files_list = list(data_files)
+
+        train_files = config.get("train_files", "")
+        if isinstance(train_files, str):
+            train_files = [train_files]
+        self.is_static = any(f not in train_files for f in data_files_list)
+
+        # Load data from JSONL
+        all_entries = self._load_targets(data_files_list)
+        if max_samples > 0:
+            all_entries = all_entries[:max_samples]
+
+        if self.is_static:
+            # Static mode: serve JSONL directly (used for validation)
+            print(f"SelfEvolvingDataset: static mode with {len(all_entries)} items (validation)")
+            self.current_dataset = all_entries
+            return
+
+        # Dynamic mode: use proposer to generate questions
+        print(f"SelfEvolvingDataset: dynamic mode with {len(all_entries)} seed targets")
+
         se_config = config.self_evolving
         self.api_base = se_config.api_base
         self.api_key = se_config.get("api_key", "EMPTY")
@@ -95,11 +120,7 @@ class SelfEvolvingDataset(Dataset):
         self.question_log_path = os.path.join(self.log_dir, f"proposed_questions_{timestamp}.jsonl")
         print(f"Proposer question log: {self.question_log_path}")
 
-        # Load seed target questions from JSONL
-        self.target_questions = self._load_targets(data_files)
-        if max_samples > 0:
-            self.target_questions = self.target_questions[:max_samples]
-        logger.info(f"Loaded {len(self.target_questions)} target questions")
+        self.target_questions = all_entries
 
         # State
         self.target_idx = 0
@@ -162,6 +183,9 @@ class SelfEvolvingDataset(Dataset):
         Extracts per-item accuracy from reward extra info and refills
         the question bank if it's running low.
         """
+        if self.is_static:
+            return
+
         # Extract accuracy from batch
         if "acc" in batch.non_tensor_batch:
             accs = batch.non_tensor_batch["acc"]
