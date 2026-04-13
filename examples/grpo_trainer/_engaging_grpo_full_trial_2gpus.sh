@@ -7,6 +7,8 @@ export PYTHONUNBUFFERED=1
 export HYDRA_FULL_ERROR=1
 export PYTHONPATH="/home/keaneong/human-behavior/verl:$PYTHONPATH"
 export NCCL_ASYNC_ERROR_HANDLING=1
+export CUDA_LAUNCH_BLOCKING=1
+export TORCH_USE_CUDA_DSA=1
 
     python3 -m verl.trainer.main_ppo \
         algorithm.adv_estimator=grpo \
