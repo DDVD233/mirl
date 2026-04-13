@@ -65,7 +65,7 @@ python3 -m verl.trainer.main_ppo \
     trainer.nnodes=1 \
     trainer.total_epochs=1 \
     trainer.total_training_steps=1000 \
-    trainer.test_freq=100 \
+    trainer.test_freq=10 \
     trainer.save_freq=-1 \
     trainer.project_name=self_evolving_medical \
     trainer.experiment_name=pubmedqa_qwen3vl2b \
