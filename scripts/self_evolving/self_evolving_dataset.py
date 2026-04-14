@@ -160,6 +160,7 @@ class SelfEvolvingDataset(Dataset):
         self.log_dir = se_config.get("log_dir", "/scratch/self_evolving_datasets/logs")
         self.dataset_length = se_config.get("dataset_length", 100000)
         self.no_label = se_config.get("no_label", False)
+        self.no_label_mask_context = se_config.get("no_label_mask_context", True)
 
         self.target_questions = all_entries
         print(f"SelfEvolvingDataset: dynamic mode with {len(self.target_questions)} seed targets")
@@ -349,12 +350,21 @@ class SelfEvolvingDataset(Dataset):
                 accuracy_count=accuracy_stats["count"],
                 history_section=history_section,
             )
-            # Only pass the question, NOT the context — the context often contains
-            # the answer (e.g. conclusion section of the abstract).
-            user_prompt = (
-                f"Reference PubMed question (topic only): {target_question}\n\n"
-                f"Generate {self.questions_per_target} new training questions (no answers needed)."
-            )
+            if self.no_label_mask_context:
+                # Only pass the question topic, NOT the context — the context
+                # often contains the answer (e.g. conclusion section of abstract).
+                user_prompt = (
+                    f"Reference PubMed question (topic only): {target_question}\n\n"
+                    f"Generate {self.questions_per_target} new training questions (no answers needed)."
+                )
+            else:
+                # Pass context but not the answer — let the proposer use the
+                # abstract for topic grounding while keeping the label hidden.
+                user_prompt = (
+                    f"Reference PubMed question: {target_question}\n"
+                    f"Reference abstract context:\n{target_context}\n\n"
+                    f"Generate {self.questions_per_target} new training questions (no answers needed)."
+                )
         else:
             system_prompt = PROPOSER_SYSTEM_PROMPT.format(
                 n_questions=self.questions_per_target,

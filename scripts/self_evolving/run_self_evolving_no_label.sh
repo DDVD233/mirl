@@ -8,9 +8,14 @@
 #   2. Preprocess data:   python scripts/self_evolving/preprocess_pubmedqa.py
 #
 # Environment variables:
-#   API_BASE   - vLLM server URL (default: http://localhost:8000/v1)
-#   API_KEY    - API key (default: EMPTY)
-#   MODEL_NAME - Model name (default: Qwen/Qwen3-VL-2B-Instruct)
+#   API_BASE       - vLLM server URL (default: http://localhost:8000/v1)
+#   API_KEY        - API key (default: EMPTY)
+#   MODEL_NAME     - Model name (default: Qwen/Qwen3-VL-2B-Instruct)
+#   MASK_CONTEXT   - True=no context to proposer, False=context but no answer (default: True)
+#   EXPERIMENT_NAME - wandb experiment name (default: pubmedqa_no_label)
+#
+# Variant 1 (no context): MASK_CONTEXT=True EXPERIMENT_NAME=pubmedqa_no_label_no_ctx bash ...
+# Variant 2 (with context): MASK_CONTEXT=False EXPERIMENT_NAME=pubmedqa_no_label_with_ctx bash ...
 
 set -xeuo pipefail
 
@@ -47,6 +52,7 @@ python3 -m verl.trainer.main_ppo \
     +data.self_evolving.accuracy_window=32 \
     +data.self_evolving.dataset_length=100000 \
     +data.self_evolving.no_label=True \
+    +data.self_evolving.no_label_mask_context="${MASK_CONTEXT:-True}" \
     reward.custom_reward_function.path=verl/utils/reward_score/self_evolving.py \
     reward.custom_reward_function.name=compute_score \
     +reward.custom_reward_function.reward_kwargs.api_base="$API_BASE" \
@@ -78,6 +84,6 @@ python3 -m verl.trainer.main_ppo \
     trainer.test_freq=10 \
     trainer.save_freq=-1 \
     trainer.project_name=self_evolving_medical \
-    trainer.experiment_name=pubmedqa_no_label \
+    trainer.experiment_name="${EXPERIMENT_NAME:-pubmedqa_no_label}" \
     'trainer.logger=["console","wandb"]' \
     "$@"
