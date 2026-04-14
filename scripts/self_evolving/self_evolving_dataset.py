@@ -508,4 +508,7 @@ class SelfEvolvingDataset(Dataset):
         entry["extra_info"]["source"] = "target_fallback"
         entry["extra_info"]["cycle"] = self.cycle
         entry["extra_info"]["target_idx"] = self.target_idx
+        if self.no_label:
+            entry["reward_model"] = dict(entry.get("reward_model", {}))
+            entry["reward_model"]["ground_truth"] = ""
         return entry
