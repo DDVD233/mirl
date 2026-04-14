@@ -176,16 +176,15 @@ class SelfEvolvingDataset(Dataset):
         self._question_counter = 0
         self._wandb_question_table = None
 
-        # Queue of ready-to-serve questions (generated from current target)
-        self._question_queue: list[dict] = []
+        # All generated questions, indexed by position. __getitem__ uses this.
+        self._generated_questions: list[dict] = []
         # Per-target history of previously proposed questions (to avoid repeats)
-        # Key: target index, Value: list of {"question": ..., "answer": ...}
         self._proposed_history: dict[int, list[dict]] = defaultdict(list)
         # Rolling accuracy from recent training
         self._accuracy_history: list[float] = []
 
-        # Pre-generate first batch of questions
-        self._generate_next_batch()
+        # Pre-generate a small batch; rest are generated lazily in __getitem__
+        self._ensure_questions_available(self.questions_per_target * 10)
 
     def _load_entries(self, data_files: list[str]) -> list[dict]:
         """Load entries from JSONL file(s)."""
@@ -208,10 +207,9 @@ class SelfEvolvingDataset(Dataset):
         if self.is_static:
             entry = self.current_dataset[item]
         else:
-            # Generate more questions if queue is empty
-            if not self._question_queue:
-                self._generate_next_batch()
-            entry = self._question_queue.pop(0)
+            # Ensure we have enough questions for this index
+            self._ensure_questions_available(item + 1)
+            entry = self._generated_questions[item]
 
         return {
             "data_source": entry.get("data_source", "pubmedqa"),
@@ -262,7 +260,12 @@ class SelfEvolvingDataset(Dataset):
             "count": len(self._accuracy_history),
         }
 
-    def _generate_next_batch(self) -> None:
+    def _ensure_questions_available(self, min_count: int) -> None:
+        """Generate questions until we have at least min_count total."""
+        while len(self._generated_questions) < min_count:
+            self._generate_next_target()
+
+    def _generate_next_target(self) -> None:
         """Generate questions for the current target and advance to the next."""
         target = self.target_questions[self.target_idx]
         stats = self._get_accuracy_stats()
@@ -282,19 +285,16 @@ class SelfEvolvingDataset(Dataset):
                 if attempt == max_retries:
                     logger.warning(
                         f"All {max_retries} proposer attempts failed. "
-                        f"Reusing random questions from bank."
+                        f"Reusing random questions from generated pool."
                     )
 
         if generated is None:
-            # Return random existing questions from the bank if available,
-            # otherwise skip this target
-            if self._question_queue:
+            if self._generated_questions:
                 import random as _rand
-                n = min(self.questions_per_target, len(self._question_queue))
-                generated = _rand.sample(self._question_queue, n)
+                n = min(self.questions_per_target, len(self._generated_questions))
+                generated = _rand.sample(self._generated_questions, n)
             else:
-                # Nothing in bank either — advance and hope next target works
-                logger.warning("No questions in bank and proposer failed. Skipping target.")
+                logger.warning("No questions available and proposer failed. Skipping target.")
                 generated = []
 
         # Record proposed questions in history for this target
@@ -303,7 +303,7 @@ class SelfEvolvingDataset(Dataset):
             a = entry.get("reward_model", {}).get("ground_truth", "")
             self._proposed_history[self.target_idx].append({"question": q, "answer": a})
 
-        self._question_queue.extend(generated)
+        self._generated_questions.extend(generated)
         self._log_questions(generated, target)
 
         # Advance to next target
