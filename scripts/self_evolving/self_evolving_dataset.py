@@ -268,7 +268,34 @@ class SelfEvolvingDataset(Dataset):
         stats = self._get_accuracy_stats()
         history = self._proposed_history[self.target_idx]
 
-        generated = self._call_proposer(target, stats, history)
+        max_retries = 3
+        generated = None
+        for attempt in range(1, max_retries + 1):
+            try:
+                generated = self._call_proposer(target, stats, history)
+                break
+            except Exception as e:
+                logger.warning(
+                    f"Proposer attempt {attempt}/{max_retries} failed for target "
+                    f"{self.target_idx}: {e}"
+                )
+                if attempt == max_retries:
+                    logger.warning(
+                        f"All {max_retries} proposer attempts failed. "
+                        f"Reusing random questions from bank."
+                    )
+
+        if generated is None:
+            # Return random existing questions from the bank if available,
+            # otherwise skip this target
+            if self._question_queue:
+                import random as _rand
+                n = min(self.questions_per_target, len(self._question_queue))
+                generated = _rand.sample(self._question_queue, n)
+            else:
+                # Nothing in bank either — advance and hope next target works
+                logger.warning("No questions in bank and proposer failed. Skipping target.")
+                generated = []
 
         # Record proposed questions in history for this target
         for entry in generated:
