@@ -57,6 +57,7 @@ python3 -m verl.trainer.main_ppo \
     +reward.reward_kwargs.max_resp_len=4096 \
     actor_rollout_ref.model.path=Qwen/Qwen3-VL-2B-Instruct \
     actor_rollout_ref.actor.strategy=fsdp2 \
+    actor_rollout_ref.actor.optim.lr=5e-7 \
     actor_rollout_ref.actor.ppo_mini_batch_size=64 \
     actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=2 \
     actor_rollout_ref.rollout.name=vllm \
