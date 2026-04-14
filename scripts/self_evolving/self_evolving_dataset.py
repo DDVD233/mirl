@@ -349,9 +349,10 @@ class SelfEvolvingDataset(Dataset):
                 accuracy_count=accuracy_stats["count"],
                 history_section=history_section,
             )
+            # Only pass the question, NOT the context — the context often contains
+            # the answer (e.g. conclusion section of the abstract).
             user_prompt = (
-                f"Reference PubMed question: {target_question}\n"
-                f"Reference abstract context:\n{target_context}\n\n"
+                f"Reference PubMed question (topic only): {target_question}\n\n"
                 f"Generate {self.questions_per_target} new training questions (no answers needed)."
             )
         else:
