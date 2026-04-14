@@ -341,13 +341,9 @@ class SelfEvolvingDataset(Dataset):
                 f"Generate {self.questions_per_target} new training questions."
             )
 
-        try:
-            response = self._api_call(system_prompt, user_prompt)
-            questions = self._parse_proposer_response(response, target)
-            return questions
-        except Exception as e:
-            logger.warning(f"Proposer API call failed: {e}. Using target as fallback.")
-            return [self._make_entry_from_target(target)]
+        response = self._api_call(system_prompt, user_prompt)
+        questions = self._parse_proposer_response(response, target)
+        return questions
 
     def _api_call(self, system_prompt: str, user_prompt: str) -> str:
         """Make a synchronous call to the OpenAI-compatible API."""
@@ -375,14 +371,9 @@ class SelfEvolvingDataset(Dataset):
         """Parse the proposer's JSON response into verl annotation format."""
         json_match = re.search(r'\[.*\]', response, re.DOTALL)
         if not json_match:
-            logger.warning(f"Could not parse JSON from proposer response: {response[:200]}")
-            return [self._make_entry_from_target(target)]
+            raise ValueError(f"Could not parse JSON array from proposer response: {response[:500]}")
 
-        try:
-            questions = json.loads(json_match.group())
-        except json.JSONDecodeError:
-            logger.warning(f"Invalid JSON from proposer: {json_match.group()[:200]}")
-            return [self._make_entry_from_target(target)]
+        questions = json.loads(json_match.group())
 
         entries = []
         target_pubmed_id = target.get("extra_info", {}).get("pubmed_id", "unknown")
@@ -433,7 +424,11 @@ class SelfEvolvingDataset(Dataset):
             entries.append(entry)
 
         if not entries:
-            return [self._make_entry_from_target(target)]
+            raise ValueError(
+                f"Proposer returned no valid questions for target: "
+                f"{target.get('extra_info', {}).get('question', '?')[:200]}. "
+                f"Raw response: {response[:500]}"
+            )
         return entries
 
     def _log_questions(self, entries: list[dict], target: dict) -> None:
@@ -499,16 +494,3 @@ class SelfEvolvingDataset(Dataset):
         except Exception as e:
             logger.warning(f"Failed to log questions to wandb: {e}")
 
-    def _make_entry_from_target(self, target: dict) -> dict:
-        """Create an entry directly from a target question (fallback)."""
-        self._question_counter += 1
-        entry = dict(target)
-        entry["extra_info"] = dict(target.get("extra_info", {}))
-        entry["extra_info"]["index"] = self._question_counter
-        entry["extra_info"]["source"] = "target_fallback"
-        entry["extra_info"]["cycle"] = self.cycle
-        entry["extra_info"]["target_idx"] = self.target_idx
-        if self.no_label:
-            entry["reward_model"] = dict(entry.get("reward_model", {}))
-            entry["reward_model"]["ground_truth"] = ""
-        return entry
