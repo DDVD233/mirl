@@ -61,6 +61,39 @@ Output ONLY a JSON array. No markdown, no explanation.
   ...
 ]"""
 
+PROPOSER_NO_LABEL_SYSTEM_PROMPT = """\
+You are a biomedical research expert creating training questions for a medical QA system.
+
+Your task: Given a reference PubMed question (without its answer), generate {n_questions} NEW \
+biomedical questions that test similar medical knowledge.
+
+REQUIREMENTS for each question:
+1. CONTEXT: Write a realistic biomedical context paragraph (2-4 sentences) that resembles \
+a PubMed abstract. It must contain specific factual medical information — real conditions, \
+treatments, mechanisms, or study findings. Do NOT fabricate statistics or study results \
+that contradict established medical knowledge.
+2. QUESTION: A yes/no/maybe question that can be answered from the context alone. \
+The question should test understanding of the medical concepts in the context.
+
+NOTE: Do NOT include an answer field. The answer is unknown and will be determined by \
+an independent judge based on the context.
+
+DIFFICULTY CALIBRATION:
+- The solver model's recent accuracy is {accuracy:.0%} over {accuracy_count} questions.
+- Target ~50% accuracy. If current accuracy is high, use more nuanced contexts requiring \
+deeper reasoning. If low, use more straightforward evidence.
+
+DIVERSITY: Cover different aspects of the reference topic \
+(mechanisms, treatments, diagnosis, prognosis, epidemiology).
+
+{history_section}
+
+Output ONLY a JSON array. No markdown, no explanation.
+[
+  {{"context": "...", "question": "..."}},
+  ...
+]"""
+
 SOLVER_SYSTEM_PROMPT = (
     "You are a biomedical expert. Read the provided context from a PubMed abstract "
     "and answer the question. You FIRST think about the reasoning process as an "
@@ -126,6 +159,7 @@ class SelfEvolvingDataset(Dataset):
         self.accuracy_window = se_config.get("accuracy_window", 32)
         self.log_dir = se_config.get("log_dir", "/scratch/self_evolving_datasets/logs")
         self.dataset_length = se_config.get("dataset_length", 100000)
+        self.no_label = se_config.get("no_label", False)
 
         self.target_questions = all_entries
         print(f"SelfEvolvingDataset: dynamic mode with {len(self.target_questions)} seed targets")
@@ -269,7 +303,10 @@ class SelfEvolvingDataset(Dataset):
         if history:
             history_lines = []
             for i, h in enumerate(history[-10:], 1):  # last 10 to keep prompt reasonable
-                history_lines.append(f"  {i}. Q: {h['question']} A: {h['answer']}")
+                if self.no_label:
+                    history_lines.append(f"  {i}. Q: {h['question']}")
+                else:
+                    history_lines.append(f"  {i}. Q: {h['question']} A: {h['answer']}")
             history_text = "\n".join(history_lines)
             history_section = (
                 f"PREVIOUSLY PROPOSED (do NOT repeat these — generate entirely new questions):\n"
@@ -278,19 +315,31 @@ class SelfEvolvingDataset(Dataset):
         else:
             history_section = ""
 
-        system_prompt = PROPOSER_SYSTEM_PROMPT.format(
-            n_questions=self.questions_per_target,
-            accuracy=accuracy_stats["mean"],
-            accuracy_count=accuracy_stats["count"],
-            history_section=history_section,
-        )
-
-        user_prompt = (
-            f"Reference PubMed question: {target_question}\n"
-            f"Reference answer: {target_answer}\n"
-            f"Reference abstract context:\n{target_context}\n\n"
-            f"Generate {self.questions_per_target} new training questions."
-        )
+        if self.no_label:
+            system_prompt = PROPOSER_NO_LABEL_SYSTEM_PROMPT.format(
+                n_questions=self.questions_per_target,
+                accuracy=accuracy_stats["mean"],
+                accuracy_count=accuracy_stats["count"],
+                history_section=history_section,
+            )
+            user_prompt = (
+                f"Reference PubMed question: {target_question}\n"
+                f"Reference abstract context:\n{target_context}\n\n"
+                f"Generate {self.questions_per_target} new training questions (no answers needed)."
+            )
+        else:
+            system_prompt = PROPOSER_SYSTEM_PROMPT.format(
+                n_questions=self.questions_per_target,
+                accuracy=accuracy_stats["mean"],
+                accuracy_count=accuracy_stats["count"],
+                history_section=history_section,
+            )
+            user_prompt = (
+                f"Reference PubMed question: {target_question}\n"
+                f"Reference answer: {target_answer}\n"
+                f"Reference abstract context:\n{target_context}\n\n"
+                f"Generate {self.questions_per_target} new training questions."
+            )
 
         try:
             response = self._api_call(system_prompt, user_prompt)
@@ -339,15 +388,18 @@ class SelfEvolvingDataset(Dataset):
         target_pubmed_id = target.get("extra_info", {}).get("pubmed_id", "unknown")
 
         for q in questions:
-            if not isinstance(q, dict) or "question" not in q or "answer" not in q:
+            if not isinstance(q, dict) or "question" not in q:
                 continue
 
             context = q.get("context", "No context provided.")
             question = q["question"]
-            answer = q["answer"].strip().lower()
 
-            if answer not in ("yes", "no", "maybe"):
-                continue
+            if self.no_label:
+                answer = ""  # no ground truth — reward judge will determine correctness
+            else:
+                if "answer" not in q:
+                    continue
+                answer = q["answer"].strip().lower()
 
             user_content = (
                 f"Context:\n{context}\n\n"
