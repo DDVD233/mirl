@@ -49,6 +49,12 @@ python3 -m verl.trainer.main_ppo \
     +reward.custom_reward_function.reward_kwargs.api_base="$API_BASE" \
     +reward.custom_reward_function.reward_kwargs.api_key="$API_KEY" \
     +reward.custom_reward_function.reward_kwargs.model_name="$MODEL_NAME" \
+    reward.reward_manager.name=dapo \
+    +reward.reward_kwargs.overlong_buffer_cfg.enable=True \
+    +reward.reward_kwargs.overlong_buffer_cfg.len=512 \
+    +reward.reward_kwargs.overlong_buffer_cfg.penalty_factor=1.0 \
+    +reward.reward_kwargs.overlong_buffer_cfg.log=False \
+    +reward.reward_kwargs.max_resp_len=4096 \
     actor_rollout_ref.model.path=Qwen/Qwen3-VL-2B-Instruct \
     actor_rollout_ref.actor.strategy=fsdp2 \
     actor_rollout_ref.actor.ppo_mini_batch_size=64 \
