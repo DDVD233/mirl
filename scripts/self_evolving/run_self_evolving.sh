@@ -19,6 +19,8 @@ export DATA_DIR="${DATA_DIR:-/scratch/self_evolving_datasets/pubmedqa}"
 
 # Force fresh Ray cluster (don't connect to existing stale clusters)
 unset RAY_ADDRESS 2>/dev/null || true
+# Use cached HF models to avoid network timeouts
+export HF_HUB_OFFLINE="${HF_HUB_OFFLINE:-0}"
 
 # Step 1: Preprocess PubMedQA if not already done
 if [ ! -f "$DATA_DIR/train.jsonl" ]; then
