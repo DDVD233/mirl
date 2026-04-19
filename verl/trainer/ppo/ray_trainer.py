@@ -80,7 +80,7 @@ import torch.distributed as dist
 
 WorkerType = type[Worker]
 
-debug_file = "/home/keaneong/human-behavior/verl/examples/grpo_trainer/debug_log.txt"
+# debug_file = "/home/keaneong/human-behavior/verl/examples/grpo_trainer/debug_log.txt"
 # Create a timestamped log file in the same directory as this script
 # log_dir = os.path.dirname(os.path.abspath(__file__))
 # timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -1638,15 +1638,15 @@ class RayPPOTrainer:
                 # log modality budgets                
                 log_modality_budgets(batch_dict, step=self.global_steps)
 
-                if debug_file is not None:
-                    with open(debug_file, "a", encoding="utf-8") as f:
-                        log_entry = {
-                            "epoch": int(epoch),
-                            "batch_idx": int(batch_idx),
-                            "modality_signatures": batch_dict.get("modality_signature", []),
-                            "prompts": batch_dict.get("debug_prompts", []),
-                        }
-                        f.write(json.dumps(log_entry, ensure_ascii=False, default=lambda o: o.tolist() if isinstance(o, np.ndarray) else str(o)) + "\n")
+                # if debug_file is not None:
+                #     with open(debug_file, "a", encoding="utf-8") as f:
+                #         log_entry = {
+                #             "epoch": int(epoch),
+                #             "batch_idx": int(batch_idx),
+                #             "modality_signatures": batch_dict.get("modality_signature", []),
+                #             "prompts": batch_dict.get("debug_prompts", []),
+                #         }
+                #         f.write(json.dumps(log_entry, ensure_ascii=False, default=lambda o: o.tolist() if isinstance(o, np.ndarray) else str(o)) + "\n")
                 
                 metrics = {}
                 timing_raw = {}
