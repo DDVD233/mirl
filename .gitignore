@@ -162,3 +162,7 @@ examples/tarpo_trainer/global_step_300_val/
 
 verl/trainer/ppo/utils/gpg_reasoning_traces.jsonl
 verl/trainer/ppo/utils/rloo_reasoning_traces.jsonl
+
+examples/bootstrap/gpg_300_test_eval_metrics_bootstrap.json
+examples/bootstrap/rloo_350_test_eval_metrics_bootstrap.json
+examples/grpo_trainer/debug_log.txt
