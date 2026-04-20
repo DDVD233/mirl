@@ -37,6 +37,7 @@ from torch.utils.data import Dataset
 from transformers import PreTrainedTokenizer, ProcessorMixin
 
 from verl import DataProto
+from verl.utils.dataset.rl_dataset import RLHFDataset
 
 logger = logging.getLogger(__name__)
 
@@ -165,8 +166,32 @@ class SelfEvolvingDataset(Dataset):
       4. QuestionValidator checks each new question against the DB (re-retrieve).
       5. Accepted questions are added to the pool. Rejected are logged.
 
-    Static mode: serves JSONL directly (for validation).
+    Validation uses the normal RLHFDataset directly (via __new__ factory): the
+    trainer creates train first, then val, so the second instance routes to
+    RLHFDataset and keeps multi-agent generation out of the validation path.
     """
+
+    _env_key = "_SELF_EVOLVING_DATASET_INSTANCE_COUNT"
+
+    def __new__(
+        cls,
+        data_files,
+        tokenizer,
+        config,
+        processor=None,
+        max_samples: int = -1,
+    ):
+        count = int(os.environ.get(cls._env_key, "0"))
+        os.environ[cls._env_key] = str(count + 1)
+        if count > 0:
+            return RLHFDataset(
+                data_files=data_files,
+                tokenizer=tokenizer,
+                config=config,
+                processor=processor,
+                max_samples=max_samples,
+            )
+        return super().__new__(cls)
 
     def __init__(
         self,
@@ -184,22 +209,9 @@ class SelfEvolvingDataset(Dataset):
         else:
             data_files_list = list(data_files)
 
-        # Trainer creates train dataset first, then val. Use a process-level env
-        # counter (class attrs reset because load_extern_object re-executes this
-        # module on each call).
-        _env_key = "_SELF_EVOLVING_DATASET_INSTANCE_COUNT"
-        instance_idx = int(os.environ.get(_env_key, "0"))
-        os.environ[_env_key] = str(instance_idx + 1)
-        self.is_static = instance_idx > 0
-
         all_entries = self._load_entries(data_files_list)
         if max_samples > 0:
             all_entries = all_entries[:max_samples]
-
-        if self.is_static:
-            print(f"SelfEvolvingDataset: static mode with {len(all_entries)} items (validation)")
-            self.current_dataset = all_entries
-            return
 
         se_config = config.self_evolving
         self.api_base = se_config.api_base
@@ -274,16 +286,11 @@ class SelfEvolvingDataset(Dataset):
         return entries
 
     def __len__(self) -> int:
-        if self.is_static:
-            return len(self.current_dataset)
         return self.dataset_length
 
     def __getitem__(self, item: int) -> dict:
-        if self.is_static:
-            entry = self.current_dataset[item]
-        else:
-            self._ensure_questions_available(item + 1)
-            entry = self._generated_questions[item]
+        self._ensure_questions_available(item + 1)
+        entry = self._generated_questions[item]
 
         return {
             "data_source": entry.get("data_source", "self_evolving"),
@@ -307,8 +314,6 @@ class SelfEvolvingDataset(Dataset):
         return None, None
 
     def on_batch_end(self, batch: DataProto) -> None:
-        if self.is_static:
-            return
         if "acc" in batch.non_tensor_batch:
             for acc in batch.non_tensor_batch["acc"]:
                 self._accuracy_history.append(float(acc))
