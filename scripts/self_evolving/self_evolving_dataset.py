@@ -44,90 +44,98 @@ logger = logging.getLogger(__name__)
 # ======================================================================
 
 QUERY_PROPOSER_SYSTEM_PROMPT = """\
-You are a medical information retrieval expert. Given a training question, your job is to \
-propose 10 diverse search queries that will retrieve relevant medical knowledge from a \
-large multimodal medical database.
+You are a medical information retrieval expert. Given a training question, propose 10 \
+diverse search queries for retrieving medical knowledge from a multimodal database \
+(PubMedQA abstracts, MIRAGE MCQs, MedRAG textbooks, PubMed, Wikipedia, PMC-VQA, CLIMB \
+clinical QA across chest X-ray, derm, CT, ECG, fundus, MRI, mammography, ultrasound, \
+pathology).
 
-The database contains: PubMedQA abstracts, MIRAGE MCQs, medical textbooks (MedRAG), \
-PubMed articles, Wikipedia medical articles, PMC-VQA radiology images with questions, \
-and CLIMB clinical QA (chest X-ray, dermoscopy, CT, ECG, fundus, MRI, mammography, \
-ultrasound, pathology).
+Output EXACTLY 10 queries, one per angle below (IN ORDER). Each query is a complete \
+sentence (not keywords), specific enough to retrieve focused results, and should retrieve \
+DIFFERENT content — avoid near-paraphrases.
 
-REQUIREMENTS:
-- Output EXACTLY 10 search queries.
-- Each query must be a COMPLETE sentence, not just keywords.
-- Queries must cover DIFFERENT angles: pathophysiology, diagnosis, treatment, prognosis, \
-epidemiology, imaging findings, clinical presentation, differential diagnosis, \
-complications, related conditions.
-- Each query should be specific enough to retrieve focused results (not generic).
-- If the target question involves a medical image/modality, include at least one query \
-about imaging findings / visual patterns.
+1. MECHANISM / pathophysiology (molecular, cellular, systems level)
+2. DIAGNOSTIC CRITERIA or workup (specific tests, thresholds, scoring systems)
+3. COMPARATIVE effectiveness (treatment A vs B, test A vs B with outcome metric)
+4. ADVERSE EFFECTS / complications / contraindications
+5. PROGNOSIS / outcome / natural history (specific numbers, survival, risk factors)
+6. ATYPICAL PRESENTATION or edge case (rare variant, unusual demographic)
+7. DIFFERENTIAL DIAGNOSIS (distinguishing from 1–2 named mimics)
+8. IMAGING / VISUAL FINDINGS (modality-specific features, if applicable — else another \
+   angle not yet covered)
+9. EPIDEMIOLOGY or risk-factor association (quantitative if possible)
+10. RELATED CONDITION or downstream effect (comorbidity, systemic link, long-term sequela)
 
-Output ONLY a JSON array of 10 strings. No markdown, no explanation.
+Output ONLY a JSON array of 10 strings in the above order. No markdown, no explanation.
 ["query 1", "query 2", ..., "query 10"]"""
 
 
 QUESTION_GENERATOR_SYSTEM_PROMPT = """\
-You are a medical educator creating training questions for a medical AI. You have been \
-given: (1) a reference training question, (2) a relevant passage from a medical \
-knowledge base, (3) the solver model's recent accuracy.
+You are a medical educator creating training questions for a medical AI. You are given: \
+(1) a reference training question, (2) a relevant passage, (3) the solver's recent \
+accuracy, (4) the REQUIRED format for this question.
 
-Your job: SYNTHESIZE a NEW training question that combines the reference topic with \
-insights from the retrieved knowledge. The new question MUST NOT be a direct copy or \
-paraphrase of either source. Instead, create something ORIGINAL:
+SYNTHESIZE a NEW question combining the reference topic with the retrieved passage. The \
+question MUST:
 
-- A complex clinical scenario drawing on multiple aspects of the retrieved knowledge.
-- A rare corner case that tests edge-case reasoning.
-- A differential diagnosis challenge where multiple diagnoses fit partially.
-- A treatment decision weighing tradeoffs mentioned in the knowledge.
-- An unusual presentation or atypical finding from the retrieved passage.
+- NOT be a direct copy or paraphrase of either source.
+- Require the PASSAGE to answer — a well-informed clinician without the passage should \
+  have to guess between at least two plausible options / phrasings. If the answer is \
+  obvious from general medical training alone, the question is too easy — reject it \
+  yourself and regenerate.
+- Hit one of these depths: complex clinical scenario, rare corner case, differential \
+  diagnosis where multiple dx fit partially, treatment tradeoff, atypical presentation.
 
-FORMAT: Randomly choose one of these two formats:
-(A) **Multiple choice**: question + 4 options (A/B/C/D) + correct letter.
-(B) **Free response**: question + short expected answer (one phrase or sentence).
+REQUIRED FORMAT: {required_format}
 
 DIFFICULTY CALIBRATION:
 - Solver's recent accuracy: {accuracy:.0%} over {accuracy_count} questions.
-- Target ~50% accuracy. If current is high, create harder questions (more nuance, \
-subtler distinctions). If low, create clearer questions.
+- Target ~50% accuracy. If accuracy is high, add more nuance / closer distractors. If \
+  low, sharpen phrasing but keep the inferential step.
 
 ANSWER RULES:
-- The answer must be verifiable from medical knowledge (standard textbook facts).
-- Do not require external private data.
-- For MCQ: distractors should be plausible, not silly.
-- For free response: answer should be a short specific phrase (1-15 words).
+- Answer must be verifiable FROM THE PASSAGE + standard textbook facts.
+- For MCQ: 4 plausible options. Distractors must be defensible misinterpretations (e.g. \
+  adjacent condition, wrong phase of treatment, right concept but wrong threshold) — \
+  NOT obvious nonsense.
+- For free response: answer is a specific phrase (1-15 words, e.g. a diagnosis, drug \
+  name, mechanism, threshold value).
+- The correct answer must be UNAMBIGUOUS — exactly one option is defensible.
 
 Output ONLY a JSON object. No markdown, no explanation.
 
-For multiple choice:
+For MCQ (required_format="mcq"):
 {{"format": "mcq", "question": "...", "options": {{"A": "...", "B": "...", "C": "...", "D": "..."}}, "answer": "A"}}
 
-For free response:
+For free response (required_format="free"):
 {{"format": "free", "question": "...", "answer": "short expected answer"}}"""
 
 
 QUESTION_VALIDATOR_SYSTEM_PROMPT = """\
-You are a medical fact-checker. You are given:
-(1) A candidate training question + its proposed answer.
-(2) Retrieved passages from a medical knowledge database that relate to the question.
+You are a medical fact-checker evaluating whether a candidate training question is good \
+enough to train a medical AI. You are given:
+(1) A candidate question + its proposed answer (+ options if MCQ).
+(2) Retrieved passages from a medical knowledge database.
 
-Your job: Decide whether the question's answer CONTRADICTS the retrieved database \
-knowledge.
+Decide a verdict. Reject (verdict="reject") if ANY of the following:
 
-DECISION RULES (be LENIENT — only reject obvious contradictions):
-- If the retrieved knowledge directly and unambiguously STATES something that makes \
-the proposed answer WRONG → "contradict"
-- If the retrieved knowledge is silent, tangential, or only partially relevant → "ok"
-- If the question is about something NOT in the retrieved passages (out-of-knowledge) \
-→ "ok" (we accept new knowledge)
-- If the question is well-formed but the answer seems questionable without direct \
-contradiction from the passages → "ok"
-- If the question is poorly formed / ungrammatical / incoherent → "contradict"
+A. CONTRADICTION — the passages directly and unambiguously state something that makes \
+   the proposed answer wrong.
+B. UNGROUNDED TRIVIA — the answer can be decided with confidence from general medical \
+   training alone, without any passage. In other words, it's a fact so common that the \
+   retrieved knowledge adds nothing (e.g. "what organ produces insulin?"). We want \
+   questions that NEED the passages.
+C. AMBIGUOUS — for MCQ, more than one option is defensibly correct, OR the "correct" \
+   answer is only marginally better than a distractor. For free-response, multiple \
+   short phrases would all be correct.
+D. MALFORMED — poorly phrased, incoherent, grammatically broken, or has silly \
+   distractors ("none of the above", obvious nonsense) that make the right answer \
+   trivial to pick by elimination.
 
-Also give a one-sentence reason.
+Otherwise verdict="ok". Out-of-database but well-formed + grounded questions are OK.
 
-Output ONLY a JSON object. No markdown, no explanation.
-{{"verdict": "ok" or "contradict", "reason": "..."}}"""
+Output ONLY a JSON object with a short reason. No markdown, no explanation.
+{{"verdict": "ok" or "reject", "reason": "..."}}"""
 
 
 # ======================================================================
@@ -233,6 +241,7 @@ class SelfEvolvingDataset(RLHFDataset):
         self.target_idx = 0
         self.cycle = 0
         self._question_counter = 0
+        self._format_counter = 0  # alternates MCQ/free across queries for ~50/50 mix
         self._wandb_question_table = None
         self._generated_questions: list[dict] = []
         self._accuracy_history: list[float] = []
@@ -400,15 +409,18 @@ class SelfEvolvingDataset(RLHFDataset):
     # --------------------------------------------------------------
     def _agent_question_generator(self, target_question: str,
                                   knowledge_passage: str,
-                                  accuracy_stats: dict) -> dict:
+                                  accuracy_stats: dict,
+                                  required_format: str) -> dict:
         sys_prompt = QUESTION_GENERATOR_SYSTEM_PROMPT.format(
+            required_format=required_format,
             accuracy=accuracy_stats["mean"],
             accuracy_count=accuracy_stats["count"],
         )
         user_prompt = (
             f"Reference training question:\n{target_question}\n\n"
             f"Retrieved medical knowledge:\n{knowledge_passage[:1500]}\n\n"
-            "Synthesize one new training question as specified."
+            f"Synthesize one new training question in the required format "
+            f"({required_format})."
         )
         response = self._api_call(sys_prompt, user_prompt, max_tokens=1024, temperature=0.9)
         q = self._parse_json_response(response, expect_array=False)
@@ -418,8 +430,8 @@ class SelfEvolvingDataset(RLHFDataset):
         answer = str(q.get("answer", "")).strip()
         if not question or not answer:
             raise ValueError(f"Missing question/answer: {q}")
-        if fmt not in ("mcq", "free"):
-            fmt = "mcq" if "options" in q else "free"
+        if fmt != required_format:
+            raise ValueError(f"Generator returned format={fmt}, required {required_format}")
         if fmt == "mcq":
             options = q.get("options", {})
             if not isinstance(options, dict) or len(options) < 2:
@@ -476,7 +488,7 @@ class SelfEvolvingDataset(RLHFDataset):
             result = self._parse_json_response(response, expect_array=False)
             verdict = result.get("verdict", "").lower()
             reason = result.get("reason", "")
-            if verdict == "contradict":
+            if verdict in ("reject", "contradict"):
                 return False, reason
             return True, reason
         except Exception as e:
@@ -497,7 +509,7 @@ class SelfEvolvingDataset(RLHFDataset):
                     return " ".join(texts)
         return ""
 
-    def _build_entry(self, generated: dict, target: dict) -> dict:
+    def _build_entry(self, generated: dict, target: dict, passage: str, query: str) -> dict:
         self._question_counter += 1
         target_id = target.get("extra_info", {}).get("pubmed_id", "") or \
                     target.get("id", "") or f"t{self.target_idx}"
@@ -543,6 +555,8 @@ class SelfEvolvingDataset(RLHFDataset):
                 "question": generated["question"],
                 "answer": generated["answer"],
                 "options": generated.get("options", {}) if generated["format"] == "mcq" else {},
+                "passage": passage[:1200],
+                "retrieval_query": query,
             },
         }
 
@@ -573,7 +587,9 @@ class SelfEvolvingDataset(RLHFDataset):
             return
         self._stats["total_queries"] += len(queries)
 
-        # Agents 2 & 3: for each retrieved passage, generate + validate
+        # Agents 2 & 3: for each retrieved passage, generate + validate.
+        # Alternate MCQ/free across queries so we get a balanced mix (~50/50)
+        # rather than all-MCQ output.
         new_entries = []
         rejected = []
         for q_idx, query in enumerate(queries):
@@ -581,11 +597,15 @@ class SelfEvolvingDataset(RLHFDataset):
             if not hits:
                 continue
             passage = hits[0]["text"]
+            required_format = "mcq" if self._format_counter % 2 == 0 else "free"
+            self._format_counter += 1
             for _ in range(self.questions_per_query):
                 try:
-                    gen = self._agent_question_generator(target_question, passage, stats)
+                    gen = self._agent_question_generator(
+                        target_question, passage, stats, required_format
+                    )
                 except Exception as e:
-                    logger.warning(f"Generator failed on query {q_idx}: {e}")
+                    logger.warning(f"Generator failed on query {q_idx} ({required_format}): {e}")
                     continue
                 self._stats["total_generated"] += 1
                 try:
@@ -593,7 +613,7 @@ class SelfEvolvingDataset(RLHFDataset):
                 except Exception as e:
                     ok, reason = True, f"validator error: {e}"
                 if ok:
-                    entry = self._build_entry(gen, target)
+                    entry = self._build_entry(gen, target, passage, query)
                     new_entries.append(entry)
                     self._stats["total_accepted"] += 1
                 else:
@@ -640,6 +660,8 @@ class SelfEvolvingDataset(RLHFDataset):
                     "question": ei.get("question", ""),
                     "answer": ei.get("answer", ""),
                     "options": ei.get("options", {}),
+                    "retrieval_query": ei.get("retrieval_query", ""),
+                    "passage": ei.get("passage", ""),
                     "queries_used": queries,
                     "index": ei.get("index", -1),
                 }
@@ -672,7 +694,8 @@ class SelfEvolvingDataset(RLHFDataset):
             if wandb.run is None:
                 return
             columns = ["cycle", "target_idx", "solver_accuracy", "target_question",
-                       "format", "question", "answer", "options"]
+                       "format", "question", "answer", "options",
+                       "retrieval_query", "passage"]
             if self._wandb_question_table is None:
                 self._wandb_question_table = wandb.Table(columns=columns)
             new_table = wandb.Table(columns=columns, data=self._wandb_question_table.data)
@@ -686,6 +709,8 @@ class SelfEvolvingDataset(RLHFDataset):
                     r["question"][:500],
                     str(r["answer"])[:200],
                     json.dumps(r["options"])[:500] if r.get("options") else "",
+                    r.get("retrieval_query", "")[:300],
+                    r.get("passage", "")[:800],
                 )
             self._wandb_question_table = new_table
             wandb.log({"proposer/questions": new_table}, commit=False)
