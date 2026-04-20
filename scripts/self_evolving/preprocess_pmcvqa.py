@@ -56,7 +56,16 @@ def parse_csv_row(row: dict, index: int, split: str, image_root: str,
     if len(options) < 2:
         return None
 
-    answer_label = (row.get("Answer_label") or row.get("Answer") or "").strip().upper()[:1]
+    # Answer can be in "Answer_label" (letter) or "Answer" (letter or text).
+    raw_answer = (row.get("Answer_label") or row.get("Answer") or "").strip()
+    answer_label = raw_answer.upper()[:1]
+    if answer_label not in options:
+        # Try to match by value
+        raw_low = raw_answer.lower().strip().lstrip("ABCD: .")
+        for k, v in options.items():
+            if v.lower().strip() == raw_low:
+                answer_label = k
+                break
     if answer_label not in options:
         return None
 
@@ -127,8 +136,10 @@ def main():
                     help="Directory with train.csv / test.csv / images/")
     ap.add_argument("--output_dir", default="/scratch/self_evolving_datasets/pmc_vqa_masked",
                     help="Output dir for masked train + labeled val JSONL")
-    ap.add_argument("--train_csv", default="train.csv")
-    ap.add_argument("--test_csv", default="test.csv")
+    ap.add_argument("--train_csv", default="train_2.csv")
+    ap.add_argument("--test_csv", default="test_2.csv")
+    ap.add_argument("--image_subdir", default="images/figures",
+                    help="Subdir relative to pmcvqa_dir where images live")
     ap.add_argument("--max_train", type=int, default=-1,
                     help="Cap training examples (masked seed targets). -1 = no cap")
     ap.add_argument("--max_val", type=int, default=500,
@@ -140,7 +151,7 @@ def main():
 
     train_path = os.path.join(args.pmcvqa_dir, args.train_csv)
     test_path = os.path.join(args.pmcvqa_dir, args.test_csv)
-    image_root = os.path.join(args.pmcvqa_dir, "images")
+    image_root = os.path.join(args.pmcvqa_dir, args.image_subdir)
 
     # Masked training targets (questions only, no label)
     train_entries = []
