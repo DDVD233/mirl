@@ -46,6 +46,11 @@ TORCH_COMPILE=0
 # Optional: cap samples per dataset for a quick smoke-test (empty = full run)
 MAX_SAMPLES="5"   # e.g. "20"
 
+# Data loading mode:
+#   "verl_style" — uses qwen_vl_utils + torchaudio (matches harpo_hier / omnisapiens training)
+#   "default"    — uses decord + soundfile (compatible with HumanOmniV2 and others)
+DATA_LOADING="verl_style"
+
 # Extra flags forwarded to inference.py for ALL datasets (e.g. "--no_thinking")
 EXTRA_ARGS=""
 
@@ -155,6 +160,7 @@ run_parallel() {
             --max_new_tokens  "$MAX_NEW_TOKENS" \
             --num_shards      "$NUM_GPUS" \
             --shard_idx       "$shard" \
+            --data_loading    "$DATA_LOADING" \
             $(maybe_max_samples) \
             $(compile_flag) \
             $EXTRA_ARGS \

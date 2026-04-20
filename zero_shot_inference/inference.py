@@ -33,6 +33,7 @@ import glob
 import json
 import os
 import re
+import sys
 import traceback
 
 import torch
@@ -74,7 +75,9 @@ def _resolve(path: str, base_dir: str) -> str:
     return path if os.path.isabs(path) else os.path.join(base_dir, path)
 
 
-def load_audio_list(audio_paths: list[str], base_dir: str, target_sr: int = 16000):
+# ── Default loaders (decord + soundfile; compatible with HumanOmniV2 etc.) ───
+
+def _default_load_audio_list(audio_paths: list[str], base_dir: str, target_sr: int = 16000):
     """Load each audio file, resample to target_sr, return as a list of 1-D arrays."""
     if not audio_paths:
         return None
@@ -99,8 +102,8 @@ def load_images(image_paths: list[str], base_dir: str) -> list[Image.Image]:
     return [Image.open(_resolve(p, base_dir)).convert("RGB") for p in image_paths]
 
 
-def load_video_frames(video_paths: list[str], base_dir: str,
-                      fps: float = 1.0, max_frames: int = 32) -> list:
+def _default_load_video_frames(video_paths: list[str], base_dir: str,
+                                fps: float = 1.0, max_frames: int = 32) -> list:
     try:
         from decord import VideoReader, cpu
     except ImportError:
@@ -114,35 +117,105 @@ def load_video_frames(video_paths: list[str], base_dir: str,
     return frames
 
 
+# ── Verl-style loaders (qwen_vl_utils + torchaudio; matches harpo/omnisapiens training) ──
+
+def _verl_load_video(path: str, base_dir: str, nframes: int = 4,
+                     min_pixels: int = 147456, max_pixels: int = 147456) -> torch.Tensor:
+    """Returns [T,3,H,W] uint8 tensor via qwen_vl_utils.fetch_video — matches training."""
+    _verl_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
+    if _verl_dir not in sys.path:
+        sys.path.insert(0, _verl_dir)
+    from verl.utils.dataset.vision_utils import process_video
+    video_dict = {
+        "type": "video",
+        "video": _resolve(path, base_dir),
+        "min_pixels": min_pixels,
+        "max_pixels": max_pixels,
+        "nframes": nframes,
+    }
+    return process_video(video_dict)  # handles errors internally, returns dummy on failure
+
+
+def _verl_load_audio(path: str, base_dir: str, max_seconds: float = 10.0):
+    """Returns (numpy_float32, sr) via torchaudio — matches training (clips to 10 s)."""
+    _verl_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
+    if _verl_dir not in sys.path:
+        sys.path.insert(0, _verl_dir)
+    from verl.utils.dataset.audio_utils import process_audio
+    tensor, sr = process_audio(_resolve(path, base_dir), processor=None, max_seconds=max_seconds)
+    return tensor.numpy().astype("float32"), sr
+
+
 # ── Entry → content list + flat media collectors ─────────────────────────────
 
-def build_entry_inputs(entry: dict, base_dir: str, thinking: bool):
+def build_entry_inputs(entry: dict, base_dir: str, thinking: bool,
+                       data_loading: str = "default"):
     """
     Returns (content_list, audio_list_or_None, pil_images, video_frames).
-    content_list is the list of dicts for the chat message.
+
+    data_loading="verl_style":
+        Parses <image>/<video>/<audio> tags in text order and places media at
+        those positions — mirrors _build_messages() in rl_dataset.py.
+        Uses qwen_vl_utils + torchaudio preprocessing (matches harpo/omnisapiens
+        training pipeline).
+
+    data_loading="default":
+        Original behaviour (images prepended, video appended, audio external).
+        Compatible with HumanOmniV2 and other models not trained via verl.
+        Includes the <video> tag bug-fix (was incorrectly checking for [video]).
     """
-    content = []
-    audio_list = None
-    pil_images = []
-    video_frames = []
-
-    if entry.get("audios"):
-        audio_list = load_audio_list(entry["audios"], base_dir)
-
-    if entry.get("images"):
-        pil_images = load_images(entry["images"], base_dir)
-        for img in pil_images:
-            content.append({"type": "image", "image": img})
-
-    if entry.get("videos") and "[video]" in entry.get("problem", ""):
-        video_frames = load_video_frames(entry["videos"], base_dir)
-        if video_frames:
-            content.append({"type": "video", "video": video_frames})
-
     instruction = THINKING_INSTRUCTION if thinking else NO_THINKING_INSTRUCTION
-    content.append({"type": "text", "text": entry["problem"] + instruction})
+    problem = entry.get("problem", "")
 
-    return content, audio_list, pil_images, video_frames
+    if data_loading == "verl_style":
+        images = [load_images([p], base_dir)[0] for p in entry.get("images", [])]
+        videos = [_verl_load_video(p, base_dir) for p in entry.get("videos", [])]
+        audios_raw = [_verl_load_audio(p, base_dir) for p in entry.get("audios", [])]
+
+        img_idx = vid_idx = aud_idx = 0
+        content = []
+        for seg in re.split(r"(<image>|<video>|<audio>)", problem):
+            if seg == "<image>" and img_idx < len(images):
+                content.append({"type": "image", "image": images[img_idx]})
+                img_idx += 1
+            elif seg == "<video>" and vid_idx < len(videos):
+                content.append({"type": "video", "video": videos[vid_idx].numpy()})
+                vid_idx += 1
+            elif seg == "<audio>" and aud_idx < len(audios_raw):
+                arr, _sr = audios_raw[aud_idx]
+                content.append({"type": "audio", "audio": arr})
+                aud_idx += 1
+            elif seg:
+                content.append({"type": "text", "text": seg})
+        content.append({"type": "text", "text": instruction})
+
+        all_audios = [c["audio"] for c in content if c["type"] == "audio"]
+        all_images = [c["image"] for c in content if c["type"] == "image"]
+        all_videos = [c["video"] for c in content if c["type"] == "video"]
+        return content, (all_audios if all_audios else None), all_images, all_videos
+
+    else:  # default
+        content = []
+        audio_list = None
+        pil_images = []
+        video_frames = []
+
+        if entry.get("audios"):
+            audio_list = _default_load_audio_list(entry["audios"], base_dir)
+
+        if entry.get("images"):
+            pil_images = load_images(entry["images"], base_dir)
+            for img in pil_images:
+                content.append({"type": "image", "image": img})
+
+        # BUG FIX: was "[video]" — data uses <video> tags
+        if entry.get("videos") and "<video>" in problem:
+            video_frames = _default_load_video_frames(entry["videos"], base_dir)
+            if video_frames:
+                content.append({"type": "video", "video": video_frames})
+
+        content.append({"type": "text", "text": problem + instruction})
+        return content, audio_list, pil_images, video_frames
 
 
 # ── Model loading ─────────────────────────────────────────────────────────────
@@ -209,21 +282,32 @@ def _get_device(model) -> torch.device:
         return torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
+def _generate_kwargs(processor) -> dict:
+    """Return eos/pad token kwargs so generate() stops at the right token."""
+    tok = processor.tokenizer
+    eos_id = tok.eos_token_id
+    pad_id = tok.pad_token_id if tok.pad_token_id is not None else eos_id
+    return {"eos_token_id": eos_id, "pad_token_id": pad_id}
+
+
 def run_batch(model, processor, entries: list[dict], base_dir: str,
-              thinking: bool, max_new_tokens: int) -> list[str]:
+              thinking: bool, max_new_tokens: int,
+              data_loading: str = "default") -> list[str]:
     """
     Run inference on a list of entries as a single batched forward pass.
     All entries should share the same modality_signature for reliable batching.
     Falls back to one-at-a-time on any processor error.
     """
     if len(entries) == 1:
-        return [_run_one(model, processor, entries[0], base_dir, thinking, max_new_tokens)]
+        return [_run_one(model, processor, entries[0], base_dir, thinking,
+                         max_new_tokens, data_loading)]
 
     try:
         texts, batch_audios, batch_images, batch_videos = [], [], [], []
 
         for entry in entries:
-            content, audio_list, imgs, vframes = build_entry_inputs(entry, base_dir, thinking)
+            content, audio_list, imgs, vframes = build_entry_inputs(
+                entry, base_dir, thinking, data_loading)
             msgs = [{"role": "user", "content": content}]
             texts.append(
                 processor.apply_chat_template(msgs, tokenize=False, add_generation_prompt=True)
@@ -248,7 +332,12 @@ def run_batch(model, processor, entries: list[dict], base_dir: str,
                   for k, v in inputs.items()}
 
         with torch.inference_mode():
-            raw = model.generate(**inputs, max_new_tokens=max_new_tokens, do_sample=False)
+            raw = model.generate(
+                **inputs,
+                max_new_tokens=max_new_tokens,
+                do_sample=False,
+                **_generate_kwargs(processor),
+            )
 
         # Qwen2_5OmniThinkerForConditionalGeneration returns (text_ids, audio); unwrap if needed
         output_ids = raw[0] if isinstance(raw, (tuple, list)) else raw
@@ -262,13 +351,15 @@ def run_batch(model, processor, entries: list[dict], base_dir: str,
         # Batching failed (e.g. mixed modalities or processor limitation); fall back
         print(f"\n[WARN] Batch of {len(entries)} failed ({exc.__class__.__name__}: {exc}); "
               "retrying one-by-one.")
-        return [_run_one(model, processor, e, base_dir, thinking, max_new_tokens)
+        return [_run_one(model, processor, e, base_dir, thinking, max_new_tokens, data_loading)
                 for e in entries]
 
 
 def _run_one(model, processor, entry: dict, base_dir: str,
-             thinking: bool, max_new_tokens: int) -> str:
-    content, audio_list, imgs, vframes = build_entry_inputs(entry, base_dir, thinking)
+             thinking: bool, max_new_tokens: int,
+             data_loading: str = "default") -> str:
+    content, audio_list, imgs, vframes = build_entry_inputs(
+        entry, base_dir, thinking, data_loading)
     msgs = [{"role": "user", "content": content}]
     text = processor.apply_chat_template(msgs, tokenize=False, add_generation_prompt=True)
 
@@ -286,7 +377,12 @@ def _run_one(model, processor, entry: dict, base_dir: str,
               for k, v in inputs.items()}
 
     with torch.inference_mode():
-        raw = model.generate(**inputs, max_new_tokens=max_new_tokens, do_sample=False)
+        raw = model.generate(
+            **inputs,
+            max_new_tokens=max_new_tokens,
+            do_sample=False,
+            **_generate_kwargs(processor),
+        )
 
     # Qwen2_5OmniThinkerForConditionalGeneration returns (text_ids, audio); unwrap if needed
     out_ids = raw[0] if isinstance(raw, (tuple, list)) else raw
@@ -428,7 +524,8 @@ def main(args):
     base_dir = os.path.abspath(
         args.data_base_dir if args.data_base_dir else os.path.dirname(args.input_jsonl)
     )
-    thinking  = not args.no_thinking
+    thinking      = not args.no_thinking
+    data_loading  = args.data_loading
 
     # ── Load JSONL ────────────────────────────────────────────────────────────
     with open(args.input_jsonl, "r", encoding="utf-8") as f:
@@ -464,6 +561,8 @@ def main(args):
     # ── Load model ────────────────────────────────────────────────────────────
     model, processor = load_model(args.model, torch_compile=args.torch_compile)
 
+    print(f"Data loading mode: {data_loading}")
+
     # ── Batch inference loop ──────────────────────────────────────────────────
     save_every = args.save_every
     results    = list(entries)
@@ -484,7 +583,8 @@ def main(args):
 
             try:
                 responses = run_batch(
-                    model, processor, batch_entries, base_dir, thinking, args.max_new_tokens
+                    model, processor, batch_entries, base_dir, thinking,
+                    args.max_new_tokens, data_loading,
                 )
             except Exception as exc:
                 print(f"\n[ERROR] Batch {batch_start}–{batch_start+len(batch_indices)-1}: {exc}")
@@ -545,6 +645,18 @@ if __name__ == "__main__":
     parser.add_argument("--max_new_tokens", type=int, default=1024)
     parser.add_argument("--no_thinking",    action="store_true",
                         help="Use no-thinking prompt (direct answer, no <think> tags)")
+
+    # Data loading mode
+    parser.add_argument(
+        "--data_loading",
+        default="default",
+        choices=["default", "verl_style"],
+        help=(
+            "'verl_style': uses qwen_vl_utils + torchaudio preprocessing — matches "
+            "harpo_hier / omnisapiens training pipeline (nframes=4, pixel budget, 10s audio clip). "
+            "'default': uses decord + soundfile — compatible with HumanOmniV2 and others."
+        ),
+    )
 
     # Misc
     parser.add_argument("--max_samples", type=int, default=None,
