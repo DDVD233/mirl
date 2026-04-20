@@ -181,8 +181,8 @@ done
 # ── Inference ─────────────────────────────────────────────────────────────────
 
 for MODEL in "${MODELS[@]}"; do
-    local _slug="${MODEL//\//_}"
-    local _default_name="${WANDB_TAG:+${WANDB_TAG}_}${_slug}_nothink_${RUN_TIMESTAMP}"
+    _slug="${MODEL//\//_}"
+    _default_name="${WANDB_TAG:+${WANDB_TAG}_}${_slug}_nothink_${RUN_TIMESTAMP}"
     CURRENT_WANDB_RUN_ID="${_default_name}"
     CURRENT_WANDB_RUN_NAME="${WANDB_RUN_NAME:-${_default_name}}"
 
