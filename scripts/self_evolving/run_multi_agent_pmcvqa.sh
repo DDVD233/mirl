@@ -90,7 +90,7 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.rollout.gpu_memory_utilization=0.6 \
     actor_rollout_ref.rollout.max_model_len=8192 \
     actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=1 \
-    actor_rollout_ref.rollout.update_weights_bucket_megabytes=4096 \
+    +actor_rollout_ref.rollout.update_weights_bucket_megabytes=4096 \
     critic.enable=False \
     trainer.n_gpus_per_node=2 \
     trainer.nnodes=1 \
