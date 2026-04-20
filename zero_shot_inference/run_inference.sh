@@ -20,10 +20,11 @@ set -euo pipefail
 # ── CONFIG ────────────────────────────────────────────────────────────────────
 
 MODELS=(
-       "ddvd233/OmniSapiens-7B-RL"
+    "PhilipC/HumanOmniV2"
 )
+       "ddvd233/OmniSapiens-7B-RL"
     # "ddvd233/OmniSapiens-7B-RL"
-        # "PhilipC/HumanOmniV2"
+
 
 # Directory where prediction JSONLs and metrics are written
 OUTPUT_DIR="/home/keaneong/human-behavior/verl/zero_shot_inference/results"
@@ -31,17 +32,17 @@ OUTPUT_DIR="/home/keaneong/human-behavior/verl/zero_shot_inference/results"
 # Batch size per GPU for each dataset type.
 # Audio (EATD): keep at 1 (variable-length audio padding can OOM at bs>1)
 # Image (MVSA): 4–8 is usually safe on a 40 GB GPU
-BATCH_SIZE_AUDIO=1
-BATCH_SIZE_IMAGE=4
+BATCH_SIZE_AUDIO=4
+BATCH_SIZE_IMAGE=16
 
 # Max tokens the model may generate per sample
-MAX_NEW_TOKENS=1024
+MAX_NEW_TOKENS=512
 
 # Set to "1" to enable torch.compile (first batch will be slow)
 TORCH_COMPILE=0
 
 # Optional: cap samples per dataset for a quick smoke-test (empty = full run)
-MAX_SAMPLES="20"   # e.g. "20"
+MAX_SAMPLES=""   # e.g. "20"
 
 # Extra flags forwarded to inference.py (e.g. "--no_thinking")
 EXTRA_ARGS=""
