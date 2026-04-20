@@ -34,7 +34,7 @@ MAX_NEW_TOKENS=512
 TORCH_COMPILE=0
 
 # Optional: cap samples per dataset for a quick smoke-test (empty = full run)
-MAX_SAMPLES="5"   # e.g. "20"
+MAX_SAMPLES="4"   # e.g. "20"
 
 # No-thinking mode: model answers directly without <think> tags
 EXTRA_ARGS="--no_thinking"

@@ -51,7 +51,7 @@ EXTRA_ARGS=""
 
 # GPUs to use. Leave empty to auto-detect all available GPUs.
 # Example: GPUS=(0 1)  or  GPUS=(2 3 4 5)
-GPUS=(0 1 2 3)
+GPUS=(0 1 2)
 
 # ── W&B CONFIG ───────────────────────────────────────────────────────────────
 # Set WANDB_PROJECT to "" to disable W&B logging entirely.
