@@ -425,6 +425,8 @@ def compute_and_print_metrics(results: list[dict], model_key: str, model_name: s
         print("No valid predictions — skipping metrics.")
         return
 
+    preds = [p.lower() for p in preds]
+    gts   = [g.lower() for g in gts]
     acc = accuracy_score(gts, preds)
     wf1 = f1_score(gts, preds, average="weighted", zero_division=0)
     dataset_name = results[0].get("dataset", "unknown") if results else "unknown"
@@ -446,7 +448,7 @@ def compute_and_print_metrics(results: list[dict], model_key: str, model_name: s
 
 
 def _parse_multilabel(text: str) -> list[str]:
-    return sorted([lbl.strip() for lbl in text.split(",") if lbl.strip()])
+    return sorted([lbl.strip().lower() for lbl in text.split(",") if lbl.strip()])
 
 
 def compute_and_print_metrics_multilabel(results: list[dict], model_key: str, model_name: str,
