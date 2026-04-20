@@ -44,7 +44,7 @@ MAX_NEW_TOKENS=512
 TORCH_COMPILE=0
 
 # Optional: cap samples per dataset for a quick smoke-test (empty = full run)
-MAX_SAMPLES=""   # e.g. "20"
+MAX_SAMPLES="5"   # e.g. "20"
 
 # Extra flags forwarded to inference.py for ALL datasets (e.g. "--no_thinking")
 EXTRA_ARGS=""
