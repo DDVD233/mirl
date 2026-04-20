@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # ──────────────────────────────────────────────────────────────────────────────
 # Zero-shot inference pipeline — EATD-Corpus and MVSA.
+# Requires dataset JSONLs to be prepared first (run prepare_data.sh).
 #
 # Speed strategy:
 #   • Flash Attention 2 (auto-detected in inference.py, falls back to SDPA)
@@ -8,13 +9,9 @@
 #   • Shards are merged after all GPUs finish
 #   • batch_size > 1 for image-only datasets (MVSA) to amortise GPU overhead
 #
-# Steps:
-#   1. Prepare per-dataset JSONLs (skipped if already exist)
-#   2. Run inference: one shard per GPU, launched in background in parallel
-#   3. Wait for all shards, then merge and compute final metrics
-#
 # Usage:
-#   bash run_inference.sh
+#   bash prepare_data.sh   # once, to build the input JSONLs
+#   bash run_inference.sh  # runs inference and merges results
 #
 # Edit the CONFIG section below before running.
 # ──────────────────────────────────────────────────────────────────────────────
@@ -43,7 +40,7 @@ MAX_NEW_TOKENS=1024
 TORCH_COMPILE=0
 
 # Optional: cap samples per dataset for a quick smoke-test (empty = full run)
-MAX_SAMPLES=""   # e.g. "20"
+MAX_SAMPLES="10"   # e.g. "20"
 
 # Extra flags forwarded to inference.py (e.g. "--no_thinking")
 EXTRA_ARGS=""
@@ -51,8 +48,7 @@ EXTRA_ARGS=""
 # ── END CONFIG ────────────────────────────────────────────────────────────────
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-DATA_DIR="$REPO_ROOT/data/zero_shot_data"
+DATA_DIR="/scratch/keane/hb_generalization_data/MVSA_EATD_zeroshot"
 INFERENCE="$SCRIPT_DIR/inference.py"
 
 # ── GPU detection ─────────────────────────────────────────────────────────────
@@ -137,32 +133,22 @@ run_parallel() {
         --model        "$model"
 }
 
-# ── Step 1: Prepare dataset JSONLs ───────────────────────────────────────────
+# ── Verify input JSONLs exist ────────────────────────────────────────────────
 
 EATD_JSONL="$DATA_DIR/test_eatd_prompts.jsonl"
 MVSA_JSONL="$DATA_DIR/test_mvsa_prompts.jsonl"
 
-if [[ ! -f "$EATD_JSONL" ]]; then
-    echo "[prepare] Generating EATD JSONL..."
-    python "$SCRIPT_DIR/prepare_eatd.py" \
-        --data_dir "$DATA_DIR/EATD-Corpus" \
-        --output   "$EATD_JSONL"
-else
-    echo "[prepare] EATD JSONL: $EATD_JSONL (already exists)"
-fi
-
-if [[ ! -f "$MVSA_JSONL" ]]; then
-    echo "[prepare] Generating MVSA JSONL..."
-    python "$SCRIPT_DIR/prepare_mvsa.py" \
-        --data_dir "$DATA_DIR/MVSA" \
-        --output   "$MVSA_JSONL"
-else
-    echo "[prepare] MVSA JSONL: $MVSA_JSONL (already exists)"
-fi
+for jsonl in "$EATD_JSONL" "$MVSA_JSONL"; do
+    if [[ ! -f "$jsonl" ]]; then
+        echo "[ERROR] Missing input JSONL: $jsonl"
+        echo "        Run prepare_data.sh first."
+        exit 1
+    fi
+done
 
 mkdir -p "$OUTPUT_DIR"
 
-# ── Step 2: Inference ─────────────────────────────────────────────────────────
+# ── Inference ─────────────────────────────────────────────────────────────────
 
 for MODEL in "${MODELS[@]}"; do
     run_parallel "$MODEL" "eatd" "$EATD_JSONL" "$BATCH_SIZE_AUDIO"
@@ -170,4 +156,4 @@ for MODEL in "${MODELS[@]}"; do
 done
 
 echo ""
-echo "All done.  Results in: $OUTPUT_DIR"
+echo "All done. Results in: $OUTPUT_DIR"
