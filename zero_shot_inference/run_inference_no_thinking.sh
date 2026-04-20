@@ -34,7 +34,7 @@ MAX_NEW_TOKENS=512
 TORCH_COMPILE=0
 
 # Optional: cap samples per dataset for a quick smoke-test (empty = full run)
-MAX_SAMPLES="4"   # e.g. "20"
+MAX_SAMPLES=""   # e.g. "20"
 
 # Data loading mode:
 #   "verl_style" — uses qwen_vl_utils + torchaudio (matches harpo_hier / omnisapiens training)
@@ -54,7 +54,7 @@ DATASETS=(
 EXTRA_ARGS="--no_thinking"
 
 # GPUs to use. Leave empty to auto-detect all available GPUs.
-GPUS=(0 1 2)
+GPUS=(0)
 
 # ── W&B CONFIG ───────────────────────────────────────────────────────────────
 WANDB_PROJECT="zero-shot-inference"   # W&B project name  (empty = disabled)

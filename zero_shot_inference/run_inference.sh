@@ -21,13 +21,14 @@ set -euo pipefail
 
 MODELS=(
     "keentomato/harpo_hier_step400"
+    "PhilipC/HumanOmniV2"
+    "ddvd233/OmniSapiens-7B-RL"
 )
 
-# "PhilipC/HumanOmniV2"
-# "ddvd233/OmniSapiens-7B-RL"
+
 
 # Directory where prediction JSONLs and metrics are written
-OUTPUT_DIR="/home/keaneong/human-behavior/verl/zero_shot_inference/results"
+OUTPUT_DIR="/home/keaneong/human-behavior/verl/zero_shot_inference/results/thinking"
 
 # Batch size per GPU for each dataset type.
 # Audio (EATD): keep at 1–4 (variable-length audio padding can OOM at bs>1)
@@ -35,7 +36,7 @@ OUTPUT_DIR="/home/keaneong/human-behavior/verl/zero_shot_inference/results"
 # Video+Audio (AV-ASD, IEMOCAP): keep at 1 (memory-intensive)
 BATCH_SIZE_AUDIO=4
 BATCH_SIZE_IMAGE=16
-BATCH_SIZE_VIDEO=1
+BATCH_SIZE_VIDEO=4
 
 # Max tokens the model may generate per sample
 MAX_NEW_TOKENS=512
@@ -44,7 +45,7 @@ MAX_NEW_TOKENS=512
 TORCH_COMPILE=0
 
 # Optional: cap samples per dataset for a quick smoke-test (empty = full run)
-MAX_SAMPLES="5"   # e.g. "20"
+MAX_SAMPLES=""   # e.g. "20"
 
 # Data loading mode:
 #   "verl_style" — uses qwen_vl_utils + torchaudio (matches harpo_hier / omnisapiens training)
@@ -56,17 +57,18 @@ DATA_LOADING="verl_style"
 DATASETS=(
     "av-asd"
     "iemocap"
+    "eatd"
+    "mvsa"
 )
 
-    # "eatd"
-    # "mvsa"
+
 
 # Extra flags forwarded to inference.py for ALL datasets (e.g. "--no_thinking")
 EXTRA_ARGS=""
 
 # GPUs to use. Leave empty to auto-detect all available GPUs.
 # Example: GPUS=(0 1)  or  GPUS=(2 3 4 5)
-GPUS=(0 1 2)
+GPUS=(1 2)
 
 # ── W&B CONFIG ───────────────────────────────────────────────────────────────
 # Set WANDB_PROJECT to "" to disable W&B logging entirely.
