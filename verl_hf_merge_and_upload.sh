@@ -50,6 +50,7 @@ python -m verl.model_merger merge \
     --local_dir  "${ACTOR_DIR}" \
     --target_dir "${TARGET_DIR}" \
     --hf_upload_path "${HF_REPO}" \
+    --trust-remote-code \
     ${CPU_INIT_FLAG} \
     ${PRIVATE}
 
