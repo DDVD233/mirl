@@ -31,7 +31,7 @@ export MODEL_NAME="${MODEL_NAME:-Qwen/Qwen3-VL-8B-Instruct}"
 export EMBED_MODEL="${EMBED_MODEL:-Qwen/Qwen3-VL-Embedding-2B}"
 export MILVUS_URI="${MILVUS_URI:-http://mib.media.mit.edu:19531}"
 export MILVUS_TOKEN="${MILVUS_TOKEN:-root:Milvus}"
-export DATA_DIR="${DATA_DIR:-/scratch/self_evolving_datasets/pmc_vqa_masked}"
+export DATA_DIR="${DATA_DIR:-/scratch/dvdai/self_evolving_datasets/pmc_vqa_masked}"
 export EXPERIMENT_NAME="${EXPERIMENT_NAME:-pmcvqa_multi_agent_qwen3vl8b}"
 
 unset RAY_ADDRESS 2>/dev/null || true
@@ -66,6 +66,7 @@ python3 -m verl.trainer.main_ppo \
     +data.self_evolving.accuracy_window=32 \
     +data.self_evolving.dataset_length=100000 \
     +data.self_evolving.no_label=True \
+    +data.self_evolving.log_dir=/scratch/dvdai/self_evolving_datasets/logs \
     reward.custom_reward_function.path=verl/utils/reward_score/self_evolving.py \
     reward.custom_reward_function.name=compute_score \
     +reward.custom_reward_function.reward_kwargs.api_base="$API_BASE" \
