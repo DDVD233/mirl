@@ -262,11 +262,10 @@ def run_batch(model, processor, entries: list[dict], base_dir: str,
                   for k, v in inputs.items()}
 
         with torch.inference_mode():
-            output_ids = model.generate(
-                **inputs,
-                max_new_tokens=max_new_tokens,
-                do_sample=False,
-            )
+            raw = model.generate(**inputs, max_new_tokens=max_new_tokens, do_sample=False)
+
+        # Qwen2_5OmniThinkerForConditionalGeneration returns (text_ids, audio); unwrap if needed
+        output_ids = raw[0] if isinstance(raw, (tuple, list)) else raw
 
         # Strip prompt tokens — with left-padding all prompts end at the same column
         prompt_len = inputs["input_ids"].shape[1]
@@ -301,7 +300,10 @@ def _run_one(model, processor, entry: dict, base_dir: str,
               for k, v in inputs.items()}
 
     with torch.inference_mode():
-        out_ids = model.generate(**inputs, max_new_tokens=max_new_tokens, do_sample=False)
+        raw = model.generate(**inputs, max_new_tokens=max_new_tokens, do_sample=False)
+
+    # Qwen2_5OmniThinkerForConditionalGeneration returns (text_ids, audio); unwrap if needed
+    out_ids = raw[0] if isinstance(raw, (tuple, list)) else raw
 
     prompt_len = inputs["input_ids"].shape[1]
     return processor.decode(out_ids[0][prompt_len:], skip_special_tokens=True)
