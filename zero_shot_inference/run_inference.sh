@@ -51,6 +51,16 @@ MAX_SAMPLES="5"   # e.g. "20"
 #   "default"    — uses decord + soundfile (compatible with HumanOmniV2 and others)
 DATA_LOADING="verl_style"
 
+# Datasets to run. Remove or comment out any you want to skip.
+# Available: eatd  mvsa  av-asd  iemocap
+DATASETS=(
+    "av-asd"
+    "iemocap"
+)
+
+    # "eatd"
+    # "mvsa"
+
 # Extra flags forwarded to inference.py for ALL datasets (e.g. "--no_thinking")
 EXTRA_ARGS=""
 
@@ -199,19 +209,22 @@ run_parallel() {
     echo "  Shard files deleted."
 }
 
-# ── Verify input JSONLs exist ────────────────────────────────────────────────
+# ── Dataset paths ─────────────────────────────────────────────────────────────
 
 EATD_JSONL="$DATA_DIR/test_eatd_prompts.jsonl"
 MVSA_JSONL="$DATA_DIR/test_mvsa_prompts.jsonl"
 AVASD_JSONL="/scratch/keane/hb_generalization_data/avasd/test_av_asd_promptsmultilabel.jsonl"
 IEMOCAP_JSONL="/scratch/keane/hb_generalization_data/iemocap/latest_iemocap_test.jsonl"
 
-for jsonl in "$EATD_JSONL" "$MVSA_JSONL" "$AVASD_JSONL" "$IEMOCAP_JSONL"; do
-    if [[ ! -f "$jsonl" ]]; then
-        echo "[ERROR] Missing input JSONL: $jsonl"
-        echo "        Run prepare_data.sh first (for EATD/MVSA) or check server paths."
-        exit 1
-    fi
+# Verify only the JSONLs that are actually needed
+for ds in "${DATASETS[@]}"; do
+    case "$ds" in
+        eatd)    [[ -f "$EATD_JSONL"    ]] || { echo "[ERROR] Missing: $EATD_JSONL";    exit 1; } ;;
+        mvsa)    [[ -f "$MVSA_JSONL"    ]] || { echo "[ERROR] Missing: $MVSA_JSONL";    exit 1; } ;;
+        av-asd)  [[ -f "$AVASD_JSONL"   ]] || { echo "[ERROR] Missing: $AVASD_JSONL";   exit 1; } ;;
+        iemocap) [[ -f "$IEMOCAP_JSONL" ]] || { echo "[ERROR] Missing: $IEMOCAP_JSONL"; exit 1; } ;;
+        *) echo "[ERROR] Unknown dataset '$ds'. Valid: eatd mvsa av-asd iemocap"; exit 1 ;;
+    esac
 done
 
 # ── Inference ─────────────────────────────────────────────────────────────────
@@ -223,10 +236,14 @@ for MODEL in "${MODELS[@]}"; do
     CURRENT_WANDB_RUN_ID="${_default_name}"
     CURRENT_WANDB_RUN_NAME="${WANDB_RUN_NAME:-${_default_name}}"
 
-    run_parallel "$MODEL" "eatd"    "$EATD_JSONL"    "$BATCH_SIZE_AUDIO"
-    run_parallel "$MODEL" "mvsa"    "$MVSA_JSONL"    "$BATCH_SIZE_IMAGE"
-    run_parallel "$MODEL" "av-asd"  "$AVASD_JSONL"   "$BATCH_SIZE_VIDEO" "--multilabel"
-    run_parallel "$MODEL" "iemocap" "$IEMOCAP_JSONL"  "$BATCH_SIZE_VIDEO"
+    for DATASET in "${DATASETS[@]}"; do
+        case "$DATASET" in
+            eatd)    run_parallel "$MODEL" "eatd"    "$EATD_JSONL"    "$BATCH_SIZE_AUDIO" ;;
+            mvsa)    run_parallel "$MODEL" "mvsa"    "$MVSA_JSONL"    "$BATCH_SIZE_IMAGE" ;;
+            av-asd)  run_parallel "$MODEL" "av-asd"  "$AVASD_JSONL"   "$BATCH_SIZE_VIDEO" "--multilabel" ;;
+            iemocap) run_parallel "$MODEL" "iemocap" "$IEMOCAP_JSONL" "$BATCH_SIZE_VIDEO" ;;
+        esac
+    done
 done
 
 echo ""
