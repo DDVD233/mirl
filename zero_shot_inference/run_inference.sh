@@ -25,7 +25,7 @@ MODELS=(
 )
 
 # Directory where prediction JSONLs and metrics are written
-OUTPUT_DIR="/scratch/keane/zero_shot_outputs"     # <-- change before running
+OUTPUT_DIR="/home/keaneong/human-behavior/verl/zero_shot_inference/results"
 
 # Batch size per GPU for each dataset type.
 # Audio (EATD): keep at 1 (variable-length audio padding can OOM at bs>1)
@@ -40,10 +40,14 @@ MAX_NEW_TOKENS=1024
 TORCH_COMPILE=0
 
 # Optional: cap samples per dataset for a quick smoke-test (empty = full run)
-MAX_SAMPLES="10"   # e.g. "20"
+MAX_SAMPLES="20"   # e.g. "20"
 
 # Extra flags forwarded to inference.py (e.g. "--no_thinking")
 EXTRA_ARGS=""
+
+# GPUs to use. Leave empty to auto-detect all available GPUs.
+# Example: GPUS=(0 1)  or  GPUS=(2 3 4 5)
+GPUS=(0 1)
 
 # ── END CONFIG ────────────────────────────────────────────────────────────────
 
@@ -52,12 +56,18 @@ DATA_DIR="/scratch/keane/hb_generalization_data/MVSA_EATD_zeroshot"
 INFERENCE="$SCRIPT_DIR/inference.py"
 
 # ── GPU detection ─────────────────────────────────────────────────────────────
-if command -v nvidia-smi &>/dev/null; then
-    NUM_GPUS=$(nvidia-smi --query-gpu=name --format=csv,noheader | wc -l)
+if [[ "${#GPUS[@]}" -gt 0 ]]; then
+    NUM_GPUS="${#GPUS[@]}"
+    echo "Using specified GPU(s): ${GPUS[*]}"
+elif command -v nvidia-smi &>/dev/null; then
+    mapfile -t GPUS < <(nvidia-smi --query-gpu=index --format=csv,noheader | tr -d ' ')
+    NUM_GPUS="${#GPUS[@]}"
+    echo "Detected $NUM_GPUS GPU(s): ${GPUS[*]}"
 else
+    GPUS=(0)
     NUM_GPUS=1
+    echo "No nvidia-smi found, defaulting to GPU 0"
 fi
-echo "Detected $NUM_GPUS GPU(s)"
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -85,14 +95,15 @@ run_parallel() {
     echo "============================================================"
     echo "  Model   : $model"
     echo "  Dataset : $dataset_name"
-    echo "  GPUs    : $NUM_GPUS   |   batch_size: $batch_size"
+    echo "  GPUs    : ${GPUS[*]}   |   batch_size: $batch_size"
     echo "============================================================"
 
     local pids=()
 
-    for (( gpu=0; gpu<NUM_GPUS; gpu++ )); do
-        local shard_out="${out_base}_shard${gpu}.jsonl"
-        echo "  [GPU $gpu] shard $gpu/$NUM_GPUS → $shard_out"
+    for (( shard=0; shard<NUM_GPUS; shard++ )); do
+        local gpu="${GPUS[$shard]}"
+        local shard_out="${out_base}_shard${shard}.jsonl"
+        echo "  [GPU $gpu] shard $shard/$NUM_GPUS → $shard_out"
 
         CUDA_VISIBLE_DEVICES=$gpu python "$INFERENCE" \
             --model           "$model" \
@@ -102,11 +113,11 @@ run_parallel() {
             --batch_size      "$batch_size" \
             --max_new_tokens  "$MAX_NEW_TOKENS" \
             --num_shards      "$NUM_GPUS" \
-            --shard_idx       "$gpu" \
+            --shard_idx       "$shard" \
             $(maybe_max_samples) \
             $(compile_flag) \
             $EXTRA_ARGS \
-            &> "$OUTPUT_DIR/${model_slug}_${dataset_name}_shard${gpu}.log" &
+            &> "$OUTPUT_DIR/${model_slug}_${dataset_name}_shard${shard}.log" &
 
         pids+=($!)
     done
