@@ -109,7 +109,6 @@ run_parallel() {
             --model           "$model" \
             --input_jsonl     "$input_jsonl" \
             --output_jsonl    "$shard_out" \
-            --data_base_dir   "$REPO_ROOT" \
             --batch_size      "$batch_size" \
             --max_new_tokens  "$MAX_NEW_TOKENS" \
             --num_shards      "$NUM_GPUS" \
