@@ -4,11 +4,11 @@ import wandb
 
 # ---- config ----
 PROJECT = "avasd_data_upload"
-ARTIFACT_NAME = "iemocap_reasoning_upload"
+ARTIFACT_NAME = "avasd_reasoning_upload"
 ARTIFACT_TYPE = "dataset"
 
-FOLDER_TO_ZIP = Path("/scratch/keane/human_behaviour/HARPO_Hier_Ema_Rerun/global_step_400_iemocap_test")  # <-- set this
-ZIP_PATH = Path("/scratch/keane/human_behaviour/HARPO_Hier_Ema_Rerun/global_step_400_iemocap_test.zip")        # <-- output zip
+FOLDER_TO_ZIP = Path("/scratch/keane/human_behaviour/HARPO_Hier_Ema_Rerun/global_step_400_avasd_test")  # <-- set this
+ZIP_PATH = Path("/scratch/keane/human_behaviour/HARPO_Hier_Ema_Rerun/global_step_400_avasd_test.zip")        # <-- output zip
 
 # ---- zip folder ----
 if not FOLDER_TO_ZIP.exists() or not FOLDER_TO_ZIP.is_dir():
