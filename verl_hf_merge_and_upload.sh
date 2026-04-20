@@ -9,7 +9,7 @@ set -euo pipefail
 # ── CONFIGURE THESE ────────────────────────────────────────────
 ACTOR_DIR="/scratch/keane/human_behaviour/HARPO_Hier_Ema_Rerun/global_step_400/actor"
 TARGET_DIR="/scratch/keane/human_behaviour/HARPO_Hier_Ema_Rerun/merged_hf"
-HF_REPO="<your-hf-username>/HARPO-Hier-Ema-step400"
+HF_REPO="keentomato/HARPO-Hier-Ema-step400"
 PRIVATE="--private"   # remove for a public repo
 BASE_MODEL="Qwen/Qwen2.5-Omni-7B"
 USE_CPU_INIT="true"   # set to "false" to use GPU for model init
