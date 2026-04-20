@@ -38,6 +38,7 @@ import traceback
 import torch
 from PIL import Image
 from sklearn.metrics import accuracy_score, f1_score
+from sklearn.preprocessing import MultiLabelBinarizer
 from tqdm import tqdm
 from transformers import AutoModelForCausalLM, AutoProcessor
 
@@ -296,8 +297,32 @@ def _run_one(model, processor, entry: dict, base_dir: str,
 
 # ── Metrics ───────────────────────────────────────────────────────────────────
 
+def _log_wandb(args, dataset_name: str, metrics: dict):
+    """Log metrics to W&B if --wandb_project is set. One run per model (resume='allow')."""
+    if not getattr(args, "wandb_project", None):
+        return
+    try:
+        import wandb
+        run_id   = getattr(args, "wandb_run_id",   None) or None
+        run_name = getattr(args, "wandb_run_name", None) or run_id
+        entity   = getattr(args, "wandb_entity",   None) or None
+        model_name = getattr(args, "model", "unknown")
+        wandb.init(
+            project=args.wandb_project,
+            entity=entity,
+            id=run_id,
+            resume="allow",
+            name=run_name,
+            config={"model": model_name},
+        )
+        wandb.log({f"{dataset_name}/{k}": v for k, v in metrics.items()})
+        wandb.finish()
+    except Exception as exc:
+        print(f"[WARN] W&B logging failed: {exc}")
+
+
 def compute_and_print_metrics(results: list[dict], model_key: str, model_name: str,
-                              output_jsonl: str):
+                              output_jsonl: str, args=None):
     preds = [e[model_key] for e in results if e.get(model_key)]
     gts   = [e["answer"]  for e in results if e.get(model_key)]
     if not preds:
@@ -316,16 +341,57 @@ def compute_and_print_metrics(results: list[dict], model_key: str, model_name: s
     print(f"  WF1       : {wf1:.4f}")
     print(f"{'='*54}\n")
 
+    metrics = {"accuracy": acc, "weighted_f1": wf1, "n_samples": len(preds)}
     metrics_path = re.sub(r"\.jsonl$", "_metrics.json", output_jsonl)
     with open(metrics_path, "w") as f:
-        json.dump({"model": model_name, "dataset": dataset_name,
-                   "n_samples": len(preds), "accuracy": acc, "weighted_f1": wf1}, f, indent=2)
+        json.dump({"model": model_name, "dataset": dataset_name, **metrics}, f, indent=2)
     print(f"Metrics → {metrics_path}")
+    _log_wandb(args, dataset_name, metrics)
+
+
+def _parse_multilabel(text: str) -> list[str]:
+    return sorted([lbl.strip() for lbl in text.split(",") if lbl.strip()])
+
+
+def compute_and_print_metrics_multilabel(results: list[dict], model_key: str, model_name: str,
+                                         output_jsonl: str, args=None):
+    """Multilabel metrics (subset/exact-match accuracy + weighted F1) for comma-separated labels."""
+    valid = [e for e in results if e.get(model_key)]
+    if not valid:
+        print("No valid predictions — skipping metrics.")
+        return
+
+    gt_parsed   = [_parse_multilabel(e["answer"])    for e in valid]
+    pred_parsed = [_parse_multilabel(e[model_key])   for e in valid]
+
+    mlb = MultiLabelBinarizer()
+    mlb.fit(gt_parsed + pred_parsed)
+    gt_bin   = mlb.transform(gt_parsed)
+    pred_bin = mlb.transform(pred_parsed)
+
+    exact_match = float(accuracy_score(gt_bin, pred_bin))
+    wf1         = float(f1_score(gt_bin, pred_bin, average="weighted", zero_division=0))
+    dataset_name = valid[0].get("dataset", "unknown")
+
+    print(f"\n{'='*54}")
+    print(f"  Dataset         : {dataset_name}  [multilabel]")
+    print(f"  Model           : {model_name}")
+    print(f"  N samples       : {len(valid)}")
+    print(f"  Exact-match Acc : {exact_match:.4f}")
+    print(f"  WF1 (weighted)  : {wf1:.4f}")
+    print(f"{'='*54}\n")
+
+    metrics = {"exact_match_accuracy": exact_match, "weighted_f1": wf1, "n_samples": len(valid)}
+    metrics_path = re.sub(r"\.jsonl$", "_metrics.json", output_jsonl)
+    with open(metrics_path, "w") as f:
+        json.dump({"model": model_name, "dataset": dataset_name, **metrics}, f, indent=2)
+    print(f"Metrics → {metrics_path}")
+    _log_wandb(args, dataset_name, metrics)
 
 
 # ── Merge-shards mode ─────────────────────────────────────────────────────────
 
-def merge_shards(shard_pattern: str, output_jsonl: str, model_name: str):
+def merge_shards(shard_pattern: str, output_jsonl: str, model_name: str, args=None):
     paths = sorted(glob.glob(shard_pattern))
     if not paths:
         raise FileNotFoundError(f"No files match: {shard_pattern}")
@@ -344,7 +410,11 @@ def merge_shards(shard_pattern: str, output_jsonl: str, model_name: str):
 
     print(f"Merged {len(all_entries)} entries from {len(paths)} shards → {output_jsonl}")
     model_key = f"predicted_answer_{model_name.replace('/', '_')}"
-    compute_and_print_metrics(all_entries, model_key, model_name, output_jsonl)
+    multilabel = getattr(args, "multilabel", False)
+    if multilabel:
+        compute_and_print_metrics_multilabel(all_entries, model_key, model_name, output_jsonl, args)
+    else:
+        compute_and_print_metrics(all_entries, model_key, model_name, output_jsonl, args)
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
@@ -352,7 +422,7 @@ def merge_shards(shard_pattern: str, output_jsonl: str, model_name: str):
 def main(args):
     # ── Merge-only mode ───────────────────────────────────────────────────────
     if args.merge_shards:
-        merge_shards(args.merge_shards, args.output_jsonl, args.model or "unknown")
+        merge_shards(args.merge_shards, args.output_jsonl, args.model or "unknown", args)
         return
 
     base_dir = os.path.abspath(
@@ -434,7 +504,10 @@ def main(args):
     # ── Final save + metrics ──────────────────────────────────────────────────
     flush()
     print(f"\nSaved → {args.output_jsonl}")
-    compute_and_print_metrics(results, model_key, args.model, args.output_jsonl)
+    if args.multilabel:
+        compute_and_print_metrics_multilabel(results, model_key, args.model, args.output_jsonl, args)
+    else:
+        compute_and_print_metrics(results, model_key, args.model, args.output_jsonl, args)
 
 
 if __name__ == "__main__":
@@ -478,6 +551,14 @@ if __name__ == "__main__":
                         help="Cap number of entries processed (useful for smoke-testing)")
     parser.add_argument("--save_every", type=int, default=50,
                         help="Flush output JSONL every N batches (0 = only at end)")
+    parser.add_argument("--multilabel", action="store_true",
+                        help="Use multilabel metrics (comma-separated labels in answer field)")
+
+    # W&B (optional — only used in merge/metrics step)
+    parser.add_argument("--wandb_project",  default=None, help="W&B project name")
+    parser.add_argument("--wandb_run_id",   default=None, help="W&B run ID (for resume)")
+    parser.add_argument("--wandb_run_name", default=None, help="W&B run display name")
+    parser.add_argument("--wandb_entity",   default=None, help="W&B entity (org/team)")
 
     args = parser.parse_args()
 

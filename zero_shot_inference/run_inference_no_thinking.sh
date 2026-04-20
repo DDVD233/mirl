@@ -1,19 +1,13 @@
 #!/usr/bin/env bash
 # ──────────────────────────────────────────────────────────────────────────────
-# Zero-shot inference pipeline — EATD-Corpus, MVSA, AV-ASD, IEMOCAP.
-# Requires dataset JSONLs to be prepared first (run prepare_data.sh for EATD/MVSA).
-#
-# Speed strategy:
-#   • Flash Attention 2 (auto-detected in inference.py, falls back to SDPA)
-#   • Each GPU runs one shard of the dataset in parallel (data parallelism)
-#   • Shards are merged after all GPUs finish, then shard files are deleted
-#   • batch_size > 1 for image-only datasets (MVSA) to amortise GPU overhead
+# Zero-shot inference pipeline — no-thinking variant (direct answers, no <think>).
+# Identical to run_inference.sh except:
+#   • EXTRA_ARGS includes --no_thinking
+#   • OUTPUT_DIR is under results/no_thinking/ to avoid overwriting thinking results
 #
 # Usage:
-#   bash prepare_data.sh   # once, to build the EATD/MVSA input JSONLs
-#   bash run_inference.sh  # runs inference and merges results
-#
-# Edit the CONFIG section below before running.
+#   bash prepare_data.sh        # once, to build the EATD/MVSA input JSONLs
+#   bash run_inference_no_thinking.sh
 # ──────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
@@ -21,21 +15,17 @@ set -euo pipefail
 
 MODELS=(
     "keentomato/harpo_hier_step400"
+    "PhilipC/HumanOmniV2"
+    "ddvd233/OmniSapiens-7B-RL"
 )
 
-# "PhilipC/HumanOmniV2"
-# "ddvd233/OmniSapiens-7B-RL"
-
 # Directory where prediction JSONLs and metrics are written
-OUTPUT_DIR="/home/keaneong/human-behavior/verl/zero_shot_inference/results"
+OUTPUT_DIR="/home/keaneong/human-behavior/verl/zero_shot_inference/results/no_thinking"
 
 # Batch size per GPU for each dataset type.
-# Audio (EATD): keep at 1–4 (variable-length audio padding can OOM at bs>1)
-# Image (MVSA): 4–16 is usually safe on a 40 GB GPU
-# Video+Audio (AV-ASD, IEMOCAP): keep at 1 (memory-intensive)
 BATCH_SIZE_AUDIO=4
 BATCH_SIZE_IMAGE=16
-BATCH_SIZE_VIDEO=1
+BATCH_SIZE_VIDEO=4
 
 # Max tokens the model may generate per sample
 MAX_NEW_TOKENS=512
@@ -44,20 +34,15 @@ MAX_NEW_TOKENS=512
 TORCH_COMPILE=0
 
 # Optional: cap samples per dataset for a quick smoke-test (empty = full run)
-MAX_SAMPLES=""   # e.g. "20"
+MAX_SAMPLES="5"   # e.g. "20"
 
-# Extra flags forwarded to inference.py for ALL datasets (e.g. "--no_thinking")
-EXTRA_ARGS=""
+# No-thinking mode: model answers directly without <think> tags
+EXTRA_ARGS="--no_thinking"
 
 # GPUs to use. Leave empty to auto-detect all available GPUs.
-# Example: GPUS=(0 1)  or  GPUS=(2 3 4 5)
-GPUS=(0 1 2 3)
+GPUS=(0 1 2)
 
 # ── W&B CONFIG ───────────────────────────────────────────────────────────────
-# Set WANDB_PROJECT to "" to disable W&B logging entirely.
-# All datasets for a single model are logged into one W&B run (resume="allow"),
-# with metrics keyed as {dataset}/accuracy, {dataset}/weighted_f1, etc.
-
 WANDB_PROJECT="zero-shot-inference"   # W&B project name  (empty = disabled)
 WANDB_TAG=""                          # optional tag prepended to run name: "{tag}_{model_slug}_{timestamp}"
 WANDB_RUN_NAME=""                     # override full run name (ignores WANDB_TAG if set)
@@ -69,7 +54,6 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DATA_DIR="/scratch/keane/hb_generalization_data/MVSA_EATD_zeroshot"
 INFERENCE="$SCRIPT_DIR/inference.py"
 
-# Timestamp used for both log directory naming and W&B run IDs
 RUN_TIMESTAMP="$(date +%Y-%m-%d_%H-%M-%S)"
 LOG_DIR="$OUTPUT_DIR/logs/$RUN_TIMESTAMP"
 
@@ -102,8 +86,6 @@ compile_flag() {
     [[ "$TORCH_COMPILE" == "1" ]] && echo "--torch_compile" || echo ""
 }
 
-# Build W&B args string for the merge step (empty if W&B is disabled).
-# Uses globals: WANDB_PROJECT, WANDB_ENTITY, CURRENT_WANDB_RUN_ID, CURRENT_WANDB_RUN_NAME
 build_wandb_args() {
     local dataset_name="$1"
     if [[ -z "$WANDB_PROJECT" ]]; then
@@ -115,15 +97,6 @@ build_wandb_args() {
     echo "$args"
 }
 
-# Run all shards for one (model, dataset, batch_size) combination in parallel.
-# Blocks until all shards finish, then merges them and deletes shard JSONLs.
-#
-# Args:
-#   $1  model name
-#   $2  dataset name (used in file names)
-#   $3  input JSONL path
-#   $4  batch size
-#   $5  (optional) dataset-specific extra args, e.g. "--multilabel"
 run_parallel() {
     local model="$1"
     local dataset_name="$2"
@@ -164,7 +137,6 @@ run_parallel() {
         pids+=($!)
     done
 
-    # Wait for all shards and collect exit codes
     local failed=0
     for pid in "${pids[@]}"; do
         if ! wait "$pid"; then
@@ -177,7 +149,6 @@ run_parallel() {
         return 1
     fi
 
-    # ── Merge shards ─────────────────────────────────────────────────────────
     local merged_out="${out_base}_merged.jsonl"
     echo "  Merging shards → $merged_out"
     python "$INFERENCE" \
@@ -188,7 +159,6 @@ run_parallel() {
         $dataset_extra_args \
         $(build_wandb_args "$dataset_name")
 
-    # ── Delete shard JSONLs (logs are kept) ──────────────────────────────────
     rm -f "${out_base}_shard"*.jsonl
     echo "  Shard files deleted."
 }
@@ -211,9 +181,8 @@ done
 # ── Inference ─────────────────────────────────────────────────────────────────
 
 for MODEL in "${MODELS[@]}"; do
-    # One W&B run ID per model — all datasets log into the same run via resume="allow"
     local _slug="${MODEL//\//_}"
-    local _default_name="${WANDB_TAG:+${WANDB_TAG}_}${_slug}_${RUN_TIMESTAMP}"
+    local _default_name="${WANDB_TAG:+${WANDB_TAG}_}${_slug}_nothink_${RUN_TIMESTAMP}"
     CURRENT_WANDB_RUN_ID="${_default_name}"
     CURRENT_WANDB_RUN_NAME="${WANDB_RUN_NAME:-${_default_name}}"
 
