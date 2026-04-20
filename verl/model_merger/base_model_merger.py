@@ -208,6 +208,9 @@ class BaseModelMerger(ABC):
             return Qwen2_5OmniThinkerForConditionalGeneration
         elif "ForCausalLM" in self.model_config.architectures[0]:
             return AutoModelForCausalLM
+        elif "Qwen2_5Omni" in self.model_config.architectures[0]:
+            from transformers import Qwen2_5OmniThinkerForConditionalGeneration
+            return Qwen2_5OmniThinkerForConditionalGeneration
         elif "ForConditionalGeneration" in self.model_config.architectures[0]:
             return AutoModelForVision2Seq
 
