@@ -418,7 +418,7 @@ class SelfEvolvingDataset(RLHFDataset):
         )
         user_prompt = (
             f"Reference training question:\n{target_question}\n\n"
-            f"Retrieved medical knowledge:\n{knowledge_passage[:1500]}\n\n"
+            f"Retrieved medical knowledge:\n{knowledge_passage}\n\n"
             f"Synthesize one new training question in the required format "
             f"({required_format})."
         )
@@ -460,7 +460,7 @@ class SelfEvolvingDataset(RLHFDataset):
             return True, "no retrieval results — out-of-knowledge, accepted"
 
         passages = "\n\n".join(
-            f"[{h['source']}] {h['text'][:400]}" for h in hits[:3]
+            f"[{h['source']}] {h['text']}" for h in hits[:3]
         )
         if generated.get("format") == "mcq":
             q_text = (
