@@ -20,9 +20,10 @@ set -euo pipefail
 # ── CONFIG ────────────────────────────────────────────────────────────────────
 
 MODELS=(
-    "PhilipC/HumanOmniV2"
+       "ddvd233/OmniSapiens-7B-RL"
 )
     # "ddvd233/OmniSapiens-7B-RL"
+        # "PhilipC/HumanOmniV2"
 
 # Directory where prediction JSONLs and metrics are written
 OUTPUT_DIR="/home/keaneong/human-behavior/verl/zero_shot_inference/results"
