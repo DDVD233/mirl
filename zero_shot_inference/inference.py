@@ -170,20 +170,37 @@ def load_model(model_name: str, torch_compile: bool = False):
         trust_remote_code=True,
     )
 
-    # Try Flash Attention 2 → SDPA → eager (in order of speed)
-    for attn_impl in ("flash_attention_2", "sdpa", "eager"):
+    def _load(model_cls, attn_impl):
+        kw = {**load_kwargs, "attn_implementation": attn_impl}
+        return model_cls.from_pretrained(model_name, **kw)
+
+    def _try_attn_impls(model_cls):
+        for attn_impl in ("flash_attention_2", "sdpa", "eager"):
+            try:
+                m = _load(model_cls, attn_impl)
+                print(f"  Attention implementation: {attn_impl}")
+                return m
+            except Exception as exc:
+                if attn_impl == "eager":
+                    raise
+                print(f"  {attn_impl} unavailable ({exc.__class__.__name__}), trying next...")
+
+    # Try AutoModelForCausalLM first; fall back to Qwen2_5OmniThinkerForConditionalGeneration
+    # if the model type is not registered in the installed transformers version.
+    try:
+        model = _try_attn_impls(AutoModelForCausalLM)
+    except ValueError as exc:
+        if "does not recognize this architecture" not in str(exc) and "model type" not in str(exc):
+            raise
         try:
-            model = AutoModelForCausalLM.from_pretrained(
-                model_name, attn_implementation=attn_impl, **load_kwargs
-            )
-            print(f"  Attention implementation: {attn_impl}")
-            break
-        except Exception as exc:
-            if attn_impl == "eager":
-                raise
-            print(f"  {attn_impl} unavailable ({exc.__class__.__name__}), trying next...")
-    else:
-        model = AutoModelForCausalLM.from_pretrained(model_name, **load_kwargs)
+            from transformers import Qwen2_5OmniThinkerForConditionalGeneration as OmniCls
+        except ImportError:
+            raise RuntimeError(
+                "transformers does not recognise 'qwen2_5_omni_thinker'. "
+                "Run: pip install --upgrade transformers"
+            ) from exc
+        print("  Falling back to Qwen2_5OmniThinkerForConditionalGeneration")
+        model = _try_attn_impls(OmniCls)
 
     model.eval()
 
