@@ -293,9 +293,18 @@ class BaseModelMerger(ABC):
     def save_hf_model_and_tokenizer(self, state_dict: dict[str, torch.Tensor]):
         auto_model_class = self.get_transformers_auto_model_class()
         with init_empty_weights():
-            model = auto_model_class.from_config(
-                self.model_config, torch_dtype=torch.bfloat16, trust_remote_code=self.config.trust_remote_code
-            )
+            try:
+                model = auto_model_class.from_config(
+                    self.model_config, torch_dtype=torch.bfloat16, trust_remote_code=self.config.trust_remote_code
+                )
+            except ValueError as exc:
+                if "Unrecognized configuration class" not in str(exc):
+                    raise
+                from transformers import Qwen2_5OmniThinkerForConditionalGeneration
+                print(f"  from_config failed for {auto_model_class.__name__}, falling back to Qwen2_5OmniThinkerForConditionalGeneration")
+                model = Qwen2_5OmniThinkerForConditionalGeneration.from_config(
+                    self.model_config, torch_dtype=torch.bfloat16, trust_remote_code=self.config.trust_remote_code
+                )
         model.to_empty(device="cpu")
         model = self.patch_model_generation_config(model)
 
