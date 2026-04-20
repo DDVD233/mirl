@@ -302,8 +302,8 @@ class BaseModelMerger(ABC):
                     raise
                 from transformers import Qwen2_5OmniThinkerForConditionalGeneration
                 print(f"  from_config failed for {auto_model_class.__name__}, falling back to Qwen2_5OmniThinkerForConditionalGeneration")
-                model = Qwen2_5OmniThinkerForConditionalGeneration.from_config(
-                    self.model_config, torch_dtype=torch.bfloat16, trust_remote_code=self.config.trust_remote_code
+                model = Qwen2_5OmniThinkerForConditionalGeneration._from_config(
+                    self.model_config, torch_dtype=torch.bfloat16
                 )
         model.to_empty(device="cpu")
         model = self.patch_model_generation_config(model)
