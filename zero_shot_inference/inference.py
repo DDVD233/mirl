@@ -370,7 +370,9 @@ def main(args):
         merge_shards(args.merge_shards, args.output_jsonl, args.model or "unknown")
         return
 
-    base_dir = os.path.abspath(args.data_base_dir)
+    base_dir = os.path.abspath(
+        args.data_base_dir if args.data_base_dir else os.path.dirname(args.input_jsonl)
+    )
     thinking  = not args.no_thinking
 
     # ── Load JSONL ────────────────────────────────────────────────────────────
@@ -460,8 +462,8 @@ if __name__ == "__main__":
     parser.add_argument("--output_jsonl", required=True, help="Output JSONL path")
     parser.add_argument(
         "--data_base_dir",
-        default=os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
-        help="Base dir for resolving relative media paths (default: repo root)",
+        default=None,
+        help="Base dir for resolving relative media paths (default: directory of --input_jsonl)",
     )
 
     # Speed
