@@ -168,6 +168,11 @@ class SelfEvolvingDataset(Dataset):
     Static mode: serves JSONL directly (for validation).
     """
 
+    # Trainer creates train dataset first, then val dataset. We use this counter
+    # to distinguish them even when train_files == val_files (unsupervised setup
+    # where we train on the test set with labels/context masked).
+    _instance_counter = 0
+
     def __init__(
         self,
         data_files: str | list[str],
@@ -179,16 +184,14 @@ class SelfEvolvingDataset(Dataset):
         self.tokenizer = tokenizer
         self.config = config
 
-        # Detect val vs train
         if isinstance(data_files, str):
             data_files_list = [data_files]
         else:
             data_files_list = list(data_files)
 
-        train_files = config.get("train_files", "")
-        if isinstance(train_files, str):
-            train_files = [train_files]
-        self.is_static = any(f not in train_files for f in data_files_list)
+        instance_idx = SelfEvolvingDataset._instance_counter
+        SelfEvolvingDataset._instance_counter += 1
+        self.is_static = instance_idx > 0
 
         all_entries = self._load_entries(data_files_list)
         if max_samples > 0:
