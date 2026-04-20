@@ -138,10 +138,8 @@ def build_entry_inputs(entry: dict, base_dir: str, thinking: bool):
         result = load_audio_concat(entry["audios"], base_dir)
         if result is not None:
             audio_tuple = result
-            # One <audio> tag per source clip (the text template has that many placeholders)
-            for _ in entry["audios"]:
-                content.append({"type": "audio", "audio": result[0],
-                                 "sampling_rate": result[1]})
+            content.append({"type": "audio", "audio": result[0],
+                             "sampling_rate": result[1]})
 
     if entry.get("images"):
         pil_images = load_images(entry["images"], base_dir)
