@@ -20,11 +20,13 @@ set -euo pipefail
 # ── CONFIG ────────────────────────────────────────────────────────────────────
 
 MODELS=(
-    "ddvd233/OmniSapiens-7B-RL"
+    "keentomato/harpo_hier_step400"
 )
 
 # "PhilipC/HumanOmniV2"
 # "ddvd233/OmniSapiens-7B-RL"
+
+# keentomato/harpo_hier_step400
 
 
 # Directory where prediction JSONLs and metrics are written
