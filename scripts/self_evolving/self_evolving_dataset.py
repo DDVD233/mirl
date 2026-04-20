@@ -30,13 +30,11 @@ from datetime import datetime
 from typing import Optional
 
 import requests
-import torch
 from omegaconf import DictConfig
-from PIL import Image
-from torch.utils.data import Dataset
 from transformers import PreTrainedTokenizer, ProcessorMixin
 
 from verl import DataProto
+from verl.utils.dataset.rl_dataset import RLHFDataset
 
 logger = logging.getLogger(__name__)
 
@@ -155,7 +153,7 @@ SOLVER_SYSTEM_PROMPT_FREE = (
 )
 
 
-class SelfEvolvingDataset(Dataset):
+class SelfEvolvingDataset(RLHFDataset):
     """Multi-agent RAG-based self-evolving dataset.
 
     Dynamic mode pipeline (per target question):
@@ -165,29 +163,32 @@ class SelfEvolvingDataset(Dataset):
       4. QuestionValidator checks each new question against the DB (re-retrieve).
       5. Accepted questions are added to the pool. Rejected are logged.
 
+    Inherits from RLHFDataset so the standard `__getitem__` path (message building,
+    processor/image handling, tokenizer access) applies to generated questions.
+    `self.dataframe` is replaced by the growing `_generated_questions` list.
+
     Only used for the training dataset. Validation uses RLHFDataset directly
     (see `create_rl_dataset` in verl/trainer/main_ppo.py).
     """
 
     def __init__(
         self,
-        data_files: str | list[str],
+        data_files,
         tokenizer: PreTrainedTokenizer,
         config: DictConfig,
         processor: Optional[ProcessorMixin] = None,
         max_samples: int = -1,
     ):
-        self.tokenizer = tokenizer
-        self.config = config
-
-        if isinstance(data_files, str):
-            data_files_list = [data_files]
-        else:
-            data_files_list = list(data_files)
-
-        all_entries = self._load_entries(data_files_list)
-        if max_samples > 0:
-            all_entries = all_entries[:max_samples]
+        # Load seed targets (the original test.jsonl questions) via the parent
+        # loader so we also inherit tokenizer/processor/prompt-key setup.
+        super().__init__(
+            data_files=data_files,
+            tokenizer=tokenizer,
+            config=config,
+            processor=processor,
+            max_samples=max_samples,
+        )
+        self.target_questions = list(self.dataframe)
 
         se_config = config.self_evolving
         self.api_base = se_config.api_base
@@ -212,7 +213,6 @@ class SelfEvolvingDataset(Dataset):
         self.questions_per_query = se_config.get("questions_per_query", 1)
         self.no_label = se_config.get("no_label", False)
 
-        self.target_questions = all_entries
         print(f"SelfEvolvingDataset: dynamic mode with {len(self.target_questions)} seed targets")
         print(f"  Milvus: {self.milvus_uri} / {self.milvus_collection}")
         print(f"  LLM API: {self.api_base} / {self.model_name}")
@@ -245,49 +245,22 @@ class SelfEvolvingDataset(Dataset):
             "total_rejected": 0,
         }
 
+        # Parent's __getitem__ reads from self.dataframe; point it at the growing
+        # list of generated questions.
+        self.dataframe = self._generated_questions
+
         # Pre-generate a seed batch
         self._ensure_questions_available(32)
 
     # --------------------------------------------------------------
-    # Loading & dataset protocol
+    # Dataset protocol (override RLHFDataset)
     # --------------------------------------------------------------
-    def _load_entries(self, data_files: list[str]) -> list[dict]:
-        entries = []
-        for path in data_files:
-            with open(path) as f:
-                for line in f:
-                    line = line.strip()
-                    if line:
-                        entries.append(json.loads(line))
-        return entries
-
     def __len__(self) -> int:
         return self.dataset_length
 
     def __getitem__(self, item: int) -> dict:
         self._ensure_questions_available(item + 1)
-        entry = self._generated_questions[item]
-
-        return {
-            "data_source": entry.get("data_source", "self_evolving"),
-            "prompt": entry["prompt"],
-            "raw_prompt": entry["prompt"],
-            "reward_model": entry["reward_model"],
-            "extra_info": entry.get("extra_info", {}),
-            "dummy_tensor": torch.tensor([0], dtype=torch.uint8),
-            "index": entry.get("extra_info", {}).get("index", item),
-            "tools_kwargs": {},
-            "interaction_kwargs": {},
-        }
-
-    @classmethod
-    async def process_vision_info(
-        cls,
-        messages: list[dict],
-        image_patch_size: int = 14,
-        config: DictConfig = None,
-    ) -> tuple[list[Image.Image], list[tuple[torch.Tensor, dict]]]:
-        return None, None
+        return super().__getitem__(item)
 
     def on_batch_end(self, batch: DataProto) -> None:
         if "acc" in batch.non_tensor_batch:
