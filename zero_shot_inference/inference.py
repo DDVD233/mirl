@@ -35,7 +35,6 @@ import os
 import re
 import traceback
 
-import numpy as np
 import torch
 from PIL import Image
 from sklearn.metrics import accuracy_score, f1_score
@@ -74,8 +73,8 @@ def _resolve(path: str, base_dir: str) -> str:
     return path if os.path.isabs(path) else os.path.join(base_dir, path)
 
 
-def load_audio_concat(audio_paths: list[str], base_dir: str, target_sr: int = 16000):
-    """Load each audio file, resample to target_sr, concatenate with 0.5 s silence."""
+def load_audio_list(audio_paths: list[str], base_dir: str, target_sr: int = 16000):
+    """Load each audio file, resample to target_sr, return as a list of 1-D arrays."""
     if not audio_paths:
         return None
     try:
@@ -84,23 +83,15 @@ def load_audio_concat(audio_paths: list[str], base_dir: str, target_sr: int = 16
     except ImportError:
         raise ImportError("pip install soundfile librosa")
 
-    clips = []
+    arrays = []
     for p in audio_paths:
         arr, sr = sf.read(_resolve(p, base_dir), dtype="float32")
         if arr.ndim > 1:
             arr = arr.mean(axis=1)
         if sr != target_sr:
             arr = librosa.resample(arr, orig_sr=sr, target_sr=target_sr)
-        clips.append(arr)
-
-    if len(clips) == 1:
-        return clips[0], target_sr
-
-    silence = np.zeros(int(0.5 * target_sr), dtype=np.float32)
-    merged = clips[0]
-    for clip in clips[1:]:
-        merged = np.concatenate([merged, silence, clip])
-    return merged, target_sr
+        arrays.append(arr)
+    return arrays if arrays else None
 
 
 def load_images(image_paths: list[str], base_dir: str) -> list[Image.Image]:
@@ -126,20 +117,16 @@ def load_video_frames(video_paths: list[str], base_dir: str,
 
 def build_entry_inputs(entry: dict, base_dir: str, thinking: bool):
     """
-    Returns (content_list, audio_tuple_or_None, pil_images, video_frames).
+    Returns (content_list, audio_list_or_None, pil_images, video_frames).
     content_list is the list of dicts for the chat message.
     """
     content = []
-    audio_tuple = None
+    audio_list = None
     pil_images = []
     video_frames = []
 
     if entry.get("audios"):
-        result = load_audio_concat(entry["audios"], base_dir)
-        if result is not None:
-            audio_tuple = result
-            content.append({"type": "audio", "audio": result[0],
-                             "sampling_rate": result[1]})
+        audio_list = load_audio_list(entry["audios"], base_dir)
 
     if entry.get("images"):
         pil_images = load_images(entry["images"], base_dir)
@@ -154,7 +141,7 @@ def build_entry_inputs(entry: dict, base_dir: str, thinking: bool):
     instruction = THINKING_INSTRUCTION if thinking else NO_THINKING_INSTRUCTION
     content.append({"type": "text", "text": entry["problem"] + instruction})
 
-    return content, audio_tuple, pil_images, video_frames
+    return content, audio_list, pil_images, video_frames
 
 
 # ── Model loading ─────────────────────────────────────────────────────────────
@@ -235,20 +222,20 @@ def run_batch(model, processor, entries: list[dict], base_dir: str,
         texts, batch_audios, batch_images, batch_videos = [], [], [], []
 
         for entry in entries:
-            content, audio_t, imgs, vframes = build_entry_inputs(entry, base_dir, thinking)
+            content, audio_list, imgs, vframes = build_entry_inputs(entry, base_dir, thinking)
             msgs = [{"role": "user", "content": content}]
             texts.append(
                 processor.apply_chat_template(msgs, tokenize=False, add_generation_prompt=True)
             )
-            if audio_t is not None:
-                batch_audios.append(audio_t)
+            if audio_list is not None:
+                batch_audios.extend(audio_list)
             batch_images.extend(imgs)
             if vframes:
                 batch_videos.append(vframes)
 
         proc_kwargs = dict(text=texts, return_tensors="pt", padding=True)
         if batch_audios:
-            proc_kwargs["audios"] = batch_audios
+            proc_kwargs["audio"] = batch_audios
         if batch_images:
             proc_kwargs["images"] = batch_images
         if batch_videos:
@@ -280,13 +267,13 @@ def run_batch(model, processor, entries: list[dict], base_dir: str,
 
 def _run_one(model, processor, entry: dict, base_dir: str,
              thinking: bool, max_new_tokens: int) -> str:
-    content, audio_t, imgs, vframes = build_entry_inputs(entry, base_dir, thinking)
+    content, audio_list, imgs, vframes = build_entry_inputs(entry, base_dir, thinking)
     msgs = [{"role": "user", "content": content}]
     text = processor.apply_chat_template(msgs, tokenize=False, add_generation_prompt=True)
 
     proc_kwargs = dict(text=text, return_tensors="pt", padding=True)
-    if audio_t is not None:
-        proc_kwargs["audios"] = [audio_t]
+    if audio_list is not None:
+        proc_kwargs["audio"] = audio_list
     if imgs:
         proc_kwargs["images"] = imgs
     if vframes:
