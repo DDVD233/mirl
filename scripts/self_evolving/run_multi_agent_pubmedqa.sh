@@ -32,9 +32,12 @@ if [ ! -f "$DATA_DIR/train.jsonl" ]; then
     python scripts/self_evolving/preprocess_pubmedqa.py --output_dir "$DATA_DIR"
 fi
 
+# Use test.jsonl as train: self-evolving pipeline masks label/context during target
+# generation, so using the test set as training targets simulates unsupervised learning
+# while letting us measure true generalization on the same held-out set with labels.
 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
-    data.train_files="$DATA_DIR/train.jsonl" \
+    data.train_files="$DATA_DIR/test.jsonl" \
     data.val_files="$DATA_DIR/test.jsonl" \
     data.custom_cls.path=scripts/self_evolving/self_evolving_dataset.py \
     data.custom_cls.name=SelfEvolvingDataset \
@@ -56,6 +59,7 @@ python3 -m verl.trainer.main_ppo \
     +data.self_evolving.questions_per_query=1 \
     +data.self_evolving.accuracy_window=32 \
     +data.self_evolving.dataset_length=100000 \
+    +data.self_evolving.no_label=True \
     +data.self_evolving.log_dir=/scratch/dvdai/self_evolving_datasets/logs \
     reward.custom_reward_function.path=verl/utils/reward_score/self_evolving.py \
     reward.custom_reward_function.name=compute_score \
