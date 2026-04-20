@@ -134,7 +134,7 @@ def build_entry_inputs(entry: dict, base_dir: str, thinking: bool):
         for img in pil_images:
             content.append({"type": "image", "image": img})
 
-    if entry.get("videos"):
+    if entry.get("videos") and "[video]" in entry.get("problem", ""):
         video_frames = load_video_frames(entry["videos"], base_dir)
         if video_frames:
             content.append({"type": "video", "video": video_frames})
