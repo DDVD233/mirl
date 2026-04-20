@@ -69,8 +69,10 @@ def parse_csv_row(row: dict, index: int, split: str, image_root: str,
     if answer_label not in options:
         return None
 
+    caption = (row.get("Caption") or "").strip()
+
     if masked:
-        # Training: only question text, no image, no options, no label.
+        # Training: only question text, no image, no caption, no options, no label.
         user_content = (
             f"{question}\n\n"
             "Based on medical knowledge, answer the question. "
@@ -81,25 +83,21 @@ def parse_csv_row(row: dict, index: int, split: str, image_root: str,
         reward_style = "rule_free"
         options_dict = {}
     else:
-        # Validation: full info with image + options + label.
-        abs_img = os.path.join(image_root, figure_path) if figure_path else ""
+        # Validation: text caption as context + question + options + label.
+        # We avoid image input to keep vLLM rollout text-only during validation.
         opts_text = "\n".join(f"{k}. {v}" for k, v in sorted(options.items()))
-        user_content = [
-            {"type": "image", "image": f"file://{abs_img}"} if abs_img else {"type": "text", "text": ""},
-            {"type": "text", "text": f"{question}\n\nOptions:\n{opts_text}\n\n"
-                                      "Choose the single best answer (A, B, C, or D)."},
-        ]
-        # Drop empty image entry if no path
-        user_content = [c for c in user_content if c.get("text") or c.get("image")]
+        ctx_line = f"Context (figure caption):\n{caption}\n\n" if caption else ""
+        user_content = (
+            f"{ctx_line}"
+            f"Question: {question}\n\nOptions:\n{opts_text}\n\n"
+            "Choose the single best answer (A, B, C, or D)."
+        )
         ground_truth = answer_label
         extra_format = "mcq"
         reward_style = "rule_mcq"
         options_dict = options
 
-    if isinstance(user_content, str):
-        user_msg = {"role": "user", "content": user_content}
-    else:
-        user_msg = {"role": "user", "content": user_content}
+    user_msg = {"role": "user", "content": user_content}
 
     return {
         "data_source": "pmc_vqa",
