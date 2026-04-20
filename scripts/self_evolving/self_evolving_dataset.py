@@ -202,7 +202,7 @@ class SelfEvolvingDataset(RLHFDataset):
         self.milvus_uri = se_config.get("milvus_uri", "http://localhost:19531")
         self.milvus_token = se_config.get("milvus_token", "root:Milvus")
         self.milvus_collection = se_config.get("milvus_collection", "medical_knowledge")
-        self.milvus_top_k = se_config.get("milvus_top_k", 3)
+        self.milvus_top_k = se_config.get("milvus_top_k", 16)
 
         # Embedding API config (same vLLM instance, but pooling runner)
         self.embed_api_base = se_config.get("embed_api_base", self.api_base)
