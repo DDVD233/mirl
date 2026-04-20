@@ -72,17 +72,18 @@ Output ONLY a JSON array of 10 strings in the above order. No markdown, no expla
 
 QUESTION_GENERATOR_SYSTEM_PROMPT = """\
 You are a medical educator creating training questions for a medical AI. You are given: \
-(1) a reference training question, (2) a relevant passage, (3) the solver's recent \
-accuracy, (4) the REQUIRED format for this question.
+(1) a reference training question, (2) several relevant passages from a medical \
+knowledge base, (3) the solver's recent accuracy, (4) the REQUIRED format for this \
+question.
 
-SYNTHESIZE a NEW question combining the reference topic with the retrieved passage. The \
-question MUST:
+SYNTHESIZE a NEW question that AGGREGATES information across the retrieved passages \
+(not a copy of any one source). The question MUST:
 
-- NOT be a direct copy or paraphrase of either source.
-- Require the PASSAGE to answer — a well-informed clinician without the passage should \
-  have to guess between at least two plausible options / phrasings. If the answer is \
-  obvious from general medical training alone, the question is too easy — reject it \
-  yourself and regenerate.
+- NOT be a direct copy or paraphrase of any single passage or the reference question.
+- Combine facts, conditions, or mechanisms across MULTIPLE passages when possible (e.g. \
+  complex clinical scenarios, rare corner cases mentioned by multiple sources, \
+  differentials where passages disagree partially, treatment tradeoffs weighing \
+  different sources).
 - Hit one of these depths: complex clinical scenario, rare corner case, differential \
   diagnosis where multiple dx fit partially, treatment tradeoff, atypical presentation.
 
@@ -112,30 +113,25 @@ For free response (required_format="free"):
 
 
 QUESTION_VALIDATOR_SYSTEM_PROMPT = """\
-You are a medical fact-checker evaluating whether a candidate training question is good \
-enough to train a medical AI. You are given:
-(1) A candidate question + its proposed answer (+ options if MCQ).
-(2) Retrieved passages from a medical knowledge database.
+You are a medical fact-checker. You are given:
+(1) A candidate training question + its proposed answer (+ options if MCQ).
+(2) Retrieved passages from a medical knowledge database (re-queried using the \
+candidate question).
 
-Decide a verdict. Reject (verdict="reject") if ANY of the following:
+Decide whether the question's proposed answer CONTRADICTS the retrieved knowledge.
 
-A. CONTRADICTION — the passages directly and unambiguously state something that makes \
-   the proposed answer wrong.
-B. UNGROUNDED TRIVIA — the answer can be decided with confidence from general medical \
-   training alone, without any passage. In other words, it's a fact so common that the \
-   retrieved knowledge adds nothing (e.g. "what organ produces insulin?"). We want \
-   questions that NEED the passages.
-C. AMBIGUOUS — for MCQ, more than one option is defensibly correct, OR the "correct" \
-   answer is only marginally better than a distractor. For free-response, multiple \
-   short phrases would all be correct.
-D. MALFORMED — poorly phrased, incoherent, grammatically broken, or has silly \
-   distractors ("none of the above", obvious nonsense) that make the right answer \
-   trivial to pick by elimination.
+BE LENIENT — only reject obvious contradictions:
+- If the retrieved knowledge directly and unambiguously STATES something that makes \
+  the proposed answer WRONG → "contradict"
+- If the retrieved knowledge is silent, tangential, or only partially relevant → "ok"
+- If the question is about something NOT in the retrieved passages (out-of-knowledge) \
+  → "ok" (we accept new knowledge)
+- If the question is well-formed but the answer seems questionable without direct \
+  contradiction from the passages → "ok"
+- If the question is poorly formed / ungrammatical / incoherent → "contradict"
 
-Otherwise verdict="ok". Out-of-database but well-formed + grounded questions are OK.
-
-Output ONLY a JSON object with a short reason. No markdown, no explanation.
-{{"verdict": "ok" or "reject", "reason": "..."}}"""
+Output ONLY a JSON object with a one-sentence reason. No markdown, no explanation.
+{{"verdict": "ok" or "contradict", "reason": "..."}}"""
 
 
 # ======================================================================
@@ -488,7 +484,7 @@ class SelfEvolvingDataset(RLHFDataset):
             result = self._parse_json_response(response, expect_array=False)
             verdict = result.get("verdict", "").lower()
             reason = result.get("reason", "")
-            if verdict in ("reject", "contradict"):
+            if verdict == "contradict":
                 return False, reason
             return True, reason
         except Exception as e:
@@ -555,7 +551,7 @@ class SelfEvolvingDataset(RLHFDataset):
                 "question": generated["question"],
                 "answer": generated["answer"],
                 "options": generated.get("options", {}) if generated["format"] == "mcq" else {},
-                "passage": passage[:1200],
+                "passage": passage[:4000],
                 "retrieval_query": query,
             },
         }
@@ -587,22 +583,25 @@ class SelfEvolvingDataset(RLHFDataset):
             return
         self._stats["total_queries"] += len(queries)
 
-        # Agents 2 & 3: for each retrieved passage, generate + validate.
-        # Alternate MCQ/free across queries so we get a balanced mix (~50/50)
-        # rather than all-MCQ output.
+        # Agents 2 & 3: for each query, retrieve top-K passages, pass ALL of them
+        # to the generator to synthesize ONE question aggregating the knowledge.
+        # Alternate MCQ/free across queries for a balanced mix (~50/50).
         new_entries = []
         rejected = []
         for q_idx, query in enumerate(queries):
-            hits = self._milvus_search(query, top_k=1)
+            hits = self._milvus_search(query, top_k=self.milvus_top_k)
             if not hits:
                 continue
-            passage = hits[0]["text"]
+            knowledge = "\n\n".join(
+                f"[passage {i + 1} / source={h.get('source', '?')}]\n{h['text']}"
+                for i, h in enumerate(hits)
+            )
             required_format = "mcq" if self._format_counter % 2 == 0 else "free"
             self._format_counter += 1
             for _ in range(self.questions_per_query):
                 try:
                     gen = self._agent_question_generator(
-                        target_question, passage, stats, required_format
+                        target_question, knowledge, stats, required_format
                     )
                 except Exception as e:
                     logger.warning(f"Generator failed on query {q_idx} ({required_format}): {e}")
@@ -613,12 +612,12 @@ class SelfEvolvingDataset(RLHFDataset):
                 except Exception as e:
                     ok, reason = True, f"validator error: {e}"
                 if ok:
-                    entry = self._build_entry(gen, target, passage, query)
+                    entry = self._build_entry(gen, target, knowledge, query)
                     new_entries.append(entry)
                     self._stats["total_accepted"] += 1
                 else:
                     rejected.append({"question": gen, "reason": reason,
-                                     "retrieval_query": query, "passage": passage[:300]})
+                                     "retrieval_query": query, "passage": knowledge[:500]})
                     self._stats["total_rejected"] += 1
 
         self._generated_questions.extend(new_entries)
@@ -710,7 +709,7 @@ class SelfEvolvingDataset(RLHFDataset):
                     str(r["answer"])[:200],
                     json.dumps(r["options"])[:500] if r.get("options") else "",
                     r.get("retrieval_query", "")[:300],
-                    r.get("passage", "")[:800],
+                    r.get("passage", "")[:2000],
                 )
             self._wandb_question_table = new_table
             wandb.log({"proposer/questions": new_table}, commit=False)
