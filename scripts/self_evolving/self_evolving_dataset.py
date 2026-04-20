@@ -37,7 +37,6 @@ from torch.utils.data import Dataset
 from transformers import PreTrainedTokenizer, ProcessorMixin
 
 from verl import DataProto
-from verl.utils.dataset.rl_dataset import RLHFDataset
 
 logger = logging.getLogger(__name__)
 
@@ -166,32 +165,9 @@ class SelfEvolvingDataset(Dataset):
       4. QuestionValidator checks each new question against the DB (re-retrieve).
       5. Accepted questions are added to the pool. Rejected are logged.
 
-    Validation uses the normal RLHFDataset directly (via __new__ factory): the
-    trainer creates train first, then val, so the second instance routes to
-    RLHFDataset and keeps multi-agent generation out of the validation path.
+    Only used for the training dataset. Validation uses RLHFDataset directly
+    (see `create_rl_dataset` in verl/trainer/main_ppo.py).
     """
-
-    _env_key = "_SELF_EVOLVING_DATASET_INSTANCE_COUNT"
-
-    def __new__(
-        cls,
-        data_files,
-        tokenizer,
-        config,
-        processor=None,
-        max_samples: int = -1,
-    ):
-        count = int(os.environ.get(cls._env_key, "0"))
-        os.environ[cls._env_key] = str(count + 1)
-        if count > 0:
-            return RLHFDataset(
-                data_files=data_files,
-                tokenizer=tokenizer,
-                config=config,
-                processor=processor,
-                max_samples=max_samples,
-            )
-        return super().__new__(cls)
 
     def __init__(
         self,

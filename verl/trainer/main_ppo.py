@@ -372,10 +372,14 @@ def create_rl_dataset(data_paths, data_config, tokenizer, processor, is_train=Tr
         dataset (Dataset): The dataset.
     """
 
-    from verl.utils.dataset.rl_dataset import get_dataset_class
+    from verl.utils.dataset.rl_dataset import RLHFDataset, get_dataset_class
 
-    # Get the dataset class
-    dataset_cls = get_dataset_class(data_config)
+    # custom_cls is for train-time logic (e.g. online/self-evolving generation).
+    # Validation reads a fixed JSONL, so always use RLHFDataset for val.
+    if is_train:
+        dataset_cls = get_dataset_class(data_config)
+    else:
+        dataset_cls = RLHFDataset
 
     # Instantiate the dataset using the determined dataset class
     dataset = dataset_cls(
