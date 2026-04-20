@@ -22,7 +22,7 @@ set -euo pipefail
 MODELS=(
     "PhilipC/HumanOmniV2"
 )
-       "ddvd233/OmniSapiens-7B-RL"
+
     # "ddvd233/OmniSapiens-7B-RL"
 
 
