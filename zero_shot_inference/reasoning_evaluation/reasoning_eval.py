@@ -205,8 +205,9 @@ def infer_with_logit_capture(
 def infer_stochastic(
     model, processor, entry: dict, base_dir: str,
     max_new_tokens: int, data_loading: str,
+    temperature: float = 0.6, top_p: float = 0.95, top_k: int = 20,
 ) -> str:
-    """Single stochastic reasoning sample (temperature=0.6, top_p=0.95, top_k=20)."""
+    """Single stochastic reasoning sample."""
     content, audio_list, imgs, vframes = build_entry_inputs(
         entry, base_dir, thinking=True, data_loading=data_loading
     )
@@ -232,9 +233,9 @@ def infer_stochastic(
             **inputs,
             max_new_tokens=max_new_tokens,
             do_sample=True,
-            temperature=0.6,
-            top_p=0.95,
-            top_k=20,
+            temperature=temperature,
+            top_p=top_p,
+            top_k=top_k,
             **_generate_kwargs(processor),
         )
 
@@ -306,8 +307,9 @@ def run_mode_reasoning(model, processor, entries: list[dict], base_dir: str,
 def run_mode_stochastic(model, processor, entries: list[dict], base_dir: str,
                         max_new_tokens: int, data_loading: str,
                         n_samples: int, results: list[dict],
-                        save_every: int, flush_fn) -> None:
-    """Mode 3: N stochastic reasoning samples (temperature=0.6, top_p=0.95, top_k=20)."""
+                        save_every: int, flush_fn,
+                        temperature: float = 0.6, top_p: float = 0.95, top_k: int = 20) -> None:
+    """Mode 3: N stochastic reasoning samples."""
     for i, entry in enumerate(tqdm(entries, desc=f"Mode 3/4 — Stochastic (N={n_samples})")):
         stoc_responses:     list[str] = []
         stoc_answers:       list[str] = []
@@ -316,7 +318,8 @@ def run_mode_stochastic(model, processor, entries: list[dict], base_dir: str,
         for _ in range(n_samples):
             try:
                 resp = infer_stochastic(
-                    model, processor, entry, base_dir, max_new_tokens, data_loading
+                    model, processor, entry, base_dir, max_new_tokens, data_loading,
+                    temperature=temperature, top_p=top_p, top_k=top_k,
                 )
             except Exception as exc:
                 print(f"\n[WARN] Stochastic mode entry {i}: {exc.__class__.__name__}: {exc}")
@@ -450,6 +453,9 @@ def main(args: argparse.Namespace) -> None:
         model, processor, entries, base_dir,
         args.max_new_tokens, args.data_loading,
         args.n_stochastic, results, args.save_every, flush,
+        temperature=args.stochastic_temperature,
+        top_p=args.stochastic_top_p,
+        top_k=args.stochastic_top_k,
     )
     torch.cuda.empty_cache()
 
@@ -473,8 +479,12 @@ if __name__ == "__main__":
     parser.add_argument("--output_jsonl",     required=True)
     parser.add_argument("--data_base_dir",    default=None)
     parser.add_argument("--max_new_tokens",   type=int, default=1024)
-    parser.add_argument("--n_stochastic",     type=int, default=3,
+    parser.add_argument("--n_stochastic",          type=int,   default=3,
                         help="Number of stochastic reasoning samples per entry")
+    parser.add_argument("--stochastic_temperature", type=float, default=0.6,
+                        help="Sampling temperature for stochastic reasoning mode")
+    parser.add_argument("--stochastic_top_p",       type=float, default=0.95)
+    parser.add_argument("--stochastic_top_k",       type=int,   default=20)
     parser.add_argument("--data_loading",     default="verl_style",
                         choices=["default", "verl_style"])
     parser.add_argument("--multilabel",       action="store_true",

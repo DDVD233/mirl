@@ -292,15 +292,17 @@ def _generate_kwargs(processor) -> dict:
 
 def run_batch(model, processor, entries: list[dict], base_dir: str,
               thinking: bool, max_new_tokens: int,
-              data_loading: str = "default") -> list[str]:
+              data_loading: str = "default",
+              sampling_kwargs: dict | None = None) -> list[str]:
     """
     Run inference on a list of entries as a single batched forward pass.
     All entries should share the same modality_signature for reliable batching.
     Falls back to one-at-a-time on any processor error.
     """
+    _skw = sampling_kwargs if sampling_kwargs is not None else {"do_sample": False}
     if len(entries) == 1:
         return [_run_one(model, processor, entries[0], base_dir, thinking,
-                         max_new_tokens, data_loading)]
+                         max_new_tokens, data_loading, _skw)]
 
     try:
         texts, batch_audios, batch_images, batch_videos = [], [], [], []
@@ -335,7 +337,7 @@ def run_batch(model, processor, entries: list[dict], base_dir: str,
             raw = model.generate(
                 **inputs,
                 max_new_tokens=max_new_tokens,
-                do_sample=False,
+                **_skw,
                 **_generate_kwargs(processor),
             )
 
@@ -351,13 +353,14 @@ def run_batch(model, processor, entries: list[dict], base_dir: str,
         # Batching failed (e.g. mixed modalities or processor limitation); fall back
         print(f"\n[WARN] Batch of {len(entries)} failed ({exc.__class__.__name__}: {exc}); "
               "retrying one-by-one.")
-        return [_run_one(model, processor, e, base_dir, thinking, max_new_tokens, data_loading)
+        return [_run_one(model, processor, e, base_dir, thinking, max_new_tokens, data_loading, _skw)
                 for e in entries]
 
 
 def _run_one(model, processor, entry: dict, base_dir: str,
              thinking: bool, max_new_tokens: int,
-             data_loading: str = "default") -> str:
+             data_loading: str = "default",
+             sampling_kwargs: dict | None = None) -> str:
     content, audio_list, imgs, vframes = build_entry_inputs(
         entry, base_dir, thinking, data_loading)
     msgs = [{"role": "user", "content": content}]
@@ -376,11 +379,12 @@ def _run_one(model, processor, entry: dict, base_dir: str,
     inputs = {k: v.to(device) if isinstance(v, torch.Tensor) else v
               for k, v in inputs.items()}
 
+    _skw = sampling_kwargs if sampling_kwargs is not None else {"do_sample": False}
     with torch.inference_mode():
         raw = model.generate(
             **inputs,
             max_new_tokens=max_new_tokens,
-            do_sample=False,
+            **_skw,
             **_generate_kwargs(processor),
         )
 
@@ -529,6 +533,14 @@ def main(args):
     thinking      = not args.no_thinking
     data_loading  = args.data_loading
 
+    if args.temperature:
+        sampling_kwargs: dict = {"do_sample": True, "temperature": args.temperature}
+        if args.top_p  is not None: sampling_kwargs["top_p"]  = args.top_p
+        if args.top_k  is not None: sampling_kwargs["top_k"]  = args.top_k
+        if args.min_p  is not None and args.min_p > 0: sampling_kwargs["min_p"] = args.min_p
+    else:
+        sampling_kwargs = {"do_sample": False}
+
     # ── Load JSONL ────────────────────────────────────────────────────────────
     with open(args.input_jsonl, "r", encoding="utf-8") as f:
         all_entries = [json.loads(ln) for ln in f if ln.strip()]
@@ -586,7 +598,7 @@ def main(args):
             try:
                 responses = run_batch(
                     model, processor, batch_entries, base_dir, thinking,
-                    args.max_new_tokens, data_loading,
+                    args.max_new_tokens, data_loading, sampling_kwargs,
                 )
             except Exception as exc:
                 print(f"\n[ERROR] Batch {batch_start}–{batch_start+len(batch_indices)-1}: {exc}")
@@ -645,6 +657,11 @@ if __name__ == "__main__":
 
     # Generation
     parser.add_argument("--max_new_tokens", type=int, default=1024)
+    parser.add_argument("--temperature", type=float, default=None,
+                        help="Sampling temperature; omit or 0 for greedy decoding")
+    parser.add_argument("--top_p",       type=float, default=None)
+    parser.add_argument("--top_k",       type=int,   default=None)
+    parser.add_argument("--min_p",       type=float, default=None)
     parser.add_argument("--no_thinking",    action="store_true",
                         help="Use no-thinking prompt (direct answer, no <think> tags)")
 

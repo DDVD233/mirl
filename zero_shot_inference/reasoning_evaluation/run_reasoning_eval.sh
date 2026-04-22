@@ -34,6 +34,11 @@ MAX_NEW_TOKENS=1024
 # Number of stochastic reasoning samples per entry
 N_STOCHASTIC=3
 
+# Sampling parameters for stochastic reasoning mode (Mode 3)
+STOCHASTIC_TEMPERATURE=0.6
+STOCHASTIC_TOP_P=0.95
+STOCHASTIC_TOP_K=20
+
 # Data loading mode (verl_style matches harpo / omnisapiens training)
 DATA_LOADING="verl_style"
 
@@ -118,13 +123,16 @@ run_reasoning_eval() {
     echo "============================================================"
 
     CUDA_VISIBLE_DEVICES=$GPU python "$REASONING_EVAL_PY" \
-        --model             "$CURRENT_MODEL" \
-        --input_jsonl       "$input_jsonl" \
-        --para_input_jsonl  "$para_jsonl" \
-        --output_jsonl      "$out_jsonl" \
-        --max_new_tokens    "$MAX_NEW_TOKENS" \
-        --n_stochastic      "$N_STOCHASTIC" \
-        --data_loading      "$DATA_LOADING" \
+        --model                  "$CURRENT_MODEL" \
+        --input_jsonl            "$input_jsonl" \
+        --para_input_jsonl       "$para_jsonl" \
+        --output_jsonl           "$out_jsonl" \
+        --max_new_tokens         "$MAX_NEW_TOKENS" \
+        --n_stochastic           "$N_STOCHASTIC" \
+        --stochastic_temperature "$STOCHASTIC_TEMPERATURE" \
+        --stochastic_top_p       "$STOCHASTIC_TOP_P" \
+        --stochastic_top_k       "$STOCHASTIC_TOP_K" \
+        --data_loading           "$DATA_LOADING" \
         $(maybe_max_samples) \
         $dataset_extra_args \
         &> "$LOG_DIR/${CURRENT_MODEL_SLUG}_${dataset_name}_reasoning_eval.log"

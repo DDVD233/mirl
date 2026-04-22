@@ -27,8 +27,13 @@ MODELS=(
     # "google/gemma-4-e4b-it"
 )
 
-# For thinking mode, use Temperature=0.6, TopP=0.95, TopK=20, and MinP=0 (the default setting in generation_config.json). DO NOT use greedy decoding
-
+# Sampling parameters for generation.
+# Thinking mode defaults: Temperature=0.6, TopP=0.95, TopK=20, MinP=0 (recommended).
+# Set TEMPERATURE=0 (or empty) to fall back to greedy decoding.
+TEMPERATURE=0.6
+TOP_P=0.95
+TOP_K=20
+MIN_P=0
 
 # Directory where prediction JSONLs and metrics are written
 OUTPUT_DIR="/home/keaneong/human-behavior/verl/zero_shot_inference/results/thinking"
@@ -136,6 +141,12 @@ compile_flag() {
     [[ "$TORCH_COMPILE" == "1" ]] && echo "--torch_compile" || echo ""
 }
 
+sampling_args() {
+    if [[ -n "$TEMPERATURE" && "$TEMPERATURE" != "0" ]]; then
+        echo "--temperature $TEMPERATURE --top_p $TOP_P --top_k $TOP_K --min_p $MIN_P"
+    fi
+}
+
 # Build W&B args string for the merge step (empty if W&B is disabled).
 # Uses globals: WANDB_PROJECT, WANDB_ENTITY, CURRENT_WANDB_RUN_ID, CURRENT_WANDB_RUN_NAME
 build_wandb_args() {
@@ -193,6 +204,7 @@ run_parallel() {
             --data_loading    "$effective_dl" \
             $(maybe_max_samples) \
             $(compile_flag) \
+            $(sampling_args) \
             $EXTRA_ARGS \
             $dataset_extra_args \
             &> "$LOG_DIR/${model_slug}_${dataset_name}_shard${shard}.log" &

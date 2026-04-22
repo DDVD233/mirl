@@ -69,6 +69,14 @@ IEMOCAP_JSONL="/scratch/keane/hb_generalization_data/iemocap/latest_iemocap_test
 DREADDIT_JSONL="/scratch/keane/hb_generalization_data/zero_shot_data/zero_shot_data_v2/test_dreaddit_prompts.jsonl"
 SARCNET_JSONL="/scratch/keane/hb_generalization_data/zero_shot_data/zero_shot_data_v2/test_sarcnet_prompts.jsonl"
 
+# Sampling parameters for generation.
+# Defaults to greedy decoding for no-thinking mode.
+# Set TEMPERATURE=0.6 (and adjust others) to enable sampling.
+TEMPERATURE=0   # 0 or empty = greedy decoding
+TOP_P=0.95
+TOP_K=20
+MIN_P=0
+
 # No-thinking mode: model answers directly without <think> tags
 EXTRA_ARGS="--no_thinking"
 
@@ -118,6 +126,12 @@ compile_flag() {
     [[ "$TORCH_COMPILE" == "1" ]] && echo "--torch_compile" || echo ""
 }
 
+sampling_args() {
+    if [[ -n "$TEMPERATURE" && "$TEMPERATURE" != "0" ]]; then
+        echo "--temperature $TEMPERATURE --top_p $TOP_P --top_k $TOP_K --min_p $MIN_P"
+    fi
+}
+
 build_wandb_args() {
     local dataset_name="$1"
     if [[ -z "$WANDB_PROJECT" ]]; then
@@ -164,6 +178,7 @@ run_parallel() {
             --data_loading    "$effective_dl" \
             $(maybe_max_samples) \
             $(compile_flag) \
+            $(sampling_args) \
             $EXTRA_ARGS \
             $dataset_extra_args \
             &> "$LOG_DIR/${model_slug}_${dataset_name}_shard${shard}.log" &
