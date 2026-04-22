@@ -23,8 +23,8 @@ MODELS=(
     # "keentomato/harpo_hier_step400"
     # "PhilipC/HumanOmniV2"
     # "ddvd233/OmniSapiens-7B-RL"
-    # "Qwen/Qwen2.5-Omni-7B"
-    "google/gemma-4-e4b-it"
+    "Qwen/Qwen2.5-Omni-7B"
+    # "google/gemma-4-e4b-it"
 )
 
 # Sampling parameters for generation.
