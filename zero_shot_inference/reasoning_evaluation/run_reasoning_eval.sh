@@ -41,7 +41,10 @@ DATA_LOADING="verl_style"
 MAX_SAMPLES=""   # e.g. "5"
 
 # Datasets to run — remove any you want to skip
+# Available: eatd  mvsa  av-asd  iemocap  dreaddit  sarcnet
 DATASETS=(
+    "eatd"
+    "mvsa"
     "av-asd"
     "iemocap"
     "dreaddit"
@@ -49,17 +52,22 @@ DATASETS=(
 )
 
 # ── DATASET PATHS ─────────────────────────────────────────────────────────────
-# Adjust ZSD_DIR / ZSD_V2_DIR for your cluster mount point.
+# Adjust these paths for your cluster mount point.
 
 ZSD_DIR="/scratch/keane/hb_generalization_data/zero_shot_data"
 ZSD_V2_DIR="$ZSD_DIR/zero_shot_data_v2"
+MVSA_EATD_DIR="/scratch/keane/hb_generalization_data/MVSA_EATD_zeroshot"
 
+EATD_JSONL="$MVSA_EATD_DIR/test_eatd_prompts.jsonl"
+MVSA_JSONL="$MVSA_EATD_DIR/test_mvsa_prompts.jsonl"
 AVASD_JSONL="$ZSD_DIR/test_av_asd_promptsmultilabel.jsonl"
 IEMOCAP_JSONL="$ZSD_DIR/latest_iemocap_test.jsonl"
 DREADDIT_JSONL="$ZSD_V2_DIR/test_dreaddit_prompts.jsonl"
 SARCNET_JSONL="$ZSD_V2_DIR/test_sarcnet_prompts.jsonl"
 
 # Pre-generated paraphrased JSONLs (created by Claude Code; stored next to originals)
+EATD_PARA_JSONL="$MVSA_EATD_DIR/test_eatd_prompts_paraphrased.jsonl"
+MVSA_PARA_JSONL="$MVSA_EATD_DIR/test_mvsa_prompts_paraphrased.jsonl"
 AVASD_PARA_JSONL="$ZSD_DIR/test_av_asd_promptsmultilabel_paraphrased.jsonl"
 IEMOCAP_PARA_JSONL="$ZSD_DIR/latest_iemocap_test_paraphrased.jsonl"
 DREADDIT_PARA_JSONL="$ZSD_V2_DIR/test_dreaddit_prompts_paraphrased.jsonl"
@@ -146,6 +154,14 @@ run_metrics() {
 
 for ds in "${DATASETS[@]}"; do
     case "$ds" in
+        eatd)
+            [[ -f "$EATD_JSONL"      ]] || { echo "[ERROR] Missing: $EATD_JSONL";      exit 1; }
+            [[ -f "$EATD_PARA_JSONL" ]] || { echo "[ERROR] Missing: $EATD_PARA_JSONL"; exit 1; }
+            ;;
+        mvsa)
+            [[ -f "$MVSA_JSONL"      ]] || { echo "[ERROR] Missing: $MVSA_JSONL";      exit 1; }
+            [[ -f "$MVSA_PARA_JSONL" ]] || { echo "[ERROR] Missing: $MVSA_PARA_JSONL"; exit 1; }
+            ;;
         av-asd)
             [[ -f "$AVASD_JSONL"      ]] || { echo "[ERROR] Missing: $AVASD_JSONL";      exit 1; }
             [[ -f "$AVASD_PARA_JSONL" ]] || { echo "[ERROR] Missing: $AVASD_PARA_JSONL"; exit 1; }
@@ -162,7 +178,7 @@ for ds in "${DATASETS[@]}"; do
             [[ -f "$SARCNET_JSONL"      ]] || { echo "[ERROR] Missing: $SARCNET_JSONL";      exit 1; }
             [[ -f "$SARCNET_PARA_JSONL" ]] || { echo "[ERROR] Missing: $SARCNET_PARA_JSONL"; exit 1; }
             ;;
-        *) echo "[ERROR] Unknown dataset '$ds'. Valid: av-asd iemocap dreaddit sarcnet"; exit 1 ;;
+        *) echo "[ERROR] Unknown dataset '$ds'. Valid: eatd mvsa av-asd iemocap dreaddit sarcnet"; exit 1 ;;
     esac
 done
 
@@ -179,6 +195,16 @@ for MODEL in "${MODELS[@]}"; do
 
     for DATASET in "${DATASETS[@]}"; do
         case "$DATASET" in
+            eatd)
+                INPUT_JSONL="$EATD_JSONL"
+                PARA_JSONL="$EATD_PARA_JSONL"
+                DATASET_EXTRA=""
+                ;;
+            mvsa)
+                INPUT_JSONL="$MVSA_JSONL"
+                PARA_JSONL="$MVSA_PARA_JSONL"
+                DATASET_EXTRA=""
+                ;;
             av-asd)
                 INPUT_JSONL="$AVASD_JSONL"
                 PARA_JSONL="$AVASD_PARA_JSONL"

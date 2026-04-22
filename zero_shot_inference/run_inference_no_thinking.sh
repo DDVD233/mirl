@@ -46,6 +46,7 @@ DATA_LOADING="verl_style"
 # Per-model overrides for DATA_LOADING. Models not listed use DATA_LOADING above.
 # Gemma requires "default" to avoid Qwen-specific qwen_vl_utils video processing.
 declare -A MODEL_DATA_LOADING=(
+    ["PhilipC/HumanOmniV2"]="default"
     ["google/gemma-4-e4b-it"]="default"
 )
 

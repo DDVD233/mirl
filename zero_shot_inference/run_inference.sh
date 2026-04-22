@@ -23,8 +23,8 @@ MODELS=(
     "keentomato/harpo_hier_step400"
     "PhilipC/HumanOmniV2"
     "ddvd233/OmniSapiens-7B-RL"
-    "Qwen/Qwen2.5-Omni-7B"
-    "google/gemma-4-e4b-it"
+    # "Qwen/Qwen2.5-Omni-7B"
+    # "google/gemma-4-e4b-it"
 )
 
 # For thinking mode, use Temperature=0.6, TopP=0.95, TopK=20, and MinP=0 (the default setting in generation_config.json). DO NOT use greedy decoding
@@ -58,16 +58,17 @@ DATA_LOADING="verl_style"
 # Per-model overrides for DATA_LOADING. Models not listed use DATA_LOADING above.
 # Gemma requires "default" to avoid Qwen-specific qwen_vl_utils video processing.
 declare -A MODEL_DATA_LOADING=(
+    ["PhilipC/HumanOmniV2"]="default"
     ["google/gemma-4-e4b-it"]="default"
 )
 
 # Datasets to run. Remove or comment out any you want to skip.
 # Available: eatd  mvsa  av-asd  iemocap  dreaddit  sarcnet
 DATASETS=(
-    "av-asd"
-    "iemocap"
-    "eatd"
-    "mvsa"
+    # "av-asd"
+    # "iemocap"
+    # "eatd"
+    # "mvsa"
     "dreaddit"
     "sarcnet"
 )
