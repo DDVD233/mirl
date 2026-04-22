@@ -249,7 +249,8 @@ def load_model(model_name: str, torch_compile: bool = False):
     try:
         model = _try_attn_impls(AutoModelForCausalLM)
     except ValueError as exc:
-        if "does not recognize this architecture" not in str(exc) and "model type" not in str(exc):
+        exc_lower = str(exc).lower()
+        if "does not recognize this architecture" not in exc_lower and "model type" not in exc_lower:
             raise
         try:
             from transformers import Qwen2_5OmniThinkerForConditionalGeneration as OmniCls
