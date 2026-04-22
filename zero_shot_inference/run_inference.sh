@@ -36,7 +36,7 @@ TOP_K=20
 MIN_P=0
 
 # Directory where prediction JSONLs and metrics are written
-OUTPUT_DIR="/home/keaneong/human-behavior/verl/zero_shot_inference/results/thinking"
+OUTPUT_DIR="/home/keaneong/human-behavior/verl/zero_shot_inference/results/thinking_w_params"
 
 # Batch size per GPU for each dataset type.
 # Audio (EATD): keep at 1–4 (variable-length audio padding can OOM at bs>1)
@@ -53,7 +53,7 @@ MAX_NEW_TOKENS=512
 TORCH_COMPILE=0
 
 # Optional: cap samples per dataset for a quick smoke-test (empty = full run)
-MAX_SAMPLES="5"   # e.g. "20"
+MAX_SAMPLES=""   # e.g. "20"
 
 # Data loading mode:
 #   "verl_style" — uses qwen_vl_utils + torchaudio (matches harpo_hier / omnisapiens training)
@@ -99,7 +99,7 @@ GPUS=(2 4)
 # with metrics keyed as {dataset}/accuracy, {dataset}/weighted_f1, etc.
 
 WANDB_PROJECT="zero-shot-inference"   # W&B project name  (empty = disabled)
-WANDB_TAG=""                          # optional tag prepended to run name: "{tag}_{model_slug}_{timestamp}"
+WANDB_TAG="think_w_params"                          # optional tag prepended to run name: "{tag}_{model_slug}_{timestamp}"
 WANDB_RUN_NAME=""                     # override full run name (ignores WANDB_TAG if set)
 WANDB_ENTITY=""                       # W&B entity (org/team); empty = default
 
