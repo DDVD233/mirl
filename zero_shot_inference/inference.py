@@ -244,23 +244,30 @@ def load_model(model_name: str, torch_compile: bool = False):
                     raise
                 print(f"  {attn_impl} unavailable ({exc.__class__.__name__}), trying next...")
 
-    # Try AutoModelForCausalLM first; fall back to Qwen2_5OmniThinkerForConditionalGeneration
-    # if the model type is not registered in the installed transformers version.
+    # Try AutoModelForCausalLM first.
+    # Gemma 4 doesn't accept attn_implementation kwargs; retry without them.
+    # Other unrecognised architectures fall back to Qwen2_5OmniThinkerForConditionalGeneration.
+    is_gemma = "gemma" in model_name.lower()
     try:
         model = _try_attn_impls(AutoModelForCausalLM)
     except ValueError as exc:
         exc_lower = str(exc).lower()
-        if "does not recognize this architecture" not in exc_lower and "model type" not in exc_lower:
+        if is_gemma:
+            print("  Retrying Gemma without attn_implementation...")
+            gemma_kwargs = dict(device_map="auto", dtype="auto", trust_remote_code=True)
+            model = AutoModelForCausalLM.from_pretrained(model_name, **gemma_kwargs)
+        elif "does not recognize this architecture" in exc_lower or "model type" in exc_lower:
+            try:
+                from transformers import Qwen2_5OmniThinkerForConditionalGeneration as OmniCls
+            except ImportError:
+                raise RuntimeError(
+                    "transformers does not recognise 'qwen2_5_omni_thinker'. "
+                    "Run: pip install --upgrade transformers"
+                ) from exc
+            print("  Falling back to Qwen2_5OmniThinkerForConditionalGeneration")
+            model = _try_attn_impls(OmniCls)
+        else:
             raise
-        try:
-            from transformers import Qwen2_5OmniThinkerForConditionalGeneration as OmniCls
-        except ImportError:
-            raise RuntimeError(
-                "transformers does not recognise 'qwen2_5_omni_thinker'. "
-                "Run: pip install --upgrade transformers"
-            ) from exc
-        print("  Falling back to Qwen2_5OmniThinkerForConditionalGeneration")
-        model = _try_attn_impls(OmniCls)
 
     model.eval()
 
@@ -268,7 +275,14 @@ def load_model(model_name: str, torch_compile: bool = False):
         print("  Applying torch.compile (first batch will be slow — this is expected)...")
         model = torch.compile(model, mode="reduce-overhead")
 
-    processor = AutoProcessor.from_pretrained(model_name, trust_remote_code=True)
+    try:
+        processor = AutoProcessor.from_pretrained(model_name, trust_remote_code=True)
+    except ValueError as exc:
+        if "unrecognized processing class" not in str(exc).lower():
+            raise
+        print("  AutoProcessor unavailable, falling back to AutoTokenizer...")
+        from transformers import AutoTokenizer
+        processor = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
     visible = set(p.device for p in model.parameters())
     print(f"  Devices: {visible}")
     return model, processor
@@ -285,7 +299,7 @@ def _get_device(model) -> torch.device:
 
 def _generate_kwargs(processor) -> dict:
     """Return eos/pad token kwargs so generate() stops at the right token."""
-    tok = processor.tokenizer
+    tok = getattr(processor, "tokenizer", processor)
     eos_id = tok.eos_token_id
     pad_id = tok.pad_token_id if tok.pad_token_id is not None else eos_id
     return {"eos_token_id": eos_id, "pad_token_id": pad_id}
