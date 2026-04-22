@@ -61,6 +61,14 @@ DATASETS=(
     "sarcnet"
 )
 
+# ── DATASET JSONL PATHS ───────────────────────────────────────────────────────
+EATD_JSONL="/scratch/keane/hb_generalization_data/MVSA_EATD_zeroshot/test_eatd_prompts.jsonl"
+MVSA_JSONL="/scratch/keane/hb_generalization_data/MVSA_EATD_zeroshot/test_mvsa_prompts.jsonl"
+AVASD_JSONL="/scratch/keane/hb_generalization_data/avasd/test_av_asd_promptsmultilabel.jsonl"
+IEMOCAP_JSONL="/scratch/keane/hb_generalization_data/iemocap/latest_iemocap_test.jsonl"
+DREADDIT_JSONL="/scratch/keane/hb_generalization_data/zero_shot_data/zero_shot_data_v2/test_dreaddit_prompts.jsonl"
+SARCNET_JSONL="/scratch/keane/hb_generalization_data/zero_shot_data/zero_shot_data_v2/test_sarcnet_prompts.jsonl"
+
 # No-thinking mode: model answers directly without <think> tags
 EXTRA_ARGS="--no_thinking"
 
@@ -76,7 +84,6 @@ WANDB_ENTITY=""                       # W&B entity (org/team); empty = default
 # ── END CONFIG ────────────────────────────────────────────────────────────────
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-DATA_DIR="/scratch/keane/hb_generalization_data/MVSA_EATD_zeroshot"
 INFERENCE="$SCRIPT_DIR/inference.py"
 
 RUN_TIMESTAMP="$(date +%Y-%m-%d_%H-%M-%S)"
@@ -190,15 +197,7 @@ run_parallel() {
     echo "  Shard files deleted."
 }
 
-# ── Dataset paths ─────────────────────────────────────────────────────────────
-
-EATD_JSONL="$DATA_DIR/test_eatd_prompts.jsonl"
-MVSA_JSONL="$DATA_DIR/test_mvsa_prompts.jsonl"
-AVASD_JSONL="/scratch/keane/hb_generalization_data/avasd/test_av_asd_promptsmultilabel.jsonl"
-IEMOCAP_JSONL="/scratch/keane/hb_generalization_data/iemocap/latest_iemocap_test.jsonl"
-DREADDIT_JSONL="/scratch/keane/hb_generalization_data/zero_shot_data/zero_shot_data_v2/test_dreaddit_prompts.jsonl"
-SARCNET_JSONL="/scratch/keane/hb_generalization_data/zero_shot_data/zero_shot_data_v2/test_sarcnet_prompts.jsonl"
-
+# ── Dataset verification ──────────────────────────────────────────────────────
 # Verify only the JSONLs that are actually needed
 for ds in "${DATASETS[@]}"; do
     case "$ds" in

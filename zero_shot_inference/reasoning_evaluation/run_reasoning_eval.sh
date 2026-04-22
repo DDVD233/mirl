@@ -51,27 +51,23 @@ DATASETS=(
     "sarcnet"
 )
 
-# ── DATASET PATHS ─────────────────────────────────────────────────────────────
+# ── DATASET JSONL PATHS ───────────────────────────────────────────────────────
 # Adjust these paths for your cluster mount point.
 
-ZSD_DIR="/scratch/keane/hb_generalization_data/zero_shot_data"
-ZSD_V2_DIR="$ZSD_DIR/zero_shot_data_v2"
-MVSA_EATD_DIR="/scratch/keane/hb_generalization_data/MVSA_EATD_zeroshot"
-
-EATD_JSONL="$MVSA_EATD_DIR/test_eatd_prompts.jsonl"
-MVSA_JSONL="$MVSA_EATD_DIR/test_mvsa_prompts.jsonl"
-AVASD_JSONL="$ZSD_DIR/test_av_asd_promptsmultilabel.jsonl"
-IEMOCAP_JSONL="$ZSD_DIR/latest_iemocap_test.jsonl"
-DREADDIT_JSONL="$ZSD_V2_DIR/test_dreaddit_prompts.jsonl"
-SARCNET_JSONL="$ZSD_V2_DIR/test_sarcnet_prompts.jsonl"
+EATD_JSONL="/scratch/keane/hb_generalization_data/MVSA_EATD_zeroshot/test_eatd_prompts.jsonl"
+MVSA_JSONL="/scratch/keane/hb_generalization_data/MVSA_EATD_zeroshot/test_mvsa_prompts.jsonl"
+AVASD_JSONL="/scratch/keane/hb_generalization_data/zero_shot_data/test_av_asd_promptsmultilabel.jsonl"
+IEMOCAP_JSONL="/scratch/keane/hb_generalization_data/zero_shot_data/latest_iemocap_test.jsonl"
+DREADDIT_JSONL="/scratch/keane/hb_generalization_data/zero_shot_data/zero_shot_data_v2/test_dreaddit_prompts.jsonl"
+SARCNET_JSONL="/scratch/keane/hb_generalization_data/zero_shot_data/zero_shot_data_v2/test_sarcnet_prompts.jsonl"
 
 # Pre-generated paraphrased JSONLs (created by Claude Code; stored next to originals)
-EATD_PARA_JSONL="$MVSA_EATD_DIR/test_eatd_prompts_paraphrased.jsonl"
-MVSA_PARA_JSONL="$MVSA_EATD_DIR/test_mvsa_prompts_paraphrased.jsonl"
-AVASD_PARA_JSONL="$ZSD_DIR/test_av_asd_promptsmultilabel_paraphrased.jsonl"
-IEMOCAP_PARA_JSONL="$ZSD_DIR/latest_iemocap_test_paraphrased.jsonl"
-DREADDIT_PARA_JSONL="$ZSD_V2_DIR/test_dreaddit_prompts_paraphrased.jsonl"
-SARCNET_PARA_JSONL="$ZSD_V2_DIR/test_sarcnet_prompts_paraphrased.jsonl"
+EATD_PARA_JSONL="/scratch/keane/hb_generalization_data/MVSA_EATD_zeroshot/test_eatd_prompts_paraphrased.jsonl"
+MVSA_PARA_JSONL="/scratch/keane/hb_generalization_data/MVSA_EATD_zeroshot/test_mvsa_prompts_paraphrased.jsonl"
+AVASD_PARA_JSONL="/scratch/keane/hb_generalization_data/zero_shot_data/test_av_asd_promptsmultilabel_paraphrased.jsonl"
+IEMOCAP_PARA_JSONL="/scratch/keane/hb_generalization_data/zero_shot_data/latest_iemocap_test_paraphrased.jsonl"
+DREADDIT_PARA_JSONL="/scratch/keane/hb_generalization_data/zero_shot_data/zero_shot_data_v2/test_dreaddit_prompts_paraphrased.jsonl"
+SARCNET_PARA_JSONL="/scratch/keane/hb_generalization_data/zero_shot_data/zero_shot_data_v2/test_sarcnet_prompts_paraphrased.jsonl"
 
 # ── W&B CONFIG ────────────────────────────────────────────────────────────────
 WANDB_PROJECT="reasoning-evaluation"  # empty = disable W&B logging
