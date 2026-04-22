@@ -23,8 +23,11 @@ MODELS=(
     "keentomato/harpo_hier_step400"
     "PhilipC/HumanOmniV2"
     "ddvd233/OmniSapiens-7B-RL"
+    "Qwen/Qwen2.5-Omni-7B"
+    "google/gemma-4-e4b-it"
 )
 
+# For thinking mode, use Temperature=0.6, TopP=0.95, TopK=20, and MinP=0 (the default setting in generation_config.json). DO NOT use greedy decoding
 
 
 # Directory where prediction JSONLs and metrics are written
@@ -52,13 +55,21 @@ MAX_SAMPLES=""   # e.g. "20"
 #   "default"    — uses decord + soundfile (compatible with HumanOmniV2 and others)
 DATA_LOADING="verl_style"
 
+# Per-model overrides for DATA_LOADING. Models not listed use DATA_LOADING above.
+# Gemma requires "default" to avoid Qwen-specific qwen_vl_utils video processing.
+declare -A MODEL_DATA_LOADING=(
+    ["google/gemma-4-e4b-it"]="default"
+)
+
 # Datasets to run. Remove or comment out any you want to skip.
-# Available: eatd  mvsa  av-asd  iemocap
+# Available: eatd  mvsa  av-asd  iemocap  dreaddit  sarcnet
 DATASETS=(
     "av-asd"
     "iemocap"
     "eatd"
     "mvsa"
+    "dreaddit"
+    "sarcnet"
 )
 
 
@@ -149,12 +160,13 @@ run_parallel() {
     local dataset_extra_args="${5:-}"
     local model_slug="${model//\//_}"
     local out_base="$OUTPUT_DIR/${model_slug}_${dataset_name}"
+    local effective_dl="${MODEL_DATA_LOADING[$model]:-$DATA_LOADING}"
 
     echo ""
     echo "============================================================"
     echo "  Model   : $model"
     echo "  Dataset : $dataset_name"
-    echo "  GPUs    : ${GPUS[*]}   |   batch_size: $batch_size"
+    echo "  GPUs    : ${GPUS[*]}   |   batch_size: $batch_size   |   data_loading: $effective_dl"
     echo "============================================================"
 
     local pids=()
@@ -172,7 +184,7 @@ run_parallel() {
             --max_new_tokens  "$MAX_NEW_TOKENS" \
             --num_shards      "$NUM_GPUS" \
             --shard_idx       "$shard" \
-            --data_loading    "$DATA_LOADING" \
+            --data_loading    "$effective_dl" \
             $(maybe_max_samples) \
             $(compile_flag) \
             $EXTRA_ARGS \
@@ -217,15 +229,19 @@ EATD_JSONL="$DATA_DIR/test_eatd_prompts.jsonl"
 MVSA_JSONL="$DATA_DIR/test_mvsa_prompts.jsonl"
 AVASD_JSONL="/scratch/keane/hb_generalization_data/avasd/test_av_asd_promptsmultilabel.jsonl"
 IEMOCAP_JSONL="/scratch/keane/hb_generalization_data/iemocap/latest_iemocap_test.jsonl"
+DREADDIT_JSONL="/scratch/keane/hb_generalization_data/zero_shot_data/zero_shot_data_v2/test_dreaddit_prompts.jsonl"
+SARCNET_JSONL="/scratch/keane/hb_generalization_data/zero_shot_data/zero_shot_data_v2/test_sarcnet_prompts.jsonl"
 
 # Verify only the JSONLs that are actually needed
 for ds in "${DATASETS[@]}"; do
     case "$ds" in
-        eatd)    [[ -f "$EATD_JSONL"    ]] || { echo "[ERROR] Missing: $EATD_JSONL";    exit 1; } ;;
-        mvsa)    [[ -f "$MVSA_JSONL"    ]] || { echo "[ERROR] Missing: $MVSA_JSONL";    exit 1; } ;;
-        av-asd)  [[ -f "$AVASD_JSONL"   ]] || { echo "[ERROR] Missing: $AVASD_JSONL";   exit 1; } ;;
-        iemocap) [[ -f "$IEMOCAP_JSONL" ]] || { echo "[ERROR] Missing: $IEMOCAP_JSONL"; exit 1; } ;;
-        *) echo "[ERROR] Unknown dataset '$ds'. Valid: eatd mvsa av-asd iemocap"; exit 1 ;;
+        eatd)     [[ -f "$EATD_JSONL"     ]] || { echo "[ERROR] Missing: $EATD_JSONL";     exit 1; } ;;
+        mvsa)     [[ -f "$MVSA_JSONL"     ]] || { echo "[ERROR] Missing: $MVSA_JSONL";     exit 1; } ;;
+        av-asd)   [[ -f "$AVASD_JSONL"   ]] || { echo "[ERROR] Missing: $AVASD_JSONL";   exit 1; } ;;
+        iemocap)  [[ -f "$IEMOCAP_JSONL"  ]] || { echo "[ERROR] Missing: $IEMOCAP_JSONL";  exit 1; } ;;
+        dreaddit) [[ -f "$DREADDIT_JSONL" ]] || { echo "[ERROR] Missing: $DREADDIT_JSONL"; exit 1; } ;;
+        sarcnet)  [[ -f "$SARCNET_JSONL"  ]] || { echo "[ERROR] Missing: $SARCNET_JSONL";  exit 1; } ;;
+        *) echo "[ERROR] Unknown dataset '$ds'. Valid: eatd mvsa av-asd iemocap dreaddit sarcnet"; exit 1 ;;
     esac
 done
 
@@ -240,10 +256,12 @@ for MODEL in "${MODELS[@]}"; do
 
     for DATASET in "${DATASETS[@]}"; do
         case "$DATASET" in
-            eatd)    run_parallel "$MODEL" "eatd"    "$EATD_JSONL"    "$BATCH_SIZE_AUDIO" ;;
-            mvsa)    run_parallel "$MODEL" "mvsa"    "$MVSA_JSONL"    "$BATCH_SIZE_IMAGE" ;;
-            av-asd)  run_parallel "$MODEL" "av-asd"  "$AVASD_JSONL"   "$BATCH_SIZE_VIDEO" "--multilabel" ;;
-            iemocap) run_parallel "$MODEL" "iemocap" "$IEMOCAP_JSONL" "$BATCH_SIZE_VIDEO" ;;
+            eatd)     run_parallel "$MODEL" "eatd"     "$EATD_JSONL"     "$BATCH_SIZE_AUDIO" ;;
+            mvsa)     run_parallel "$MODEL" "mvsa"     "$MVSA_JSONL"     "$BATCH_SIZE_IMAGE" ;;
+            av-asd)   run_parallel "$MODEL" "av-asd"   "$AVASD_JSONL"    "$BATCH_SIZE_VIDEO" "--multilabel" ;;
+            iemocap)  run_parallel "$MODEL" "iemocap"  "$IEMOCAP_JSONL"  "$BATCH_SIZE_VIDEO" ;;
+            dreaddit) run_parallel "$MODEL" "dreaddit" "$DREADDIT_JSONL" "$BATCH_SIZE_IMAGE" ;;
+            sarcnet)  run_parallel "$MODEL" "sarcnet"  "$SARCNET_JSONL"  "$BATCH_SIZE_IMAGE" ;;
         esac
     done
 done
