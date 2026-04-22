@@ -24,7 +24,7 @@ MODELS=(
     # "PhilipC/HumanOmniV2"
     # "ddvd233/OmniSapiens-7B-RL"
     # "Qwen/Qwen2.5-Omni-7B"
-    # "google/gemma-4-e4b-it"
+    "google/gemma-4-e4b-it"
 )
 
 # Sampling parameters for generation.
@@ -35,6 +35,10 @@ TOP_P=0.95
 TOP_K=20
 MIN_P=0
 
+# For GEMMA
+# temperature=1.0
+# top_p=0.95
+# top_k=64
 # Directory where prediction JSONLs and metrics are written
 OUTPUT_DIR="/home/keaneong/human-behavior/verl/zero_shot_inference/results/thinking_w_params"
 
