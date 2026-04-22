@@ -83,8 +83,8 @@ EATD_JSONL="/scratch/keane/hb_generalization_data/MVSA_EATD_zeroshot/test_eatd_p
 MVSA_JSONL="/scratch/keane/hb_generalization_data/MVSA_EATD_zeroshot/test_mvsa_prompts.jsonl"
 AVASD_JSONL="/scratch/keane/hb_generalization_data/avasd/test_av_asd_promptsmultilabel.jsonl"
 IEMOCAP_JSONL="/scratch/keane/hb_generalization_data/iemocap/latest_iemocap_test.jsonl"
-DREADDIT_JSONL="/scratch/keane/hb_generalization_data/zero_shot_data/zero_shot_data_v2/test_dreaddit_prompts.jsonl"
-SARCNET_JSONL="/scratch/keane/hb_generalization_data/zero_shot_data/zero_shot_data_v2/test_sarcnet_prompts.jsonl"
+DREADDIT_JSONL="/scratch/keane/hb_generalization_data/zero_shot_data_v2/test_dreaddit_prompts.jsonl"
+SARCNET_JSONL="/scratch/keane/hb_generalization_data/zero_shot_data_v2/test_sarcnet_prompts.jsonl"
 
 # Extra flags forwarded to inference.py for ALL datasets (e.g. "--no_thinking")
 EXTRA_ARGS=""
