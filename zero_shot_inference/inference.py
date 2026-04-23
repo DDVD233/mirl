@@ -347,6 +347,8 @@ def run_batch(model, processor, entries: list[dict], base_dir: str,
         inputs = processor(**proc_kwargs)
         inputs = {k: v.to(device) if isinstance(v, torch.Tensor) else v
                   for k, v in inputs.items()}
+        if inputs.get("attention_mask") is None and "input_ids" in inputs:
+            inputs["attention_mask"] = torch.ones_like(inputs["input_ids"])
 
         with torch.inference_mode():
             raw = model.generate(
@@ -393,6 +395,8 @@ def _run_one(model, processor, entry: dict, base_dir: str,
     inputs = processor(**proc_kwargs)
     inputs = {k: v.to(device) if isinstance(v, torch.Tensor) else v
               for k, v in inputs.items()}
+    if inputs.get("attention_mask") is None and "input_ids" in inputs:
+        inputs["attention_mask"] = torch.ones_like(inputs["input_ids"])
 
     _skw = sampling_kwargs if sampling_kwargs is not None else {"do_sample": False}
     with torch.inference_mode():
