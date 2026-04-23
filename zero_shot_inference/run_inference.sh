@@ -20,25 +20,25 @@ set -euo pipefail
 # ── CONFIG ────────────────────────────────────────────────────────────────────
 
 MODELS=(
-    "keentomato/harpo_hier_step400"
-    "PhilipC/HumanOmniV2"
-    "ddvd233/OmniSapiens-7B-RL"
-    "Qwen/Qwen2.5-Omni-7B"
-    # "google/gemma-4-e4b-it"
+    # "keentomato/harpo_hier_step400"
+    # "PhilipC/HumanOmniV2"
+    # "ddvd233/OmniSapiens-7B-RL"
+    # "Qwen/Qwen2.5-Omni-7B"
+    "google/gemma-4-e4b-it"
 )
 
 # Sampling parameters for generation.
 # Thinking mode defaults: Temperature=0.6, TopP=0.95, TopK=20, MinP=0 (recommended).
 # Set TEMPERATURE=0 (or empty) to fall back to greedy decoding.
-TEMPERATURE=0.6
-TOP_P=0.95
-TOP_K=20
-MIN_P=0
+# TEMPERATURE=0.6
+# TOP_P=0.95
+# TOP_K=20
+# MIN_P=0
 
 # For GEMMA
-# temperature=1.0
-# top_p=0.95
-# top_k=64
+temperature=1.0
+top_p=0.95
+top_k=64
 # Directory where prediction JSONLs and metrics are written
 
 OUTPUT_DIR="/home/keaneong/human-behavior/verl/zero_shot_inference/results/thinking_w_params"
@@ -58,7 +58,7 @@ MAX_NEW_TOKENS=512
 TORCH_COMPILE=0
 
 # Optional: cap samples per dataset for a quick smoke-test (empty = full run)
-MAX_SAMPLES=""   # e.g. "20"
+MAX_SAMPLES="5"   # e.g. "20"
 
 # Data loading mode:
 #   "verl_style" — uses qwen_vl_utils + torchaudio (matches harpo_hier / omnisapiens training)
@@ -80,7 +80,7 @@ DATASETS=(
     "eatd"
     "mvsa"
     # "dreaddit"
-    # "sarcnet"
+    "sarcnet"
 )
 
 # ── DATASET JSONL PATHS ───────────────────────────────────────────────────────
@@ -96,11 +96,11 @@ EXTRA_ARGS=""
 
 # GPUs to use. Leave empty to auto-detect all available GPUs.
 # Example: GPUS=(0 1)  or  GPUS=(2 3 4 5)
-GPUS=(1)
+GPUS=(5)
 
 # Number of concurrent inference jobs per GPU (each job processes a separate data shard).
 # TOTAL_SHARDS = NUM_GPUS × JOBS_PER_GPU  — increase when VRAM allows multiple processes.
-JOBS_PER_GPU=1
+JOBS_PER_GPU=2
 
 # ── W&B CONFIG ───────────────────────────────────────────────────────────────
 # Set WANDB_PROJECT to "" to disable W&B logging entirely.
