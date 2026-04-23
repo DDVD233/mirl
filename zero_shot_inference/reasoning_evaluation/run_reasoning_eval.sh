@@ -9,8 +9,8 @@
 # Paraphrased JSONLs are pre-generated (by Claude Code) and stored alongside
 # the originals as *_paraphrased.jsonl — no paraphrase step needed at runtime.
 #
-# Single-GPU per run (no sharding). The model is loaded once per dataset.
-# Edit the CONFIG section before running.
+# Parallel dispatch across GPUs: JOBS_PER_GPU concurrent jobs per GPU,
+# each job is one (model, dataset) pair. Edit the CONFIG section before running.
 # ──────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
@@ -19,17 +19,23 @@ set -euo pipefail
 MODELS=(
     "keentomato/harpo_hier_step400"
     "PhilipC/HumanOmniV2"
+    "ddvd233/OmniSapiens-7B-RL"
     "Qwen/Qwen2.5-Omni-7B"
 )
 
-# GPU to use for all inference
-GPU=0
+# GPUs to use. Leave empty to auto-detect all available GPUs.
+# Example: GPUS=(0 1)  or  GPUS=(2 3 4 5)
+GPUS=(0 1)
+
+# Number of concurrent (model, dataset) jobs per GPU.
+# Total parallel slots = NUM_GPUS × JOBS_PER_GPU.
+JOBS_PER_GPU=2
 
 # Output root — prediction JSONLs, metrics, and logs land here
 OUTPUT_DIR="/home/keaneong/human-behavior/verl/zero_shot_inference/results/reasoning_eval"
 
 # Max tokens the model may generate per sample
-MAX_NEW_TOKENS=1024
+MAX_NEW_TOKENS=512
 
 # Number of stochastic reasoning samples per entry
 N_STOCHASTIC=3
@@ -91,6 +97,21 @@ WANDB_RUN_NAME=""                     # override full run name
 WANDB_ENTITY=""                       # W&B entity (org/team); empty = default
 
 # ── END CONFIG ────────────────────────────────────────────────────────────────
+
+# ── GPU detection ─────────────────────────────────────────────────────────────
+if [[ "${#GPUS[@]}" -gt 0 ]]; then
+    NUM_GPUS="${#GPUS[@]}"
+    echo "Using specified GPU(s): ${GPUS[*]}"
+elif command -v nvidia-smi &>/dev/null; then
+    mapfile -t GPUS < <(nvidia-smi --query-gpu=index --format=csv,noheader | tr -d ' ')
+    NUM_GPUS="${#GPUS[@]}"
+    echo "Detected $NUM_GPUS GPU(s): ${GPUS[*]}"
+else
+    GPUS=(0); NUM_GPUS=1
+    echo "No nvidia-smi found, defaulting to GPU 0"
+fi
+NUM_SLOTS=$(( NUM_GPUS * JOBS_PER_GPU ))
+echo "Parallel slots: $NUM_SLOTS  ($NUM_GPUS GPU(s) × $JOBS_PER_GPU job(s)/GPU)"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REASONING_EVAL_PY="$SCRIPT_DIR/reasoning_eval.py"
@@ -204,53 +225,64 @@ for ds in "${DATASETS[@]}"; do
 done
 
 # ── Main loop ─────────────────────────────────────────────────────────────────
+# Build a flat job queue from all (model × dataset) combinations, then dispatch
+# up to NUM_SLOTS jobs concurrently using a round-robin slot tracker.
+
+_job_models=(); _job_slugs=(); _job_wids=(); _job_wnames=()
+_job_datasets=(); _job_inputs=(); _job_paras=(); _job_extras=()
 
 for MODEL in "${MODELS[@]}"; do
-    CURRENT_MODEL="$MODEL"
-    CURRENT_MODEL_SLUG="${MODEL//\//_}"
-
-    # One W&B run per model — all datasets resume into the same run
-    _default_name="${WANDB_TAG:+${WANDB_TAG}_}${CURRENT_MODEL_SLUG}_${RUN_TIMESTAMP}"
-    CURRENT_WANDB_RUN_ID="${_default_name}"
-    CURRENT_WANDB_RUN_NAME="${WANDB_RUN_NAME:-${_default_name}}"
+    _slug="${MODEL//\//_}"
+    _default_name="${WANDB_TAG:+${WANDB_TAG}_}${_slug}_${RUN_TIMESTAMP}"
+    _wid="${_default_name}"
+    _wname="${WANDB_RUN_NAME:-${_default_name}}"
 
     for DATASET in "${DATASETS[@]}"; do
         case "$DATASET" in
-            eatd)
-                INPUT_JSONL="$EATD_JSONL"
-                PARA_JSONL="$EATD_PARA_JSONL"
-                DATASET_EXTRA=""
-                ;;
-            mvsa)
-                INPUT_JSONL="$MVSA_JSONL"
-                PARA_JSONL="$MVSA_PARA_JSONL"
-                DATASET_EXTRA=""
-                ;;
-            av-asd)
-                INPUT_JSONL="$AVASD_JSONL"
-                PARA_JSONL="$AVASD_PARA_JSONL"
-                DATASET_EXTRA="--multilabel"
-                ;;
-            iemocap)
-                INPUT_JSONL="$IEMOCAP_JSONL"
-                PARA_JSONL="$IEMOCAP_PARA_JSONL"
-                DATASET_EXTRA=""
-                ;;
-            dreaddit)
-                INPUT_JSONL="$DREADDIT_JSONL"
-                PARA_JSONL="$DREADDIT_PARA_JSONL"
-                DATASET_EXTRA=""
-                ;;
-            sarcnet)
-                INPUT_JSONL="$SARCNET_JSONL"
-                PARA_JSONL="$SARCNET_PARA_JSONL"
-                DATASET_EXTRA=""
-                ;;
+            eatd)     _in="$EATD_JSONL";     _para="$EATD_PARA_JSONL";     _ex="" ;;
+            mvsa)     _in="$MVSA_JSONL";     _para="$MVSA_PARA_JSONL";     _ex="" ;;
+            av-asd)   _in="$AVASD_JSONL";    _para="$AVASD_PARA_JSONL";    _ex="--multilabel" ;;
+            iemocap)  _in="$IEMOCAP_JSONL";  _para="$IEMOCAP_PARA_JSONL";  _ex="" ;;
+            dreaddit) _in="$DREADDIT_JSONL"; _para="$DREADDIT_PARA_JSONL"; _ex="" ;;
+            sarcnet)  _in="$SARCNET_JSONL";  _para="$SARCNET_PARA_JSONL";  _ex="" ;;
         esac
-
-        REASONING_JSONL=$(run_reasoning_eval "$DATASET" "$INPUT_JSONL" "$PARA_JSONL" "$DATASET_EXTRA")
-        run_metrics "$DATASET" "$REASONING_JSONL"
+        _job_models+=("$MODEL"); _job_slugs+=("$_slug")
+        _job_wids+=("$_wid");    _job_wnames+=("$_wname")
+        _job_datasets+=("$DATASET"); _job_inputs+=("$_in")
+        _job_paras+=("$_para");  _job_extras+=("$_ex")
     done
+done
+
+declare -a _slot_pids=()
+
+for i in "${!_job_models[@]}"; do
+    slot=$(( i % NUM_SLOTS ))
+    gpu="${GPUS[$(( slot % NUM_GPUS ))]}"
+
+    # Wait for any job currently occupying this slot before reusing it
+    if [[ -n "${_slot_pids[$slot]:-}" ]]; then
+        wait "${_slot_pids[$slot]}" || echo "[WARN] A job in slot $slot failed — continuing"
+    fi
+
+    _model="${_job_models[$i]}"
+    _dataset="${_job_datasets[$i]}"
+    _out_jsonl="$OUTPUT_DIR/${_job_slugs[$i]}_${_dataset}_reasoning.jsonl"
+
+    (
+        CURRENT_MODEL="$_model"
+        CURRENT_MODEL_SLUG="${_job_slugs[$i]}"
+        CURRENT_WANDB_RUN_ID="${_job_wids[$i]}"
+        CURRENT_WANDB_RUN_NAME="${_job_wnames[$i]}"
+        GPU="$gpu"
+        run_reasoning_eval "$_dataset" "${_job_inputs[$i]}" "${_job_paras[$i]}" "${_job_extras[$i]}"
+        run_metrics "$_dataset" "$_out_jsonl"
+    ) &
+    _slot_pids[$slot]=$!
+done
+
+# Drain any remaining in-flight slots
+for slot in "${!_slot_pids[@]}"; do
+    [[ -n "${_slot_pids[$slot]:-}" ]] && wait "${_slot_pids[$slot]}" || true
 done
 
 echo ""

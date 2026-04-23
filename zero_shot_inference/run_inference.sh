@@ -98,6 +98,10 @@ EXTRA_ARGS=""
 # Example: GPUS=(0 1)  or  GPUS=(2 3 4 5)
 GPUS=(1)
 
+# Number of concurrent inference jobs per GPU (each job processes a separate data shard).
+# TOTAL_SHARDS = NUM_GPUS × JOBS_PER_GPU  — increase when VRAM allows multiple processes.
+JOBS_PER_GPU=1
+
 # ── W&B CONFIG ───────────────────────────────────────────────────────────────
 # Set WANDB_PROJECT to "" to disable W&B logging entirely.
 # All datasets for a single model are logged into one W&B run (resume="allow"),
@@ -130,6 +134,9 @@ else
     NUM_GPUS=1
     echo "No nvidia-smi found, defaulting to GPU 0"
 fi
+
+TOTAL_SHARDS=$(( NUM_GPUS * JOBS_PER_GPU ))
+echo "Total shards: $TOTAL_SHARDS  ($NUM_GPUS GPU(s) × $JOBS_PER_GPU job(s)/GPU)"
 
 mkdir -p "$OUTPUT_DIR" "$LOG_DIR"
 echo "Logs → $LOG_DIR"
@@ -188,15 +195,15 @@ run_parallel() {
     echo "============================================================"
     echo "  Model   : $model"
     echo "  Dataset : $dataset_name"
-    echo "  GPUs    : ${GPUS[*]}   |   batch_size: $batch_size   |   data_loading: $effective_dl"
+    echo "  GPUs    : ${GPUS[*]}   |   jobs/GPU: $JOBS_PER_GPU   |   shards: $TOTAL_SHARDS   |   batch_size: $batch_size   |   data_loading: $effective_dl"
     echo "============================================================"
 
     local pids=()
 
-    for (( shard=0; shard<NUM_GPUS; shard++ )); do
-        local gpu="${GPUS[$shard]}"
+    for (( shard=0; shard<TOTAL_SHARDS; shard++ )); do
+        local gpu="${GPUS[$(( shard % NUM_GPUS ))]}"
         local shard_out="${out_base}_shard${shard}.jsonl"
-        echo "  [GPU $gpu] shard $shard/$NUM_GPUS → $shard_out"
+        echo "  [GPU $gpu] shard $shard/$TOTAL_SHARDS → $shard_out"
 
         CUDA_VISIBLE_DEVICES=$gpu python "$INFERENCE" \
             --model           "$model" \
@@ -204,7 +211,7 @@ run_parallel() {
             --output_jsonl    "$shard_out" \
             --batch_size      "$batch_size" \
             --max_new_tokens  "$MAX_NEW_TOKENS" \
-            --num_shards      "$NUM_GPUS" \
+            --num_shards      "$TOTAL_SHARDS" \
             --shard_idx       "$shard" \
             --data_loading    "$effective_dl" \
             $(maybe_max_samples) \
