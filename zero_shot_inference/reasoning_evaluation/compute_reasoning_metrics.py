@@ -246,7 +246,17 @@ def compute_concision_metrics_by_correctness(results: list[dict]) -> dict:
 
 # ── W&B logging (mirrors inference.py _log_wandb) ─────────────────────────────
 
-def _log_wandb(args, dataset_name: str, metrics: dict) -> None:
+def _wandb_loggable(dataset_name: str, metrics: dict) -> dict:
+    """Return a flat dict of numeric metrics prefixed by dataset_name/, for wandb.log."""
+    return {
+        f"{dataset_name}/{k}": v
+        for k, v in metrics.items()
+        if v is not None and isinstance(v, (int, float))
+    }
+
+
+def _log_wandb_all(args, named_metrics: list[tuple[str, dict]]) -> None:
+    """Init one W&B run, log all (dataset_name, metrics) pairs, then finish."""
     if not getattr(args, "wandb_project", None):
         return
     try:
@@ -263,12 +273,9 @@ def _log_wandb(args, dataset_name: str, metrics: dict) -> None:
             name=run_name,
             config={"model": model_name},
         )
-        # Only log numeric values; skip None and metadata counters
-        loggable = {
-            f"{dataset_name}/{k}": v
-            for k, v in metrics.items()
-            if v is not None and isinstance(v, (int, float))
-        }
+        loggable = {}
+        for dataset_name, metrics in named_metrics:
+            loggable.update(_wandb_loggable(dataset_name, metrics))
         wandb.log(loggable)
         wandb.finish()
         print(f"W&B: logged {len(loggable)} metrics to project '{args.wandb_project}'")
@@ -350,8 +357,6 @@ def process_file(jsonl_path: str, args: argparse.Namespace) -> tuple[str, list[d
         )
     print(f"Metrics → {metrics_path}")
 
-    _log_wandb(args, dataset_name, all_metrics)
-
     return dataset_name, results, all_metrics
 
 
@@ -359,10 +364,13 @@ def process_file(jsonl_path: str, args: argparse.Namespace) -> tuple[str, list[d
 
 def main(args: argparse.Namespace) -> None:
     all_results: list[dict] = []
+    wandb_pairs: list[tuple[str, dict]] = []
 
     for jsonl_path in args.input_jsonl:
-        _, results, _ = process_file(jsonl_path, args)
+        dataset_name, results, metrics = process_file(jsonl_path, args)
         all_results.extend(results)
+        if results:
+            wandb_pairs.append((dataset_name, metrics))
 
     # Overall summary across all datasets when more than one file is provided
     if len(args.input_jsonl) > 1 and all_results:
@@ -391,7 +399,11 @@ def main(args: argparse.Namespace) -> None:
             )
         print(f"Overall metrics → {overall_path}")
 
-        _log_wandb(args, "overall", overall_metrics)
+        wandb_pairs.append(("overall", overall_metrics))
+
+    # Single wandb.init / wandb.finish for the entire run so all datasets
+    # (including "overall") land on the same run with no finish/resume races.
+    _log_wandb_all(args, wandb_pairs)
 
 
 if __name__ == "__main__":
