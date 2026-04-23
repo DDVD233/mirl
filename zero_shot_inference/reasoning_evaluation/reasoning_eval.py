@@ -2,9 +2,10 @@
 Reasoning evaluation: four-mode inference in a single model load.
 
 For each dataset entry, produces:
-  1. Direct prediction   (no thinking, greedy) + label logit distribution
+  1. Direct prediction   (no thinking, sampled) + label logit distribution
   2. Reasoning prediction (thinking, greedy)   + label logit distribution + trace tokens
   3. N stochastic reasoning samples             (temperature=0.6, top_p=0.95, top_k=20)
+     Direct mode sampling: temperature=0.7, top_p=0.8, top_k=20, min_p=0.0
   4. Paraphrased-input reasoning prediction     (thinking, greedy)
 
 All outputs saved to a single JSONL. Run compute_reasoning_metrics.py afterwards.
@@ -153,9 +154,12 @@ def infer_with_logit_capture(
     model, processor, entry: dict, base_dir: str,
     thinking: bool, max_new_tokens: int, data_loading: str,
     label_token_ids: dict,
+    do_sample: bool = False,
+    temperature: float = 0.7, top_p: float = 0.8,
+    top_k: int = 20, min_p: float = 0.0,
 ) -> tuple[str, dict | None]:
     """
-    Single-sample greedy inference with logit capture at the answer position.
+    Single-sample inference with logit capture at the answer position.
 
     Returns:
         response_text: decoded model output (excludes prompt)
@@ -188,12 +192,16 @@ def infer_with_logit_capture(
         thinking_mode=thinking,
     )
 
+    sample_kwargs = (
+        dict(do_sample=True, temperature=temperature, top_p=top_p, top_k=top_k, min_p=min_p)
+        if do_sample else dict(do_sample=False)
+    )
     with torch.inference_mode():
         raw = model.generate(
             **inputs,
             max_new_tokens=max_new_tokens,
-            do_sample=False,
             logits_processor=LogitsProcessorList([capture_lp]),
+            **sample_kwargs,
             **_generate_kwargs(processor),
         )
 
@@ -248,14 +256,18 @@ def infer_stochastic(
 def run_mode_direct(model, processor, entries: list[dict], base_dir: str,
                     max_new_tokens: int, data_loading: str,
                     label_token_ids: dict, results: list[dict],
-                    save_every: int, flush_fn) -> None:
-    """Mode 1: greedy direct prediction (no thinking) + label logit capture."""
+                    save_every: int, flush_fn,
+                    temperature: float = 0.7, top_p: float = 0.8,
+                    top_k: int = 20, min_p: float = 0.0) -> None:
+    """Mode 1: sampled direct prediction (no thinking) + label logit capture."""
     for i, entry in enumerate(tqdm(entries, desc="Mode 1/4 — Direct")):
         try:
             response, label_probs = infer_with_logit_capture(
                 model, processor, entry, base_dir,
                 thinking=False, max_new_tokens=max_new_tokens,
                 data_loading=data_loading, label_token_ids=label_token_ids,
+                do_sample=True, temperature=temperature, top_p=top_p,
+                top_k=top_k, min_p=min_p,
             )
         except Exception as exc:
             print(f"\n[WARN] Direct mode entry {i}: {exc.__class__.__name__}: {exc}")
@@ -439,6 +451,10 @@ def main(args: argparse.Namespace) -> None:
         model, processor, entries, base_dir,
         args.max_new_tokens, args.data_loading,
         label_token_ids, results, args.save_every, flush,
+        temperature=args.direct_temperature,
+        top_p=args.direct_top_p,
+        top_k=args.direct_top_k,
+        min_p=args.direct_min_p,
     )
     torch.cuda.empty_cache()
 
@@ -485,6 +501,11 @@ if __name__ == "__main__":
                         help="Sampling temperature for stochastic reasoning mode")
     parser.add_argument("--stochastic_top_p",       type=float, default=0.95)
     parser.add_argument("--stochastic_top_k",       type=int,   default=20)
+    parser.add_argument("--direct_temperature",     type=float, default=0.7,
+                        help="Sampling temperature for direct (no-thinking) mode")
+    parser.add_argument("--direct_top_p",           type=float, default=0.8)
+    parser.add_argument("--direct_top_k",           type=int,   default=20)
+    parser.add_argument("--direct_min_p",           type=float, default=0.0)
     parser.add_argument("--data_loading",     default="verl_style",
                         choices=["default", "verl_style"])
     parser.add_argument("--multilabel",       action="store_true",

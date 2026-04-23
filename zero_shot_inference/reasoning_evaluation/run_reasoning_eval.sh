@@ -39,6 +39,12 @@ STOCHASTIC_TEMPERATURE=0.6
 STOCHASTIC_TOP_P=0.95
 STOCHASTIC_TOP_K=20
 
+# Sampling parameters for direct (no-thinking) mode (Mode 1)
+DIRECT_TEMPERATURE=0.7
+DIRECT_TOP_P=0.8
+DIRECT_TOP_K=20
+DIRECT_MIN_P=0
+
 # Data loading mode (verl_style matches harpo / omnisapiens training)
 DATA_LOADING="verl_style"
 
@@ -132,6 +138,10 @@ run_reasoning_eval() {
         --stochastic_temperature "$STOCHASTIC_TEMPERATURE" \
         --stochastic_top_p       "$STOCHASTIC_TOP_P" \
         --stochastic_top_k       "$STOCHASTIC_TOP_K" \
+        --direct_temperature     "$DIRECT_TEMPERATURE" \
+        --direct_top_p           "$DIRECT_TOP_P" \
+        --direct_top_k           "$DIRECT_TOP_K" \
+        --direct_min_p           "$DIRECT_MIN_P" \
         --data_loading           "$DATA_LOADING" \
         $(maybe_max_samples) \
         $dataset_extra_args \
