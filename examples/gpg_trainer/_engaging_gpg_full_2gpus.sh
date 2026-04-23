@@ -36,8 +36,8 @@ export NCCL_ASYNC_ERROR_HANDLING=1
 
     python3 -m verl.trainer.main_ppo \
         algorithm.adv_estimator=gpg \
-        data.train_files=/scratch/keane/human_behaviour_data/final_v8_train_cleaned_2.jsonl \
-        data.val_files=/scratch/keane/human_behaviour_data/final_v8_val_cleaned.jsonl \
+        data.train_files=/scratch/keane/human_behaviour/human_behaviour_data/final_v8_train_cleaned_2.jsonl \
+        data.val_files=/scratch/keane/human_behaviour/human_behaviour_data/final_v8_val_cleaned.jsonl \
         data.train_batch_size=256 \
         data.val_batch_size=8 \
         data.max_prompt_length=4096 \
@@ -93,12 +93,12 @@ export NCCL_ASYNC_ERROR_HANDLING=1
         trainer.save_freq=25 \
         trainer.val_before_train=False \
         trainer.val_only=False \
-        trainer.validation_data_dir=/scratch/keane/hb_atlas_models/22apr_gpg \
+        trainer.validation_data_dir=/scratch/keane/human_behaviour/22apr_gpg \
         trainer.test_freq=99999 \
         trainer.total_epochs=5 \
-        trainer.advantage_save_dir=/scratch/keane/hb_atlas_models/22apr_gpg/advantages \
+        trainer.advantage_save_dir=/scratch/keane/human_behaviour/22apr_gpg/advantages \
         trainer.advantage_plot_freq=15 $@ \
-        trainer.default_local_dir=/scratch/keane/hb_atlas_models/22apr_gpg
+        trainer.default_local_dir=/scratch/keane/human_behaviour/22apr_gpg
 
         # trainer.resume_mode=resume_path \
         # trainer.resume_from_path=/scratch/keane/hb_atlas_models/harpo_no_ema/global_step_350 \
