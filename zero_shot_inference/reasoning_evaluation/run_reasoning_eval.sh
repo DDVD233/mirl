@@ -225,19 +225,27 @@ for ds in "${DATASETS[@]}"; do
 done
 
 # ── Main loop ─────────────────────────────────────────────────────────────────
-# Build a flat job queue from all (model × dataset) combinations, then dispatch
-# up to NUM_SLOTS jobs concurrently using a round-robin slot tracker.
-
-_job_models=(); _job_slugs=(); _job_wids=(); _job_wnames=()
-_job_datasets=(); _job_inputs=(); _job_paras=(); _job_extras=()
+# Models run sequentially. Datasets for each model are sharded across GPU slots
+# (up to NUM_SLOTS concurrent jobs). After all datasets for a model finish,
+# overall metrics are computed and logged to W&B before moving to the next model.
 
 for MODEL in "${MODELS[@]}"; do
-    _slug="${MODEL//\//_}"
-    _default_name="${WANDB_TAG:+${WANDB_TAG}_}${_slug}_${RUN_TIMESTAMP}"
-    _wid="${_default_name}"
-    _wname="${WANDB_RUN_NAME:-${_default_name}}"
+    CURRENT_MODEL="$MODEL"
+    CURRENT_MODEL_SLUG="${MODEL//\//_}"
+    _default_name="${WANDB_TAG:+${WANDB_TAG}_}${CURRENT_MODEL_SLUG}_${RUN_TIMESTAMP}"
+    CURRENT_WANDB_RUN_ID="${_default_name}"
+    CURRENT_WANDB_RUN_NAME="${WANDB_RUN_NAME:-${_default_name}}"
 
-    for DATASET in "${DATASETS[@]}"; do
+    echo ""
+    echo "############################################################"
+    echo "  Model: $MODEL"
+    echo "############################################################"
+
+    declare -a _slot_pids=()
+    _model_jsonls=()
+
+    for i in "${!DATASETS[@]}"; do
+        DATASET="${DATASETS[$i]}"
         case "$DATASET" in
             eatd)     _in="$EATD_JSONL";     _para="$EATD_PARA_JSONL";     _ex="" ;;
             mvsa)     _in="$MVSA_JSONL";     _para="$MVSA_PARA_JSONL";     _ex="" ;;
@@ -246,63 +254,41 @@ for MODEL in "${MODELS[@]}"; do
             dreaddit) _in="$DREADDIT_JSONL"; _para="$DREADDIT_PARA_JSONL"; _ex="" ;;
             sarcnet)  _in="$SARCNET_JSONL";  _para="$SARCNET_PARA_JSONL";  _ex="" ;;
         esac
-        _job_models+=("$MODEL"); _job_slugs+=("$_slug")
-        _job_wids+=("$_wid");    _job_wnames+=("$_wname")
-        _job_datasets+=("$DATASET"); _job_inputs+=("$_in")
-        _job_paras+=("$_para");  _job_extras+=("$_ex")
+
+        slot=$(( i % NUM_SLOTS ))
+        gpu="${GPUS[$(( slot % NUM_GPUS ))]}"
+
+        # Wait for any job currently occupying this slot before reusing it
+        if [[ -n "${_slot_pids[$slot]:-}" ]]; then
+            wait "${_slot_pids[$slot]}" || echo "[WARN] A job in slot $slot failed — continuing"
+        fi
+
+        _out_jsonl="$OUTPUT_DIR/${CURRENT_MODEL_SLUG}_${DATASET}_reasoning.jsonl"
+        _model_jsonls+=("$_out_jsonl")
+
+        (
+            GPU="$gpu"
+            run_reasoning_eval "$DATASET" "$_in" "$_para" "$_ex"
+            run_metrics "$DATASET" "$_out_jsonl"
+        ) &
+        _slot_pids[$slot]=$!
     done
-done
 
-declare -a _slot_pids=()
+    # Drain all in-flight slots for this model before computing overall metrics
+    for slot in "${!_slot_pids[@]}"; do
+        [[ -n "${_slot_pids[$slot]:-}" ]] && { wait "${_slot_pids[$slot]}" || echo "[WARN] A job in slot $slot failed — continuing"; }
+    done
+    unset _slot_pids
 
-for i in "${!_job_models[@]}"; do
-    slot=$(( i % NUM_SLOTS ))
-    gpu="${GPUS[$(( slot % NUM_GPUS ))]}"
-
-    # Wait for any job currently occupying this slot before reusing it
-    if [[ -n "${_slot_pids[$slot]:-}" ]]; then
-        wait "${_slot_pids[$slot]}" || echo "[WARN] A job in slot $slot failed — continuing"
-    fi
-
-    _model="${_job_models[$i]}"
-    _dataset="${_job_datasets[$i]}"
-    _out_jsonl="$OUTPUT_DIR/${_job_slugs[$i]}_${_dataset}_reasoning.jsonl"
-
-    (
-        CURRENT_MODEL="$_model"
-        CURRENT_MODEL_SLUG="${_job_slugs[$i]}"
-        CURRENT_WANDB_RUN_ID="${_job_wids[$i]}"
-        CURRENT_WANDB_RUN_NAME="${_job_wnames[$i]}"
-        GPU="$gpu"
-        run_reasoning_eval "$_dataset" "${_job_inputs[$i]}" "${_job_paras[$i]}" "${_job_extras[$i]}"
-        run_metrics "$_dataset" "$_out_jsonl"
-    ) &
-    _slot_pids[$slot]=$!
-done
-
-# Drain any remaining in-flight slots
-for slot in "${!_slot_pids[@]}"; do
-    [[ -n "${_slot_pids[$slot]:-}" ]] && wait "${_slot_pids[$slot]}" || true
-done
-
-# ── Overall metrics per model (across all datasets) ───────────────────────────
-# Collect unique models from the job list and compute aggregate metrics.
-declare -A _seen_models=()
-for i in "${!_job_models[@]}"; do
-    _seen_models["${_job_models[$i]}"]="${_job_slugs[$i]}"
-done
-
-for _model in "${!_seen_models[@]}"; do
-    _slug="${_seen_models[$_model]}"
-    mapfile -t _all_jsonls < <(find "$OUTPUT_DIR" -maxdepth 1 -name "${_slug}_*_reasoning.jsonl" | sort)
-    if [[ "${#_all_jsonls[@]}" -gt 1 ]]; then
+    # ── Overall metrics for this model (all datasets combined) ────────────────
+    if [[ "${#_model_jsonls[@]}" -gt 1 ]]; then
         echo ""
-        echo "  [OVERALL METRICS] Computing cross-dataset summary for $_model …"
+        echo "  [OVERALL METRICS] Computing cross-dataset summary for $MODEL …"
         python "$METRICS_PY" \
-            --input_jsonl  "${_all_jsonls[@]}" \
-            --model_name   "$_model" \
+            --input_jsonl  "${_model_jsonls[@]}" \
+            --model_name   "$MODEL" \
             $(build_wandb_args) \
-            &>> "$LOG_DIR/${_slug}_overall_metrics.log"
+            &>> "$LOG_DIR/${CURRENT_MODEL_SLUG}_overall_metrics.log"
         echo "  [OVERALL METRICS] Done."
     fi
 done
