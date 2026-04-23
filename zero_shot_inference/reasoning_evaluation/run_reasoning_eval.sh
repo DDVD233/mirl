@@ -49,7 +49,7 @@ DIRECT_MIN_P=0
 DATA_LOADING="verl_style"
 
 # Optional: cap samples per dataset for a quick smoke-test (empty = full run)
-MAX_SAMPLES=""   # e.g. "5"
+MAX_SAMPLES="5"   # e.g. "5"
 
 # Inference modes to run — valid values: direct reasoning stochastic para
 # "direct" omitted: no-thinking mode showed no accuracy improvement in prior runs
@@ -77,12 +77,12 @@ DREADDIT_JSONL="/scratch/keane/hb_generalization_data/zero_shot_data_v2/test_dre
 SARCNET_JSONL="/scratch/keane/hb_generalization_data/zero_shot_data_v2/test_sarcnet_prompts.jsonl"
 
 # Pre-generated paraphrased JSONLs (created by Claude Code; stored next to originals)
-EATD_PARA_JSONL="/scratch/keane/hb_generalization_data/MVSA_EATD_zeroshot/test_eatd_prompts_paraphrased.jsonl"
-MVSA_PARA_JSONL="/scratch/keane/hb_generalization_data/MVSA_EATD_zeroshot/test_mvsa_prompts_paraphrased.jsonl"
-AVASD_PARA_JSONL="/scratch/keane/hb_generalization_data/zero_shot_data/test_av_asd_promptsmultilabel_paraphrased.jsonl"
-IEMOCAP_PARA_JSONL="/scratch/keane/hb_generalization_data/zero_shot_data/latest_iemocap_test_paraphrased.jsonl"
-DREADDIT_PARA_JSONL="/scratch/keane/hb_generalization_data/zero_shot_data_v2/test_dreaddit_prompts_paraphrased.jsonl"
-SARCNET_PARA_JSONL="/scratch/keane/hb_generalization_data/zero_shot_data_v2/test_sarcnet_prompts_paraphrased.jsonl"
+EATD_PARA_JSONL="/scratch/keane/hb_generalization_data/paraphrased_prompts/test_eatd_prompts_paraphrased.jsonl"
+MVSA_PARA_JSONL="/scratch/keane/hb_generalization_data/paraphrased_prompts/test_mvsa_prompts_paraphrased.jsonl"
+AVASD_PARA_JSONL="/scratch/keane/hb_generalization_data/paraphrased_prompts/test_av_asd_promptsmultilabel_paraphrased.jsonl"
+IEMOCAP_PARA_JSONL="/scratch/keane/hb_generalization_data/paraphrased_prompts/latest_iemocap_test_paraphrased.jsonl"
+DREADDIT_PARA_JSONL="/scratch/keane/hb_generalization_data/paraphrased_prompts/test_dreaddit_prompts_paraphrased.jsonl"
+SARCNET_PARA_JSONL="/scratch/keane/hb_generalization_data/paraphrased_prompts/test_sarcnet_prompts_paraphrased.jsonl"
 
 # ── W&B CONFIG ────────────────────────────────────────────────────────────────
 WANDB_PROJECT="reasoning-evaluation"  # empty = disable W&B logging
