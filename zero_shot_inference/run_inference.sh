@@ -39,6 +39,7 @@ MODELS=(
 TEMPERATURE=1.0
 TOP_P=0.95
 TOP_K=64
+MIN_P=0
 # Directory where prediction JSONLs and metrics are written
 
 OUTPUT_DIR="/home/keaneong/human-behavior/verl/zero_shot_inference/results/thinking_w_params"
