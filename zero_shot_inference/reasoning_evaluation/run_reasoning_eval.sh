@@ -25,7 +25,7 @@ MODELS=(
 
 # GPUs to use. Leave empty to auto-detect all available GPUs.
 # Example: GPUS=(0 1)  or  GPUS=(2 3 4 5)
-GPUS=(0 1)
+GPUS=(0 1 7)
 
 # Number of concurrent (model, dataset) jobs per GPU.
 # Total parallel slots = NUM_GPUS × JOBS_PER_GPU.
