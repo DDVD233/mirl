@@ -1,12 +1,13 @@
 """
-Reasoning evaluation: four-mode inference in a single model load.
+Reasoning evaluation: configurable-mode inference in a single model load.
 
-For each dataset entry, produces:
-  1. Direct prediction   (no thinking, sampled) + label logit distribution
-  2. Reasoning prediction (thinking, greedy)   + label logit distribution + trace tokens
-  3. N stochastic reasoning samples             (temperature=0.6, top_p=0.95, top_k=20)
-     Direct mode sampling: temperature=0.7, top_p=0.8, top_k=20, min_p=0.0
-  4. Paraphrased-input reasoning prediction     (thinking, greedy)
+Default modes (reasoning / stochastic / para):
+  1. Reasoning prediction (thinking, greedy)   + label logit distribution + trace tokens
+  2. N stochastic reasoning samples             (temperature=0.6, top_p=0.95, top_k=20)
+  3. Paraphrased-input reasoning prediction     (thinking, greedy)
+
+Optional mode (--modes direct ...):
+  direct — sampled direct prediction (no thinking) + label logit distribution
 
 All outputs saved to a single JSONL. Run compute_reasoning_metrics.py afterwards.
 
@@ -392,22 +393,26 @@ def main(args: argparse.Namespace) -> None:
     if args.max_samples:
         entries = entries[: args.max_samples]
 
-    # ── Load paraphrased JSONL, align by _orig_idx ────────────────────────────
-    para_map: dict[int, dict] = {}
-    if args.para_input_jsonl and os.path.exists(args.para_input_jsonl):
-        with open(args.para_input_jsonl, "r", encoding="utf-8") as f:
-            for ln in f:
-                if ln.strip():
-                    e = json.loads(ln)
-                    para_map[e.get("_orig_idx", -1)] = e
-        print(f"Loaded {len(para_map)} paraphrased entries.")
-    else:
-        print("[WARN] No paraphrased JSONL provided — para-reasoning mode will use original inputs.")
+    modes = set(args.modes)
 
-    para_entries = [
-        para_map.get(e.get("_orig_idx", i), e)
-        for i, e in enumerate(entries)
-    ]
+    # ── Load paraphrased JSONL, align by _orig_idx ────────────────────────────
+    para_entries = entries  # fallback; only used when "para" is in modes
+    if "para" in modes:
+        para_map: dict[int, dict] = {}
+        if args.para_input_jsonl and os.path.exists(args.para_input_jsonl):
+            with open(args.para_input_jsonl, "r", encoding="utf-8") as f:
+                for ln in f:
+                    if ln.strip():
+                        e = json.loads(ln)
+                        para_map[e.get("_orig_idx", -1)] = e
+            print(f"Loaded {len(para_map)} paraphrased entries.")
+        else:
+            print("[WARN] No paraphrased JSONL provided — para-reasoning mode will use original inputs.")
+
+        para_entries = [
+            para_map.get(e.get("_orig_idx", i), e)
+            for i, e in enumerate(entries)
+        ]
 
     # ── Infer class label set ─────────────────────────────────────────────────
     if args.multilabel:
@@ -446,40 +451,44 @@ def main(args: argparse.Namespace) -> None:
             for r in results:
                 wf.write(json.dumps(r, ensure_ascii=False) + "\n")
 
-    # ── Run four modes sequentially ───────────────────────────────────────────
-    run_mode_direct(
-        model, processor, entries, base_dir,
-        args.max_new_tokens, args.data_loading,
-        label_token_ids, results, args.save_every, flush,
-        temperature=args.direct_temperature,
-        top_p=args.direct_top_p,
-        top_k=args.direct_top_k,
-        min_p=args.direct_min_p,
-    )
-    torch.cuda.empty_cache()
+    # ── Run selected modes sequentially ──────────────────────────────────────
+    if "direct" in modes:
+        run_mode_direct(
+            model, processor, entries, base_dir,
+            args.max_new_tokens, args.data_loading,
+            label_token_ids, results, args.save_every, flush,
+            temperature=args.direct_temperature,
+            top_p=args.direct_top_p,
+            top_k=args.direct_top_k,
+            min_p=args.direct_min_p,
+        )
+        torch.cuda.empty_cache()
 
-    run_mode_reasoning(
-        model, processor, entries, base_dir,
-        args.max_new_tokens, args.data_loading,
-        label_token_ids, results, args.save_every, flush,
-    )
-    torch.cuda.empty_cache()
+    if "reasoning" in modes:
+        run_mode_reasoning(
+            model, processor, entries, base_dir,
+            args.max_new_tokens, args.data_loading,
+            label_token_ids, results, args.save_every, flush,
+        )
+        torch.cuda.empty_cache()
 
-    run_mode_stochastic(
-        model, processor, entries, base_dir,
-        args.max_new_tokens, args.data_loading,
-        args.n_stochastic, results, args.save_every, flush,
-        temperature=args.stochastic_temperature,
-        top_p=args.stochastic_top_p,
-        top_k=args.stochastic_top_k,
-    )
-    torch.cuda.empty_cache()
+    if "stochastic" in modes:
+        run_mode_stochastic(
+            model, processor, entries, base_dir,
+            args.max_new_tokens, args.data_loading,
+            args.n_stochastic, results, args.save_every, flush,
+            temperature=args.stochastic_temperature,
+            top_p=args.stochastic_top_p,
+            top_k=args.stochastic_top_k,
+        )
+        torch.cuda.empty_cache()
 
-    run_mode_para_reasoning(
-        model, processor, entries, para_entries, base_dir,
-        args.max_new_tokens, args.data_loading,
-        results, args.save_every, flush,
-    )
+    if "para" in modes:
+        run_mode_para_reasoning(
+            model, processor, entries, para_entries, base_dir,
+            args.max_new_tokens, args.data_loading,
+            results, args.save_every, flush,
+        )
 
     print(f"\nSaved {len(results)} entries → {args.output_jsonl}")
 
@@ -512,6 +521,14 @@ if __name__ == "__main__":
                         help="Treat answer field as comma-separated multilabel")
     parser.add_argument("--max_samples",      type=int, default=None)
     parser.add_argument("--save_every",       type=int, default=50)
+    parser.add_argument(
+        "--modes",
+        nargs="+",
+        choices=["direct", "reasoning", "stochastic", "para"],
+        default=["reasoning", "stochastic", "para"],
+        help="Inference modes to run. Default omits 'direct'. "
+             "Add 'direct' to re-enable no-thinking mode.",
+    )
 
     # W&B (unused here — metrics are logged by compute_reasoning_metrics.py)
     parser.add_argument("--wandb_project",  default=None)

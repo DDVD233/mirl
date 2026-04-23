@@ -18,8 +18,8 @@ set -euo pipefail
 
 MODELS=(
     "keentomato/harpo_hier_step400"
-    # "PhilipC/HumanOmniV2"
-    # "Qwen/Qwen2.5-Omni-7B"
+    "PhilipC/HumanOmniV2"
+    "Qwen/Qwen2.5-Omni-7B"
 )
 
 # GPU to use for all inference
@@ -51,6 +51,10 @@ DATA_LOADING="verl_style"
 # Optional: cap samples per dataset for a quick smoke-test (empty = full run)
 MAX_SAMPLES=""   # e.g. "5"
 
+# Inference modes to run — valid values: direct reasoning stochastic para
+# "direct" omitted: no-thinking mode showed no accuracy improvement in prior runs
+MODES="reasoning stochastic para"
+
 # Datasets to run — remove any you want to skip
 # Available: eatd  mvsa  av-asd  iemocap  dreaddit  sarcnet
 DATASETS=(
@@ -58,7 +62,7 @@ DATASETS=(
     "mvsa"
     "av-asd"
     "iemocap"
-    "dreaddit"
+    # "dreaddit"
     "sarcnet"
 )
 
@@ -104,6 +108,8 @@ maybe_max_samples() {
     [[ -n "$MAX_SAMPLES" && "$MAX_SAMPLES" != "0" ]] && echo "--max_samples $MAX_SAMPLES" || echo ""
 }
 
+modes_need_para() { [[ "$MODES" == *"para"* ]]; }
+
 build_wandb_args() {
     if [[ -z "$WANDB_PROJECT" ]]; then echo ""; return; fi
     local args="--wandb_project $WANDB_PROJECT --wandb_run_id $CURRENT_WANDB_RUN_ID --wandb_run_name $CURRENT_WANDB_RUN_NAME"
@@ -143,6 +149,7 @@ run_reasoning_eval() {
         --direct_top_k           "$DIRECT_TOP_K" \
         --direct_min_p           "$DIRECT_MIN_P" \
         --data_loading           "$DATA_LOADING" \
+        --modes                  $MODES \
         $(maybe_max_samples) \
         $dataset_extra_args \
         &> "$LOG_DIR/${CURRENT_MODEL_SLUG}_${dataset_name}_reasoning_eval.log"
@@ -169,28 +176,28 @@ run_metrics() {
 for ds in "${DATASETS[@]}"; do
     case "$ds" in
         eatd)
-            [[ -f "$EATD_JSONL"      ]] || { echo "[ERROR] Missing: $EATD_JSONL";      exit 1; }
-            [[ -f "$EATD_PARA_JSONL" ]] || { echo "[ERROR] Missing: $EATD_PARA_JSONL"; exit 1; }
+            [[ -f "$EATD_JSONL" ]] || { echo "[ERROR] Missing: $EATD_JSONL"; exit 1; }
+            modes_need_para && { [[ -f "$EATD_PARA_JSONL" ]] || { echo "[ERROR] Missing: $EATD_PARA_JSONL"; exit 1; }; }
             ;;
         mvsa)
-            [[ -f "$MVSA_JSONL"      ]] || { echo "[ERROR] Missing: $MVSA_JSONL";      exit 1; }
-            [[ -f "$MVSA_PARA_JSONL" ]] || { echo "[ERROR] Missing: $MVSA_PARA_JSONL"; exit 1; }
+            [[ -f "$MVSA_JSONL" ]] || { echo "[ERROR] Missing: $MVSA_JSONL"; exit 1; }
+            modes_need_para && { [[ -f "$MVSA_PARA_JSONL" ]] || { echo "[ERROR] Missing: $MVSA_PARA_JSONL"; exit 1; }; }
             ;;
         av-asd)
-            [[ -f "$AVASD_JSONL"      ]] || { echo "[ERROR] Missing: $AVASD_JSONL";      exit 1; }
-            [[ -f "$AVASD_PARA_JSONL" ]] || { echo "[ERROR] Missing: $AVASD_PARA_JSONL"; exit 1; }
+            [[ -f "$AVASD_JSONL" ]] || { echo "[ERROR] Missing: $AVASD_JSONL"; exit 1; }
+            modes_need_para && { [[ -f "$AVASD_PARA_JSONL" ]] || { echo "[ERROR] Missing: $AVASD_PARA_JSONL"; exit 1; }; }
             ;;
         iemocap)
-            [[ -f "$IEMOCAP_JSONL"      ]] || { echo "[ERROR] Missing: $IEMOCAP_JSONL";      exit 1; }
-            [[ -f "$IEMOCAP_PARA_JSONL" ]] || { echo "[ERROR] Missing: $IEMOCAP_PARA_JSONL"; exit 1; }
+            [[ -f "$IEMOCAP_JSONL" ]] || { echo "[ERROR] Missing: $IEMOCAP_JSONL"; exit 1; }
+            modes_need_para && { [[ -f "$IEMOCAP_PARA_JSONL" ]] || { echo "[ERROR] Missing: $IEMOCAP_PARA_JSONL"; exit 1; }; }
             ;;
         dreaddit)
-            [[ -f "$DREADDIT_JSONL"      ]] || { echo "[ERROR] Missing: $DREADDIT_JSONL";      exit 1; }
-            [[ -f "$DREADDIT_PARA_JSONL" ]] || { echo "[ERROR] Missing: $DREADDIT_PARA_JSONL"; exit 1; }
+            [[ -f "$DREADDIT_JSONL" ]] || { echo "[ERROR] Missing: $DREADDIT_JSONL"; exit 1; }
+            modes_need_para && { [[ -f "$DREADDIT_PARA_JSONL" ]] || { echo "[ERROR] Missing: $DREADDIT_PARA_JSONL"; exit 1; }; }
             ;;
         sarcnet)
-            [[ -f "$SARCNET_JSONL"      ]] || { echo "[ERROR] Missing: $SARCNET_JSONL";      exit 1; }
-            [[ -f "$SARCNET_PARA_JSONL" ]] || { echo "[ERROR] Missing: $SARCNET_PARA_JSONL"; exit 1; }
+            [[ -f "$SARCNET_JSONL" ]] || { echo "[ERROR] Missing: $SARCNET_JSONL"; exit 1; }
+            modes_need_para && { [[ -f "$SARCNET_PARA_JSONL" ]] || { echo "[ERROR] Missing: $SARCNET_PARA_JSONL"; exit 1; }; }
             ;;
         *) echo "[ERROR] Unknown dataset '$ds'. Valid: eatd mvsa av-asd iemocap dreaddit sarcnet"; exit 1 ;;
     esac
