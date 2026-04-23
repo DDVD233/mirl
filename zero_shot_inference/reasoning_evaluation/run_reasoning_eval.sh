@@ -18,9 +18,9 @@ set -euo pipefail
 
 MODELS=(
     "keentomato/harpo_hier_step400"
-    # "PhilipC/HumanOmniV2"
-    # "ddvd233/OmniSapiens-7B-RL"
-    # "Qwen/Qwen2.5-Omni-7B"
+    "PhilipC/HumanOmniV2"
+    "ddvd233/OmniSapiens-7B-RL"
+    "Qwen/Qwen2.5-Omni-7B"
 )
 
 # GPUs to use. Leave empty to auto-detect all available GPUs.
@@ -38,7 +38,7 @@ OUTPUT_DIR="/home/keaneong/human-behavior/verl/zero_shot_inference/results/reaso
 MAX_NEW_TOKENS=512
 
 # Number of stochastic reasoning samples per entry
-N_STOCHASTIC=3
+N_STOCHASTIC=5
 
 # Sampling parameters for stochastic reasoning mode (Mode 3)
 STOCHASTIC_TEMPERATURE=0.6
@@ -55,7 +55,7 @@ DIRECT_MIN_P=0
 DATA_LOADING="verl_style"
 
 # Optional: cap samples per dataset for a quick smoke-test (empty = full run)
-MAX_SAMPLES="5"   # e.g. "5"
+MAX_SAMPLES=""   # e.g. "5"
 
 # Inference modes to run — valid values: direct reasoning stochastic para
 # "direct" omitted: no-thinking mode showed no accuracy improvement in prior runs
