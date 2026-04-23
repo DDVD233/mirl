@@ -285,6 +285,28 @@ for slot in "${!_slot_pids[@]}"; do
     [[ -n "${_slot_pids[$slot]:-}" ]] && wait "${_slot_pids[$slot]}" || true
 done
 
+# ── Overall metrics per model (across all datasets) ───────────────────────────
+# Collect unique models from the job list and compute aggregate metrics.
+declare -A _seen_models=()
+for i in "${!_job_models[@]}"; do
+    _seen_models["${_job_models[$i]}"]="${_job_slugs[$i]}"
+done
+
+for _model in "${!_seen_models[@]}"; do
+    _slug="${_seen_models[$_model]}"
+    mapfile -t _all_jsonls < <(find "$OUTPUT_DIR" -maxdepth 1 -name "${_slug}_*_reasoning.jsonl" | sort)
+    if [[ "${#_all_jsonls[@]}" -gt 1 ]]; then
+        echo ""
+        echo "  [OVERALL METRICS] Computing cross-dataset summary for $_model …"
+        python "$METRICS_PY" \
+            --input_jsonl  "${_all_jsonls[@]}" \
+            --model_name   "$_model" \
+            $(build_wandb_args) \
+            &>> "$LOG_DIR/${_slug}_overall_metrics.log"
+        echo "  [OVERALL METRICS] Done."
+    fi
+done
+
 echo ""
 echo "All done. Results in: $OUTPUT_DIR"
 echo "Logs in:   $LOG_DIR"
