@@ -79,8 +79,8 @@ DATASETS=(
     "iemocap"
     "eatd"
     "mvsa"
-    "dreaddit"
-    "sarcnet"
+    # "dreaddit"
+    # "sarcnet"
 )
 
 # ── DATASET JSONL PATHS ───────────────────────────────────────────────────────
