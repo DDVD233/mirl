@@ -75,10 +75,10 @@ declare -A MODEL_DATA_LOADING=(
 # Datasets to run. Remove or comment out any you want to skip.
 # Available: eatd  mvsa  av-asd  iemocap  dreaddit  sarcnet
 DATASETS=(
-    # "av-asd"
-    # "iemocap"
-    # "eatd"
-    # "mvsa"
+    "av-asd"
+    "iemocap"
+    "eatd"
+    "mvsa"
     "dreaddit"
     "sarcnet"
 )
