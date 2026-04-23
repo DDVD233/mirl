@@ -18,7 +18,7 @@ MODELS=(
     "PhilipC/HumanOmniV2"
     "ddvd233/OmniSapiens-7B-RL"
     "Qwen/Qwen2.5-Omni-7B"
-    "google/gemma-4-e4b-it"
+    # "google/gemma-4-e4b-it"
 )
 
 # Directory where prediction JSONLs and metrics are written
@@ -72,8 +72,13 @@ SARCNET_JSONL="/scratch/keane/hb_generalization_data/zero_shot_data_v2/test_sarc
 # Sampling parameters for generation.
 # Defaults to greedy decoding for no-thinking mode.
 # Set TEMPERATURE=0.6 (and adjust others) to enable sampling.
-TEMPERATURE=0   # 0 or empty = greedy decoding
-TOP_P=0.95
+# TEMPERATURE=0   # 0 or empty = greedy decoding
+# TOP_P=0.95
+# TOP_K=20
+# MIN_P=0
+# Best practices still recommended for non thinking (from Qwen docs)
+TEMPERATURE=0.7   # 0 or empty = greedy decoding
+TOP_P=0.8
 TOP_K=20
 MIN_P=0
 
@@ -81,11 +86,11 @@ MIN_P=0
 EXTRA_ARGS="--no_thinking"
 
 # GPUs to use. Leave empty to auto-detect all available GPUs.
-GPUS=(0)
+GPUS=(1 3)
 
 # ── W&B CONFIG ───────────────────────────────────────────────────────────────
 WANDB_PROJECT="zero-shot-inference"   # W&B project name  (empty = disabled)
-WANDB_TAG=""                          # optional tag prepended to run name: "{tag}_{model_slug}_{timestamp}"
+WANDB_TAG="nothink_w_params"                          # optional tag prepended to run name: "{tag}_{model_slug}_{timestamp}"
 WANDB_RUN_NAME=""                     # override full run name (ignores WANDB_TAG if set)
 WANDB_ENTITY=""                       # W&B entity (org/team); empty = default
 
