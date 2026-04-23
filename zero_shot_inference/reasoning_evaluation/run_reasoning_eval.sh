@@ -59,7 +59,7 @@ MAX_SAMPLES=""   # e.g. "5"
 
 # Inference modes to run — valid values: direct reasoning stochastic para
 # "direct" omitted: no-thinking mode showed no accuracy improvement in prior runs
-MODES="direct reasoning stochastic para"
+MODES="reasoning stochastic para"
 
 # Datasets to run — remove any you want to skip
 # Available: eatd  mvsa  av-asd  iemocap  dreaddit  sarcnet
