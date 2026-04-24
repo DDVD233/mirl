@@ -49,6 +49,14 @@ DEFAULT_SAMPLES_PER_BASELINE = 50
 DEFAULT_SEED = 42
 EXCEL_MAX_CELL_LENGTH = 32767
 
+# W&B config. Set WANDB_PROJECT="" to disable artifact upload.
+WANDB_PROJECT = "reasoning-evaluation"
+WANDB_RUN_ID = "reasoning_annotation_workbook"
+WANDB_RUN_NAME = "reasoning_annotation_workbook"
+WANDB_ENTITY = ""
+WANDB_ARTIFACT_NAME = "reasoning_annotation_workbook"
+WANDB_ARTIFACT_TYPE = "annotation_workbook"
+
 
 def slugify_model(model_name: str) -> str:
     return model_name.replace("/", "_")
@@ -258,6 +266,52 @@ def build_workbook(
     wb.save(output_path)
 
 
+def upload_workbook_to_wandb(args: argparse.Namespace, workbook_path: Path) -> None:
+    if not getattr(args, "wandb_project", None):
+        return
+
+    try:
+        import wandb
+
+        run_id = getattr(args, "wandb_run_id", None) or None
+        run_name = getattr(args, "wandb_run_name", None) or run_id
+        entity = getattr(args, "wandb_entity", None) or None
+        artifact_name = (
+            getattr(args, "wandb_artifact_name", None)
+            or workbook_path.stem.replace(" ", "_")
+        )
+        artifact_type = getattr(args, "wandb_artifact_type", None) or "annotation_workbook"
+
+        run = wandb.init(
+            project=args.wandb_project,
+            entity=entity,
+            id=run_id,
+            name=run_name,
+            resume="allow",
+            reinit=True,
+        )
+        artifact = wandb.Artifact(
+            name=artifact_name,
+            type=artifact_type,
+            metadata={
+                "anchor_model": ANCHOR_MODEL,
+                "baseline_models": BASELINE_MODELS,
+                "samples_per_baseline": args.samples_per_baseline,
+                "seed": args.seed,
+                "file_name": workbook_path.name,
+            },
+        )
+        artifact.add_file(str(workbook_path), name=workbook_path.name)
+        run.log_artifact(artifact)
+        run.finish()
+        print(
+            f"W&B: uploaded workbook artifact '{artifact_name}' "
+            f"to project '{args.wandb_project}'"
+        )
+    except Exception as exc:
+        print(f"[WARN] W&B artifact upload failed: {exc}")
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Build an Excel workbook of Harpo-vs-baseline reasoning traces."
@@ -285,6 +339,36 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         default=None,
         help="Output workbook path. Default: <results_dir>/reasoning_annotation_workbook.xlsx",
+    )
+    parser.add_argument(
+        "--wandb_project",
+        default=WANDB_PROJECT,
+        help=f"W&B project name (default: {WANDB_PROJECT!r}; set to '' to disable)",
+    )
+    parser.add_argument(
+        "--wandb_run_id",
+        default=WANDB_RUN_ID,
+        help=f"W&B run ID (default: {WANDB_RUN_ID!r})",
+    )
+    parser.add_argument(
+        "--wandb_run_name",
+        default=WANDB_RUN_NAME,
+        help=f"W&B run display name (default: {WANDB_RUN_NAME!r})",
+    )
+    parser.add_argument(
+        "--wandb_entity",
+        default=WANDB_ENTITY,
+        help="W&B entity (org/team)",
+    )
+    parser.add_argument(
+        "--wandb_artifact_name",
+        default=WANDB_ARTIFACT_NAME,
+        help=f"Artifact name (default: {WANDB_ARTIFACT_NAME!r})",
+    )
+    parser.add_argument(
+        "--wandb_artifact_type",
+        default=WANDB_ARTIFACT_TYPE,
+        help=f"W&B artifact type (default: {WANDB_ARTIFACT_TYPE!r})",
     )
     return parser.parse_args()
 
@@ -344,6 +428,7 @@ def main() -> None:
 
     build_workbook(output_xlsx, sampled_rows_by_baseline, metadata_rows)
     print(f"Workbook written to: {output_xlsx}")
+    upload_workbook_to_wandb(args, output_xlsx)
 
 
 if __name__ == "__main__":
