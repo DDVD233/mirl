@@ -97,7 +97,7 @@ EXTRA_ARGS=""
 
 # GPUs to use. Leave empty to auto-detect all available GPUs.
 # Example: GPUS=(0 1)  or  GPUS=(2 3 4 5)
-GPUS=(5)
+GPUS=(0)
 
 # Number of concurrent inference jobs per GPU (each job processes a separate data shard).
 # TOTAL_SHARDS = NUM_GPUS × JOBS_PER_GPU  — increase when VRAM allows multiple processes.

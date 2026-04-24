@@ -220,6 +220,28 @@ def build_entry_inputs(entry: dict, base_dir: str, thinking: bool,
 
 # ── Model loading ─────────────────────────────────────────────────────────────
 
+def _fix_meta_params(model):
+    """Materialise any parameters/buffers left on the meta device after device_map dispatch.
+
+    device_map="auto" bootstraps weights as meta tensors then loads from checkpoint.
+    Parameters absent from the checkpoint (e.g. Gemma4's pad_embedding) are never
+    dispatched and stay on meta, causing a device mismatch at forward time.
+    Zero-init is safe: pad_embedding is a learnable placeholder initialised to zeros.
+    """
+    target_device = next(
+        (p.device for p in model.parameters() if p.device.type != "meta"),
+        torch.device("cuda" if torch.cuda.is_available() else "cpu"),
+    )
+    for name, param in model.named_parameters():
+        if param.device.type == "meta":
+            print(f"  [fix] materialising meta param {name!r} on {target_device}")
+            param.data = torch.zeros(param.shape, dtype=torch.bfloat16, device=target_device)
+    for name, buf in model.named_buffers():
+        if buf.device.type == "meta":
+            print(f"  [fix] materialising meta buffer {name!r} on {target_device}")
+            buf.data = torch.zeros(buf.shape, dtype=torch.bfloat16, device=target_device)
+
+
 def load_model(model_name: str, torch_compile: bool = False):
     print(f"Loading model: {model_name}")
 
@@ -254,8 +276,9 @@ def load_model(model_name: str, torch_compile: bool = False):
         exc_lower = str(exc).lower()
         if is_gemma:
             print("  Retrying Gemma without attn_implementation...")
-            gemma_kwargs = dict(device_map="auto", dtype="auto", trust_remote_code=True)
+            gemma_kwargs = dict(device_map="auto", torch_dtype=torch.bfloat16, trust_remote_code=True)
             model = AutoModelForCausalLM.from_pretrained(model_name, **gemma_kwargs)
+            _fix_meta_params(model)
         elif "does not recognize this architecture" in exc_lower or "model type" in exc_lower:
             try:
                 from transformers import Qwen2_5OmniThinkerForConditionalGeneration as OmniCls
