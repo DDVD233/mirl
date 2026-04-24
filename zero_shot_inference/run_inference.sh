@@ -73,6 +73,15 @@ declare -A MODEL_DATA_LOADING=(
     ["google/gemma-4-e4b-it"]="default"
 )
 
+# num_frames for video processing (empty = auto from processor config / actual clip length).
+# Gemma4's processor defaults to 32; reduce to cut memory on long clips.
+NUM_FRAMES="4"
+
+# Per-model overrides for NUM_FRAMES. Models not listed use NUM_FRAMES above.
+declare -A MODEL_NUM_FRAMES=(
+    ["google/gemma-4-e4b-it"]="16"
+)
+
 # Datasets to run. Remove or comment out any you want to skip.
 # Available: eatd  mvsa  av-asd  iemocap  dreaddit  sarcnet
 DATASETS=(
@@ -154,6 +163,10 @@ compile_flag() {
     [[ "$TORCH_COMPILE" == "1" ]] && echo "--torch_compile" || echo ""
 }
 
+num_frames_flag() {
+    [[ -n "$1" && "$1" != "0" ]] && echo "--num_frames $1" || echo ""
+}
+
 sampling_args() {
     if [[ -n "$TEMPERATURE" && "$TEMPERATURE" != "0" ]]; then
         echo "--temperature $TEMPERATURE --top_p $TOP_P --top_k $TOP_K --min_p $MIN_P"
@@ -191,12 +204,13 @@ run_parallel() {
     local model_slug="${model//\//_}"
     local out_base="$OUTPUT_DIR/${model_slug}_${dataset_name}"
     local effective_dl="${MODEL_DATA_LOADING[$model]:-$DATA_LOADING}"
+    local effective_nf="${MODEL_NUM_FRAMES[$model]:-$NUM_FRAMES}"
 
     echo ""
     echo "============================================================"
     echo "  Model   : $model"
     echo "  Dataset : $dataset_name"
-    echo "  GPUs    : ${GPUS[*]}   |   jobs/GPU: $JOBS_PER_GPU   |   shards: $TOTAL_SHARDS   |   batch_size: $batch_size   |   data_loading: $effective_dl"
+    echo "  GPUs    : ${GPUS[*]}   |   jobs/GPU: $JOBS_PER_GPU   |   shards: $TOTAL_SHARDS   |   batch_size: $batch_size   |   data_loading: $effective_dl   |   num_frames: ${effective_nf:-auto}"
     echo "============================================================"
 
     local pids=()
@@ -218,6 +232,7 @@ run_parallel() {
             $(maybe_max_samples) \
             $(compile_flag) \
             $(sampling_args) \
+            $(num_frames_flag "$effective_nf") \
             $EXTRA_ARGS \
             $dataset_extra_args \
             &> "$LOG_DIR/${model_slug}_${dataset_name}_shard${shard}.log" &

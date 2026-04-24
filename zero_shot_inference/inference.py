@@ -383,7 +383,8 @@ def run_batch(model, processor, entries: list[dict], base_dir: str,
               thinking: bool, max_new_tokens: int,
               data_loading: str = "default",
               sampling_kwargs: dict | None = None,
-              model_name: str = "") -> list[str]:
+              model_name: str = "",
+              num_frames: int | None = None) -> list[str]:
     """
     Run inference on a list of entries as a single batched forward pass.
     All entries should share the same modality_signature for reliable batching.
@@ -392,7 +393,7 @@ def run_batch(model, processor, entries: list[dict], base_dir: str,
     _skw = sampling_kwargs if sampling_kwargs is not None else {"do_sample": False}
     if len(entries) == 1:
         return [_run_one(model, processor, entries[0], base_dir, thinking,
-                         max_new_tokens, data_loading, _skw, model_name)]
+                         max_new_tokens, data_loading, _skw, model_name, num_frames)]
 
     try:
         texts, batch_audios, batch_images, batch_videos = [], [], [], []
@@ -417,9 +418,9 @@ def run_batch(model, processor, entries: list[dict], base_dir: str,
             proc_kwargs["images"] = batch_images
         if batch_videos:
             proc_kwargs["videos"] = batch_videos
-            override = _video_num_frames_override(batch_videos, processor)
-            if override is not None:
-                proc_kwargs["num_frames"] = override
+            nf = num_frames if num_frames is not None else _video_num_frames_override(batch_videos, processor)
+            if nf is not None:
+                proc_kwargs["num_frames"] = nf
 
         device = _get_device(model)
         inputs = processor(**proc_kwargs)
@@ -448,7 +449,7 @@ def run_batch(model, processor, entries: list[dict], base_dir: str,
         # Batching failed (e.g. mixed modalities or processor limitation); fall back
         print(f"\n[WARN] Batch of {len(entries)} failed ({exc.__class__.__name__}: {exc}); "
               "retrying one-by-one.")
-        return [_run_one(model, processor, e, base_dir, thinking, max_new_tokens, data_loading, _skw, model_name)
+        return [_run_one(model, processor, e, base_dir, thinking, max_new_tokens, data_loading, _skw, model_name, num_frames)
                 for e in entries]
 
 
@@ -456,7 +457,8 @@ def _run_one(model, processor, entry: dict, base_dir: str,
              thinking: bool, max_new_tokens: int,
              data_loading: str = "default",
              sampling_kwargs: dict | None = None,
-             model_name: str = "") -> str:
+             model_name: str = "",
+             num_frames: int | None = None) -> str:
     content, audio_list, imgs, vframes = build_entry_inputs(
         entry, base_dir, thinking, data_loading, model_name)
     msgs = [{"role": "user", "content": content}]
@@ -469,9 +471,9 @@ def _run_one(model, processor, entry: dict, base_dir: str,
         proc_kwargs["images"] = imgs
     if vframes:
         proc_kwargs["videos"] = [vframes]
-        override = _video_num_frames_override([vframes], processor)
-        if override is not None:
-            proc_kwargs["num_frames"] = override
+        nf = num_frames if num_frames is not None else _video_num_frames_override([vframes], processor)
+        if nf is not None:
+            proc_kwargs["num_frames"] = nf
 
     device = _get_device(model)
     inputs = processor(**proc_kwargs)
@@ -700,7 +702,7 @@ def main(args):
                 responses = run_batch(
                     model, processor, batch_entries, base_dir, thinking,
                     args.max_new_tokens, data_loading, sampling_kwargs,
-                    args.model,
+                    args.model, args.num_frames,
                 )
             except Exception as exc:
                 print(f"\n[ERROR] Batch {batch_start}–{batch_start+len(batch_indices)-1}: {exc}")
@@ -778,6 +780,12 @@ if __name__ == "__main__":
             "'default': uses decord + soundfile — compatible with HumanOmniV2 and others."
         ),
     )
+
+    # Video
+    parser.add_argument("--num_frames", type=int, default=None,
+                        help="Force a fixed num_frames for video processing (overrides processor "
+                             "default and the auto-reduce logic). Gemma4 defaults to 32; "
+                             "reduce to 16 or 8 to cut memory on longer clips.")
 
     # Misc
     parser.add_argument("--max_samples", type=int, default=None,
