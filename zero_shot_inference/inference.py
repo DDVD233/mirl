@@ -102,6 +102,23 @@ def load_images(image_paths: list[str], base_dir: str) -> list[Image.Image]:
     return [Image.open(_resolve(p, base_dir)).convert("RGB") for p in image_paths]
 
 
+def _pad_video_frames_if_needed(vframes: list, processor) -> list:
+    """Pad a pre-decoded frame list to match processor.video_processor.num_frames.
+
+    Gemma4's video processor enforces exactly num_frames during sampling and raises
+    if total_num_frames < num_frames. Repeating the last frame matches what the
+    training code does for short videos (rl_dataset_patch.py). No-op for processors
+    that don't expose num_frames (e.g. HumanOmniV2, Qwen).
+    """
+    if not vframes:
+        return vframes
+    vp = getattr(processor, "video_processor", None)
+    required = getattr(vp, "num_frames", None)
+    if required and len(vframes) < required:
+        vframes = list(vframes) + [vframes[-1]] * (required - len(vframes))
+    return vframes
+
+
 def _default_load_video_frames(video_paths: list[str], base_dir: str,
                                 fps: float = 1.0, max_frames: int = 32) -> list:
     try:
@@ -368,6 +385,7 @@ def run_batch(model, processor, entries: list[dict], base_dir: str,
                 batch_audios.extend(audio_list)
             batch_images.extend(imgs)
             if vframes:
+                vframes = _pad_video_frames_if_needed(vframes, processor)
                 batch_videos.append(vframes)
 
         proc_kwargs = dict(text=texts, return_tensors="pt", padding=True)
@@ -424,6 +442,7 @@ def _run_one(model, processor, entry: dict, base_dir: str,
     if imgs:
         proc_kwargs["images"] = imgs
     if vframes:
+        vframes = _pad_video_frames_if_needed(vframes, processor)
         proc_kwargs["videos"] = [vframes]
 
     device = _get_device(model)
