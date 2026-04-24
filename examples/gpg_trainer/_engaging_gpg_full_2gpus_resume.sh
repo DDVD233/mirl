@@ -96,9 +96,8 @@ export NCCL_ASYNC_ERROR_HANDLING=1
         trainer.validation_data_dir=/scratch/keane/human_behaviour/22apr_gpg \
         trainer.test_freq=99999 \
         trainer.total_epochs=5 \
+        trainer.resume_mode=resume_path \
+        trainer.resume_from_path=/scratch/keane/hb_atlas_models/harpo_no_ema/global_step_450 \
         trainer.advantage_save_dir=/scratch/keane/human_behaviour/22apr_gpg/advantages \
         trainer.advantage_plot_freq=15 $@ \
         trainer.default_local_dir=/scratch/keane/human_behaviour/22apr_gpg
-
-        # trainer.resume_mode=resume_path \
-        # trainer.resume_from_path=/scratch/keane/hb_atlas_models/harpo_no_ema/global_step_350 \
