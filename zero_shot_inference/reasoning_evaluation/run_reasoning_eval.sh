@@ -30,7 +30,7 @@ GPUS=(1 2 3 4)
 
 # Number of concurrent (model, dataset) jobs per GPU.
 # Total parallel slots = NUM_GPUS × JOBS_PER_GPU.
-JOBS_PER_GPU=3
+JOBS_PER_GPU=4
 
 # Output root — prediction JSONLs, metrics, and logs land here
 OUTPUT_DIR="/home/keaneong/human-behavior/verl/zero_shot_inference/results/reasoning_eval"
