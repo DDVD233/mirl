@@ -183,7 +183,7 @@ def sample_rows(rows: list[dict], sample_size: int, seed: int) -> list[dict]:
         return sorted(rows, key=lambda row: (row["dataset"], row["_orig_idx"]))
     rng = random.Random(seed)
     sampled = rng.sample(rows, sample_size)
-    return sorted(sampled, key=lambda row: (row["dataset"], row["_orig_idx"]))
+    return  sorted(sampled, key=lambda row: (row["dataset"], row["_orig_idx"]))
 
 
 def autosize_worksheet(ws) -> None:
@@ -201,8 +201,26 @@ def autosize_worksheet(ws) -> None:
         ws.column_dimensions[col].width = width
 
 
-def write_sheet(ws, rows: Iterable[dict]) -> None:
-    header = ["ID", "Task", "Label", "Explanation A", "Explanation B", "Spec", "Coh", "Conc"]
+def set_compiled_worksheet_widths(ws) -> None:
+    widths = {
+        "A": 28,
+        "B": 22,
+        "C": 80,
+        "D": 18,
+        "E": 90,
+        "F": 90,
+        "G": 12,
+        "H": 12,
+        "I": 12,
+    }
+    for col, width in widths.items():
+        ws.column_dimensions[col].width = width
+
+
+def write_sheet(ws, rows: Iterable[dict], include_baseline_model: bool = False) -> None:
+    header = ["ID", "Task", "Label", "Explanation A", "Explanation B", "Specificity", "Coherence", "Concision"]
+    if include_baseline_model:
+        header = ["Baseline Model", *header]
     ws.append(header)
 
     for cell in ws[1]:
@@ -210,25 +228,62 @@ def write_sheet(ws, rows: Iterable[dict]) -> None:
         cell.alignment = Alignment(horizontal="center", vertical="center")
 
     for row in rows:
-        ws.append(
-            [
-                clip_excel_text(row["id"]),
-                clip_excel_text(row["task"]),
-                clip_excel_text(row["label"]),
-                clip_excel_text(row["explanation_a"]),
-                clip_excel_text(row["explanation_b"]),
-                "",
-                "",
-                "",
-            ]
-        )
+        values = [
+            clip_excel_text(row["id"]),
+            clip_excel_text(row["task"]),
+            clip_excel_text(row["label"]),
+            clip_excel_text(row["explanation_a"]),
+            clip_excel_text(row["explanation_b"]),
+            "",
+            "",
+            "",
+        ]
+        if include_baseline_model:
+            values = [clip_excel_text(row["baseline_model"]), *values]
+        ws.append(values)
 
     for row in ws.iter_rows(min_row=2):
         for cell in row:
             cell.alignment = Alignment(wrap_text=True, vertical="top")
 
     ws.freeze_panes = "A2"
-    autosize_worksheet(ws)
+    if include_baseline_model:
+        set_compiled_worksheet_widths(ws)
+    else:
+        autosize_worksheet(ws)
+
+
+def write_instructions_sheet(ws) -> None:
+    lines = [
+        "Annotation Instructions",
+        "",
+        "You will be shown pairs of reasoning explanations (A and B) for the same prediction. Your task is to compare them and select which explanation is better along each criterion.",
+        "",
+        "For each row, choose:",
+        "A if Explanation A is better",
+        "B if Explanation B is better",
+        "Tie if they are similar",
+        "Essentially put A, B or Tie under the Specificity, Coherence, Concision columns respectively",
+        "",
+        "Evaluation Criteria",
+        "Specificity: Which explanation is more concrete and avoids vague or generic statements?",
+        "Coherence: Which explanation is more logically structured and easier to follow?",
+        "Concision: Which explanation conveys its key points more efficiently without unnecessary verbosity?",
+        "",
+        "Notes",
+        "Focus only on the quality of the reasoning explanation.",
+        "Do not consider writing style alone.",
+        "The underlying input data is not shown; evaluate based on the explanations themselves.",
+        "Work quickly and rely on your first judgment",
+    ]
+
+    for line in lines:
+        ws.append([line])
+
+    ws["A1"].font = Font(bold=True, size=14)
+    for row_idx in range(1, ws.max_row + 1):
+        ws[f"A{row_idx}"].alignment = Alignment(wrap_text=True, vertical="top")
+    ws.column_dimensions["A"].width = 140
 
 
 def build_workbook(
@@ -257,6 +312,18 @@ def build_workbook(
 
     autosize_worksheet(summary)
     summary.freeze_panes = "A2"
+
+    instructions = wb.create_sheet(title="instructions")
+    write_instructions_sheet(instructions)
+
+    compiled_rows = []
+    for baseline_model, rows in sampled_rows_by_baseline.items():
+        for row in rows:
+            compiled_rows.append({**row, "baseline_model": baseline_model})
+
+    compiled_rows.sort(key=lambda row: (row["baseline_model"], row["dataset"], row["_orig_idx"]))
+    overall = wb.create_sheet(title="overall_compiled")
+    write_sheet(overall, compiled_rows, include_baseline_model=True)
 
     for baseline_model, rows in sampled_rows_by_baseline.items():
         ws = wb.create_sheet(title=shorten_sheet_name(slugify_model(baseline_model)))
