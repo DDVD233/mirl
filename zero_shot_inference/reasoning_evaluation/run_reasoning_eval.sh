@@ -19,9 +19,9 @@ set -euo pipefail
     # "keentomato/harpo_hier_step400"
 
 MODELS=(
-    # "ddvd233/OmniSapiens-7B-RL"
-    # "Qwen/Qwen2.5-Omni-7B"
     "PhilipC/HumanOmniV2"
+    "ddvd233/OmniSapiens-7B-RL"
+    "Qwen/Qwen2.5-Omni-7B"
 )
 
 # GPUs to use. Leave empty to auto-detect all available GPUs.
@@ -65,12 +65,12 @@ MODES="reasoning stochastic para"
 # Datasets to run — remove any you want to skip
 # Available: eatd  mvsa  av-asd  iemocap  dreaddit  sarcnet
 DATASETS=(
-    # "eatd"
-    # "mvsa"
-    # "av-asd"
+    "eatd"
+    "mvsa"
+    "av-asd"
     "iemocap"
     # "dreaddit"
-    # "sarcnet"
+    "sarcnet"
 )
 
 # ── DATASET JSONL PATHS ───────────────────────────────────────────────────────
