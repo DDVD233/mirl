@@ -102,21 +102,21 @@ def load_images(image_paths: list[str], base_dir: str) -> list[Image.Image]:
     return [Image.open(_resolve(p, base_dir)).convert("RGB") for p in image_paths]
 
 
-def _pad_video_frames_if_needed(vframes: list, processor) -> list:
-    """Pad a pre-decoded frame list to match processor.video_processor.num_frames.
+def _video_num_frames_override(vframes_list: list, processor) -> int | None:
+    """Return a num_frames override when any video is shorter than processor requires.
 
-    Gemma4's video processor enforces exactly num_frames during sampling and raises
-    if total_num_frames < num_frames. Repeating the last frame matches what the
-    training code does for short videos (rl_dataset_patch.py). No-op for processors
-    that don't expose num_frames (e.g. HumanOmniV2, Qwen).
+    Gemma4's video processor has num_frames=32 in its config and raises when the
+    actual frame count is lower. Passing num_frames=<actual> as a processor kwarg
+    overrides that config for the call. No-op for processors that don't expose
+    num_frames (e.g. HumanOmniV2, Qwen). For batches, uses the minimum across all
+    videos so every video in the batch can be sampled uniformly.
     """
-    if not vframes:
-        return vframes
     vp = getattr(processor, "video_processor", None)
     required = getattr(vp, "num_frames", None)
-    if required and len(vframes) < required:
-        vframes = list(vframes) + [vframes[-1]] * (required - len(vframes))
-    return vframes
+    if not required or not vframes_list:
+        return None
+    min_frames = min(len(v) for v in vframes_list)
+    return min_frames if min_frames < required else None
 
 
 def _default_load_video_frames(video_paths: list[str], base_dir: str,
@@ -166,7 +166,7 @@ def _verl_load_audio(path: str, base_dir: str, max_seconds: float = 10.0):
 # ── Entry → content list + flat media collectors ─────────────────────────────
 
 def build_entry_inputs(entry: dict, base_dir: str, thinking: bool,
-                       data_loading: str = "default"):
+                       data_loading: str = "default", model_name: str = ""):
     """
     Returns (content_list, audio_list_or_None, pil_images, video_frames).
 
@@ -213,12 +213,14 @@ def build_entry_inputs(entry: dict, base_dir: str, thinking: bool,
 
     else:  # default
         content = []
-        audio_list = None
         pil_images = []
         video_frames = []
 
+        is_gemma = "gemma" in model_name.lower()
         if entry.get("audios"):
             audio_list = _default_load_audio_list(entry["audios"], base_dir)
+        else:
+            audio_list = None
 
         if entry.get("images"):
             pil_images = load_images(entry["images"], base_dir)
@@ -231,7 +233,27 @@ def build_entry_inputs(entry: dict, base_dir: str, thinking: bool,
             if video_frames:
                 content.append({"type": "video", "video": video_frames})
 
-        content.append({"type": "text", "text": problem + instruction})
+        # Gemma's processor checks that audio soft tokens in input_ids match the
+        # number of extracted audio features. Embedding audio dicts in the content
+        # list causes apply_chat_template to insert those tokens; passing audio
+        # as a bare kwarg (with no tokens in the text) causes a count mismatch.
+        if is_gemma and audio_list:
+            if "<audio>" in problem:
+                aud_idx = 0
+                for seg in re.split(r"(<audio>)", problem):
+                    if seg == "<audio>" and aud_idx < len(audio_list):
+                        content.append({"type": "audio", "audio": audio_list[aud_idx]})
+                        aud_idx += 1
+                    elif seg:
+                        content.append({"type": "text", "text": seg})
+                content.append({"type": "text", "text": instruction})
+            else:
+                for arr in audio_list:
+                    content.append({"type": "audio", "audio": arr})
+                content.append({"type": "text", "text": problem + instruction})
+        else:
+            content.append({"type": "text", "text": problem + instruction})
+
         return content, audio_list, pil_images, video_frames
 
 
@@ -360,7 +382,8 @@ def _generate_kwargs(processor) -> dict:
 def run_batch(model, processor, entries: list[dict], base_dir: str,
               thinking: bool, max_new_tokens: int,
               data_loading: str = "default",
-              sampling_kwargs: dict | None = None) -> list[str]:
+              sampling_kwargs: dict | None = None,
+              model_name: str = "") -> list[str]:
     """
     Run inference on a list of entries as a single batched forward pass.
     All entries should share the same modality_signature for reliable batching.
@@ -369,14 +392,14 @@ def run_batch(model, processor, entries: list[dict], base_dir: str,
     _skw = sampling_kwargs if sampling_kwargs is not None else {"do_sample": False}
     if len(entries) == 1:
         return [_run_one(model, processor, entries[0], base_dir, thinking,
-                         max_new_tokens, data_loading, _skw)]
+                         max_new_tokens, data_loading, _skw, model_name)]
 
     try:
         texts, batch_audios, batch_images, batch_videos = [], [], [], []
 
         for entry in entries:
             content, audio_list, imgs, vframes = build_entry_inputs(
-                entry, base_dir, thinking, data_loading)
+                entry, base_dir, thinking, data_loading, model_name)
             msgs = [{"role": "user", "content": content}]
             texts.append(
                 processor.apply_chat_template(msgs, tokenize=False, add_generation_prompt=True)
@@ -385,7 +408,6 @@ def run_batch(model, processor, entries: list[dict], base_dir: str,
                 batch_audios.extend(audio_list)
             batch_images.extend(imgs)
             if vframes:
-                vframes = _pad_video_frames_if_needed(vframes, processor)
                 batch_videos.append(vframes)
 
         proc_kwargs = dict(text=texts, return_tensors="pt", padding=True)
@@ -395,6 +417,9 @@ def run_batch(model, processor, entries: list[dict], base_dir: str,
             proc_kwargs["images"] = batch_images
         if batch_videos:
             proc_kwargs["videos"] = batch_videos
+            override = _video_num_frames_override(batch_videos, processor)
+            if override is not None:
+                proc_kwargs["num_frames"] = override
 
         device = _get_device(model)
         inputs = processor(**proc_kwargs)
@@ -423,16 +448,17 @@ def run_batch(model, processor, entries: list[dict], base_dir: str,
         # Batching failed (e.g. mixed modalities or processor limitation); fall back
         print(f"\n[WARN] Batch of {len(entries)} failed ({exc.__class__.__name__}: {exc}); "
               "retrying one-by-one.")
-        return [_run_one(model, processor, e, base_dir, thinking, max_new_tokens, data_loading, _skw)
+        return [_run_one(model, processor, e, base_dir, thinking, max_new_tokens, data_loading, _skw, model_name)
                 for e in entries]
 
 
 def _run_one(model, processor, entry: dict, base_dir: str,
              thinking: bool, max_new_tokens: int,
              data_loading: str = "default",
-             sampling_kwargs: dict | None = None) -> str:
+             sampling_kwargs: dict | None = None,
+             model_name: str = "") -> str:
     content, audio_list, imgs, vframes = build_entry_inputs(
-        entry, base_dir, thinking, data_loading)
+        entry, base_dir, thinking, data_loading, model_name)
     msgs = [{"role": "user", "content": content}]
     text = processor.apply_chat_template(msgs, tokenize=False, add_generation_prompt=True)
 
@@ -442,8 +468,10 @@ def _run_one(model, processor, entry: dict, base_dir: str,
     if imgs:
         proc_kwargs["images"] = imgs
     if vframes:
-        vframes = _pad_video_frames_if_needed(vframes, processor)
         proc_kwargs["videos"] = [vframes]
+        override = _video_num_frames_override([vframes], processor)
+        if override is not None:
+            proc_kwargs["num_frames"] = override
 
     device = _get_device(model)
     inputs = processor(**proc_kwargs)
@@ -672,6 +700,7 @@ def main(args):
                 responses = run_batch(
                     model, processor, batch_entries, base_dir, thinking,
                     args.max_new_tokens, data_loading, sampling_kwargs,
+                    args.model,
                 )
             except Exception as exc:
                 print(f"\n[ERROR] Batch {batch_start}–{batch_start+len(batch_indices)-1}: {exc}")
