@@ -16,8 +16,9 @@ set -euo pipefail
 
 # ── CONFIG ────────────────────────────────────────────────────────────────────
 
+    # "keentomato/harpo_hier_step400"
+
 MODELS=(
-    "keentomato/harpo_hier_step400"
     "PhilipC/HumanOmniV2"
     "ddvd233/OmniSapiens-7B-RL"
     "Qwen/Qwen2.5-Omni-7B"

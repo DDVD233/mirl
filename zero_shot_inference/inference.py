@@ -269,6 +269,18 @@ def load_model(model_name: str, torch_compile: bool = False):
         else:
             raise
 
+    # Gemma4 bug: _update_causal_mask returns None for sdpa/flash_attention_2, which
+    # then crashes in _convert_4d_mask_to_blocked_5d(None). Force eager so the method
+    # always returns a real 4D causal mask. Patch both the outer config and the nested
+    # text_config (for VLM wrappers like Gemma4ForConditionalGeneration).
+    if is_gemma:
+        for cfg in (model.config, getattr(model.config, 'text_config', None)):
+            if cfg is not None and hasattr(cfg, '_attn_implementation'):
+                old = cfg._attn_implementation
+                if old != 'eager':
+                    cfg._attn_implementation = 'eager'
+                    print(f"  Patched {type(cfg).__name__}._attn_implementation: {old!r} → 'eager'")
+
     model.eval()
 
     if torch_compile:
