@@ -19,18 +19,18 @@ set -euo pipefail
     # "keentomato/harpo_hier_step400"
 
 MODELS=(
+    # "ddvd233/OmniSapiens-7B-RL"
+    # "Qwen/Qwen2.5-Omni-7B"
     "PhilipC/HumanOmniV2"
-    "ddvd233/OmniSapiens-7B-RL"
-    "Qwen/Qwen2.5-Omni-7B"
 )
 
 # GPUs to use. Leave empty to auto-detect all available GPUs.
 # Example: GPUS=(0 1)  or  GPUS=(2 3 4 5)
-GPUS=(0 1 7)
+GPUS=(1 2 3 4)
 
 # Number of concurrent (model, dataset) jobs per GPU.
 # Total parallel slots = NUM_GPUS × JOBS_PER_GPU.
-JOBS_PER_GPU=2
+JOBS_PER_GPU=3
 
 # Output root — prediction JSONLs, metrics, and logs land here
 OUTPUT_DIR="/home/keaneong/human-behavior/verl/zero_shot_inference/results/reasoning_eval"
@@ -65,12 +65,12 @@ MODES="reasoning stochastic para"
 # Datasets to run — remove any you want to skip
 # Available: eatd  mvsa  av-asd  iemocap  dreaddit  sarcnet
 DATASETS=(
-    "eatd"
-    "mvsa"
-    "av-asd"
+    # "eatd"
+    # "mvsa"
+    # "av-asd"
     "iemocap"
     # "dreaddit"
-    "sarcnet"
+    # "sarcnet"
 )
 
 # ── DATASET JSONL PATHS ───────────────────────────────────────────────────────
@@ -111,8 +111,8 @@ else
     GPUS=(0); NUM_GPUS=1
     echo "No nvidia-smi found, defaulting to GPU 0"
 fi
-NUM_SLOTS=$(( NUM_GPUS * JOBS_PER_GPU ))
-echo "Parallel slots: $NUM_SLOTS  ($NUM_GPUS GPU(s) × $JOBS_PER_GPU job(s)/GPU)"
+TOTAL_SHARDS=$(( NUM_GPUS * JOBS_PER_GPU ))
+echo "Shards per dataset: $TOTAL_SHARDS  ($NUM_GPUS GPU(s) × $JOBS_PER_GPU job(s)/GPU)"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REASONING_EVAL_PY="$SCRIPT_DIR/reasoning_eval.py"
@@ -139,42 +139,78 @@ build_wandb_args() {
     echo "$args"
 }
 
-# Step 1: Four-mode reasoning inference (single GPU, single model load)
+# Step 1: Sharded reasoning inference — splits one dataset across all GPUs, then merges.
+# Each shard runs independently; merge step combines by _orig_idx and deletes shard files.
 run_reasoning_eval() {
     local dataset_name="$1"
     local input_jsonl="$2"
     local para_jsonl="$3"
     local dataset_extra_args="${4:-}"
-    local out_jsonl="$OUTPUT_DIR/${CURRENT_MODEL_SLUG}_${dataset_name}_reasoning.jsonl"
+    local out_base="$OUTPUT_DIR/${CURRENT_MODEL_SLUG}_${dataset_name}_reasoning"
+    local out_jsonl="${out_base}.jsonl"
 
     echo ""
     echo "============================================================"
     echo "  Model   : $CURRENT_MODEL"
-    echo "  Dataset : $dataset_name  [reasoning eval, GPU $GPU]"
+    echo "  Dataset : $dataset_name  [reasoning eval, $TOTAL_SHARDS shard(s) across GPU(s) ${GPUS[*]}]"
     echo "  Input   : $(basename "$input_jsonl")"
     echo "  Para    : $(basename "$para_jsonl")"
     echo "  Output  : $out_jsonl"
     echo "============================================================"
 
-    CUDA_VISIBLE_DEVICES=$GPU python "$REASONING_EVAL_PY" \
-        --model                  "$CURRENT_MODEL" \
-        --input_jsonl            "$input_jsonl" \
-        --para_input_jsonl       "$para_jsonl" \
-        --output_jsonl           "$out_jsonl" \
-        --max_new_tokens         "$MAX_NEW_TOKENS" \
-        --n_stochastic           "$N_STOCHASTIC" \
-        --stochastic_temperature "$STOCHASTIC_TEMPERATURE" \
-        --stochastic_top_p       "$STOCHASTIC_TOP_P" \
-        --stochastic_top_k       "$STOCHASTIC_TOP_K" \
-        --direct_temperature     "$DIRECT_TEMPERATURE" \
-        --direct_top_p           "$DIRECT_TOP_P" \
-        --direct_top_k           "$DIRECT_TOP_K" \
-        --direct_min_p           "$DIRECT_MIN_P" \
-        --data_loading           "$DATA_LOADING" \
-        --modes                  $MODES \
-        $(maybe_max_samples) \
-        $dataset_extra_args \
-        &> "$LOG_DIR/${CURRENT_MODEL_SLUG}_${dataset_name}_reasoning_eval.log"
+    local pids=()
+
+    for (( shard=0; shard<TOTAL_SHARDS; shard++ )); do
+        local gpu="${GPUS[$(( shard % NUM_GPUS ))]}"
+        local shard_out="${out_base}_shard${shard}.jsonl"
+        echo "  [GPU $gpu] shard $shard/$TOTAL_SHARDS → $shard_out"
+
+        CUDA_VISIBLE_DEVICES=$gpu python "$REASONING_EVAL_PY" \
+            --model                  "$CURRENT_MODEL" \
+            --input_jsonl            "$input_jsonl" \
+            --para_input_jsonl       "$para_jsonl" \
+            --output_jsonl           "$shard_out" \
+            --max_new_tokens         "$MAX_NEW_TOKENS" \
+            --n_stochastic           "$N_STOCHASTIC" \
+            --stochastic_temperature "$STOCHASTIC_TEMPERATURE" \
+            --stochastic_top_p       "$STOCHASTIC_TOP_P" \
+            --stochastic_top_k       "$STOCHASTIC_TOP_K" \
+            --direct_temperature     "$DIRECT_TEMPERATURE" \
+            --direct_top_p           "$DIRECT_TOP_P" \
+            --direct_top_k           "$DIRECT_TOP_K" \
+            --direct_min_p           "$DIRECT_MIN_P" \
+            --data_loading           "$DATA_LOADING" \
+            --modes                  $MODES \
+            --num_shards             "$TOTAL_SHARDS" \
+            --shard_idx              "$shard" \
+            $(maybe_max_samples) \
+            $dataset_extra_args \
+            &> "$LOG_DIR/${CURRENT_MODEL_SLUG}_${dataset_name}_shard${shard}.log" &
+
+        pids+=($!)
+    done
+
+    # Wait for all shards and collect exit codes
+    local failed=0
+    for pid in "${pids[@]}"; do
+        if ! wait "$pid"; then
+            failed=$(( failed + 1 ))
+        fi
+    done
+
+    if [[ "$failed" -gt 0 ]]; then
+        echo "[ERROR] $failed shard(s) failed for $CURRENT_MODEL / $dataset_name — check logs in $LOG_DIR"
+        return 1
+    fi
+
+    # Merge shards → single output JSONL, then delete shard files
+    echo "  Merging shards → $out_jsonl"
+    python "$REASONING_EVAL_PY" \
+        --merge_shards "${out_base}_shard*.jsonl" \
+        --output_jsonl "$out_jsonl"
+
+    rm -f "${out_base}_shard"*.jsonl
+    echo "  Shard files deleted."
 
     echo "$out_jsonl"
 }
@@ -226,9 +262,9 @@ for ds in "${DATASETS[@]}"; do
 done
 
 # ── Main loop ─────────────────────────────────────────────────────────────────
-# Models run sequentially. Datasets for each model are sharded across GPU slots
-# (up to NUM_SLOTS concurrent jobs). After all datasets for a model finish,
-# overall metrics are computed and logged to W&B before moving to the next model.
+# Models run sequentially. Each dataset is sharded across all GPUS×JOBS_PER_GPU
+# processes in parallel, then shards are merged before moving to the next dataset.
+# After all datasets for a model finish, overall metrics are logged to W&B.
 
 for MODEL in "${MODELS[@]}"; do
     CURRENT_MODEL="$MODEL"
@@ -242,11 +278,9 @@ for MODEL in "${MODELS[@]}"; do
     echo "  Model: $MODEL"
     echo "############################################################"
 
-    declare -a _slot_pids=()
     _model_jsonls=()
 
-    for i in "${!DATASETS[@]}"; do
-        DATASET="${DATASETS[$i]}"
+    for DATASET in "${DATASETS[@]}"; do
         case "$DATASET" in
             eatd)     _in="$EATD_JSONL";     _para="$EATD_PARA_JSONL";     _ex="" ;;
             mvsa)     _in="$MVSA_JSONL";     _para="$MVSA_PARA_JSONL";     _ex="" ;;
@@ -256,30 +290,15 @@ for MODEL in "${MODELS[@]}"; do
             sarcnet)  _in="$SARCNET_JSONL";  _para="$SARCNET_PARA_JSONL";  _ex="" ;;
         esac
 
-        slot=$(( i % NUM_SLOTS ))
-        gpu="${GPUS[$(( slot % NUM_GPUS ))]}"
-
-        # Wait for any job currently occupying this slot before reusing it
-        if [[ -n "${_slot_pids[$slot]:-}" ]]; then
-            wait "${_slot_pids[$slot]}" || echo "[WARN] A job in slot $slot failed — continuing"
-        fi
-
         _out_jsonl="$OUTPUT_DIR/${CURRENT_MODEL_SLUG}_${DATASET}_reasoning.jsonl"
         _model_jsonls+=("$_out_jsonl")
 
-        (
-            GPU="$gpu"
-            run_reasoning_eval "$DATASET" "$_in" "$_para" "$_ex"
-            run_metrics "$DATASET" "$_out_jsonl"
-        ) &
-        _slot_pids[$slot]=$!
+        if ! run_reasoning_eval "$DATASET" "$_in" "$_para" "$_ex"; then
+            echo "[WARN] $DATASET failed — skipping metrics for this dataset"
+            continue
+        fi
+        run_metrics "$DATASET" "$_out_jsonl"
     done
-
-    # Drain all in-flight slots for this model before computing overall metrics
-    for slot in "${!_slot_pids[@]}"; do
-        [[ -n "${_slot_pids[$slot]:-}" ]] && { wait "${_slot_pids[$slot]}" || echo "[WARN] A job in slot $slot failed — continuing"; }
-    done
-    unset _slot_pids
 
     # ── Overall metrics for this model (all datasets combined) ────────────────
     if [[ "${#_model_jsonls[@]}" -gt 1 ]]; then

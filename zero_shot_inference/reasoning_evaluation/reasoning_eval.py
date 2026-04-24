@@ -20,6 +20,7 @@ Usage:
         --data_loading  verl_style
 """
 
+import glob
 import sys
 import os
 import argparse
@@ -214,9 +215,10 @@ def infer_with_logit_capture(
 def infer_stochastic(
     model, processor, entry: dict, base_dir: str,
     max_new_tokens: int, data_loading: str,
+    n_samples: int = 1,
     temperature: float = 0.6, top_p: float = 0.95, top_k: int = 20,
-) -> str:
-    """Single stochastic reasoning sample."""
+) -> list[str]:
+    """N stochastic reasoning samples in one generate() call via num_return_sequences."""
     content, audio_list, imgs, vframes = build_entry_inputs(
         entry, base_dir, thinking=True, data_loading=data_loading
     )
@@ -245,11 +247,14 @@ def infer_stochastic(
             temperature=temperature,
             top_p=top_p,
             top_k=top_k,
+            num_return_sequences=n_samples,
             **_generate_kwargs(processor),
         )
 
+    # raw: (n_samples, seq_len) for standard models;
+    # Qwen2_5OmniThinker returns (text_ids, audio) — unwrap text_ids
     out_ids = raw[0] if isinstance(raw, (tuple, list)) else raw
-    return processor.decode(out_ids[0][prompt_length:], skip_special_tokens=True)
+    return [processor.decode(seq[prompt_length:], skip_special_tokens=True) for seq in out_ids]
 
 
 # ── Four inference mode runners ────────────────────────────────────────────────
@@ -262,6 +267,8 @@ def run_mode_direct(model, processor, entries: list[dict], base_dir: str,
                     top_k: int = 20, min_p: float = 0.0) -> None:
     """Mode 1: sampled direct prediction (no thinking) + label logit capture."""
     for i, entry in enumerate(tqdm(entries, desc="Mode 1/4 — Direct")):
+        if "direct_response" in results[i]:
+            continue
         try:
             response, label_probs = infer_with_logit_capture(
                 model, processor, entry, base_dir,
@@ -291,6 +298,8 @@ def run_mode_reasoning(model, processor, entries: list[dict], base_dir: str,
                        save_every: int, flush_fn) -> None:
     """Mode 2: greedy reasoning prediction (thinking) + label logit capture + trace tokens."""
     for i, entry in enumerate(tqdm(entries, desc="Mode 2/4 — Reasoning")):
+        if "reasoning_response" in results[i]:
+            continue
         try:
             response, label_probs = infer_with_logit_capture(
                 model, processor, entry, base_dir,
@@ -322,32 +331,32 @@ def run_mode_stochastic(model, processor, entries: list[dict], base_dir: str,
                         n_samples: int, results: list[dict],
                         save_every: int, flush_fn,
                         temperature: float = 0.6, top_p: float = 0.95, top_k: int = 20) -> None:
-    """Mode 3: N stochastic reasoning samples."""
-    for i, entry in enumerate(tqdm(entries, desc=f"Mode 3/4 — Stochastic (N={n_samples})")):
-        stoc_responses:     list[str] = []
-        stoc_answers:       list[str] = []
-        stoc_trace_tokens:  list[int] = []
+    """Mode 3: N stochastic reasoning samples (batched via num_return_sequences)."""
+    pending = [(i, e) for i, e in enumerate(entries)
+               if not (isinstance(results[i].get("stochastic_responses"), list)
+                       and len(results[i]["stochastic_responses"]) == n_samples)]
+    if len(pending) < len(entries):
+        print(f"  Stochastic mode: skipping {len(entries) - len(pending)} already-done entries.")
 
-        for _ in range(n_samples):
-            try:
-                resp = infer_stochastic(
-                    model, processor, entry, base_dir, max_new_tokens, data_loading,
-                    temperature=temperature, top_p=top_p, top_k=top_k,
-                )
-            except Exception as exc:
-                print(f"\n[WARN] Stochastic mode entry {i}: {exc.__class__.__name__}: {exc}")
-                resp = ""
+    for step, (i, entry) in enumerate(tqdm(pending, desc=f"Mode 3/4 — Stochastic (N={n_samples})")):
+        try:
+            stoc_responses = infer_stochastic(
+                model, processor, entry, base_dir, max_new_tokens, data_loading,
+                n_samples=n_samples, temperature=temperature, top_p=top_p, top_k=top_k,
+            )
+        except Exception as exc:
+            print(f"\n[WARN] Stochastic mode entry {i}: {exc.__class__.__name__}: {exc}")
+            stoc_responses = [""] * n_samples
 
-            trace = extract_think_trace(resp)
-            stoc_responses.append(resp)
-            stoc_answers.append(extract_answer(resp))
-            stoc_trace_tokens.append(count_tokens_precisely(processor, trace) if trace else 0)
+        stoc_answers      = [extract_answer(r) for r in stoc_responses]
+        stoc_trace_tokens = [count_tokens_precisely(processor, extract_think_trace(r)) if extract_think_trace(r) else 0
+                             for r in stoc_responses]
 
         results[i]["stochastic_responses"]    = stoc_responses
         results[i]["stochastic_answers"]      = stoc_answers
         results[i]["stochastic_trace_tokens"] = stoc_trace_tokens
 
-        if save_every > 0 and (i + 1) % save_every == 0:
+        if save_every > 0 and (step + 1) % save_every == 0:
             flush_fn()
 
     flush_fn()
@@ -359,6 +368,8 @@ def run_mode_para_reasoning(model, processor, entries: list[dict],
                             results: list[dict], save_every: int, flush_fn) -> None:
     """Mode 4: greedy reasoning on paraphrased inputs."""
     for i, para_entry in enumerate(tqdm(para_entries, desc="Mode 4/4 — Para-Reasoning")):
+        if "para_reasoning_response" in results[i]:
+            continue
         try:
             response, _ = infer_with_logit_capture(
                 model, processor, para_entry, base_dir,
@@ -380,9 +391,37 @@ def run_mode_para_reasoning(model, processor, entries: list[dict],
     flush_fn()
 
 
+# ── Shard merge ────────────────────────────────────────────────────────────────
+
+def merge_shards(shard_pattern: str, output_jsonl: str) -> None:
+    """Merge shard JSONLs produced by --num_shards runs, sorted by _orig_idx."""
+    paths = sorted(glob.glob(shard_pattern))
+    if not paths:
+        raise FileNotFoundError(f"No files match: {shard_pattern}")
+
+    all_entries: list[dict] = []
+    for p in paths:
+        with open(p, "r", encoding="utf-8") as f:
+            all_entries.extend(json.loads(ln) for ln in f if ln.strip())
+
+    all_entries.sort(key=lambda e: e.get("_orig_idx", 0))
+
+    os.makedirs(os.path.dirname(os.path.abspath(output_jsonl)), exist_ok=True)
+    with open(output_jsonl, "w", encoding="utf-8") as f:
+        for e in all_entries:
+            f.write(json.dumps(e, ensure_ascii=False) + "\n")
+
+    print(f"Merged {len(all_entries)} entries from {len(paths)} shards → {output_jsonl}")
+
+
 # ── Main ───────────────────────────────────────────────────────────────────────
 
 def main(args: argparse.Namespace) -> None:
+    # ── Merge-only mode ───────────────────────────────────────────────────────
+    if args.merge_shards:
+        merge_shards(args.merge_shards, args.output_jsonl)
+        return
+
     # ── Load source JSONL ─────────────────────────────────────────────────────
     with open(args.input_jsonl, "r", encoding="utf-8") as f:
         entries = [json.loads(ln) for ln in f if ln.strip()]
@@ -392,6 +431,14 @@ def main(args: argparse.Namespace) -> None:
 
     if args.max_samples:
         entries = entries[: args.max_samples]
+
+    # ── Sharding ──────────────────────────────────────────────────────────────
+    if args.num_shards > 1:
+        shard_size = (len(entries) + args.num_shards - 1) // args.num_shards
+        lo = args.shard_idx * shard_size
+        hi = min(lo + shard_size, len(entries))
+        entries = entries[lo:hi]
+        print(f"Shard {args.shard_idx}/{args.num_shards}: entries {lo}–{hi-1} ({len(entries)} samples)")
 
     modes = set(args.modes)
 
@@ -436,15 +483,30 @@ def main(args: argparse.Namespace) -> None:
     model, processor = load_model(args.model)
     label_token_ids  = get_label_token_ids(processor, labels)
 
-    # ── Initialise result records ─────────────────────────────────────────────
-    results = [
-        {
-            "answer":   e.get("answer", ""),
-            "dataset":  e.get("dataset", os.path.basename(args.input_jsonl).replace(".jsonl", "")),
-            "_orig_idx": e.get("_orig_idx", i),
+    # ── Resume: load existing output and restore already-done fields ──────────
+    existing: dict[int, dict] = {}
+    if os.path.exists(args.output_jsonl):
+        with open(args.output_jsonl, "r", encoding="utf-8") as f:
+            for ln in f:
+                if ln.strip():
+                    e = json.loads(ln)
+                    existing[e.get("_orig_idx", -1)] = e
+        if existing:
+            print(f"Resuming: found {len(existing)} existing entries in {args.output_jsonl}")
+
+    # ── Initialise result records (merge with existing if resuming) ───────────
+    dataset_name = os.path.basename(args.input_jsonl).replace(".jsonl", "")
+    results = []
+    for i, e in enumerate(entries):
+        idx = e.get("_orig_idx", i)
+        base = {
+            "answer":    e.get("answer", ""),
+            "dataset":   e.get("dataset", dataset_name),
+            "_orig_idx": idx,
         }
-        for i, e in enumerate(entries)
-    ]
+        if idx in existing:
+            base.update(existing[idx])
+        results.append(base)
 
     def flush():
         with open(args.output_jsonl, "w", encoding="utf-8") as wf:
@@ -496,13 +558,26 @@ def main(args: argparse.Namespace) -> None:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Reasoning evaluation: 4-mode inference")
 
-    parser.add_argument("--model",            required=True)
-    parser.add_argument("--input_jsonl",      required=True)
+    parser.add_argument("--model",            default=None,
+                        help="HF model name or local path (required unless --merge_shards)")
+    parser.add_argument("--input_jsonl",      default=None)
     parser.add_argument("--para_input_jsonl", default=None,
                         help="Paraphrased JSONL (from paraphrase_inputs.py). "
                              "If absent, original inputs are used for mode 4.")
     parser.add_argument("--output_jsonl",     required=True)
     parser.add_argument("--data_base_dir",    default=None)
+
+    # Sharding (multi-GPU data parallelism)
+    parser.add_argument("--num_shards", type=int, default=1,
+                        help="Total number of parallel shards (= NUM_GPUS × JOBS_PER_GPU)")
+    parser.add_argument("--shard_idx",  type=int, default=0,
+                        help="Index of this shard (0-indexed)")
+
+    # Merge-only mode (combines shard JSONLs produced by --num_shards runs)
+    parser.add_argument("--merge_shards", default=None,
+                        help="Glob pattern of shard JSONLs to merge (e.g. 'out/*_shard*.jsonl'). "
+                             "Skips inference; just merges shard files into --output_jsonl.")
+
     parser.add_argument("--max_new_tokens",   type=int, default=1024)
     parser.add_argument("--n_stochastic",          type=int,   default=3,
                         help="Number of stochastic reasoning samples per entry")
@@ -537,4 +612,10 @@ if __name__ == "__main__":
     parser.add_argument("--wandb_entity",   default=None)
 
     args = parser.parse_args()
+
+    if not args.merge_shards and not args.model:
+        parser.error("--model is required unless --merge_shards is set")
+    if not args.merge_shards and not args.input_jsonl:
+        parser.error("--input_jsonl is required unless --merge_shards is set")
+
     main(args)
