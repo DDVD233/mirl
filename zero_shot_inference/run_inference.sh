@@ -21,10 +21,10 @@ set -euo pipefail
 
 MODELS=(
     "google/gemma-4-e4b-it"
-    "keentomato/harpo_hier_step400"
-    "PhilipC/HumanOmniV2"
-    "ddvd233/OmniSapiens-7B-RL"
-    "Qwen/Qwen2.5-Omni-7B"
+    # "keentomato/harpo_hier_step400"
+    # "PhilipC/HumanOmniV2"
+    # "ddvd233/OmniSapiens-7B-RL"
+    # "Qwen/Qwen2.5-Omni-7B"
 )
 
 # Sampling parameters for generation.
