@@ -19,15 +19,15 @@ set -euo pipefail
     # "keentomato/harpo_hier_step400"
 
 MODELS=(
-    "PhilipC/HumanOmniV2"
-    "ddvd233/OmniSapiens-7B-RL"
-    "Qwen/Qwen2.5-Omni-7B"
-    # "google/gemma-4-e4b-it"
+    # "PhilipC/HumanOmniV2"
+    # "ddvd233/OmniSapiens-7B-RL"
+    # "Qwen/Qwen2.5-Omni-7B"
+    "google/gemma-4-e4b-it"
 )
 
 # GPUs to use. Leave empty to auto-detect all available GPUs.
 # Example: GPUS=(0 1)  or  GPUS=(2 3 4 5)
-GPUS=(1 2 3 4)
+GPUS=(4 5)
 
 # Number of concurrent (model, dataset) jobs per GPU.
 # Total parallel slots = NUM_GPUS × JOBS_PER_GPU.
@@ -43,14 +43,26 @@ MAX_NEW_TOKENS=512
 N_STOCHASTIC=5
 
 # Sampling parameters for stochastic reasoning mode (Mode 3)
-STOCHASTIC_TEMPERATURE=0.6
+# STOCHASTIC_TEMPERATURE=0.6
+# STOCHASTIC_TOP_P=0.95
+# STOCHASTIC_TOP_K=20
+
+# For GEMMA stochastic
+STOCHASTIC_TEMPERATURE=1.0
 STOCHASTIC_TOP_P=0.95
-STOCHASTIC_TOP_K=20
+STOCHASTIC_TOP_K=64
+# MIN_P=0
 
 # Sampling parameters for direct (no-thinking) mode (Mode 1)
-DIRECT_TEMPERATURE=0.7
-DIRECT_TOP_P=0.8
-DIRECT_TOP_K=20
+# DIRECT_TEMPERATURE=0.7
+# DIRECT_TOP_P=0.8
+# DIRECT_TOP_K=20
+# DIRECT_MIN_P=0
+
+# For Gemma direct
+DIRECT_TEMPERATURE=1.0
+DIRECT_TOP_P=0.95
+DIRECT_TOP_K=64
 DIRECT_MIN_P=0
 
 # Data loading mode (verl_style matches harpo / omnisapiens training)
