@@ -61,13 +61,14 @@ class CaptureAnswerLogitsProcessor(LogitsProcessor):
     """
 
     def __init__(self, tokenizer, label_token_ids: dict, prompt_length: int,
-                 thinking_mode: bool = True):
+                 thinking_mode: bool = True, think_end_pattern: str = "</think>"):
         self.tokenizer = tokenizer
         self.label_token_ids = label_token_ids
         self.prompt_length = prompt_length
         self._decoded_so_far = ""
         self._after_think_end = not thinking_mode   # direct mode: start ready
         self._post_think_offset = 0
+        self._think_end_pattern = think_end_pattern
         self.captured_probs: dict | None = None
 
     def __call__(self, input_ids: torch.LongTensor,
@@ -76,17 +77,20 @@ class CaptureAnswerLogitsProcessor(LogitsProcessor):
         # input_ids still has length == prompt_length).
         if input_ids.shape[1] > self.prompt_length and self.captured_probs is None:
             # Append the last committed token to the accumulation buffer.
+            # Use skip_special_tokens=False so special-token end-markers (e.g.
+            # Gemma 4's <channel|>) are not stripped before the pattern search.
             last_tok = self.tokenizer.decode(
-                [input_ids[0, -1].item()], skip_special_tokens=True
+                [input_ids[0, -1].item()], skip_special_tokens=False
             )
             self._decoded_so_far += last_tok
 
-            # In thinking mode, wait until </think> before searching for \boxed{.
+            # In thinking mode, wait until the think-end marker before searching for \boxed{.
             if not self._after_think_end:
-                if "</think>" in self._decoded_so_far:
+                if self._think_end_pattern in self._decoded_so_far:
                     self._after_think_end = True
                     self._post_think_offset = (
-                        self._decoded_so_far.index("</think>") + len("</think>")
+                        self._decoded_so_far.index(self._think_end_pattern)
+                        + len(self._think_end_pattern)
                     )
 
             if self._after_think_end:
@@ -121,7 +125,10 @@ def get_label_token_ids(processor, labels: list[str]) -> dict[str, int]:
 # ── Per-entry helpers ──────────────────────────────────────────────────────────
 
 def extract_think_trace(response: str) -> str:
-    """Extract text between <think>...</think>. Returns '' if absent."""
+    """Extract thought trace. Handles <think>...</think> and Gemma 4's <|channel>thought\\n...<channel|>."""
+    m = re.search(r"<\|channel>thought\n(.*?)<channel\|>", response, re.DOTALL)
+    if m:
+        return m.group(1).strip()
     m = re.search(r"<think>(.*?)</think>", response, re.DOTALL)
     return m.group(1).strip() if m else ""
 
@@ -138,7 +145,11 @@ def _build_processor_inputs(entry: dict, base_dir: str, thinking: bool,
     content, audio_list, imgs, vframes = build_entry_inputs(
         entry, base_dir, thinking, data_loading, model_name
     )
-    msgs = [{"role": "user", "content": content}]
+    _is_gemma = "gemma" in model_name.lower()
+    if _is_gemma and thinking:
+        msgs = [{"role": "system", "content": "<|think|>"}, {"role": "user", "content": content}]
+    else:
+        msgs = [{"role": "user", "content": content}]
     text = processor.apply_chat_template(msgs, tokenize=False, add_generation_prompt=True)
 
     proc_kwargs = dict(text=text, return_tensors="pt", padding=True)
@@ -176,7 +187,11 @@ def infer_with_logit_capture(
     content, audio_list, imgs, vframes = build_entry_inputs(
         entry, base_dir, thinking, data_loading, model_name
     )
-    msgs = [{"role": "user", "content": content}]
+    _is_gemma = "gemma" in model_name.lower()
+    if _is_gemma and thinking:
+        msgs = [{"role": "system", "content": "<|think|>"}, {"role": "user", "content": content}]
+    else:
+        msgs = [{"role": "user", "content": content}]
     text = processor.apply_chat_template(msgs, tokenize=False, add_generation_prompt=True)
 
     proc_kwargs = dict(text=text, return_tensors="pt", padding=True)
@@ -196,11 +211,13 @@ def infer_with_logit_capture(
               for k, v in inputs.items()}
     prompt_length = inputs["input_ids"].shape[1]
 
+    think_end = "<channel|>" if (_is_gemma and thinking) else "</think>"
     capture_lp = CaptureAnswerLogitsProcessor(
         tokenizer=processor.tokenizer,
         label_token_ids=label_token_ids,
         prompt_length=prompt_length,
         thinking_mode=thinking,
+        think_end_pattern=think_end,
     )
 
     sample_kwargs = (
@@ -232,7 +249,11 @@ def infer_stochastic(
     content, audio_list, imgs, vframes = build_entry_inputs(
         entry, base_dir, thinking=True, data_loading=data_loading, model_name=model_name
     )
-    msgs = [{"role": "user", "content": content}]
+    _is_gemma = "gemma" in model_name.lower()
+    if _is_gemma:
+        msgs = [{"role": "system", "content": "<|think|>"}, {"role": "user", "content": content}]
+    else:
+        msgs = [{"role": "user", "content": content}]
     text = processor.apply_chat_template(msgs, tokenize=False, add_generation_prompt=True)
 
     proc_kwargs = dict(text=text, return_tensors="pt", padding=True)

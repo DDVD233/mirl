@@ -53,6 +53,11 @@ NO_THINKING_INSTRUCTION = (
     " You MUST provide the final answer directly without any extra information. "
     "Enclose the final answer in \\boxed{}."
 )
+# Gemma 4 uses <|think|> in the system prompt to trigger thinking;
+# the model manages its own reasoning tags, so only ask for \boxed{}.
+GEMMA4_THINKING_INSTRUCTION = (
+    " Provide the final answer in \\boxed{}."
+)
 
 
 # ── Answer extraction ─────────────────────────────────────────────────────────
@@ -181,7 +186,13 @@ def build_entry_inputs(entry: dict, base_dir: str, thinking: bool,
         Compatible with HumanOmniV2 and other models not trained via verl.
         Includes the <video> tag bug-fix (was incorrectly checking for [video]).
     """
-    instruction = THINKING_INSTRUCTION if thinking else NO_THINKING_INSTRUCTION
+    is_gemma = "gemma" in model_name.lower()
+    if is_gemma and thinking:
+        instruction = GEMMA4_THINKING_INSTRUCTION
+    elif thinking:
+        instruction = THINKING_INSTRUCTION
+    else:
+        instruction = NO_THINKING_INSTRUCTION
     problem = entry.get("problem", "")
 
     if data_loading == "verl_style":
@@ -398,10 +409,14 @@ def run_batch(model, processor, entries: list[dict], base_dir: str,
     try:
         texts, batch_audios, batch_images, batch_videos = [], [], [], []
 
+        _is_gemma = "gemma" in model_name.lower()
         for entry in entries:
             content, audio_list, imgs, vframes = build_entry_inputs(
                 entry, base_dir, thinking, data_loading, model_name)
-            msgs = [{"role": "user", "content": content}]
+            if _is_gemma and thinking:
+                msgs = [{"role": "system", "content": "<|think|>"}, {"role": "user", "content": content}]
+            else:
+                msgs = [{"role": "user", "content": content}]
             texts.append(
                 processor.apply_chat_template(msgs, tokenize=False, add_generation_prompt=True)
             )
@@ -461,7 +476,11 @@ def _run_one(model, processor, entry: dict, base_dir: str,
              num_frames: int | None = None) -> str:
     content, audio_list, imgs, vframes = build_entry_inputs(
         entry, base_dir, thinking, data_loading, model_name)
-    msgs = [{"role": "user", "content": content}]
+    _is_gemma = "gemma" in model_name.lower()
+    if _is_gemma and thinking:
+        msgs = [{"role": "system", "content": "<|think|>"}, {"role": "user", "content": content}]
+    else:
+        msgs = [{"role": "user", "content": content}]
     text = processor.apply_chat_template(msgs, tokenize=False, add_generation_prompt=True)
 
     proc_kwargs = dict(text=text, return_tensors="pt", padding=True)

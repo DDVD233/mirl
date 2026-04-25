@@ -85,12 +85,12 @@ declare -A MODEL_NUM_FRAMES=(
 # Datasets to run. Remove or comment out any you want to skip.
 # Available: eatd  mvsa  av-asd  iemocap  dreaddit  sarcnet
 DATASETS=(
-    "av-asd"
-    "iemocap"
+    # "av-asd"
+    # "iemocap"
     "eatd"
-    "mvsa"
+    # "mvsa"
     # "dreaddit"
-    "sarcnet"
+    # "sarcnet"
 )
 
 # ── DATASET JSONL PATHS ───────────────────────────────────────────────────────
