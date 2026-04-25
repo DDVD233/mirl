@@ -20,11 +20,11 @@ set -euo pipefail
 # ── CONFIG ────────────────────────────────────────────────────────────────────
 
 MODELS=(
-    # "keentomato/harpo_hier_step400"
-    # "PhilipC/HumanOmniV2"
-    # "ddvd233/OmniSapiens-7B-RL"
-    # "Qwen/Qwen2.5-Omni-7B"
     "google/gemma-4-e4b-it"
+    "keentomato/harpo_hier_step400"
+    "PhilipC/HumanOmniV2"
+    "ddvd233/OmniSapiens-7B-RL"
+    "Qwen/Qwen2.5-Omni-7B"
 )
 
 # Sampling parameters for generation.
@@ -59,7 +59,7 @@ MAX_NEW_TOKENS=512
 TORCH_COMPILE=0
 
 # Optional: cap samples per dataset for a quick smoke-test (empty = full run)
-MAX_SAMPLES="5"   # e.g. "20"
+MAX_SAMPLES=""   # e.g. "20"
 
 # Data loading mode:
 #   "verl_style" — uses qwen_vl_utils + torchaudio (matches harpo_hier / omnisapiens training)
@@ -106,11 +106,11 @@ EXTRA_ARGS=""
 
 # GPUs to use. Leave empty to auto-detect all available GPUs.
 # Example: GPUS=(0 1)  or  GPUS=(2 3 4 5)
-GPUS=(0)
+GPUS=(3 4 5)
 
 # Number of concurrent inference jobs per GPU (each job processes a separate data shard).
 # TOTAL_SHARDS = NUM_GPUS × JOBS_PER_GPU  — increase when VRAM allows multiple processes.
-JOBS_PER_GPU=2
+JOBS_PER_GPU=4
 
 # ── W&B CONFIG ───────────────────────────────────────────────────────────────
 # Set WANDB_PROJECT to "" to disable W&B logging entirely.
