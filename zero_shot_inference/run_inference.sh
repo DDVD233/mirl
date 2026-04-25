@@ -79,7 +79,7 @@ NUM_FRAMES="4"
 
 # Per-model overrides for NUM_FRAMES. Models not listed use NUM_FRAMES above.
 declare -A MODEL_NUM_FRAMES=(
-    ["google/gemma-4-e4b-it"]="16"
+    ["google/gemma-4-e4b-it"]="4"
 )
 
 # Datasets to run. Remove or comment out any you want to skip.
