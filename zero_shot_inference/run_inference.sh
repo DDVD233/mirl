@@ -50,7 +50,7 @@ OUTPUT_DIR="/home/keaneong/human-behavior/verl/zero_shot_inference/results/think
 # Video+Audio (AV-ASD, IEMOCAP): keep at 1 (memory-intensive)
 BATCH_SIZE_AUDIO=4
 BATCH_SIZE_IMAGE=16
-BATCH_SIZE_VIDEO=1
+BATCH_SIZE_VIDEO=4
 
 # Max tokens the model may generate per sample
 MAX_NEW_TOKENS=512
