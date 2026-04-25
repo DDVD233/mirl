@@ -9,11 +9,11 @@ set -euo pipefail
 # ── CONFIG ────────────────────────────────────────────────────────────────────
 
 MODELS=(
-    "keentomato/harpo_hier_step400"
-    "PhilipC/HumanOmniV2"
-    "ddvd233/OmniSapiens-7B-RL"
-    "Qwen/Qwen2.5-Omni-7B"
-    # "google/gemma-4-e4b-it"
+    # "keentomato/harpo_hier_step400"
+    # "PhilipC/HumanOmniV2"
+    # "ddvd233/OmniSapiens-7B-RL"
+    # "Qwen/Qwen2.5-Omni-7B"
+    "google/gemma-4-e4b-it"
 )
 
 # Directory containing the merged prediction JSONLs produced by run_inference.sh.

@@ -35,6 +35,7 @@ from inference import (
     extract_answer,
     _get_device,
     _generate_kwargs,
+    _video_num_frames_override,
 )
 
 import torch
@@ -131,10 +132,11 @@ def count_tokens_precisely(processor, text: str) -> int:
 
 
 def _build_processor_inputs(entry: dict, base_dir: str, thinking: bool,
-                             data_loading: str, processor):
+                             data_loading: str, processor,
+                             model_name: str = "", num_frames: int | None = None):
     """Return (inputs_dict, prompt_length) for a single entry."""
     content, audio_list, imgs, vframes = build_entry_inputs(
-        entry, base_dir, thinking, data_loading
+        entry, base_dir, thinking, data_loading, model_name
     )
     msgs = [{"role": "user", "content": content}]
     text = processor.apply_chat_template(msgs, tokenize=False, add_generation_prompt=True)
@@ -146,6 +148,9 @@ def _build_processor_inputs(entry: dict, base_dir: str, thinking: bool,
         proc_kwargs["images"] = imgs
     if vframes:
         proc_kwargs["videos"] = [vframes]
+        nf = num_frames if num_frames is not None else _video_num_frames_override([vframes], processor)
+        if nf is not None:
+            proc_kwargs["num_frames"] = nf
 
     device = _get_device(processor if hasattr(processor, 'device') else None)
     inputs = processor(**proc_kwargs)
@@ -159,6 +164,7 @@ def infer_with_logit_capture(
     do_sample: bool = False,
     temperature: float = 0.7, top_p: float = 0.8,
     top_k: int = 20, min_p: float = 0.0,
+    model_name: str = "", num_frames: int | None = None,
 ) -> tuple[str, dict | None]:
     """
     Single-sample inference with logit capture at the answer position.
@@ -168,7 +174,7 @@ def infer_with_logit_capture(
         captured_probs: dict[label -> prob] or None if \\boxed{ was not found
     """
     content, audio_list, imgs, vframes = build_entry_inputs(
-        entry, base_dir, thinking, data_loading
+        entry, base_dir, thinking, data_loading, model_name
     )
     msgs = [{"role": "user", "content": content}]
     text = processor.apply_chat_template(msgs, tokenize=False, add_generation_prompt=True)
@@ -180,6 +186,9 @@ def infer_with_logit_capture(
         proc_kwargs["images"] = imgs
     if vframes:
         proc_kwargs["videos"] = [vframes]
+        nf = num_frames if num_frames is not None else _video_num_frames_override([vframes], processor)
+        if nf is not None:
+            proc_kwargs["num_frames"] = nf
 
     device = _get_device(model)
     inputs = processor(**proc_kwargs)
@@ -217,10 +226,11 @@ def infer_stochastic(
     max_new_tokens: int, data_loading: str,
     n_samples: int = 1,
     temperature: float = 0.6, top_p: float = 0.95, top_k: int = 20,
+    model_name: str = "", num_frames: int | None = None,
 ) -> list[str]:
     """N stochastic reasoning samples in one generate() call via num_return_sequences."""
     content, audio_list, imgs, vframes = build_entry_inputs(
-        entry, base_dir, thinking=True, data_loading=data_loading
+        entry, base_dir, thinking=True, data_loading=data_loading, model_name=model_name
     )
     msgs = [{"role": "user", "content": content}]
     text = processor.apply_chat_template(msgs, tokenize=False, add_generation_prompt=True)
@@ -232,6 +242,9 @@ def infer_stochastic(
         proc_kwargs["images"] = imgs
     if vframes:
         proc_kwargs["videos"] = [vframes]
+        nf = num_frames if num_frames is not None else _video_num_frames_override([vframes], processor)
+        if nf is not None:
+            proc_kwargs["num_frames"] = nf
 
     device = _get_device(model)
     inputs = processor(**proc_kwargs)
@@ -264,7 +277,8 @@ def run_mode_direct(model, processor, entries: list[dict], base_dir: str,
                     label_token_ids: dict, results: list[dict],
                     save_every: int, flush_fn,
                     temperature: float = 0.7, top_p: float = 0.8,
-                    top_k: int = 20, min_p: float = 0.0) -> None:
+                    top_k: int = 20, min_p: float = 0.0,
+                    model_name: str = "", num_frames: int | None = None) -> None:
     """Mode 1: sampled direct prediction (no thinking) + label logit capture."""
     for i, entry in enumerate(tqdm(entries, desc="Mode 1/4 — Direct")):
         if "direct_response" in results[i]:
@@ -276,6 +290,7 @@ def run_mode_direct(model, processor, entries: list[dict], base_dir: str,
                 data_loading=data_loading, label_token_ids=label_token_ids,
                 do_sample=True, temperature=temperature, top_p=top_p,
                 top_k=top_k, min_p=min_p,
+                model_name=model_name, num_frames=num_frames,
             )
         except Exception as exc:
             print(f"\n[WARN] Direct mode entry {i}: {exc.__class__.__name__}: {exc}")
@@ -295,7 +310,8 @@ def run_mode_direct(model, processor, entries: list[dict], base_dir: str,
 def run_mode_reasoning(model, processor, entries: list[dict], base_dir: str,
                        max_new_tokens: int, data_loading: str,
                        label_token_ids: dict, results: list[dict],
-                       save_every: int, flush_fn) -> None:
+                       save_every: int, flush_fn,
+                       model_name: str = "", num_frames: int | None = None) -> None:
     """Mode 2: greedy reasoning prediction (thinking) + label logit capture + trace tokens."""
     for i, entry in enumerate(tqdm(entries, desc="Mode 2/4 — Reasoning")):
         if "reasoning_response" in results[i]:
@@ -305,6 +321,7 @@ def run_mode_reasoning(model, processor, entries: list[dict], base_dir: str,
                 model, processor, entry, base_dir,
                 thinking=True, max_new_tokens=max_new_tokens,
                 data_loading=data_loading, label_token_ids=label_token_ids,
+                model_name=model_name, num_frames=num_frames,
             )
         except Exception as exc:
             print(f"\n[WARN] Reasoning mode entry {i}: {exc.__class__.__name__}: {exc}")
@@ -330,7 +347,8 @@ def run_mode_stochastic(model, processor, entries: list[dict], base_dir: str,
                         max_new_tokens: int, data_loading: str,
                         n_samples: int, results: list[dict],
                         save_every: int, flush_fn,
-                        temperature: float = 0.6, top_p: float = 0.95, top_k: int = 20) -> None:
+                        temperature: float = 0.6, top_p: float = 0.95, top_k: int = 20,
+                        model_name: str = "", num_frames: int | None = None) -> None:
     """Mode 3: N stochastic reasoning samples (batched via num_return_sequences)."""
     pending = [(i, e) for i, e in enumerate(entries)
                if not (isinstance(results[i].get("stochastic_responses"), list)
@@ -343,6 +361,7 @@ def run_mode_stochastic(model, processor, entries: list[dict], base_dir: str,
             stoc_responses = infer_stochastic(
                 model, processor, entry, base_dir, max_new_tokens, data_loading,
                 n_samples=n_samples, temperature=temperature, top_p=top_p, top_k=top_k,
+                model_name=model_name, num_frames=num_frames,
             )
         except Exception as exc:
             print(f"\n[WARN] Stochastic mode entry {i}: {exc.__class__.__name__}: {exc}")
@@ -365,7 +384,8 @@ def run_mode_stochastic(model, processor, entries: list[dict], base_dir: str,
 def run_mode_para_reasoning(model, processor, entries: list[dict],
                             para_entries: list[dict], base_dir: str,
                             max_new_tokens: int, data_loading: str,
-                            results: list[dict], save_every: int, flush_fn) -> None:
+                            results: list[dict], save_every: int, flush_fn,
+                            model_name: str = "", num_frames: int | None = None) -> None:
     """Mode 4: greedy reasoning on paraphrased inputs."""
     for i, para_entry in enumerate(tqdm(para_entries, desc="Mode 4/4 — Para-Reasoning")):
         if "para_reasoning_response" in results[i]:
@@ -376,6 +396,7 @@ def run_mode_para_reasoning(model, processor, entries: list[dict],
                 thinking=True, max_new_tokens=max_new_tokens,
                 data_loading=data_loading,
                 label_token_ids={},   # no logit capture needed
+                model_name=model_name, num_frames=num_frames,
             )
         except Exception as exc:
             print(f"\n[WARN] Para-reasoning mode entry {i}: {exc.__class__.__name__}: {exc}")
@@ -523,6 +544,7 @@ def main(args: argparse.Namespace) -> None:
             top_p=args.direct_top_p,
             top_k=args.direct_top_k,
             min_p=args.direct_min_p,
+            model_name=args.model, num_frames=args.num_frames,
         )
         torch.cuda.empty_cache()
 
@@ -531,6 +553,7 @@ def main(args: argparse.Namespace) -> None:
             model, processor, entries, base_dir,
             args.max_new_tokens, args.data_loading,
             label_token_ids, results, args.save_every, flush,
+            model_name=args.model, num_frames=args.num_frames,
         )
         torch.cuda.empty_cache()
 
@@ -542,6 +565,7 @@ def main(args: argparse.Namespace) -> None:
             temperature=args.stochastic_temperature,
             top_p=args.stochastic_top_p,
             top_k=args.stochastic_top_k,
+            model_name=args.model, num_frames=args.num_frames,
         )
         torch.cuda.empty_cache()
 
@@ -550,6 +574,7 @@ def main(args: argparse.Namespace) -> None:
             model, processor, entries, para_entries, base_dir,
             args.max_new_tokens, args.data_loading,
             results, args.save_every, flush,
+            model_name=args.model, num_frames=args.num_frames,
         )
 
     print(f"\nSaved {len(results)} entries → {args.output_jsonl}")
@@ -590,6 +615,10 @@ if __name__ == "__main__":
     parser.add_argument("--direct_top_p",           type=float, default=0.8)
     parser.add_argument("--direct_top_k",           type=int,   default=20)
     parser.add_argument("--direct_min_p",           type=float, default=0.0)
+    parser.add_argument("--num_frames", type=int, default=None,
+                        help="Force a fixed num_frames for video processing (overrides processor "
+                             "default and the auto-reduce logic). Gemma4 defaults to 32; "
+                             "reduce to 16 or 8 to cut memory on longer clips.")
     parser.add_argument("--data_loading",     default="verl_style",
                         choices=["default", "verl_style"])
     parser.add_argument("--multilabel",       action="store_true",

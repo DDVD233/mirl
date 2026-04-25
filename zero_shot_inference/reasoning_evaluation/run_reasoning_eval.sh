@@ -22,6 +22,7 @@ MODELS=(
     "PhilipC/HumanOmniV2"
     "ddvd233/OmniSapiens-7B-RL"
     "Qwen/Qwen2.5-Omni-7B"
+    # "google/gemma-4-e4b-it"
 )
 
 # GPUs to use. Leave empty to auto-detect all available GPUs.
@@ -54,6 +55,21 @@ DIRECT_MIN_P=0
 
 # Data loading mode (verl_style matches harpo / omnisapiens training)
 DATA_LOADING="verl_style"
+
+# Per-model overrides for DATA_LOADING. Models not listed use DATA_LOADING above.
+# Gemma requires "default" to avoid Qwen-specific qwen_vl_utils video processing.
+declare -A MODEL_DATA_LOADING=(
+    ["google/gemma-4-e4b-it"]="default"
+)
+
+# num_frames for video processing (empty = auto from processor config / actual clip length).
+# Gemma4's processor defaults to 32 frames; reduce to cut memory on long clips.
+NUM_FRAMES=""
+
+# Per-model overrides for NUM_FRAMES. Models not listed use NUM_FRAMES above.
+declare -A MODEL_NUM_FRAMES=(
+    ["google/gemma-4-e4b-it"]="4"
+)
 
 # Optional: cap samples per dataset for a quick smoke-test (empty = full run)
 MAX_SAMPLES=""   # e.g. "5"
@@ -159,6 +175,8 @@ run_reasoning_eval() {
     echo "============================================================"
 
     local pids=()
+    local num_frames_arg=""
+    [[ -n "$EFFECTIVE_NUM_FRAMES" ]] && num_frames_arg="--num_frames $EFFECTIVE_NUM_FRAMES"
 
     for (( shard=0; shard<TOTAL_SHARDS; shard++ )); do
         local gpu="${GPUS[$(( shard % NUM_GPUS ))]}"
@@ -179,10 +197,11 @@ run_reasoning_eval() {
             --direct_top_p           "$DIRECT_TOP_P" \
             --direct_top_k           "$DIRECT_TOP_K" \
             --direct_min_p           "$DIRECT_MIN_P" \
-            --data_loading           "$DATA_LOADING" \
+            --data_loading           "$EFFECTIVE_DATA_LOADING" \
             --modes                  $MODES \
             --num_shards             "$TOTAL_SHARDS" \
             --shard_idx              "$shard" \
+            $num_frames_arg \
             $(maybe_max_samples) \
             $dataset_extra_args \
             &> "$LOG_DIR/${CURRENT_MODEL_SLUG}_${dataset_name}_shard${shard}.log" &
@@ -272,6 +291,11 @@ for MODEL in "${MODELS[@]}"; do
     _default_name="${WANDB_TAG:+${WANDB_TAG}_}${CURRENT_MODEL_SLUG}_${RUN_TIMESTAMP}"
     CURRENT_WANDB_RUN_ID="${_default_name}"
     CURRENT_WANDB_RUN_NAME="${WANDB_RUN_NAME:-${_default_name}}"
+
+    # Resolve per-model overrides (fall back to global defaults when not set)
+    EFFECTIVE_DATA_LOADING="${MODEL_DATA_LOADING[$MODEL]:-$DATA_LOADING}"
+    EFFECTIVE_NUM_FRAMES="${MODEL_NUM_FRAMES[$MODEL]:-$NUM_FRAMES}"
+    echo "  data_loading=$EFFECTIVE_DATA_LOADING  num_frames=${EFFECTIVE_NUM_FRAMES:-auto}"
 
     echo ""
     echo "############################################################"
