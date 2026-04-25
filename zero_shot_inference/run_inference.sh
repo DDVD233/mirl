@@ -87,8 +87,8 @@ declare -A MODEL_NUM_FRAMES=(
 DATASETS=(
     # "av-asd"
     # "iemocap"
-    "eatd"
-    # "mvsa"
+    # "eatd"
+    "mvsa"
     # "dreaddit"
     # "sarcnet"
 )

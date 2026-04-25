@@ -8,6 +8,10 @@
 **/*.tar.gz
 **/playground
 **/wandb
+!zero_shot_inference/wandb/
+zero_shot_inference/wandb/*
+!zero_shot_inference/wandb/README.md
+!zero_shot_inference/wandb/build_wandb_results.py
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
