@@ -78,6 +78,11 @@ MAX_SAMPLES=""   # e.g. "5"
 # "direct" omitted: no-thinking mode showed no accuracy improvement in prior runs
 MODES="reasoning stochastic para"
 
+# Gemma thinking mode:
+#   0 = native Gemma thinking: <|think|> system prompt + Gemma instruction (default)
+#   1 = legacy thinking: shared THINKING_INSTRUCTION with <think></think> tags
+GEMMA_LEGACY_THINKING=0
+
 # Datasets to run — remove any you want to skip
 # Available: eatd  mvsa  av-asd  iemocap  dreaddit  sarcnet
 DATASETS=(
@@ -155,6 +160,10 @@ build_wandb_args() {
     echo "$args"
 }
 
+gemma_legacy_flag() {
+    [[ "$GEMMA_LEGACY_THINKING" == "1" ]] && echo "--gemma_legacy_thinking" || echo ""
+}
+
 # Step 1: Sharded reasoning inference — splits one dataset across all GPUs, then merges.
 # Each shard runs independently; merge step combines by _orig_idx and deletes shard files.
 run_reasoning_eval() {
@@ -202,6 +211,7 @@ run_reasoning_eval() {
             --num_shards             "$TOTAL_SHARDS" \
             --shard_idx              "$shard" \
             $num_frames_arg \
+            $(gemma_legacy_flag) \
             $(maybe_max_samples) \
             $dataset_extra_args \
             &> "$LOG_DIR/${CURRENT_MODEL_SLUG}_${dataset_name}_shard${shard}.log" &
@@ -238,13 +248,15 @@ run_reasoning_eval() {
 run_metrics() {
     local dataset_name="$1"
     local reasoning_jsonl="$2"
+    local dataset_extra_args="${3:-}"
 
     echo "  [METRICS] Computing reasoning metrics for $dataset_name …"
     python "$METRICS_PY" \
         --input_jsonl  "$reasoning_jsonl" \
         --model_name   "$CURRENT_MODEL" \
         $(build_wandb_args) \
-        &>> "$LOG_DIR/${CURRENT_MODEL_SLUG}_${dataset_name}_metrics.log"
+        $dataset_extra_args \
+        >> "$LOG_DIR/${CURRENT_MODEL_SLUG}_${dataset_name}_metrics.log" 2>&1
     echo "  [METRICS] Done."
 }
 
@@ -321,7 +333,7 @@ for MODEL in "${MODELS[@]}"; do
             echo "[WARN] $DATASET failed — skipping metrics for this dataset"
             continue
         fi
-        run_metrics "$DATASET" "$_out_jsonl"
+        run_metrics "$DATASET" "$_out_jsonl" "$_ex"
     done
 
     # ── Overall metrics for this model (all datasets combined) ────────────────
@@ -332,7 +344,7 @@ for MODEL in "${MODELS[@]}"; do
             --input_jsonl  "${_model_jsonls[@]}" \
             --model_name   "$MODEL" \
             $(build_wandb_args) \
-            &>> "$LOG_DIR/${CURRENT_MODEL_SLUG}_overall_metrics.log"
+            >> "$LOG_DIR/${CURRENT_MODEL_SLUG}_overall_metrics.log" 2>&1
         echo "  [OVERALL METRICS] Done."
     fi
 done

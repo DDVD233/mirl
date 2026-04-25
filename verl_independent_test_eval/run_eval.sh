@@ -76,6 +76,11 @@ TORCH_COMPILE=0
 # Extra flags forwarded to eval.py for all shards (e.g. "--no_thinking")
 EXTRA_ARGS=""
 
+# Gemma thinking mode:
+#   0 = native Gemma thinking: <|think|> system prompt + Gemma instruction (default)
+#   1 = legacy thinking: shared THINKING_INSTRUCTION with <think></think> tags
+GEMMA_LEGACY_THINKING=0
+
 # ── END CONFIG ────────────────────────────────────────────────────────────────
 
 EVAL="$SCRIPT_DIR/eval.py"
@@ -123,6 +128,10 @@ num_frames_flag() {
     [[ -n "$1" && "$1" != "0" ]] && echo "--num_frames $1" || echo ""
 }
 
+gemma_legacy_flag() {
+    [[ "$GEMMA_LEGACY_THINKING" == "1" ]] && echo "--gemma_legacy_thinking" || echo ""
+}
+
 sampling_args() {
     if [[ -n "$TEMPERATURE" && "$TEMPERATURE" != "0" ]]; then
         local args="--temperature $TEMPERATURE"
@@ -164,6 +173,7 @@ for (( shard=0; shard<TOTAL_SHARDS; shard++ )); do
         $(compile_flag) \
         $(sampling_args) \
         $(num_frames_flag "$NUM_FRAMES") \
+        $(gemma_legacy_flag) \
         $EXTRA_ARGS \
         &> "$LOG_DIR/${MODEL_SLUG}_shard${shard}.log" &
 

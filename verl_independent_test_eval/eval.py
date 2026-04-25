@@ -162,7 +162,8 @@ def _verl_load_audio(path: str, base_dir: str, max_seconds: float = 10.0):
 # ── Entry → content list + flat media collectors ─────────────────────────────
 
 def build_entry_inputs(entry: dict, base_dir: str, thinking: bool,
-                       data_loading: str = "default", model_name: str = ""):
+                       data_loading: str = "default", model_name: str = "",
+                       gemma_legacy_thinking: bool = False):
     """
     Returns (content_list, audio_list_or_None, pil_images, video_frames).
 
@@ -177,7 +178,7 @@ def build_entry_inputs(entry: dict, base_dir: str, thinking: bool,
         Compatible with HumanOmniV2 and other models not trained via verl.
     """
     is_gemma = "gemma" in model_name.lower()
-    if is_gemma and thinking:
+    if is_gemma and thinking and not gemma_legacy_thinking:
         instruction = GEMMA4_THINKING_INSTRUCTION
     elif thinking:
         instruction = THINKING_INSTRUCTION
@@ -380,7 +381,8 @@ def run_batch(model, processor, entries: list[dict], base_dir: str,
               data_loading: str = "default",
               sampling_kwargs: dict | None = None,
               model_name: str = "",
-              num_frames: int | None = None) -> list[str]:
+              num_frames: int | None = None,
+              gemma_legacy_thinking: bool = False) -> list[str]:
     """
     Run inference on a list of entries as a single batched forward pass.
     Falls back to one-at-a-time on any processor error.
@@ -388,7 +390,8 @@ def run_batch(model, processor, entries: list[dict], base_dir: str,
     _skw = sampling_kwargs if sampling_kwargs is not None else {"do_sample": False}
     if len(entries) == 1:
         return [_run_one(model, processor, entries[0], base_dir, thinking,
-                         max_new_tokens, data_loading, _skw, model_name, num_frames)]
+                         max_new_tokens, data_loading, _skw, model_name, num_frames,
+                         gemma_legacy_thinking)]
 
     try:
         texts, batch_audios, batch_images, batch_videos = [], [], [], []
@@ -396,8 +399,8 @@ def run_batch(model, processor, entries: list[dict], base_dir: str,
         _is_gemma = "gemma" in model_name.lower()
         for entry in entries:
             content, audio_list, imgs, vframes = build_entry_inputs(
-                entry, base_dir, thinking, data_loading, model_name)
-            if _is_gemma and thinking:
+                entry, base_dir, thinking, data_loading, model_name, gemma_legacy_thinking)
+            if _is_gemma and thinking and not gemma_legacy_thinking:
                 msgs = [{"role": "system", "content": "<|think|>"}, {"role": "user", "content": content}]
             else:
                 msgs = [{"role": "user", "content": content}]
@@ -406,7 +409,11 @@ def run_batch(model, processor, entries: list[dict], base_dir: str,
             )
             if audio_list is not None:
                 batch_audios.extend(audio_list)
-            batch_images.extend(imgs)
+            if _is_gemma:
+                if imgs:
+                    batch_images.append(imgs)
+            else:
+                batch_images.extend(imgs)
             if vframes:
                 batch_videos.append(vframes)
 
@@ -448,7 +455,7 @@ def run_batch(model, processor, entries: list[dict], base_dir: str,
         print(f"\n[WARN] Batch of {len(entries)} failed ({exc.__class__.__name__}: {exc}); "
               "retrying one-by-one.")
         return [_run_one(model, processor, e, base_dir, thinking, max_new_tokens,
-                         data_loading, _skw, model_name, num_frames)
+                         data_loading, _skw, model_name, num_frames, gemma_legacy_thinking)
                 for e in entries]
 
 
@@ -457,11 +464,12 @@ def _run_one(model, processor, entry: dict, base_dir: str,
              data_loading: str = "default",
              sampling_kwargs: dict | None = None,
              model_name: str = "",
-             num_frames: int | None = None) -> str:
+             num_frames: int | None = None,
+             gemma_legacy_thinking: bool = False) -> str:
     content, audio_list, imgs, vframes = build_entry_inputs(
-        entry, base_dir, thinking, data_loading, model_name)
+        entry, base_dir, thinking, data_loading, model_name, gemma_legacy_thinking)
     _is_gemma = "gemma" in model_name.lower()
-    if _is_gemma and thinking:
+    if _is_gemma and thinking and not gemma_legacy_thinking:
         msgs = [{"role": "system", "content": "<|think|>"}, {"role": "user", "content": content}]
     else:
         msgs = [{"role": "user", "content": content}]
@@ -847,6 +855,7 @@ def main(args):
                     model, processor, batch_entries, base_dir, thinking,
                     args.max_new_tokens, data_loading, sampling_kwargs,
                     args.model_name, args.num_frames,
+                    args.gemma_legacy_thinking,
                 )
             except Exception as exc:
                 print(f"\n[ERROR] Batch {batch_start}–{batch_start+len(batch_indices)-1}: {exc}")
@@ -923,6 +932,9 @@ if __name__ == "__main__":
     parser.add_argument("--min_p",  type=float, default=None)
     parser.add_argument("--no_thinking", action="store_true",
                         help="Use no-thinking prompt (direct answer, no <think> tags)")
+    parser.add_argument("--gemma_legacy_thinking", action="store_true",
+                        help="For Gemma 4: use the legacy <think></think> instruction instead of "
+                             "the native <|think|> system-prompt mechanism")
 
     # Data loading mode
     parser.add_argument("--data_loading", default="default",

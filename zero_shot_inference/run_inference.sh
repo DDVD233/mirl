@@ -49,7 +49,7 @@ OUTPUT_DIR="/home/keaneong/human-behavior/verl/zero_shot_inference/results/think
 # Image (MVSA): 4–16 is usually safe on a 40 GB GPU
 # Video+Audio (AV-ASD, IEMOCAP): keep at 1 (memory-intensive)
 BATCH_SIZE_AUDIO=4
-BATCH_SIZE_IMAGE=16
+BATCH_SIZE_IMAGE=4
 BATCH_SIZE_VIDEO=4
 
 # Max tokens the model may generate per sample
@@ -103,6 +103,11 @@ SARCNET_JSONL="/scratch/keane/hb_generalization_data/zero_shot_data_v2/test_sarc
 
 # Extra flags forwarded to inference.py for ALL datasets (e.g. "--no_thinking")
 EXTRA_ARGS=""
+
+# Gemma thinking mode:
+#   0 = native Gemma thinking: <|think|> system prompt + Gemma instruction (default)
+#   1 = legacy thinking: shared THINKING_INSTRUCTION with <think></think> tags
+GEMMA_LEGACY_THINKING=0
 
 # GPUs to use. Leave empty to auto-detect all available GPUs.
 # Example: GPUS=(0 1)  or  GPUS=(2 3 4 5)
@@ -165,6 +170,10 @@ compile_flag() {
 
 num_frames_flag() {
     [[ -n "$1" && "$1" != "0" ]] && echo "--num_frames $1" || echo ""
+}
+
+gemma_legacy_flag() {
+    [[ "$GEMMA_LEGACY_THINKING" == "1" ]] && echo "--gemma_legacy_thinking" || echo ""
 }
 
 sampling_args() {
@@ -233,6 +242,7 @@ run_parallel() {
             $(compile_flag) \
             $(sampling_args) \
             $(num_frames_flag "$effective_nf") \
+            $(gemma_legacy_flag) \
             $EXTRA_ARGS \
             $dataset_extra_args \
             &> "$LOG_DIR/${model_slug}_${dataset_name}_shard${shard}.log" &
@@ -260,6 +270,7 @@ run_parallel() {
         --merge_shards "${out_base}_shard*.jsonl" \
         --output_jsonl "$merged_out" \
         --model        "$model" \
+        $(gemma_legacy_flag) \
         $EXTRA_ARGS \
         $dataset_extra_args \
         $(build_wandb_args "$dataset_name")

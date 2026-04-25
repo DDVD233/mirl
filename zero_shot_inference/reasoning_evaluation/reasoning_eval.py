@@ -140,13 +140,14 @@ def count_tokens_precisely(processor, text: str) -> int:
 
 def _build_processor_inputs(entry: dict, base_dir: str, thinking: bool,
                              data_loading: str, processor,
-                             model_name: str = "", num_frames: int | None = None):
+                             model_name: str = "", num_frames: int | None = None,
+                             gemma_legacy_thinking: bool = False):
     """Return (inputs_dict, prompt_length) for a single entry."""
     content, audio_list, imgs, vframes = build_entry_inputs(
-        entry, base_dir, thinking, data_loading, model_name
+        entry, base_dir, thinking, data_loading, model_name, gemma_legacy_thinking
     )
     _is_gemma = "gemma" in model_name.lower()
-    if _is_gemma and thinking:
+    if _is_gemma and thinking and not gemma_legacy_thinking:
         msgs = [{"role": "system", "content": "<|think|>"}, {"role": "user", "content": content}]
     else:
         msgs = [{"role": "user", "content": content}]
@@ -176,6 +177,7 @@ def infer_with_logit_capture(
     temperature: float = 0.7, top_p: float = 0.8,
     top_k: int = 20, min_p: float = 0.0,
     model_name: str = "", num_frames: int | None = None,
+    gemma_legacy_thinking: bool = False,
 ) -> tuple[str, dict | None]:
     """
     Single-sample inference with logit capture at the answer position.
@@ -185,10 +187,10 @@ def infer_with_logit_capture(
         captured_probs: dict[label -> prob] or None if \\boxed{ was not found
     """
     content, audio_list, imgs, vframes = build_entry_inputs(
-        entry, base_dir, thinking, data_loading, model_name
+        entry, base_dir, thinking, data_loading, model_name, gemma_legacy_thinking
     )
     _is_gemma = "gemma" in model_name.lower()
-    if _is_gemma and thinking:
+    if _is_gemma and thinking and not gemma_legacy_thinking:
         msgs = [{"role": "system", "content": "<|think|>"}, {"role": "user", "content": content}]
     else:
         msgs = [{"role": "user", "content": content}]
@@ -211,7 +213,7 @@ def infer_with_logit_capture(
               for k, v in inputs.items()}
     prompt_length = inputs["input_ids"].shape[1]
 
-    think_end = "<channel|>" if (_is_gemma and thinking) else "</think>"
+    think_end = "<channel|>" if (_is_gemma and thinking and not gemma_legacy_thinking) else "</think>"
     capture_lp = CaptureAnswerLogitsProcessor(
         tokenizer=processor.tokenizer,
         label_token_ids=label_token_ids,
@@ -244,13 +246,15 @@ def infer_stochastic(
     n_samples: int = 1,
     temperature: float = 0.6, top_p: float = 0.95, top_k: int = 20,
     model_name: str = "", num_frames: int | None = None,
+    gemma_legacy_thinking: bool = False,
 ) -> list[str]:
     """N stochastic reasoning samples in one generate() call via num_return_sequences."""
     content, audio_list, imgs, vframes = build_entry_inputs(
-        entry, base_dir, thinking=True, data_loading=data_loading, model_name=model_name
+        entry, base_dir, thinking=True, data_loading=data_loading,
+        model_name=model_name, gemma_legacy_thinking=gemma_legacy_thinking
     )
     _is_gemma = "gemma" in model_name.lower()
-    if _is_gemma:
+    if _is_gemma and not gemma_legacy_thinking:
         msgs = [{"role": "system", "content": "<|think|>"}, {"role": "user", "content": content}]
     else:
         msgs = [{"role": "user", "content": content}]
@@ -332,7 +336,8 @@ def run_mode_reasoning(model, processor, entries: list[dict], base_dir: str,
                        max_new_tokens: int, data_loading: str,
                        label_token_ids: dict, results: list[dict],
                        save_every: int, flush_fn,
-                       model_name: str = "", num_frames: int | None = None) -> None:
+                       model_name: str = "", num_frames: int | None = None,
+                       gemma_legacy_thinking: bool = False) -> None:
     """Mode 2: greedy reasoning prediction (thinking) + label logit capture + trace tokens."""
     for i, entry in enumerate(tqdm(entries, desc="Mode 2/4 — Reasoning")):
         if "reasoning_response" in results[i]:
@@ -343,6 +348,7 @@ def run_mode_reasoning(model, processor, entries: list[dict], base_dir: str,
                 thinking=True, max_new_tokens=max_new_tokens,
                 data_loading=data_loading, label_token_ids=label_token_ids,
                 model_name=model_name, num_frames=num_frames,
+                gemma_legacy_thinking=gemma_legacy_thinking,
             )
         except Exception as exc:
             print(f"\n[WARN] Reasoning mode entry {i}: {exc.__class__.__name__}: {exc}")
@@ -369,7 +375,8 @@ def run_mode_stochastic(model, processor, entries: list[dict], base_dir: str,
                         n_samples: int, results: list[dict],
                         save_every: int, flush_fn,
                         temperature: float = 0.6, top_p: float = 0.95, top_k: int = 20,
-                        model_name: str = "", num_frames: int | None = None) -> None:
+                        model_name: str = "", num_frames: int | None = None,
+                        gemma_legacy_thinking: bool = False) -> None:
     """Mode 3: N stochastic reasoning samples (batched via num_return_sequences)."""
     pending = [(i, e) for i, e in enumerate(entries)
                if not (isinstance(results[i].get("stochastic_responses"), list)
@@ -383,6 +390,7 @@ def run_mode_stochastic(model, processor, entries: list[dict], base_dir: str,
                 model, processor, entry, base_dir, max_new_tokens, data_loading,
                 n_samples=n_samples, temperature=temperature, top_p=top_p, top_k=top_k,
                 model_name=model_name, num_frames=num_frames,
+                gemma_legacy_thinking=gemma_legacy_thinking,
             )
         except Exception as exc:
             print(f"\n[WARN] Stochastic mode entry {i}: {exc.__class__.__name__}: {exc}")
@@ -406,7 +414,8 @@ def run_mode_para_reasoning(model, processor, entries: list[dict],
                             para_entries: list[dict], base_dir: str,
                             max_new_tokens: int, data_loading: str,
                             results: list[dict], save_every: int, flush_fn,
-                            model_name: str = "", num_frames: int | None = None) -> None:
+                            model_name: str = "", num_frames: int | None = None,
+                            gemma_legacy_thinking: bool = False) -> None:
     """Mode 4: greedy reasoning on paraphrased inputs."""
     for i, para_entry in enumerate(tqdm(para_entries, desc="Mode 4/4 — Para-Reasoning")):
         if "para_reasoning_response" in results[i]:
@@ -418,6 +427,7 @@ def run_mode_para_reasoning(model, processor, entries: list[dict],
                 data_loading=data_loading,
                 label_token_ids={},   # no logit capture needed
                 model_name=model_name, num_frames=num_frames,
+                gemma_legacy_thinking=gemma_legacy_thinking,
             )
         except Exception as exc:
             print(f"\n[WARN] Para-reasoning mode entry {i}: {exc.__class__.__name__}: {exc}")
@@ -575,6 +585,7 @@ def main(args: argparse.Namespace) -> None:
             args.max_new_tokens, args.data_loading,
             label_token_ids, results, args.save_every, flush,
             model_name=args.model, num_frames=args.num_frames,
+            gemma_legacy_thinking=args.gemma_legacy_thinking,
         )
         torch.cuda.empty_cache()
 
@@ -587,6 +598,7 @@ def main(args: argparse.Namespace) -> None:
             top_p=args.stochastic_top_p,
             top_k=args.stochastic_top_k,
             model_name=args.model, num_frames=args.num_frames,
+            gemma_legacy_thinking=args.gemma_legacy_thinking,
         )
         torch.cuda.empty_cache()
 
@@ -596,6 +608,7 @@ def main(args: argparse.Namespace) -> None:
             args.max_new_tokens, args.data_loading,
             results, args.save_every, flush,
             model_name=args.model, num_frames=args.num_frames,
+            gemma_legacy_thinking=args.gemma_legacy_thinking,
         )
 
     print(f"\nSaved {len(results)} entries → {args.output_jsonl}")
@@ -642,6 +655,9 @@ if __name__ == "__main__":
                              "reduce to 16 or 8 to cut memory on longer clips.")
     parser.add_argument("--data_loading",     default="verl_style",
                         choices=["default", "verl_style"])
+    parser.add_argument("--gemma_legacy_thinking", action="store_true",
+                        help="For Gemma 4: use the legacy <think></think> instruction instead of "
+                             "the native <|think|> system-prompt mechanism")
     parser.add_argument("--multilabel",       action="store_true",
                         help="Treat answer field as comma-separated multilabel")
     parser.add_argument("--max_samples",      type=int, default=None)

@@ -24,7 +24,7 @@ Examples:
         --project reasoning-evaluation \\
         --models Qwen/Qwen2.5-Omni-7B ddvd233/OmniSapiens-7B-RL \\
         --task reasoning \\
-        --table_metrics reasoning_accuracy direct_accuracy self_consistency_rate para_consistency_rate \\
+        --table_metrics reasoning_accuracy reasoning_weighted_f1 direct_accuracy direct_weighted_f1 self_consistency_rate self_consistency_correct self_consistency_incorrect para_consistency_rate para_consistency_correct para_consistency_incorrect para_accuracy para_weighted_f1 \\
         --output_json outputs/reasoning_results.json \\
         --output_tex outputs/reasoning_results.tex
 
@@ -50,10 +50,21 @@ DEFAULT_DATASETS = ["eatd", "mvsa", "av-asd", "iemocap", "dreaddit", "sarcnet", 
 INFERENCE_METRICS = ["accuracy", "exact_match_accuracy", "weighted_f1", "n_samples"]
 REASONING_METRICS = [
     "reasoning_accuracy",
+    "reasoning_exact_match_accuracy",
+    "reasoning_weighted_f1",
     "direct_accuracy",
+    "direct_exact_match_accuracy",
+    "direct_weighted_f1",
     "accuracy_delta",
     "self_consistency_rate",
+    "self_consistency_correct",
+    "self_consistency_incorrect",
     "para_consistency_rate",
+    "para_consistency_correct",
+    "para_consistency_incorrect",
+    "para_accuracy",
+    "para_exact_match_accuracy",
+    "para_weighted_f1",
     "mean_reasoning_tokens",
     "efficiency_score",
     "n_faithfulness",
@@ -62,9 +73,17 @@ TASK_DEFAULT_TABLE_METRICS = {
     "inference": ["accuracy", "weighted_f1"],
     "reasoning": [
         "reasoning_accuracy",
+        "reasoning_weighted_f1",
         "direct_accuracy",
+        "direct_weighted_f1",
         "self_consistency_rate",
+        "self_consistency_correct",
+        "self_consistency_incorrect",
         "para_consistency_rate",
+        "para_consistency_correct",
+        "para_consistency_incorrect",
+        "para_accuracy",
+        "para_weighted_f1",
         "mean_reasoning_tokens",
     ],
 }
@@ -74,10 +93,31 @@ METRIC_LABELS = {
     "weighted_f1": "W-F1",
     "n_samples": "N",
     "reasoning_accuracy": "Reason Acc.",
+    "reasoning_exact_match_accuracy": "Reason Exact Acc.",
+    "reasoning_weighted_f1": "Reason W-F1",
+    "n_reasoning_samples": "N Reason",
     "direct_accuracy": "Direct Acc.",
+    "direct_exact_match_accuracy": "Direct Exact Acc.",
+    "direct_weighted_f1": "Direct W-F1",
+    "n_direct_samples": "N Direct",
     "accuracy_delta": "$\\Delta$ Acc.",
     "self_consistency_rate": "Self Cons.",
+    "self_consistency_correct": "Self Cons. Correct",
+    "self_consistency_incorrect": "Self Cons. Incorrect",
+    "n_self_consistency_correct": "N Self Cons. Correct",
+    "n_self_consistency_incorrect": "N Self Cons. Incorrect",
     "para_consistency_rate": "Para Cons.",
+    "para_consistency_correct": "Para Cons. Correct",
+    "para_consistency_incorrect": "Para Cons. Incorrect",
+    "para_accuracy": "Para Acc.",
+    "para_exact_match_accuracy": "Para Exact Acc.",
+    "para_weighted_f1": "Para W-F1",
+    "n_para_consistency_correct": "N Para Cons. Correct",
+    "n_para_consistency_incorrect": "N Para Cons. Incorrect",
+    "n_para_accuracy": "N Para Acc.",
+    "n_para_samples": "N Para",
+    "n_para_correct": "N Para Correct",
+    "n_para_incorrect": "N Para Incorrect",
     "mean_reasoning_tokens": "Mean Tokens",
     "efficiency_score": "Efficiency",
     "n_faithfulness": "N",
@@ -128,11 +168,23 @@ def _model_from_run(run: Any) -> str:
     return str(config.get("model") or getattr(run, "name", None) or getattr(run, "id", "unknown"))
 
 
-def _run_matches(run: Any, models: list[str] | None, contains: list[str] | None) -> bool:
-    if not models and not contains:
+def _run_matches(
+    run: Any,
+    models: list[str] | None,
+    run_names: list[str] | None,
+    contains: list[str] | None,
+) -> bool:
+    if not models and not run_names and not contains:
         return True
 
     config = dict(getattr(run, "config", {}) or {})
+    exact_run_names = {
+        str(getattr(run, "name", "")),
+        str(getattr(run, "display_name", "")),
+    }
+    if run_names and any(name in exact_run_names for name in run_names):
+        return True
+
     candidates = {
         str(getattr(run, "id", "")),
         str(getattr(run, "name", "")),
@@ -189,7 +241,7 @@ def fetch_wandb_results(args: argparse.Namespace) -> dict[str, Any]:
     wanted_datasets = set(args.datasets or [])
 
     for run in runs:
-        if not _run_matches(run, args.models, args.run_name_contains):
+        if not _run_matches(run, args.models, args.run_names, args.run_name_contains):
             continue
 
         summary = _summary_dict(run)
@@ -248,6 +300,7 @@ def fetch_wandb_results(args: argparse.Namespace) -> dict[str, Any]:
         "filters": {
             "models": args.models or [],
             "run_ids": args.run_ids or [],
+            "run_names": args.run_names or [],
             "run_name_contains": args.run_name_contains or [],
             "datasets": args.datasets or [],
             "metrics": args.metrics or [],
@@ -292,16 +345,17 @@ def _format_value(value: Any, metric: str, percent: bool) -> str:
         return "--"
     if isinstance(value, bool):
         return str(value)
-    if isinstance(value, int):
-        return str(value)
-    if isinstance(value, float):
+    if isinstance(value, (int, float)):
+        numeric = float(value)
         if metric.startswith("n_") or metric == "n_samples":
-            return str(int(round(value)))
-        if percent and -1.0 <= value <= 1.0:
-            return f"{value * 100:.1f}"
-        if abs(value) >= 100:
-            return f"{value:.1f}"
-        return f"{value:.3f}"
+            return str(int(round(numeric)))
+        if percent and -1.0 <= numeric <= 1.0:
+            return f"{numeric * 100:.1f}"
+        if abs(numeric) >= 100:
+            return f"{numeric:.1f}"
+        if isinstance(value, int):
+            return str(value)
+        return f"{numeric:.3f}"
     return _latex_escape(value)
 
 
@@ -427,8 +481,10 @@ def parse_args() -> argparse.Namespace:
     source.add_argument("--entity", default=None, help="W&B entity/team. Optional when wandb has a default entity.")
     source.add_argument("--project", default=None, help="W&B project, e.g. zero-shot-inference or reasoning-evaluation.")
     source.add_argument("--models", nargs="+", default=None,
-                        help="Model identifiers to keep. Matches config.model, run id, run name, or display name exactly.")
+                        help="Model identifiers to keep. Intended to match config.model exactly.")
     source.add_argument("--run_ids", nargs="+", default=None, help="Fetch specific W&B run IDs.")
+    source.add_argument("--run_names", nargs="+", default=None,
+                        help="Keep runs whose W&B run name/display name exactly matches one of these values.")
     source.add_argument("--run_name_contains", nargs="+", default=None,
                         help="Keep runs whose id/name/display_name/config.model contains any of these strings.")
     source.add_argument("--latest_per_model", action="store_true",

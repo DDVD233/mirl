@@ -4,6 +4,12 @@
 zero-shot inference and reasoning-evaluation scripts. Those scripts log one run
 per model, with summary keys shaped like `{dataset}/{metric}`.
 
+For the usual workflow, edit the config block in `build_wandb_results.sh` and run:
+
+```bash
+bash verl/zero_shot_inference/wandb/build_wandb_results.sh
+```
+
 ## Zero-shot inference
 
 ```bash
@@ -26,7 +32,7 @@ python verl/zero_shot_inference/wandb/build_wandb_results.py \
   --project reasoning-evaluation \
   --models Qwen/Qwen2.5-Omni-7B ddvd233/OmniSapiens-7B-RL PhilipC/HumanOmniV2 \
   --task reasoning \
-  --table_metrics reasoning_accuracy direct_accuracy self_consistency_rate para_consistency_rate mean_reasoning_tokens \
+  --table_metrics reasoning_accuracy reasoning_weighted_f1 direct_accuracy direct_weighted_f1 self_consistency_rate self_consistency_correct self_consistency_incorrect para_consistency_rate para_consistency_correct para_consistency_incorrect para_accuracy para_weighted_f1 mean_reasoning_tokens \
   --output_json verl/zero_shot_inference/wandb/reasoning_results.json \
   --output_tex verl/zero_shot_inference/wandb/reasoning_results.tex
 ```
@@ -46,4 +52,5 @@ Useful flags:
 - `--table_metrics ...` selects table columns.
 - `--latest_per_model` keeps only the newest matching W&B run for each `config.model`.
 - `--run_ids ...` fetches exact W&B run IDs instead of scanning the project.
+- `--run_names ...` keeps exact W&B run names/display names after scanning the project.
 - `--model_alias OLD=NEW` changes display names in the TeX table.

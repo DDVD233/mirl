@@ -7,6 +7,9 @@ Metrics computed:
     self_consistency_correct — fraction where all stochastic answers agree AND match ground truth
     self_consistency_incorrect — fraction where all stochastic answers agree AND don't match ground truth
     para_consistency_rate    — fraction where reasoning_answer == para_reasoning_answer
+    para_consistency_correct — fraction where reasoning/para agree AND match ground truth
+    para_consistency_incorrect — fraction where reasoning/para agree AND don't match ground truth
+    direct/reasoning/para accuracy and weighted_f1 — inference-style task metrics
 
   Faithfulness:
     direct_accuracy          — accuracy of greedy direct predictions vs ground truth
@@ -50,12 +53,22 @@ import os
 import re
 
 import numpy as np
+from sklearn.metrics import accuracy_score, f1_score
+from sklearn.preprocessing import MultiLabelBinarizer
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
 def _norm(s: str | None) -> str:
     return (s or "").strip().lower()
+
+
+def _parse_multilabel(text: str | None) -> list[str]:
+    return sorted(lbl.strip().lower() for lbl in (text or "").split(",") if lbl.strip())
+
+
+def _auto_multilabel(results: list[dict]) -> bool:
+    return any("," in str(r.get("answer", "")) for r in results)
 
 
 def _kl_divergence(p: dict, q: dict) -> float:
@@ -95,17 +108,22 @@ def compute_consistency_metrics(results: list[dict]) -> dict:
     self_agree_correct = 0
     self_agree_incorrect = 0
     para_agree = 0
+    para_agree_correct = 0
+    para_agree_incorrect = 0
+    para_correct = 0
     n_self = 0
     n_para = 0
+    n_para_accuracy = 0
 
     for r in results:
+        gt = _norm(r.get("answer"))
+
         # Self-consistency: all stochastic answers identical
         stoc = [_norm(a) for a in r.get("stochastic_answers", []) if a is not None]
         if stoc:
             n_self += 1
             if len(set(stoc)) == 1:
                 self_agree += 1
-                gt = _norm(r.get("answer"))
                 if gt:
                     if stoc[0] == gt:
                         self_agree_correct += 1
@@ -115,20 +133,38 @@ def compute_consistency_metrics(results: list[dict]) -> dict:
         # Para-consistency: reasoning == para-reasoning
         ra  = _norm(r.get("reasoning_answer"))
         pra = _norm(r.get("para_reasoning_answer"))
+        if gt and pra:
+            n_para_accuracy += 1
+            if pra == gt:
+                para_correct += 1
+
         if ra and pra:
             n_para += 1
             if ra == pra:
                 para_agree += 1
+                if gt:
+                    if pra == gt:
+                        para_agree_correct += 1
+                    else:
+                        para_agree_incorrect += 1
 
     return {
         "self_consistency_rate":      self_agree          / n_self if n_self else None,
         "self_consistency_correct":   self_agree_correct  / n_self if n_self else None,
         "self_consistency_incorrect": self_agree_incorrect / n_self if n_self else None,
         "para_consistency_rate":      para_agree          / n_para if n_para else None,
+        "para_consistency_correct":   para_agree_correct  / n_para if n_para else None,
+        "para_consistency_incorrect": para_agree_incorrect / n_para if n_para else None,
+        "para_accuracy":              para_correct / n_para_accuracy if n_para_accuracy else None,
         "n_self_consistency":             n_self,
         "n_self_consistency_correct":     self_agree_correct,
         "n_self_consistency_incorrect":   self_agree_incorrect,
         "n_para_consistency":             n_para,
+        "n_para_consistency_correct":     para_agree_correct,
+        "n_para_consistency_incorrect":   para_agree_incorrect,
+        "n_para_accuracy":                n_para_accuracy,
+        "n_para_correct":                 para_correct,
+        "n_para_incorrect":               n_para_accuracy - para_correct,
     }
 
 
@@ -185,6 +221,62 @@ def compute_faithfulness_metrics(results: list[dict]) -> dict:
         "kl_n_valid":                    len(kl_vals),
         "n_faithfulness":                n,
     }
+
+
+def compute_prediction_metrics(
+    results: list[dict],
+    prediction_key: str,
+    prefix: str,
+    multilabel: bool = False,
+) -> dict:
+    """Compute inference-style accuracy and weighted F1 for one answer field."""
+    valid = [
+        r for r in results
+        if _norm(r.get("answer")) and _norm(r.get(prediction_key))
+    ]
+    n_key = f"n_{prefix}_samples"
+    if not valid:
+        return {
+            f"{prefix}_accuracy": None,
+            f"{prefix}_weighted_f1": None,
+            n_key: 0,
+        }
+
+    if multilabel:
+        gt_parsed = [_parse_multilabel(r.get("answer")) for r in valid]
+        pred_parsed = [_parse_multilabel(r.get(prediction_key)) for r in valid]
+        mlb = MultiLabelBinarizer()
+        mlb.fit(gt_parsed + pred_parsed)
+        gt_bin = mlb.transform(gt_parsed)
+        pred_bin = mlb.transform(pred_parsed)
+        exact_match = float(accuracy_score(gt_bin, pred_bin))
+        weighted_f1 = float(f1_score(gt_bin, pred_bin, average="weighted", zero_division=0))
+        return {
+            f"{prefix}_accuracy": exact_match,
+            f"{prefix}_exact_match_accuracy": exact_match,
+            f"{prefix}_weighted_f1": weighted_f1,
+            n_key: len(valid),
+        }
+
+    gts = [_norm(r.get("answer")) for r in valid]
+    preds = [_norm(r.get(prediction_key)) for r in valid]
+    return {
+        f"{prefix}_accuracy": float(accuracy_score(gts, preds)),
+        f"{prefix}_weighted_f1": float(f1_score(gts, preds, average="weighted", zero_division=0)),
+        n_key: len(valid),
+    }
+
+
+def compute_inference_style_metrics(results: list[dict], multilabel: bool = False) -> dict:
+    """Compute no-extra-inference task metrics from saved reasoning-eval answers."""
+    metrics = {}
+    for prediction_key, prefix in [
+        ("direct_answer", "direct"),
+        ("reasoning_answer", "reasoning"),
+        ("para_reasoning_answer", "para"),
+    ]:
+        metrics.update(compute_prediction_metrics(results, prediction_key, prefix, multilabel))
+    return metrics
 
 
 def compute_concision_metrics(results: list[dict], reasoning_accuracy: float | None) -> dict:
@@ -304,9 +396,15 @@ def print_summary(dataset_name: str, model_name: str, n: int, all_metrics: dict)
     print(f"    self_consistency_correct : {_fmt(all_metrics.get('self_consistency_correct'))}")
     print(f"    self_consistency_incorrect:{_fmt(all_metrics.get('self_consistency_incorrect'))}")
     print(f"    para_consistency_rate    : {_fmt(all_metrics.get('para_consistency_rate'))}")
+    print(f"    para_consistency_correct : {_fmt(all_metrics.get('para_consistency_correct'))}")
+    print(f"    para_consistency_incorrect:{_fmt(all_metrics.get('para_consistency_incorrect'))}")
     print(f"  FAITHFULNESS")
     print(f"    direct_accuracy          : {_fmt(all_metrics.get('direct_accuracy'))}")
+    print(f"    direct_weighted_f1       : {_fmt(all_metrics.get('direct_weighted_f1'))}")
     print(f"    reasoning_accuracy       : {_fmt(all_metrics.get('reasoning_accuracy'))}")
+    print(f"    reasoning_weighted_f1    : {_fmt(all_metrics.get('reasoning_weighted_f1'))}")
+    print(f"    para_accuracy            : {_fmt(all_metrics.get('para_accuracy'))}")
+    print(f"    para_weighted_f1         : {_fmt(all_metrics.get('para_weighted_f1'))}")
     print(f"    accuracy_delta           : {_fmt(all_metrics.get('accuracy_delta'))}")
     print(f"    flip_to_correct          : {_fmt(all_metrics.get('flip_to_correct'))}")
     print(f"    flip_to_wrong            : {_fmt(all_metrics.get('flip_to_wrong'))}")
@@ -339,12 +437,17 @@ def process_file(jsonl_path: str, args: argparse.Namespace) -> tuple[str, list[d
         return "unknown", [], {}
 
     dataset_name = results[0].get("dataset", "unknown")
+    multilabel = args.multilabel or _auto_multilabel(results)
 
     consistency  = compute_consistency_metrics(results)
     faithfulness = compute_faithfulness_metrics(results)
-    concision    = compute_concision_metrics(results, faithfulness.get("reasoning_accuracy"))
+    inference_style = compute_inference_style_metrics(results, multilabel=multilabel)
+    concision    = compute_concision_metrics(
+        results,
+        inference_style.get("reasoning_accuracy", faithfulness.get("reasoning_accuracy")),
+    )
     concision_by_correct = compute_concision_metrics_by_correctness(results)
-    all_metrics  = {**consistency, **faithfulness, **concision, **concision_by_correct}
+    all_metrics  = {**consistency, **faithfulness, **inference_style, **concision, **concision_by_correct}
 
     print_summary(dataset_name, args.model_name, len(results), all_metrics)
 
@@ -380,9 +483,14 @@ def main(args: argparse.Namespace) -> None:
 
         consistency  = compute_consistency_metrics(all_results)
         faithfulness = compute_faithfulness_metrics(all_results)
-        concision    = compute_concision_metrics(all_results, faithfulness.get("reasoning_accuracy"))
+        multilabel = args.multilabel or _auto_multilabel(all_results)
+        inference_style = compute_inference_style_metrics(all_results, multilabel=multilabel)
+        concision    = compute_concision_metrics(
+            all_results,
+            inference_style.get("reasoning_accuracy", faithfulness.get("reasoning_accuracy")),
+        )
         concision_by_correct = compute_concision_metrics_by_correctness(all_results)
-        overall_metrics = {**consistency, **faithfulness, **concision, **concision_by_correct}
+        overall_metrics = {**consistency, **faithfulness, **inference_style, **concision, **concision_by_correct}
 
         print_summary("overall", args.model_name, len(all_results), overall_metrics)
 
@@ -415,5 +523,7 @@ if __name__ == "__main__":
     parser.add_argument("--wandb_run_id",   default=None)
     parser.add_argument("--wandb_run_name", default=None)
     parser.add_argument("--wandb_entity",   default=None)
+    parser.add_argument("--multilabel", action="store_true",
+                        help="Force comma-separated multilabel metrics. Defaults to auto-detecting comma-separated gold labels.")
     args = parser.parse_args()
     main(args)
