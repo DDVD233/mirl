@@ -90,12 +90,17 @@ def _default_load_audio_list(audio_paths: list[str], base_dir: str, target_sr: i
         raise ImportError("pip install soundfile librosa")
     arrays = []
     for p in audio_paths:
-        arr, sr = sf.read(_resolve(p, base_dir), dtype="float32")
-        if arr.ndim > 1:
-            arr = arr.mean(axis=1)
-        if sr != target_sr:
-            arr = librosa.resample(arr, orig_sr=sr, target_sr=target_sr)
-        arrays.append(arr)
+        try:
+            arr, sr = sf.read(_resolve(p, base_dir), dtype="float32")
+            if arr.ndim > 1:
+                arr = arr.mean(axis=1)
+            if sr != target_sr:
+                arr = librosa.resample(arr, orig_sr=sr, target_sr=target_sr)
+            arrays.append(arr)
+        except Exception as e:
+            import numpy as np
+            print(f"[WARN] Failed to load audio {p}: {e}; substituting 0.5 s silence.")
+            arrays.append(np.zeros(int(target_sr * 0.5), dtype="float32"))
     return arrays if arrays else None
 
 
@@ -103,17 +108,22 @@ def load_images(image_paths: list[str], base_dir: str) -> list[Image.Image]:
     return [Image.open(_resolve(p, base_dir)).convert("RGB") for p in image_paths]
 
 
-def _video_num_frames_override(vframes_list: list, processor) -> int | None:
-    """Return a num_frames override when any video is shorter than the processor requires.
+def _video_num_frames_override(vframes_list: list, processor, requested: int | None = None) -> int | None:
+    """Return num_frames to pass to the processor, capped at actual available frames.
 
-    Gemma4's video processor has num_frames=32 in its config and raises when the
-    actual frame count is lower. For batches, uses the minimum across all videos.
+    When requested is given (e.g. from --num_frames), caps it at the minimum actual
+    frame count so a short video doesn't raise ValueError. When not given, falls back
+    to the processor's configured num_frames (Gemma4 defaults to 32).
     """
-    vp = getattr(processor, "video_processor", None)
-    required = getattr(vp, "num_frames", None)
-    if not required or not vframes_list:
+    if not vframes_list:
         return None
     min_frames = min(len(v) for v in vframes_list)
+    if requested is not None:
+        return min(requested, min_frames)
+    vp = getattr(processor, "video_processor", None)
+    required = getattr(vp, "num_frames", None)
+    if not required:
+        return None
     return min_frames if min_frames < required else None
 
 
@@ -424,7 +434,7 @@ def run_batch(model, processor, entries: list[dict], base_dir: str,
             proc_kwargs["images"] = batch_images
         if batch_videos:
             proc_kwargs["videos"] = batch_videos
-            nf = num_frames if num_frames is not None else _video_num_frames_override(batch_videos, processor)
+            nf = _video_num_frames_override(batch_videos, processor, num_frames)
             if nf is not None:
                 proc_kwargs["num_frames"] = nf
 
@@ -482,7 +492,7 @@ def _run_one(model, processor, entry: dict, base_dir: str,
         proc_kwargs["images"] = imgs
     if vframes:
         proc_kwargs["videos"] = [vframes]
-        nf = num_frames if num_frames is not None else _video_num_frames_override([vframes], processor)
+        nf = _video_num_frames_override([vframes], processor, num_frames)
         if nf is not None:
             proc_kwargs["num_frames"] = nf
 

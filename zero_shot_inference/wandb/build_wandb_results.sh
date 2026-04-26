@@ -47,6 +47,10 @@ RUN_IDS=(
 # Exact W&B run names/display names to extract.
 RUN_NAMES=(
     "Qwen_Qwen2.5-Omni-7B_2026-04-24_10-11-02"
+    "google_gemma-4-e4b-it_2026-04-25_21-37-30"
+    "ddvd233_OmniSapiens-7B-RL_2026-04-24_10-11-02"
+    "PhilipC_HumanOmniV2_2026-04-24_10-11-02"
+    "keentomato_harpo_hier_step400_2026-04-23_08-41-45"
 )
 
 # Substring run-name/id/model filters.
@@ -59,9 +63,9 @@ OUTPUT_DIR="/Users/keane/Desktop/research/human-behavior/verl/zero_shot_inferenc
 
 # Optional model display aliases for the TeX table. Format: OLD=NEW
 MODEL_ALIASES=(
-    "PhilipC/HumanOmniV2=HumanOmniV2"
-    "ddvd233/OmniSapiens-7B-RL=OmniSapiens-7B-RL"
-    "Qwen/Qwen2.5-Omni-7B=Qwen2.5-Omni-7B"
+    # "PhilipC/HumanOmniV2=HumanOmniV2"
+    # "ddvd233/OmniSapiens-7B-RL=OmniSapiens-7B-RL"
+    # "Qwen/Qwen2.5-Omni-7B=Qwen2.5-Omni-7B"
     # "google/gemma-4-e4b-it=Gemma-4-E4B-IT"
 )
 
@@ -81,18 +85,18 @@ INFERENCE_TABLE_METRICS=(
     "weighted_f1"
 )
 REASONING_TABLE_METRICS=(
-    "reasoning_accuracy"
-    "reasoning_weighted_f1"
-    "direct_accuracy"
-    "direct_weighted_f1"
+    # "reasoning_accuracy"
+    # "reasoning_weighted_f1"
+    # "direct_accuracy"
+    # "direct_weighted_f1"
     "self_consistency_rate"
     "self_consistency_correct"
     "self_consistency_incorrect"
     "para_consistency_rate"
     "para_consistency_correct"
     "para_consistency_incorrect"
-    "para_accuracy"
-    "para_weighted_f1"
+    # "para_accuracy"
+    # "para_weighted_f1"
     "mean_reasoning_tokens"
 )
 
