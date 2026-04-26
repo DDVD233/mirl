@@ -34,7 +34,7 @@ GPUS=(3 4 5)
 JOBS_PER_GPU=4
 
 # Output root — prediction JSONLs, metrics, and logs land here
-OUTPUT_DIR="/home/keaneong/human-behavior/verl/zero_shot_inference/results/reasoning_eval"
+OUTPUT_DIR="/home/keaneong/human-behavior/verl/zero_shot_inference/results/reasoning_eval_gemma_2"
 
 # Max tokens the model may generate per sample
 MAX_NEW_TOKENS=512
@@ -76,7 +76,7 @@ declare -A MODEL_DATA_LOADING=(
 
 # num_frames for video processing (empty = auto from processor config / actual clip length).
 # Gemma4's processor defaults to 32 frames; reduce to cut memory on long clips.
-NUM_FRAMES=""
+NUM_FRAMES="4"
 
 # Per-model overrides for NUM_FRAMES. Models not listed use NUM_FRAMES above.
 declare -A MODEL_NUM_FRAMES=(
@@ -93,7 +93,7 @@ MODES="reasoning stochastic para"
 # Gemma thinking mode:
 #   0 = native Gemma thinking: <|think|> system prompt + Gemma instruction (default)
 #   1 = legacy thinking: shared THINKING_INSTRUCTION with <think></think> tags
-GEMMA_LEGACY_THINKING=0
+GEMMA_LEGACY_THINKING=1
 
 # Datasets to run — remove any you want to skip
 # Available: eatd  mvsa  av-asd  iemocap  dreaddit  sarcnet
