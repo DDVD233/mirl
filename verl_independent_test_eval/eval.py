@@ -938,10 +938,16 @@ def main(args):
             for e in results:
                 wf.write(json.dumps(e, ensure_ascii=False) + "\n")
 
-    batch_size = args.batch_size
-    pending    = list(pending_idx)
+    batch_size   = args.batch_size
+    pending      = list(pending_idx)
+    shard_offset = lo if args.num_shards > 1 else 0
+    already_done = len(entries) - len(pending)
 
-    with tqdm(total=len(pending), desc=f"Inference (bs={batch_size})") as pbar:
+    with tqdm(
+        total=len(all_entries),
+        initial=shard_offset + already_done,
+        desc=f"Inference shard={args.shard_idx}/{args.num_shards} (bs={batch_size})",
+    ) as pbar:
         for batch_start in range(0, len(pending), batch_size):
             batch_indices = pending[batch_start: batch_start + batch_size]
             batch_entries = [results[i] for i in batch_indices]
