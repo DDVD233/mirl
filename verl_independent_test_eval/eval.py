@@ -540,8 +540,9 @@ def _load_evaluate_module():
     # detailed_multi_task_evaluation.py has `from .helper_emo import ...` — Python resolves
     # `.helper_emo` against __package__ = "_hb_evaluate", finding "_hb_evaluate.helper_emo"
     # which we've already registered in sys.modules.
-    _load(f"{pkg}.helper_emo",   "helper_emo.py")
-    _load(f"{pkg}.helper_senti", "helper_senti.py")
+    _load(f"{pkg}.helper_emo",         "helper_emo.py")
+    _load(f"{pkg}.helper_senti",       "helper_senti.py")
+    _load(f"{pkg}.helper_senti_extra", "helper_senti_extra.py")
     return _load(f"{pkg}.detailed_multi_task_evaluation", "detailed_multi_task_evaluation.py")
 
 
@@ -629,14 +630,28 @@ def compute_and_save_metrics(
 
     label_mapping, _ = build_label_index_maps(label_map_path)
 
-    predictions_str:  list[str] = []
-    ground_truths_str: list[str] = []
-    predictions_int:  list[int] = []
-    ground_truths_int: list[int] = []
-    datasets_list:    list[str] = []
-    responses_list:   list[str] = []
-    sample_ids_list:  list[str] = []
+    # Read QA datasets that should not be evaluated by label matching (they
+    # have no label_mapping entries, so both pred and GT map to -1, which
+    # would produce artificially perfect 1.00 metrics).
+    with open(label_map_path, "r") as _f:
+        _cfg = json.load(_f)
+    excluded_qa    = set(_cfg["meta"].get("excluded_qa_datasets", []))
+    meta_config    = _cfg["meta"]
 
+    predictions_str:   list[str] = []
+    ground_truths_str: list[str] = []
+    predictions_int:   list[int] = []
+    ground_truths_int: list[int] = []
+    datasets_list:     list[str] = []   # non-QA only — passed to evaluate_predictions
+    datasets_all_list: list[str] = []   # all entries — used for the judge payload
+    responses_list:    list[str] = []
+    sample_ids_list:   list[str] = []
+
+    # Per-dataset grouped predictions (needed for extra sentiment metrics).
+    from collections import defaultdict as _dd
+    per_dataset_preds: dict = _dd(lambda: ([], []))
+
+    qa_datasets_seen: set = set()
     n_pred_unmapped = 0
     n_gt_unmapped   = 0
 
@@ -645,6 +660,17 @@ def compute_and_save_metrics(
         gt_str   = e.get("answer", "")
         dataset  = e.get("dataset", "unknown")
 
+        predictions_str.append(pred_str)
+        ground_truths_str.append(gt_str)
+        responses_list.append(e.get(response_key, ""))
+        sample_ids_list.append(str(e.get("sample_id", e.get("_orig_idx", ""))))
+        datasets_all_list.append(dataset)
+
+        # Skip label-based evaluation for LLM-judge QA datasets.
+        if dataset in excluded_qa:
+            qa_datasets_seen.add(dataset)
+            continue
+
         p_idx = pred_to_index(pred_str, dataset, label_mapping)
         g_idx = pred_to_index(gt_str,   dataset, label_mapping)
         if p_idx == -1:
@@ -652,19 +678,21 @@ def compute_and_save_metrics(
         if g_idx == -1:
             n_gt_unmapped += 1
 
-        predictions_str.append(pred_str)
-        ground_truths_str.append(gt_str)
         predictions_int.append(p_idx)
         ground_truths_int.append(g_idx)
         datasets_list.append(dataset)
-        responses_list.append(e.get(response_key, ""))
-        sample_ids_list.append(str(e.get("sample_id", e.get("_orig_idx", ""))))
+
+        per_dataset_preds[dataset][0].append(p_idx)
+        per_dataset_preds[dataset][1].append(g_idx)
 
     total = len(entries)
     print(f"  Predictions  : {total - n_pred_unmapped}/{total} mapped to label indices "
           f"({n_pred_unmapped} unmapped → -1, counted as wrong)")
     if n_gt_unmapped:
         print(f"  [WARN] Ground truths: {n_gt_unmapped} unmapped — check dataset/label names")
+    if qa_datasets_seen:
+        print(f"  QA datasets (excluded from label eval, placeholder=0.0): "
+              f"{sorted(qa_datasets_seen)}")
 
     eval_mod = _load_evaluate_module()
     results = eval_mod.evaluate_predictions(
@@ -673,6 +701,22 @@ def compute_and_save_metrics(
         datasets=datasets_list,
         label_map_path=label_map_path,
     )
+
+    # ── Add 0.0 placeholders for LLM-judge QA datasets ───────────────────────
+    for qa_ds in sorted(qa_datasets_seen):
+        results["per_dataset_metrics"][f"{qa_ds}/llm_judge_accuracy"] = 0.0
+
+    # ── Add extra sentiment metrics (macro + micro F1 per collapse level) ────
+    senti_extra_mod = sys.modules.get("_hb_evaluate.helper_senti_extra")
+    if senti_extra_mod:
+        dataset_domain = meta_config.get("dataset_domain", {})
+        for ds, (preds, gts) in per_dataset_preds.items():
+            if dataset_domain.get(ds) == "sentiment_intensity" and preds:
+                extra = senti_extra_mod.compute_sentiment_extra_metrics(
+                    preds, gts, meta_config, eval_mod.compute_set_metrics
+                )
+                for k, v in extra.items():
+                    results["per_dataset_metrics"][f"{ds}/{k}"] = v
 
     # ── Print summary ─────────────────────────────────────────────────────────
     print(f"\n{'='*60}")
@@ -721,7 +765,7 @@ def compute_and_save_metrics(
         "model": model_name,
         "predictions": responses_list,
         "ground_truths": ground_truths_str,
-        "datasets": datasets_list,
+        "datasets": datasets_all_list,
         "extracted_predictions": predictions_str,
         "sample_ids": sample_ids_list,
     }
