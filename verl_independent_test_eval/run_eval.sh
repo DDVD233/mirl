@@ -25,10 +25,10 @@ MODEL_NAME="google/gemma-4-e4b-it"
 # Single JSONL combining all test datasets.
 # Each line must have: problem, answer, dataset, images/audios/videos (paths
 # relative to the directory containing this JSONL file).
-INPUT_JSONL="/path/to/test_all_datasets.jsonl"
+INPUT_JSONL="/scratch/keane/human_behaviour_data/final_v8_test_cleaned.jsonl"
 
 # Directory where prediction JSONLs, metrics, and logs are written
-OUTPUT_DIR="./results"
+OUTPUT_DIR="/home/keaneong/human-behavior/verl/verl_independent_test_eval/results"
 
 # Path to the unified label map (used for metric computation at merge time)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -48,14 +48,18 @@ JOBS_PER_GPU=4
 BATCH_SIZE=4
 
 # Max tokens the model may generate per sample
-MAX_NEW_TOKENS=1024
+MAX_NEW_TOKENS=512
 
 # Sampling parameters for generation.
 # Set TEMPERATURE="" or "0" to use greedy decoding (recommended for evaluation).
-TEMPERATURE=""
+# TEMPERATURE=""
 # TOP_P=0.95
 # TOP_K=64
 # MIN_P=0
+TEMPERATURE=1.0
+TOP_P=0.95
+TOP_K=64
+MIN_P=0
 
 # Data loading mode:
 #   "default"    — decord + soundfile. Compatible with HumanOmniV2 and Gemma.
@@ -68,7 +72,7 @@ DATA_LOADING="default"
 NUM_FRAMES="4"
 
 # Optional: cap samples (empty = full run)
-MAX_SAMPLES=""   # e.g. "20" for a quick smoke test
+MAX_SAMPLES="20"   # e.g. "20" for a quick smoke test
 
 # Set to "1" to enable torch.compile (first batch will be slow)
 TORCH_COMPILE=0
@@ -79,7 +83,7 @@ EXTRA_ARGS=""
 # Gemma thinking mode:
 #   0 = native Gemma thinking: <|think|> system prompt + Gemma instruction (default)
 #   1 = legacy thinking: shared THINKING_INSTRUCTION with <think></think> tags
-GEMMA_LEGACY_THINKING=0
+GEMMA_LEGACY_THINKING=1
 
 # ── END CONFIG ────────────────────────────────────────────────────────────────
 
