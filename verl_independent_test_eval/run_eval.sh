@@ -71,14 +71,24 @@ DATA_LOADING="default"
 # Leave empty to use the processor's default with automatic reduction for short clips.
 NUM_FRAMES="4"
 
-# Optional: cap samples (empty = full run)
-MAX_SAMPLES="20"   # e.g. "20" for a quick smoke test
+# Smoke test: take N random samples from every dataset (empty = disabled).
+# Ensures all dataset code paths are exercised. Takes priority over MAX_SAMPLES.
+SMOKE_N_PER_DATASET="2"   # e.g. "2" for a quick smoke test across all datasets
+
+# Optional: cap samples by absolute count (empty = full run).
+# Use SMOKE_N_PER_DATASET instead for a balanced smoke test.
+MAX_SAMPLES=""
 
 # Set to "1" to enable torch.compile (first batch will be slow)
 TORCH_COMPILE=0
 
 # Extra flags forwarded to eval.py for all shards (e.g. "--no_thinking")
 EXTRA_ARGS=""
+
+# Wandb logging (leave empty to disable)
+WANDB_PROJECT=""      # e.g. "hb-eval"
+WANDB_RUN_NAME=""     # e.g. "gemma4_test"
+WANDB_ENTITY=""       # e.g. "my-team"
 
 # Gemma thinking mode:
 #   0 = native Gemma thinking: <|think|> system prompt + Gemma instruction (default)
@@ -122,6 +132,22 @@ echo "Logs → $LOG_DIR"
 
 maybe_max_samples() {
     [[ -n "$MAX_SAMPLES" && "$MAX_SAMPLES" != "0" ]] && echo "--max_samples $MAX_SAMPLES" || echo ""
+}
+
+smoke_n_flag() {
+    if [[ -n "$SMOKE_N_PER_DATASET" && "$SMOKE_N_PER_DATASET" != "0" ]]; then
+        echo "--smoke_n_per_dataset $SMOKE_N_PER_DATASET"
+    else
+        maybe_max_samples
+    fi
+}
+
+wandb_args() {
+    local a=""
+    [[ -n "$WANDB_PROJECT"   ]] && a+=" --wandb_project $WANDB_PROJECT"
+    [[ -n "$WANDB_RUN_NAME"  ]] && a+=" --wandb_run_name $WANDB_RUN_NAME"
+    [[ -n "$WANDB_ENTITY"    ]] && a+=" --wandb_entity $WANDB_ENTITY"
+    echo "$a"
 }
 
 compile_flag() {
@@ -173,7 +199,7 @@ for (( shard=0; shard<TOTAL_SHARDS; shard++ )); do
         --num_shards      "$TOTAL_SHARDS" \
         --shard_idx       "$shard" \
         --data_loading    "$DATA_LOADING" \
-        $(maybe_max_samples) \
+        $(smoke_n_flag) \
         $(compile_flag) \
         $(sampling_args) \
         $(num_frames_flag "$NUM_FRAMES") \
@@ -211,7 +237,8 @@ python "$EVAL" \
     --model_name     "$MODEL_NAME" \
     --label_map_path "$LABEL_MAP_PATH" \
     --metrics_output "$METRICS_OUT" \
-    --judge_output   "$JUDGE_OUT"
+    --judge_output   "$JUDGE_OUT" \
+    $(wandb_args)
 
 # ── Clean up shard files ──────────────────────────────────────────────────────
 rm -f "${OUT_BASE}_shard"*.jsonl

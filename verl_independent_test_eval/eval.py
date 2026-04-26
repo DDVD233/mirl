@@ -592,6 +592,9 @@ def compute_and_save_metrics(
     label_map_path: str,
     metrics_out: str,
     judge_out: str,
+    wandb_project: str | None = None,
+    wandb_run_name: str | None = None,
+    wandb_entity: str | None = None,
 ):
     """Load merged JSONL, compute unified per-dataset metrics, and save outputs."""
     with open(merged_jsonl, "r", encoding="utf-8") as f:
@@ -699,21 +702,38 @@ def compute_and_save_metrics(
     print(f"Metrics      → {metrics_out}")
 
     # ── Save judge-format JSON ────────────────────────────────────────────────
-    # Format matches hb_evaluation.py's compute_metrics_by_data_source input:
-    # {predictions, ground_truths, datasets} + extended fields for LLM-as-judge.
+    # predictions = full model responses (matching hb_evaluation.py step*.json
+    # format) so that extract_boxed() in hb_evaluation.py / llm_judge_eval.py
+    # works correctly. extracted_predictions holds the pre-extracted answers.
     judge_dir = os.path.dirname(os.path.abspath(judge_out))
     os.makedirs(judge_dir, exist_ok=True)
     judge_payload = {
         "model": model_name,
-        "predictions": predictions_str,
+        "predictions": responses_list,
         "ground_truths": ground_truths_str,
         "datasets": datasets_list,
-        "responses": responses_list,
+        "extracted_predictions": predictions_str,
         "sample_ids": sample_ids_list,
     }
     with open(judge_out, "w", encoding="utf-8") as f:
         json.dump(judge_payload, f, indent=2, ensure_ascii=False)
     print(f"Judge format → {judge_out}")
+
+    # ── Wandb logging ─────────────────────────────────────────────────────────
+    if wandb_project:
+        import wandb as _wandb
+        _wandb.init(
+            project=wandb_project,
+            name=wandb_run_name or None,
+            entity=wandb_entity or None,
+            config={"model": model_name, "n_samples": total},
+        )
+        wandb_metrics: dict = {"n_samples": total}
+        wandb_metrics.update(results["aggregate_metrics"])
+        wandb_metrics.update(results.get("per_dataset_metrics", {}))
+        _wandb.log(wandb_metrics)
+        _wandb.finish()
+        print(f"Wandb       → project={wandb_project} run={wandb_run_name or 'auto'}")
 
 
 # ── Merge-shards mode ─────────────────────────────────────────────────────────
@@ -726,6 +746,9 @@ def merge_shards(
     metrics_out: str | None = None,
     judge_out: str | None = None,
     no_metrics: bool = False,
+    wandb_project: str | None = None,
+    wandb_run_name: str | None = None,
+    wandb_entity: str | None = None,
 ):
     paths = sorted(glob.glob(shard_pattern))
     if not paths:
@@ -764,6 +787,9 @@ def merge_shards(
         label_map_path=label_map_path,
         metrics_out=_metrics_out,
         judge_out=_judge_out,
+        wandb_project=wandb_project,
+        wandb_run_name=wandb_run_name,
+        wandb_entity=wandb_entity,
     )
 
 
@@ -780,6 +806,9 @@ def main(args):
             metrics_out=args.metrics_output,
             judge_out=args.judge_output,
             no_metrics=args.no_metrics,
+            wandb_project=args.wandb_project,
+            wandb_run_name=args.wandb_run_name,
+            wandb_entity=args.wandb_entity,
         )
         return
 
@@ -801,7 +830,20 @@ def main(args):
     with open(args.input_jsonl, "r", encoding="utf-8") as f:
         all_entries = [json.loads(ln) for ln in f if ln.strip()]
 
-    if args.max_samples:
+    if args.smoke_n_per_dataset:
+        import random
+        from collections import defaultdict as _defaultdict
+        ds_map: dict[str, list] = _defaultdict(list)
+        for e in all_entries:
+            ds_map[e.get("dataset", "unknown")].append(e)
+        selected = []
+        for ds in sorted(ds_map):
+            pool = ds_map[ds]
+            selected.extend(random.sample(pool, min(args.smoke_n_per_dataset, len(pool))))
+        all_entries = selected
+        print(f"Smoke test  : {args.smoke_n_per_dataset} sample(s)/dataset × "
+              f"{len(ds_map)} datasets = {len(all_entries)} total entries")
+    elif args.max_samples:
         all_entries = all_entries[: args.max_samples]
 
     # Stamp original index for correct merge ordering
@@ -952,8 +994,19 @@ if __name__ == "__main__":
     # Misc
     parser.add_argument("--max_samples", type=int, default=None,
                         help="Cap number of entries processed (smoke-testing)")
+    parser.add_argument("--smoke_n_per_dataset", type=int, default=None,
+                        help="Take N random entries per dataset (covers all datasets; "
+                             "takes priority over --max_samples)")
     parser.add_argument("--save_every", type=int, default=50,
                         help="Flush output JSONL every N batches (0 = only at end)")
+
+    # Wandb
+    parser.add_argument("--wandb_project",  default=None,
+                        help="W&B project name (enables wandb logging when set)")
+    parser.add_argument("--wandb_run_name", default=None,
+                        help="W&B run name (optional; auto-generated if omitted)")
+    parser.add_argument("--wandb_entity",   default=None,
+                        help="W&B entity / team (optional)")
 
     args = parser.parse_args()
 
