@@ -210,6 +210,35 @@ for (( shard=0; shard<TOTAL_SHARDS; shard++ )); do
     pids+=($!)
 done
 
+# ── Combined progress monitor ─────────────────────────────────────────────────
+# Polls each shard's .progress sidecar file (written by eval.py) every 5 s and
+# renders a single aggregated bar across all shards on one terminal line.
+_progress_bar() {
+    while true; do
+        local done_total=0 samples_total=0
+        for (( s=0; s<TOTAL_SHARDS; s++ )); do
+            local pf="${OUT_BASE}_shard${s}.jsonl.progress"
+            [[ -f "$pf" ]] || continue
+            local d=0 t=0
+            { read -r d && read -r t; } < "$pf" 2>/dev/null || true
+            done_total=$(( done_total + ${d:-0} ))
+            samples_total=$(( samples_total + ${t:-0} ))
+        done
+        if [[ "$samples_total" -gt 0 ]]; then
+            local pct=$(( done_total * 100 / samples_total ))
+            local filled=$(( pct * 40 / 100 )) bar="" space=""
+            for (( i=0; i<filled;      i++ )); do bar+="=";  done
+            for (( i=filled; i<40;     i++ )); do space+="."; done
+            printf "\r  [%s%s] %d/%d (%d%%)" "$bar" "$space" \
+                   "$done_total" "$samples_total" "$pct"
+        fi
+        sleep 5
+    done
+}
+
+_progress_bar &
+_pbar_pid=$!
+
 # ── Wait for all shards ───────────────────────────────────────────────────────
 failed=0
 for pid in "${pids[@]}"; do
@@ -217,6 +246,10 @@ for pid in "${pids[@]}"; do
         failed=$(( failed + 1 ))
     fi
 done
+
+kill "$_pbar_pid" 2>/dev/null
+wait "$_pbar_pid" 2>/dev/null || true
+printf "\n"
 
 if [[ "$failed" -gt 0 ]]; then
     echo "[ERROR] $failed shard(s) failed — check logs in $LOG_DIR"
@@ -241,7 +274,7 @@ python "$EVAL" \
     $(wandb_args)
 
 # ── Clean up shard files ──────────────────────────────────────────────────────
-rm -f "${OUT_BASE}_shard"*.jsonl
+rm -f "${OUT_BASE}_shard"*.jsonl "${OUT_BASE}_shard"*.jsonl.progress
 echo "Shard files deleted."
 
 echo ""

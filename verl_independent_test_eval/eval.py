@@ -920,6 +920,14 @@ def main(args):
 
             pbar.update(len(batch_indices))
 
+            # Sidecar file for the shell-level combined progress bar across all shards.
+            # Format: "{done}\n{total}\n" — shell monitor aggregates all shards.
+            try:
+                with open(args.output_jsonl + ".progress", "w") as _pf:
+                    _pf.write(f"{batch_start + len(batch_indices)}\n{len(pending)}\n")
+            except OSError:
+                pass
+
             if save_every > 0 and (batch_start // batch_size + 1) % save_every == 0:
                 flush()
 
