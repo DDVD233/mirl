@@ -14,10 +14,10 @@ PROJECT_NAME="rl_omni_heldout"
 #   "/scratch/keane/human_behaviour/dapo_enhanced_harpo|400|test|tarpo"
 # If wandb_name is omitted, the checkpoint folder basename is used.
 EVAL_PLAN=(
-  "/scratch/keane/human_behaviour/22apr_gpg|global_step_400|test|gpg"
-  "/scratch/keane/human_behaviour/v2_emagrpo_engaging_baseline|global_step_300|val|emagrpo"
-  "/scratch/keane/human_behaviour/v2_emagrpo_engaging_baseline|global_step_350|val|emagrpo"
-  "/scratch/keane/human_behaviour/v2_emagrpo_engaging_baseline|global_step_400|val|emagrpo"
+  # "/scratch/keane/human_behaviour/22apr_gpg|global_step_400|test|gpg"
+  # "/scratch/keane/human_behaviour/v2_emagrpo_engaging_baseline|global_step_300|val|emagrpo"
+  # "/scratch/keane/human_behaviour/v2_emagrpo_engaging_baseline|global_step_350|val|emagrpo"
+  # "/scratch/keane/human_behaviour/v2_emagrpo_engaging_baseline|global_step_400|val|emagrpo"
   "/scratch/keane/human_behaviour/v2_emagrpo_engaging_baseline|global_step_450|val|emagrpo"
   "/scratch/keane/human_behaviour/v2_emagrpo_engaging_baseline|global_step_500|test|emagrpo"
 )
