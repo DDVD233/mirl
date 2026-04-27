@@ -143,6 +143,73 @@ def _default_load_video_frames(video_paths: list[str], base_dir: str,
     return frames
 
 
+def _frame_to_rgb_image(frame, fallback_size: tuple[int, int] = (224, 224)) -> Image.Image:
+    """Convert one decoded frame to an RGB PIL image."""
+    if isinstance(frame, Image.Image):
+        return frame.convert("RGB")
+    if isinstance(frame, torch.Tensor):
+        frame = frame.detach().cpu().numpy()
+    if not isinstance(frame, np.ndarray):
+        return Image.new("RGB", fallback_size)
+
+    arr = frame
+    if arr.ndim == 3 and arr.shape[0] in (1, 3, 4) and arr.shape[-1] not in (1, 3, 4):
+        arr = np.transpose(arr, (1, 2, 0))
+    if arr.ndim == 3 and arr.shape[-1] == 1:
+        arr = arr[..., 0]
+    if arr.dtype != np.uint8:
+        arr = arr.astype("float32", copy=False)
+        if arr.size and arr.max() <= 1.0:
+            arr = arr * 255.0
+        arr = np.clip(arr, 0, 255).astype("uint8")
+    return Image.fromarray(arr).convert("RGB")
+
+
+def _frames_to_fixed_rgb_images(frames, num_frames: int,
+                                blank_size: tuple[int, int] = (224, 224)) -> list[Image.Image]:
+    """Convert frames to exactly num_frames RGB images, padding with blanks."""
+    if isinstance(frames, torch.Tensor):
+        frames = frames.detach().cpu().numpy()
+    if isinstance(frames, np.ndarray) and frames.ndim == 4:
+        if frames.shape[-1] in (1, 3, 4):
+            frame_list = [frames[i] for i in range(frames.shape[0])]
+        elif frames.shape[1] in (1, 3, 4):
+            frame_list = [frames[i] for i in range(frames.shape[0])]
+        else:
+            frame_list = []
+    elif isinstance(frames, (list, tuple)):
+        frame_list = list(frames)
+    elif frames is None:
+        frame_list = []
+    else:
+        frame_list = [frames]
+
+    images = [_frame_to_rgb_image(frame, blank_size) for frame in frame_list[:num_frames]]
+    pad_size = images[0].size if images else blank_size
+    while len(images) < num_frames:
+        images.append(Image.new("RGB", pad_size))
+    return images
+
+
+def _load_video_frame_images(path: str, base_dir: str, num_frames: int) -> list[Image.Image]:
+    """Sample exactly num_frames video frames as images, padding short videos."""
+    try:
+        from decord import VideoReader, cpu
+    except ImportError:
+        raise ImportError("pip install decord")
+
+    frames = []
+    try:
+        vr = VideoReader(_resolve(path, base_dir), ctx=cpu(0))
+        if len(vr) > 0:
+            n = min(num_frames, len(vr))
+            indices = np.linspace(0, len(vr) - 1, num=n, dtype=int).tolist()
+            frames = [vr[i].asnumpy() for i in indices]
+    except Exception as e:
+        print(f"[WARN] Failed to load video frames {path}: {e}; substituting blank frames.")
+    return _frames_to_fixed_rgb_images(frames, num_frames)
+
+
 def _verl_load_video(path: str, base_dir: str, nframes: int = 4,
                      min_pixels: int = 147456, max_pixels: int = 147456) -> torch.Tensor:
     """Returns [T,3,H,W] uint8 tensor via qwen_vl_utils.fetch_video — matches training."""
@@ -174,7 +241,8 @@ def _verl_load_audio(path: str, base_dir: str, max_seconds: float = 10.0):
 
 def build_entry_inputs(entry: dict, base_dir: str, thinking: bool,
                        data_loading: str = "default", model_name: str = "",
-                       gemma_legacy_thinking: bool = False):
+                       gemma_legacy_thinking: bool = False,
+                       num_frames: int | None = None):
     """
     Returns (content_list, audio_list_or_None, pil_images, video_frames).
 
@@ -196,10 +264,12 @@ def build_entry_inputs(entry: dict, base_dir: str, thinking: bool,
     else:
         instruction = NO_THINKING_INSTRUCTION
     problem = entry.get("problem", "")
+    gemma_video_frame_count = max(1, num_frames if num_frames is not None else 4)
 
     if data_loading == "verl_style":
         images = [load_images([p], base_dir)[0] for p in entry.get("images", [])]
-        videos = [_verl_load_video(p, base_dir) for p in entry.get("videos", [])]
+        videos = [_verl_load_video(p, base_dir, nframes=gemma_video_frame_count if is_gemma else 4)
+                  for p in entry.get("videos", [])]
         audios_raw = [_verl_load_audio(p, base_dir) for p in entry.get("audios", [])]
 
         img_idx = vid_idx = aud_idx = 0
@@ -209,7 +279,11 @@ def build_entry_inputs(entry: dict, base_dir: str, thinking: bool,
                 content.append({"type": "image", "image": images[img_idx]})
                 img_idx += 1
             elif seg == "<video>" and vid_idx < len(videos):
-                content.append({"type": "video", "video": videos[vid_idx].numpy()})
+                if is_gemma:
+                    for img in _frames_to_fixed_rgb_images(videos[vid_idx], gemma_video_frame_count):
+                        content.append({"type": "image", "image": img})
+                else:
+                    content.append({"type": "video", "video": videos[vid_idx].numpy()})
                 vid_idx += 1
             elif seg == "<audio>" and aud_idx < len(audios_raw):
                 arr, _sr = audios_raw[aud_idx]
@@ -239,9 +313,35 @@ def build_entry_inputs(entry: dict, base_dir: str, thinking: bool,
 
         # BUG FIX (from inference.py): was "[video]" — data uses <video> tags
         if entry.get("videos") and "<video>" in problem:
-            video_frames = _default_load_video_frames(entry["videos"], base_dir)
-            if video_frames:
-                content.append({"type": "video", "video": video_frames})
+            if is_gemma:
+                video_frame_images = [
+                    _load_video_frame_images(p, base_dir, gemma_video_frame_count)
+                    for p in entry["videos"]
+                ]
+                vid_idx = aud_idx = 0
+                for seg in re.split(r"(<video>|<audio>)", problem):
+                    if seg == "<video>":
+                        if vid_idx < len(video_frame_images):
+                            for img in video_frame_images[vid_idx]:
+                                content.append({"type": "image", "image": img})
+                                pil_images.append(img)
+                            vid_idx += 1
+                    elif seg == "<audio>" and audio_list and aud_idx < len(audio_list):
+                        content.append({"type": "audio", "audio": audio_list[aud_idx]})
+                        aud_idx += 1
+                    elif seg:
+                        content.append({"type": "text", "text": seg})
+                while vid_idx < len(video_frame_images):
+                    for img in video_frame_images[vid_idx]:
+                        content.append({"type": "image", "image": img})
+                        pil_images.append(img)
+                    vid_idx += 1
+                content.append({"type": "text", "text": instruction})
+                return content, audio_list, pil_images, []
+            else:
+                video_frames = _default_load_video_frames(entry["videos"], base_dir)
+                if video_frames:
+                    content.append({"type": "video", "video": video_frames})
 
         # Gemma's processor checks that audio soft tokens in input_ids match the
         # number of extracted audio features. Embedding audio dicts in the content
@@ -410,7 +510,8 @@ def run_batch(model, processor, entries: list[dict], base_dir: str,
         _is_gemma = "gemma" in model_name.lower()
         for entry in entries:
             content, audio_list, imgs, vframes = build_entry_inputs(
-                entry, base_dir, thinking, data_loading, model_name, gemma_legacy_thinking)
+                entry, base_dir, thinking, data_loading, model_name,
+                gemma_legacy_thinking, num_frames)
             if _is_gemma and thinking and not gemma_legacy_thinking:
                 msgs = [{"role": "system", "content": "<|think|>"}, {"role": "user", "content": content}]
             else:
@@ -425,7 +526,7 @@ def run_batch(model, processor, entries: list[dict], base_dir: str,
                     batch_images.append(imgs)
             else:
                 batch_images.extend(imgs)
-            if vframes is not None and len(vframes) > 0:
+            if not _is_gemma and vframes is not None and len(vframes) > 0:
                 batch_videos.append(vframes)
 
         proc_kwargs = dict(text=texts, return_tensors="pt", padding=True)
@@ -478,7 +579,8 @@ def _run_one(model, processor, entry: dict, base_dir: str,
              num_frames: int | None = None,
              gemma_legacy_thinking: bool = False) -> str:
     content, audio_list, imgs, vframes = build_entry_inputs(
-        entry, base_dir, thinking, data_loading, model_name, gemma_legacy_thinking)
+        entry, base_dir, thinking, data_loading, model_name,
+        gemma_legacy_thinking, num_frames)
     _is_gemma = "gemma" in model_name.lower()
     if _is_gemma and thinking and not gemma_legacy_thinking:
         msgs = [{"role": "system", "content": "<|think|>"}, {"role": "user", "content": content}]
@@ -491,7 +593,7 @@ def _run_one(model, processor, entry: dict, base_dir: str,
         proc_kwargs["audio"] = audio_list
     if imgs:
         proc_kwargs["images"] = imgs
-    if vframes is not None and len(vframes) > 0:
+    if not _is_gemma and vframes is not None and len(vframes) > 0:
         proc_kwargs["videos"] = [vframes]
         nf = _video_num_frames_override([vframes], processor, num_frames)
         if nf is not None:
