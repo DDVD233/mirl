@@ -36,7 +36,7 @@ LABEL_MAP_PATH="$SCRIPT_DIR/../sft/label_maps/unified_label_map.json"
 
 # GPUs to use. Leave empty to auto-detect all available GPUs.
 # Example: GPUS=(0 1)  or  GPUS=(2 3 4 5)
-GPUS=(2 3 4 6)
+GPUS=(2 6 7)
 
 # Number of concurrent inference jobs per GPU.
 # TOTAL_SHARDS = NUM_GPUS × JOBS_PER_GPU — increase when VRAM allows multiple processes.
@@ -86,14 +86,24 @@ TORCH_COMPILE=0
 EXTRA_ARGS=""
 
 # Wandb logging (leave empty to disable)
-WANDB_PROJECT=""      # e.g. "hb-eval"
-WANDB_RUN_NAME=""     # e.g. "gemma4_test"
+WANDB_PROJECT="hb_eval"      # e.g. "hb-eval"
+WANDB_RUN_NAME="gemma4_test"     # e.g. "gemma4_test"
 WANDB_ENTITY=""       # e.g. "my-team"
 
 # Gemma thinking mode:
 #   0 = native Gemma thinking: <|think|> system prompt + Gemma instruction (default)
 #   1 = legacy thinking: shared THINKING_INSTRUCTION with <think></think> tags
 GEMMA_LEGACY_THINKING=1
+
+# Resume: set to a directory of prior shard output JSONLs to skip already-done entries.
+# The script scans every *.jsonl in that dir, collects valid predictions, and runs
+# inference only on what remains. Leave empty for a fresh run (if shards from a previous
+# run exist at the same output paths, they will be auto-resumed automatically).
+RESUME_DIR="/home/keaneong/human-behavior/verl/verl_independent_test_eval/results"
+
+# Set to 1 to skip inference entirely and jump straight to merge + metrics.
+# Combined with RESUME_DIR, merges from that directory instead of OUTPUT_DIR.
+MERGE_ONLY=0
 
 # ── END CONFIG ────────────────────────────────────────────────────────────────
 
@@ -103,6 +113,13 @@ RUN_TIMESTAMP="$(date +%Y-%m-%d_%H-%M-%S)"
 MODEL_SLUG="${MODEL_NAME//\//_}"
 OUT_BASE="$OUTPUT_DIR/${MODEL_SLUG}"
 LOG_DIR="$OUTPUT_DIR/logs/$RUN_TIMESTAMP"
+
+# Merge source: if MERGE_ONLY + RESUME_DIR, merge the prior dir; otherwise OUT_BASE.
+if [[ "$MERGE_ONLY" == "1" && -n "$RESUME_DIR" ]]; then
+    MERGE_SHARD_PATTERN="${RESUME_DIR}/${MODEL_SLUG}_shard*.jsonl"
+else
+    MERGE_SHARD_PATTERN="${OUT_BASE}_shard*.jsonl"
+fi
 
 # ── Validation ────────────────────────────────────────────────────────────────
 [[ -f "$INPUT_JSONL"    ]] || { echo "[ERROR] Missing input JSONL: $INPUT_JSONL"; exit 1; }
@@ -162,6 +179,10 @@ gemma_legacy_flag() {
     [[ "$GEMMA_LEGACY_THINKING" == "1" ]] && echo "--gemma_legacy_thinking" || echo ""
 }
 
+resume_dir_flag() {
+    [[ -n "$RESUME_DIR" ]] && echo "--resume_dir $RESUME_DIR" || echo ""
+}
+
 sampling_args() {
     if [[ -n "$TEMPERATURE" && "$TEMPERATURE" != "0" ]]; then
         local args="--temperature $TEMPERATURE"
@@ -174,12 +195,15 @@ sampling_args() {
 
 # ── Inference ─────────────────────────────────────────────────────────────────
 
+if [[ "$MERGE_ONLY" != "1" ]]; then
+
 echo ""
 echo "============================================================"
 echo "  Model   : $MODEL_NAME"
 echo "  Input   : $INPUT_JSONL"
 echo "  GPUs    : ${GPUS[*]}  |  jobs/GPU: $JOBS_PER_GPU  |  shards: $TOTAL_SHARDS"
 echo "  bs      : $BATCH_SIZE  |  data_loading: $DATA_LOADING  |  num_frames: ${NUM_FRAMES:-auto}"
+[[ -n "$RESUME_DIR" ]] && echo "  Resume  : $RESUME_DIR"
 echo "============================================================"
 
 pids=()
@@ -204,6 +228,7 @@ for (( shard=0; shard<TOTAL_SHARDS; shard++ )); do
         $(sampling_args) \
         $(num_frames_flag "$NUM_FRAMES") \
         $(gemma_legacy_flag) \
+        $(resume_dir_flag) \
         $EXTRA_ARGS \
         &> "$LOG_DIR/${MODEL_SLUG}_shard${shard}.log" &
 
@@ -258,6 +283,8 @@ fi
 
 echo "All shards done."
 
+fi  # end MERGE_ONLY guard
+
 # ── Merge + compute unified metrics ──────────────────────────────────────────
 MERGED_OUT="${OUT_BASE}_merged.jsonl"
 METRICS_OUT="${OUT_BASE}_metrics.json"
@@ -265,7 +292,7 @@ JUDGE_OUT="${OUT_BASE}_judge.json"
 
 echo "Merging shards → $MERGED_OUT"
 python "$EVAL" \
-    --merge_shards   "${OUT_BASE}_shard*.jsonl" \
+    --merge_shards   "$MERGE_SHARD_PATTERN" \
     --output_jsonl   "$MERGED_OUT" \
     --model_name     "$MODEL_NAME" \
     --label_map_path "$LABEL_MAP_PATH" \
@@ -274,8 +301,10 @@ python "$EVAL" \
     $(wandb_args)
 
 # ── Clean up shard files ──────────────────────────────────────────────────────
-rm -f "${OUT_BASE}_shard"*.jsonl "${OUT_BASE}_shard"*.jsonl.progress
-echo "Shard files deleted."
+if [[ "$MERGE_ONLY" != "1" ]]; then
+    rm -f "${OUT_BASE}_shard"*.jsonl "${OUT_BASE}_shard"*.jsonl.progress
+    echo "Shard files deleted."
+fi
 
 echo ""
 echo "Done."

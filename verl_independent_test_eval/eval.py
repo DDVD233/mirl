@@ -35,6 +35,7 @@ import re
 import sys
 import traceback
 
+import numpy as np
 import torch
 from PIL import Image
 from tqdm import tqdm
@@ -240,6 +241,8 @@ def build_entry_inputs(entry: dict, base_dir: str, thinking: bool,
         if entry.get("videos") and "<video>" in problem:
             video_frames = _default_load_video_frames(entry["videos"], base_dir)
             if video_frames:
+                if is_gemma:
+                    video_frames = np.stack(video_frames, axis=0)  # (T, H, W, C)
                 content.append({"type": "video", "video": video_frames})
 
         # Gemma's processor checks that audio soft tokens in input_ids match the
@@ -919,9 +922,43 @@ def main(args):
     model_key    = f"predicted_answer_{args.model_name.replace('/', '_')}"
     response_key = f"model_response_{args.model_name.replace('/', '_')}"
 
+    _done: dict[int, dict] = {}
+
+    resume_dir = getattr(args, "resume_dir", None)
+    if resume_dir and os.path.isdir(resume_dir):
+        # Scan every .jsonl in the directory; an entry counts as done only if
+        # the raw model response is non-empty (empty = error-handler fallback).
+        shard_files = sorted(glob.glob(os.path.join(resume_dir, "*.jsonl")))
+        for _p in shard_files:
+            with open(_p, "r", encoding="utf-8") as _rf:
+                for _ln in _rf:
+                    if not _ln.strip():
+                        continue
+                    _e = json.loads(_ln)
+                    if "_orig_idx" in _e and _e.get(response_key, ""):
+                        _done[_e["_orig_idx"]] = _e
+        print(f"Resume dir  : {len(_done)} valid prediction(s) across "
+              f"{len(shard_files)} file(s) in {resume_dir}")
+    elif os.path.isfile(args.output_jsonl):
+        # No resume_dir given — auto-resume within this run's own output file.
+        with open(args.output_jsonl, "r", encoding="utf-8") as _rf:
+            for _ln in _rf:
+                if not _ln.strip():
+                    continue
+                _e = json.loads(_ln)
+                if "_orig_idx" in _e and _e.get(response_key, ""):
+                    _done[_e["_orig_idx"]] = _e
+        if _done:
+            print(f"Auto-resume : {len(_done)} valid prediction(s) from {args.output_jsonl}")
+
+    for e in entries:
+        if e.get("_orig_idx") in _done:
+            e[model_key]    = _done[e["_orig_idx"]][model_key]
+            e[response_key] = _done[e["_orig_idx"]].get(response_key, "")
+
     pending_idx = [i for i, e in enumerate(entries) if model_key not in e]
     if len(pending_idx) < len(entries):
-        print(f"Resuming: {len(entries) - len(pending_idx)} done, "
+        print(f"Resuming    : {len(entries) - len(pending_idx)} done, "
               f"{len(pending_idx)} remaining.")
 
     # ── Load model ────────────────────────────────────────────────────────────
@@ -1058,6 +1095,14 @@ if __name__ == "__main__":
     parser.add_argument("--num_frames", type=int, default=None,
                         help="Force a fixed num_frames for video processing. "
                              "Gemma4 defaults to 32; reduce to cut memory on longer clips.")
+
+    # Resume
+    parser.add_argument("--resume_dir", default=None,
+                        help="Directory containing prior shard output JSONLs. "
+                             "The script scans all *.jsonl files there, collects every entry "
+                             "that has a valid (non-empty) model response, and skips those on "
+                             "this run. Use this to resume after a partial or crashed multi-shard "
+                             "run without having to specify shard indices.")
 
     # Misc
     parser.add_argument("--max_samples", type=int, default=None,
