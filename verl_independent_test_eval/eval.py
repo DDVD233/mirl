@@ -143,42 +143,6 @@ def _default_load_video_frames(video_paths: list[str], base_dir: str,
     return frames
 
 
-def _normalize_video_for_processor(vframes, is_gemma: bool):
-    """Normalize one video's frames before passing them to HF processors.
-
-    Gemma's video processor expects one video to be a sequence of HWC frames. A
-    raw 4-D array is iterable, so passing (T,H,W,C) directly can be misread as T
-    separate 3-D videos and trigger a 4-D permute on a single frame.
-    """
-    if not is_gemma:
-        return vframes
-
-    if isinstance(vframes, torch.Tensor):
-        vframes = vframes.detach().cpu().numpy()
-
-    if isinstance(vframes, np.ndarray):
-        if vframes.ndim == 4:
-            if vframes.shape[-1] in (1, 3, 4):
-                return [vframes[i] for i in range(vframes.shape[0])]
-            if vframes.shape[1] in (1, 3, 4):
-                return [np.transpose(vframes[i], (1, 2, 0)) for i in range(vframes.shape[0])]
-        return vframes
-
-    if isinstance(vframes, list):
-        frames = []
-        for frame in vframes:
-            if isinstance(frame, torch.Tensor):
-                frame = frame.detach().cpu().numpy()
-            if (isinstance(frame, np.ndarray) and frame.ndim == 3
-                    and frame.shape[0] in (1, 3, 4)
-                    and frame.shape[-1] not in (1, 3, 4)):
-                frame = np.transpose(frame, (1, 2, 0))
-            frames.append(frame)
-        return frames
-
-    return vframes
-
-
 def _verl_load_video(path: str, base_dir: str, nframes: int = 4,
                      min_pixels: int = 147456, max_pixels: int = 147456) -> torch.Tensor:
     """Returns [T,3,H,W] uint8 tensor via qwen_vl_utils.fetch_video — matches training."""
@@ -462,7 +426,7 @@ def run_batch(model, processor, entries: list[dict], base_dir: str,
             else:
                 batch_images.extend(imgs)
             if vframes is not None and len(vframes) > 0:
-                batch_videos.append(_normalize_video_for_processor(vframes, _is_gemma))
+                batch_videos.append(vframes)
 
         proc_kwargs = dict(text=texts, return_tensors="pt", padding=True)
         if batch_audios:
@@ -471,7 +435,7 @@ def run_batch(model, processor, entries: list[dict], base_dir: str,
             proc_kwargs["images"] = batch_images
         if batch_videos:
             proc_kwargs["videos"] = batch_videos
-            nf = _video_num_frames_override(batch_videos, processor, num_frames)
+            nf = num_frames if num_frames is not None else _video_num_frames_override(batch_videos, processor)
             if nf is not None:
                 proc_kwargs["num_frames"] = nf
 
@@ -528,9 +492,8 @@ def _run_one(model, processor, entry: dict, base_dir: str,
     if imgs:
         proc_kwargs["images"] = imgs
     if vframes is not None and len(vframes) > 0:
-        proc_vframes = _normalize_video_for_processor(vframes, _is_gemma)
-        proc_kwargs["videos"] = [proc_vframes]
-        nf = _video_num_frames_override([proc_vframes], processor, num_frames)
+        proc_kwargs["videos"] = [vframes]
+        nf = num_frames if num_frames is not None else _video_num_frames_override([vframes], processor)
         if nf is not None:
             proc_kwargs["num_frames"] = nf
 
