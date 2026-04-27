@@ -19,7 +19,7 @@ EVAL_PLAN=(
   # "/scratch/keane/human_behaviour/v2_emagrpo_engaging_baseline|global_step_350|val|emagrpo"
   # "/scratch/keane/human_behaviour/v2_emagrpo_engaging_baseline|global_step_400|val|emagrpo"
   "/scratch/keane/human_behaviour/v2_emagrpo_engaging_baseline|global_step_450|val|emagrpo"
-  "/scratch/keane/human_behaviour/v2_emagrpo_engaging_baseline|global_step_500|test|emagrpo"
+  "/scratch/keane/human_behaviour/v2_emagrpo_engaging_baseline|global_step_500|val|emagrpo"
 )
 
 TRAIN_FILE="/scratch/keane/human_behaviour/human_behaviour_data/final_v8_train_cleaned_2.jsonl"
