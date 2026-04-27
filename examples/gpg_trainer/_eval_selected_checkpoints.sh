@@ -18,8 +18,12 @@ EVAL_PLAN=(
   # "/scratch/keane/human_behaviour/v2_emagrpo_engaging_baseline|global_step_300|val|emagrpo"
   # "/scratch/keane/human_behaviour/v2_emagrpo_engaging_baseline|global_step_350|val|emagrpo"
   # "/scratch/keane/human_behaviour/v2_emagrpo_engaging_baseline|global_step_400|val|emagrpo"
-  "/scratch/keane/human_behaviour/v2_emagrpo_engaging_baseline|global_step_450|val|emagrpo"
-  "/scratch/keane/human_behaviour/v2_emagrpo_engaging_baseline|global_step_500|val|emagrpo"
+  # "/scratch/keane/human_behaviour/v2_emagrpo_engaging_baseline|global_step_450|val|emagrpo"
+  # "/scratch/keane/human_behaviour/v2_emagrpo_engaging_baseline|global_step_500|val|emagrpo"
+  "/scratch/keane/human_behaviour/grpo_engaging_baseline_4_gpus|global_step_300|val|grpo"
+  "/scratch/keane/human_behaviour/grpo_engaging_baseline_4_gpus|global_step_350|val|grpo"
+  "/scratch/keane/human_behaviour/grpo_engaging_baseline_4_gpus|global_step_400|val|grpo"
+  "/scratch/keane/human_behaviour/grpo_engaging_baseline_4_gpus|global_step_450|val|grpo"
 )
 
 TRAIN_FILE="/scratch/keane/human_behaviour/human_behaviour_data/final_v8_train_cleaned_2.jsonl"
@@ -29,8 +33,8 @@ TEST_FILE="/scratch/keane/human_behaviour/human_behaviour_data/final_v8_test_cle
 VAL_BATCH_SIZE=64
 TEST_BATCH_SIZE=64
 
-CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0,1}"
-N_GPUS_PER_NODE=2
+CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0,1,2,3}"
+N_GPUS_PER_NODE=4
 GPU_MEMORY_UTILIZATION=0.6
 DATALOADER_NUM_WORKERS=4
 # ============================================

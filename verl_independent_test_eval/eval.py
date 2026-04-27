@@ -427,7 +427,7 @@ def run_batch(model, processor, entries: list[dict], base_dir: str,
                     batch_images.append(imgs)
             else:
                 batch_images.extend(imgs)
-            if vframes:
+            if vframes is not None and len(vframes) > 0:
                 batch_videos.append(vframes)
 
         proc_kwargs = dict(text=texts, return_tensors="pt", padding=True)
@@ -493,7 +493,7 @@ def _run_one(model, processor, entry: dict, base_dir: str,
         proc_kwargs["audio"] = audio_list
     if imgs:
         proc_kwargs["images"] = imgs
-    if vframes:
+    if vframes is not None and len(vframes) > 0:
         proc_kwargs["videos"] = [vframes]
         nf = _video_num_frames_override([vframes], processor, num_frames)
         if nf is not None:
@@ -935,7 +935,7 @@ def main(args):
                     if not _ln.strip():
                         continue
                     _e = json.loads(_ln)
-                    if "_orig_idx" in _e and _e.get(response_key, ""):
+                    if "_orig_idx" in _e and _e.get(response_key, "").strip() and _e.get(model_key, ""):
                         _done[_e["_orig_idx"]] = _e
         print(f"Resume dir  : {len(_done)} valid prediction(s) across "
               f"{len(shard_files)} file(s) in {resume_dir}")
@@ -946,7 +946,7 @@ def main(args):
                 if not _ln.strip():
                     continue
                 _e = json.loads(_ln)
-                if "_orig_idx" in _e and _e.get(response_key, ""):
+                if "_orig_idx" in _e and _e.get(response_key, "").strip() and _e.get(model_key, ""):
                     _done[_e["_orig_idx"]] = _e
         if _done:
             print(f"Auto-resume : {len(_done)} valid prediction(s) from {args.output_jsonl}")
