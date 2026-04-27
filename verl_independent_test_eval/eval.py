@@ -435,7 +435,7 @@ def run_batch(model, processor, entries: list[dict], base_dir: str,
             proc_kwargs["images"] = batch_images
         if batch_videos:
             proc_kwargs["videos"] = batch_videos
-            nf = num_frames if num_frames is not None else _video_num_frames_override(batch_videos, processor)
+            nf = _video_num_frames_override(batch_videos, processor, num_frames)
             if nf is not None:
                 proc_kwargs["num_frames"] = nf
 
@@ -493,7 +493,7 @@ def _run_one(model, processor, entry: dict, base_dir: str,
         proc_kwargs["images"] = imgs
     if vframes is not None and len(vframes) > 0:
         proc_kwargs["videos"] = [vframes]
-        nf = num_frames if num_frames is not None else _video_num_frames_override([vframes], processor)
+        nf = _video_num_frames_override([vframes], processor, num_frames)
         if nf is not None:
             proc_kwargs["num_frames"] = nf
 
