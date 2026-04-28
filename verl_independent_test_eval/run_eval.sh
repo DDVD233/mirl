@@ -75,7 +75,7 @@ NUM_FRAMES="4"
 
 # Smoke test: take N random samples from every dataset (empty = disabled).
 # Ensures all dataset code paths are exercised. Takes priority over MAX_SAMPLES.
-SMOKE_N_PER_DATASET=""   # e.g. "2" for a quick smoke test across all datasets
+SMOKE_N_PER_DATASET="4"   # e.g. "2" for a quick smoke test across all datasets
 
 # Optional: cap samples by absolute count (empty = full run).
 # Use SMOKE_N_PER_DATASET instead for a balanced smoke test.
@@ -101,7 +101,7 @@ GEMMA_LEGACY_THINKING=1
 # The script scans every *.jsonl in that dir, collects valid predictions, and runs
 # inference only on what remains. Leave empty for a fresh run (if shards from a previous
 # run exist at the same output paths, they will be auto-resumed automatically).
-RESUME_DIR="/home/keaneong/human-behavior/verl/verl_independent_test_eval/results"
+RESUME_DIR=""
 
 # Set to 1 to skip inference entirely and jump straight to merge + metrics.
 # Merges per-dataset shard files from RESUME_DIR (if set) or OUTPUT_DIR.

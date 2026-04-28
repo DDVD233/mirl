@@ -149,7 +149,8 @@ def _video_num_frames_override(vframes_list: list, processor, requested: int | N
 
 
 def _default_load_video_frames(video_paths: list[str], base_dir: str,
-                                fps: float = 1.0, max_frames: int = 32) -> list:
+                                max_frames: int = 32) -> list:
+    """Sample up to max_frames frames uniformly via linspace; handles short videos naturally."""
     try:
         from decord import VideoReader, cpu
     except ImportError:
@@ -159,9 +160,10 @@ def _default_load_video_frames(video_paths: list[str], base_dir: str,
         try:
             with _media_timeout(path=p):
                 vr = VideoReader(_resolve(p, base_dir), ctx=cpu(0))
-                stride = max(1, int(vr.get_avg_fps() / fps))
-                indices = list(range(0, len(vr), stride))[:max_frames]
-                frames.extend(vr[i].asnumpy() for i in indices)
+                if len(vr) > 0:
+                    n = min(max_frames, len(vr))
+                    indices = np.linspace(0, len(vr) - 1, num=n, dtype=int).tolist()
+                    frames.extend(vr[i].asnumpy() for i in indices)
         except Exception as e:
             print(f"[WARN] Failed to load video {p}: {e}; skipping frames.")
     return frames
@@ -214,25 +216,6 @@ def _frames_to_fixed_rgb_images(frames, num_frames: int,
         images.append(Image.new("RGB", pad_size))
     return images
 
-
-def _load_video_frame_images(path: str, base_dir: str, num_frames: int) -> list[Image.Image]:
-    """Sample exactly num_frames video frames as images, padding short videos."""
-    try:
-        from decord import VideoReader, cpu
-    except ImportError:
-        raise ImportError("pip install decord")
-
-    frames = []
-    try:
-        with _media_timeout(path=path):
-            vr = VideoReader(_resolve(path, base_dir), ctx=cpu(0))
-            if len(vr) > 0:
-                n = min(num_frames, len(vr))
-                indices = np.linspace(0, len(vr) - 1, num=n, dtype=int).tolist()
-                frames = [vr[i].asnumpy() for i in indices]
-    except Exception as e:
-        print(f"[WARN] Failed to load video frames {path}: {e}; substituting blank frames.")
-    return _frames_to_fixed_rgb_images(frames, num_frames)
 
 
 def _verl_load_video(path: str, base_dir: str, nframes: int = 4,
@@ -336,37 +319,13 @@ def build_entry_inputs(entry: dict, base_dir: str, thinking: bool,
             for img in pil_images:
                 content.append({"type": "image", "image": img})
 
-        # BUG FIX (from inference.py): was "[video]" — data uses <video> tags
+        # Video: sample up to num_frames frames uniformly; processor handles the rest.
+        # For Gemma, num_frames is passed to the processor as a kwarg in run_batch/_run_one.
         if entry.get("videos") and "<video>" in problem:
-            if is_gemma:
-                video_frame_images = [
-                    _load_video_frame_images(p, base_dir, gemma_video_frame_count)
-                    for p in entry["videos"]
-                ]
-                vid_idx = aud_idx = 0
-                for seg in re.split(r"(<video>|<audio>)", problem):
-                    if seg == "<video>":
-                        if vid_idx < len(video_frame_images):
-                            for img in video_frame_images[vid_idx]:
-                                content.append({"type": "image", "image": img})
-                                pil_images.append(img)
-                            vid_idx += 1
-                    elif seg == "<audio>" and audio_list and aud_idx < len(audio_list):
-                        content.append({"type": "audio", "audio": audio_list[aud_idx]})
-                        aud_idx += 1
-                    elif seg:
-                        content.append({"type": "text", "text": seg})
-                while vid_idx < len(video_frame_images):
-                    for img in video_frame_images[vid_idx]:
-                        content.append({"type": "image", "image": img})
-                        pil_images.append(img)
-                    vid_idx += 1
-                content.append({"type": "text", "text": instruction})
-                return content, audio_list, pil_images, []
-            else:
-                video_frames = _default_load_video_frames(entry["videos"], base_dir)
-                if video_frames:
-                    content.append({"type": "video", "video": video_frames})
+            _max = num_frames if num_frames is not None else 32
+            video_frames = _default_load_video_frames(entry["videos"], base_dir, max_frames=_max)
+            if video_frames:
+                content.append({"type": "video", "video": video_frames})
 
         # Gemma's processor checks that audio soft tokens in input_ids match the
         # number of extracted audio features. Embedding audio dicts in the content
@@ -551,7 +510,7 @@ def run_batch(model, processor, entries: list[dict], base_dir: str,
                     batch_images.append(imgs)
             else:
                 batch_images.extend(imgs)
-            if not _is_gemma and vframes is not None and len(vframes) > 0:
+            if vframes is not None and len(vframes) > 0:
                 batch_videos.append(vframes)
 
         proc_kwargs = dict(text=texts, return_tensors="pt", padding=True)
@@ -618,7 +577,7 @@ def _run_one(model, processor, entry: dict, base_dir: str,
         proc_kwargs["audio"] = audio_list
     if imgs:
         proc_kwargs["images"] = imgs
-    if not _is_gemma and vframes is not None and len(vframes) > 0:
+    if vframes is not None and len(vframes) > 0:
         proc_kwargs["videos"] = [vframes]
         nf = _video_num_frames_override([vframes], processor, num_frames)
         if nf is not None:
@@ -1037,6 +996,7 @@ def main(args):
         e.setdefault("_orig_idx", i)
 
     # ── Sharding ──────────────────────────────────────────────────────────────
+    lo = 0
     if args.num_shards > 1:
         shard_size = (len(all_entries) + args.num_shards - 1) // args.num_shards
         lo = args.shard_idx * shard_size
