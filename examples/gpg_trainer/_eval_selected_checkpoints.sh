@@ -22,8 +22,8 @@ EVAL_PLAN=(
   # "/scratch/keane/human_behaviour/v2_emagrpo_engaging_baseline|global_step_500|val|emagrpo|2"
   # "/scratch/keane/human_behaviour/grpo_engaging_baseline_4_gpus|global_step_300|val|grpo|4"
   # "/scratch/keane/human_behaviour/grpo_engaging_baseline_4_gpus|global_step_350|val|grpo|4"
-  # "/scratch/keane/human_behaviour/grpo_engaging_baseline_4_gpus|global_step_400|val|grpo|4"
-  # "/scratch/keane/human_behaviour/grpo_engaging_baseline_4_gpus|global_step_450|val|grpo|4"
+  "/scratch/keane/human_behaviour/grpo_engaging_baseline_4_gpus|global_step_400|val|grpo|4"
+  "/scratch/keane/human_behaviour/grpo_engaging_baseline_4_gpus|global_step_450|val|grpo|4"
   "/scratch/keane/human_behaviour/v2_emagrpo_engaging_baseline|global_step_350|test|emagrpo|2"
 )
 
