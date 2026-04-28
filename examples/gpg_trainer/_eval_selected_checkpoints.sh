@@ -142,7 +142,7 @@ for entry in "${EVAL_PLAN[@]}"; do
   echo "Resume from: $checkpoint_dir"
   echo "Validation dir: $validation_dir"
   echo "Experiment name: $experiment_name"
-  echo "N GPUs per node: $effective_n_gpus"
+  echo "N GPUs per node: $entry_n_gpus"
   echo "=================================================="
 
   python3 -m verl.trainer.main_ppo \
