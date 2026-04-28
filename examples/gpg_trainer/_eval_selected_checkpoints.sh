@@ -145,6 +145,7 @@ for entry in "${EVAL_PLAN[@]}"; do
   echo "N GPUs per node: $entry_n_gpus"
   echo "=================================================="
 
+  ray stop --force 2>/dev/null || true
   python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator="$adv_estimator" \
     data.train_files="$TRAIN_FILE" \
