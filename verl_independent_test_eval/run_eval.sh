@@ -38,7 +38,7 @@ LABEL_MAP_PATH="$SCRIPT_DIR/../sft/label_maps/unified_label_map.json"
 
 # GPUs to use. Leave empty to auto-detect all available GPUs.
 # Example: GPUS=(0 1)  or  GPUS=(2 3 4 5)
-GPUS=(1 3 7)
+GPUS=(1 3)
 
 # Number of concurrent inference jobs per GPU.
 # TOTAL_SHARDS = NUM_GPUS × JOBS_PER_GPU — increase when VRAM allows multiple processes.
