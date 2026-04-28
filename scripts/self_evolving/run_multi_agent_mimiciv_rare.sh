@@ -26,6 +26,8 @@ export MILVUS_URI="${MILVUS_URI:-http://mib.media.mit.edu:19531}"
 export MILVUS_TOKEN="${MILVUS_TOKEN:-root:Milvus}"
 export DATA_DIR="${DATA_DIR:-/scratch/self_evolving_datasets/mimiciv_rare}"
 export EXPERIMENT_NAME="${EXPERIMENT_NAME:-mimiciv_rare_multi_agent_qwen3vl8b}"
+# BioBERT similarity server (optional; reward gracefully degrades to 0 if unset).
+export BIOBERT_API_BASE="${BIOBERT_API_BASE:-http://localhost:8003}"
 
 unset RAY_ADDRESS 2>/dev/null || true
 
@@ -69,6 +71,7 @@ PYTHON_BIN="${PYTHON_BIN:-python3}"
     +reward.custom_reward_function.reward_kwargs.api_base="$API_BASE" \
     +reward.custom_reward_function.reward_kwargs.api_key="$API_KEY" \
     +reward.custom_reward_function.reward_kwargs.model_name="$MODEL_NAME" \
+    +reward.custom_reward_function.reward_kwargs.biobert_api_base="$BIOBERT_API_BASE" \
     reward.reward_manager.name=dapo \
     +reward.reward_kwargs.overlong_buffer_cfg.enable=True \
     +reward.reward_kwargs.overlong_buffer_cfg.len=256 \

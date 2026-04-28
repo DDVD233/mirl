@@ -69,11 +69,16 @@ if the model's extracted answer is correct.
 Output ONLY one of: "correct" or "incorrect"."""
 
 
-# Reward component weights (sum to 1.0)
-ACCURACY_WEIGHT = 0.3
-REASONING_WEIGHT = 0.2
-ANSWER_QUALITY_WEIGHT = 0.3
-FORMAT_WEIGHT = 0.2
+# Reward component weights (sum to 1.0).
+# biobert_sim and char_bleu are smooth surrogates that fire even when the
+# discrete accuracy/answer_quality signals collapse to 0; they're what
+# keep reward shaping above the noise floor while accuracy is still ~0.
+ACCURACY_WEIGHT = 0.20
+REASONING_WEIGHT = 0.15
+ANSWER_QUALITY_WEIGHT = 0.20
+FORMAT_WEIGHT = 0.15
+BIOBERT_SIM_WEIGHT = 0.20
+CHAR_BLEU_WEIGHT = 0.10
 
 DEBUG_PRINT_PROB = 0.01
 
@@ -192,6 +197,62 @@ async def judge_answer_quality(
         return 1.0
 
 
+async def biobert_similarity(
+    biobert_api_base: str, prediction: str, reference: str,
+) -> float:
+    """Cosine similarity between prediction and reference via BioBERT server.
+
+    Returns a value in [0, 1] (negative cosines clamped to 0). Returns 0 if
+    either input is empty or the server is unreachable.
+    """
+    if not biobert_api_base or not prediction or not reference:
+        return 0.0
+    url = f"{biobert_api_base.rstrip('/')}/v1/similarity"
+    timeout = aiohttp.ClientTimeout(total=15)
+    try:
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.post(url, json={"text1": prediction, "text2": reference}) as resp:
+                resp.raise_for_status()
+                data = await resp.json()
+                sim = float(data.get("similarity", 0.0))
+                return max(0.0, min(1.0, sim))
+    except Exception as e:
+        logger.warning(f"biobert_similarity failed: {e}")
+        return 0.0
+
+
+def char_bleu(prediction: str, reference: str) -> float:
+    """Character-level BLEU-4 with smoothing, returns a value in [0, 1].
+
+    Robust to short strings via NLTK's smoothing method 1, which dampens
+    the harsh zero-precision behaviour BLEU otherwise has on tiny outputs.
+    """
+    if not prediction or not reference:
+        return 0.0
+    try:
+        from nltk.translate.bleu_score import SmoothingFunction, sentence_bleu
+    except Exception as e:
+        logger.warning(f"char_bleu: nltk unavailable: {e}")
+        return 0.0
+    pred_chars = list(prediction.lower())
+    ref_chars = list(reference.lower())
+    if not pred_chars or not ref_chars:
+        return 0.0
+    smooth = SmoothingFunction().method1
+    try:
+        return float(
+            sentence_bleu(
+                [ref_chars],
+                pred_chars,
+                weights=(0.25, 0.25, 0.25, 0.25),
+                smoothing_function=smooth,
+            )
+        )
+    except Exception as e:
+        logger.warning(f"char_bleu failed: {e}")
+        return 0.0
+
+
 async def judge_correctness(
     api_base: str, api_key: str, model_name: str,
     question: str, context: str, response: str, extracted_answer: str,
@@ -226,6 +287,7 @@ async def compute_score(
     api_base: str = "",
     api_key: str = "EMPTY",
     model_name: str = "",
+    biobert_api_base: str = "",
     **kwargs,
 ) -> dict:
     """Compute composite reward.
@@ -236,8 +298,13 @@ async def compute_score(
       with ground truth. For no-label mode, derived from judge_correctness (5 or 1).
     - reasoning_quality (1-5 → normalized to 0-1): LLM-judged reasoning quality.
     - format_ok (0-1): \\boxed{} format present.
+    - biobert_sim (0-1): cosine similarity between extracted answer and ground truth
+      under a BioBERT sentence-transformer (smooth signal; 0 if server unreachable).
+    - char_bleu (0-1): character-level BLEU-4 with smoothing between extracted answer
+      and ground truth (smooth signal that fires when accuracy collapses to 0).
 
-    composite = 0.3*acc + 0.3*(answer_q/5) + 0.2*(reasoning/5) + 0.2*format
+    composite = 0.20*acc + 0.20*(answer_q/5) + 0.15*(reasoning/5) + 0.15*format
+              + 0.20*biobert_sim + 0.10*char_bleu
     """
     extra_info = extra_info or {}
     question = extra_info.get("question", "")
@@ -287,12 +354,26 @@ async def compute_score(
             response=solution_str, ground_truth=ground_truth,
         )
 
-    # 5. Composite
+    # 5. BioBERT semantic similarity (smooth signal)
+    bio_sim = 0.0
+    if biobert_api_base and ground_truth and extracted_answer:
+        bio_sim = await biobert_similarity(
+            biobert_api_base, extracted_answer, ground_truth
+        )
+
+    # 6. Character-level BLEU (smooth signal, in-process)
+    char_bleu_score = 0.0
+    if ground_truth and extracted_answer:
+        char_bleu_score = char_bleu(extracted_answer, ground_truth)
+
+    # 7. Composite
     score = (
         ACCURACY_WEIGHT * accuracy
         + ANSWER_QUALITY_WEIGHT * (answer_quality / 5.0)
         + REASONING_WEIGHT * (reasoning_score / 5.0)
         + FORMAT_WEIGHT * format_ok
+        + BIOBERT_SIM_WEIGHT * bio_sim
+        + CHAR_BLEU_WEIGHT * char_bleu_score
     )
 
     if random.random() < DEBUG_PRINT_PROB:
@@ -303,7 +384,8 @@ async def compute_score(
         print(f"  ground_truth: {ground_truth!r}")
         print(f"  extracted: {extracted_answer!r}")
         print(f"  accuracy={accuracy:.1f}  answer_q={answer_quality:.1f}  "
-              f"reasoning={reasoning_score:.1f}  format={format_ok:.1f}")
+              f"reasoning={reasoning_score:.1f}  format={format_ok:.1f}  "
+              f"bio_sim={bio_sim:.2f}  char_bleu={char_bleu_score:.2f}")
         print(f"  total_score={score:.3f}")
         print(f"  response (first 300): {solution_str[:300]}")
         print(f"{'=' * 60}\n")
@@ -314,5 +396,7 @@ async def compute_score(
         "answer_quality": answer_quality,
         "reasoning_quality": reasoning_score,
         "format_ok": format_ok,
+        "biobert_sim": bio_sim,
+        "char_bleu": char_bleu_score,
         "extracted_answer": extracted_answer or "",
     }
