@@ -75,7 +75,7 @@ NUM_FRAMES="4"
 
 # Smoke test: take N random samples from every dataset (empty = disabled).
 # Ensures all dataset code paths are exercised. Takes priority over MAX_SAMPLES.
-SMOKE_N_PER_DATASET="4"   # e.g. "2" for a quick smoke test across all datasets
+SMOKE_N_PER_DATASET=""   # e.g. "2" for a quick smoke test across all datasets
 
 # Optional: cap samples by absolute count (empty = full run).
 # Use SMOKE_N_PER_DATASET instead for a balanced smoke test.
@@ -89,7 +89,7 @@ EXTRA_ARGS=""
 
 # Wandb logging (leave empty to disable)
 WANDB_PROJECT="hb_eval"      # e.g. "hb-eval"
-WANDB_RUN_NAME="gemma4_test"     # e.g. "gemma4_test"
+WANDB_RUN_NAME="gemma4_test_full"     # e.g. "gemma4_test"
 WANDB_ENTITY=""       # e.g. "my-team"
 
 # Gemma thinking mode:
