@@ -76,7 +76,7 @@ NUM_FRAMES="4"
 # Only evaluate these specific datasets (empty = run all datasets found in INPUT_JSONL).
 # Example: ONLY_DATASETS=("msp_podcast" "cremad")
 # mosei_emotion, chsimsv2, mosei_senti
-ONLY_DATASETS=("mosei_emotion" "mosei_senti" "chsimsv2")
+ONLY_DATASETS=("mosei_senti")
 
 # Smoke test: take N random samples from every dataset (empty = disabled).
 # Ensures all dataset code paths are exercised. Takes priority over MAX_SAMPLES.
@@ -106,7 +106,7 @@ GEMMA_LEGACY_THINKING=1
 # The script scans every *.jsonl in that dir, collects valid predictions, and runs
 # inference only on what remains. Leave empty for a fresh run (if shards from a previous
 # run exist at the same output paths, they will be auto-resumed automatically).
-RESUME_DIR=""
+RESUME_DIR="/home/keaneong/human-behavior/verl/verl_independent_test_eval/results"
 # /human-behavior/verl/verl_independent_test_eval/results
 
 # Set to 1 to skip inference entirely and jump straight to merge + metrics.
