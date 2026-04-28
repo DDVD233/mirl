@@ -85,6 +85,10 @@ MEDIA_LOAD_TIMEOUT_SECS = 30  # seconds before a hanging media load is killed
 @contextmanager
 def _media_timeout(seconds: int = MEDIA_LOAD_TIMEOUT_SECS, path: str = ""):
     """SIGALRM-based timeout for media I/O that can hang on corrupted files."""
+    import threading as _th
+    if _th.current_thread() is not _th.main_thread():
+        yield  # SIGALRM unavailable in non-main thread; batch timeout covers this
+        return
     def _handler(sig, frame):
         raise TimeoutError(f"media load timed out after {seconds}s: {path}")
     old = signal.signal(signal.SIGALRM, _handler)
@@ -97,6 +101,35 @@ def _media_timeout(seconds: int = MEDIA_LOAD_TIMEOUT_SECS, path: str = ""):
 
 
 INFERENCE_TIMEOUT_SECS = 300  # seconds before a hanging model.generate() is abandoned
+BATCH_TIMEOUT_SECS = 600      # seconds per batch before it is abandoned and skipped
+
+
+def _run_batch_timed(timeout: int, *args, **kwargs) -> list[str]:
+    """Run run_batch() with a hard wall-clock timeout.
+
+    Uses a daemon thread so a stuck worker never blocks the main thread after
+    a timeout. The hung thread is left as a daemon and cleaned up on exit.
+    """
+    import threading as _th
+    result_box: list = [None]
+    exc_box:    list = [None]
+    done = _th.Event()
+
+    def _worker():
+        try:
+            result_box[0] = run_batch(*args, **kwargs)
+        except Exception as e:
+            exc_box[0] = e
+        finally:
+            done.set()
+
+    t = _th.Thread(target=_worker, daemon=True)
+    t.start()
+    if not done.wait(timeout=timeout if timeout > 0 else None):
+        raise RuntimeError(f"run_batch() hung for >{timeout}s — batch skipped")
+    if exc_box[0] is not None:
+        raise exc_box[0]
+    return result_box[0]
 
 
 def _generate_with_timeout(model, inputs: dict, max_new_tokens: int,
@@ -1086,6 +1119,17 @@ def main(args):
             for e in results:
                 wf.write(json.dumps(e, ensure_ascii=False) + "\n")
 
+    # Failed log: samples that timed out or errored are appended here so the
+    # file can be used directly as --input_jsonl on a follow-up run.
+    _failed_log = (
+        args.failed_log
+        if args.failed_log
+        else re.sub(r"\.jsonl$", "_failed.jsonl", args.output_jsonl)
+    )
+    os.makedirs(os.path.dirname(os.path.abspath(_failed_log)), exist_ok=True)
+    _failed_fh = open(_failed_log, "a", encoding="utf-8")
+    _n_failed = 0
+
     batch_size   = args.batch_size
     pending      = list(pending_idx)
     shard_offset = lo if args.num_shards > 1 else 0
@@ -1100,8 +1144,10 @@ def main(args):
             batch_indices = pending[batch_start: batch_start + batch_size]
             batch_entries = [results[i] for i in batch_indices]
 
+            _batch_exc: str | None = None
             try:
-                responses = run_batch(
+                responses = _run_batch_timed(
+                    args.batch_timeout,
                     model, processor, batch_entries, base_dir, thinking,
                     args.max_new_tokens, data_loading, sampling_kwargs,
                     args.model_name, args.num_frames,
@@ -1110,11 +1156,25 @@ def main(args):
             except Exception as exc:
                 print(f"\n[ERROR] Batch {batch_start}–{batch_start+len(batch_indices)-1}: {exc}")
                 traceback.print_exc()
+                _batch_exc = f"{exc.__class__.__name__}: {exc}"
                 responses = [""] * len(batch_entries)
 
-            for idx, resp in zip(batch_indices, responses):
+            for idx, (entry, resp) in zip(batch_indices, zip(batch_entries, responses)):
                 results[idx][response_key] = resp
                 results[idx][model_key]    = extract_answer(resp)
+
+                if not resp.strip():
+                    # Save original sample (without model keys) to failed log so
+                    # it can be fed back as --input_jsonl on a follow-up run.
+                    failed_entry = {k: v for k, v in entry.items()
+                                    if k not in (model_key, response_key)}
+                    if _batch_exc:
+                        failed_entry["_fail_reason"] = _batch_exc
+                    else:
+                        failed_entry["_fail_reason"] = "timeout_or_empty_response"
+                    _failed_fh.write(json.dumps(failed_entry, ensure_ascii=False) + "\n")
+                    _failed_fh.flush()
+                    _n_failed += 1
 
             pbar.update(len(batch_indices))
 
@@ -1129,8 +1189,11 @@ def main(args):
             if save_every > 0 and (batch_start // batch_size + 1) % save_every == 0:
                 flush()
 
+    _failed_fh.close()
     flush()
     print(f"\nSaved → {args.output_jsonl}")
+    if _n_failed:
+        print(f"Failed ({_n_failed}) → {_failed_log}  (re-run with --input_jsonl {_failed_log})")
 
 
 if __name__ == "__main__":
@@ -1225,6 +1288,14 @@ if __name__ == "__main__":
                              "takes priority over --max_samples)")
     parser.add_argument("--save_every", type=int, default=50,
                         help="Flush output JSONL every N batches (0 = only at end)")
+    parser.add_argument("--failed_log", default=None,
+                        help="Path for the failed-samples log JSONL. Samples that time out or "
+                             "error are appended here (without model keys) so the file can be "
+                             "used directly as --input_jsonl on a follow-up run. "
+                             "Default: <output_jsonl stem>_failed.jsonl")
+    parser.add_argument("--batch_timeout", type=int, default=BATCH_TIMEOUT_SECS,
+                        help="Seconds to wait for a single batch before skipping it and logging "
+                             "those samples as failed (0 = no limit, default: 600).")
 
     # Wandb
     parser.add_argument("--wandb_project",  default=None,
