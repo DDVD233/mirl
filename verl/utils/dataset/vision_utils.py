@@ -23,7 +23,10 @@ def process_image(image: dict | Image.Image, image_patch_size: int = 14) -> Imag
     from qwen_vl_utils import fetch_image
 
     if isinstance(image, Image.Image):
-        return image.convert("RGB")
+        try:
+            return image.convert("RGB")
+        except Exception:
+            return _placeholder_image()
 
     if "bytes" in image:
         assert "image" not in image, "Cannot have both `bytes` and `image`"
@@ -31,9 +34,24 @@ def process_image(image: dict | Image.Image, image_patch_size: int = 14) -> Imag
 
     try:
         ans = fetch_image(image, image_patch_size=image_patch_size)
+    except TypeError:
+        # Older qwen_vl_utils signature without image_patch_size
+        try:
+            ans = fetch_image(image)
+        except Exception:
+            ans = _placeholder_image()
     except Exception:
-        ans = fetch_image(image)
+        ans = _placeholder_image()
     return ans
+
+
+def _placeholder_image() -> Image.Image:
+    """Black 224x224 RGB placeholder for unreadable / corrupt images.
+
+    Returned in lieu of raising so that one bad chest X-ray or ECG render
+    does not kill an entire training run.
+    """
+    return Image.new("RGB", (224, 224), color=(0, 0, 0))
 
 
 VIDEO_FORMAT_HELP = """Currently, we only support the video formats introduced in qwen2-vl.
