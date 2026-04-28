@@ -17,14 +17,14 @@ PROJECT_NAME="rl_omni_heldout"
 EVAL_PLAN=(
   # "/scratch/keane/human_behaviour/22apr_gpg|global_step_400|test|gpg|4"
   # "/scratch/keane/human_behaviour/v2_emagrpo_engaging_baseline|global_step_300|val|emagrpo|2"
-  # "/scratch/keane/human_behaviour/v2_emagrpo_engaging_baseline|global_step_350|val|emagrpo|2"
   # "/scratch/keane/human_behaviour/v2_emagrpo_engaging_baseline|global_step_400|val|emagrpo|2"
-  "/scratch/keane/human_behaviour/v2_emagrpo_engaging_baseline|global_step_450|val|emagrpo|2"
-  "/scratch/keane/human_behaviour/v2_emagrpo_engaging_baseline|global_step_500|val|emagrpo|2"
+  # "/scratch/keane/human_behaviour/v2_emagrpo_engaging_baseline|global_step_450|val|emagrpo|2"
+  # "/scratch/keane/human_behaviour/v2_emagrpo_engaging_baseline|global_step_500|val|emagrpo|2"
   # "/scratch/keane/human_behaviour/grpo_engaging_baseline_4_gpus|global_step_300|val|grpo|4"
   # "/scratch/keane/human_behaviour/grpo_engaging_baseline_4_gpus|global_step_350|val|grpo|4"
   "/scratch/keane/human_behaviour/grpo_engaging_baseline_4_gpus|global_step_400|val|grpo|4"
   "/scratch/keane/human_behaviour/grpo_engaging_baseline_4_gpus|global_step_450|val|grpo|4"
+  "/scratch/keane/human_behaviour/v2_emagrpo_engaging_baseline|global_step_350|test|emagrpo|2"
 )
 
 TRAIN_FILE="/scratch/keane/human_behaviour/human_behaviour_data/final_v8_train_cleaned_2.jsonl"
