@@ -410,8 +410,58 @@ class RLHFDataset(Dataset):
         """
         from qwen_vl_utils import process_vision_info
 
+        # Pre-load image references that point to filesystem paths so that one
+        # corrupt file cannot crash the rollout (qwen_vl_utils.fetch_image
+        # otherwise propagates PIL's OSError "broken data stream"). Bad images
+        # are replaced with a 224x224 black placeholder.
+        cls._sanitize_image_messages(messages)
+
         images, videos = process_vision_info(messages, image_patch_size=image_patch_size, return_video_metadata=True)
         return images, videos
+
+    @staticmethod
+    def _sanitize_image_messages(messages: list[dict]) -> None:
+        """In-place replace any unreadable image with a black PIL placeholder."""
+        from io import BytesIO
+        from PIL import Image as _PILImage
+
+        def _placeholder():
+            return _PILImage.new("RGB", (224, 224), color=(0, 0, 0))
+
+        def _try_load(image_field):
+            # image_field is the value of an image content dict (str path,
+            # dict with bytes/image, or already a PIL.Image).
+            if isinstance(image_field, _PILImage.Image):
+                try:
+                    image_field.load()
+                    return image_field
+                except Exception:
+                    return _placeholder()
+            if isinstance(image_field, str):
+                path = image_field[len("file://"):] if image_field.startswith("file://") else image_field
+                try:
+                    with open(path, "rb") as f:
+                        data = f.read()
+                    img = _PILImage.open(BytesIO(data))
+                    img.load()
+                    return img
+                except Exception:
+                    return _placeholder()
+            return image_field  # unknown type — leave for fetch_image to handle
+
+        for msg in messages or []:
+            content = msg.get("content")
+            if not isinstance(content, list):
+                continue
+            for item in content:
+                if not isinstance(item, dict) or item.get("type") != "image":
+                    continue
+                # qwen_vl_utils accepts the image at item["image"] OR top-level dict keys.
+                if "image" in item:
+                    item["image"] = _try_load(item["image"])
+                elif "url" in item:
+                    item["image"] = _try_load(item["url"])
+                    item.pop("url", None)
 
     def split(self, num_splits: int):
         """
