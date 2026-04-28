@@ -1453,6 +1453,21 @@ class RayPPOTrainer:
 
                         if reward_extra_infos_dict:
                             batch.non_tensor_batch.update({k: np.array(v) for k, v in reward_extra_infos_dict.items()})
+                            # Per-component reward training metrics. Mirrors what
+                            # _val_metrics_update emits for validation, so wandb
+                            # has e.g. reward/acc/mean alongside reward/score/mean.
+                            for _key, _lst in reward_extra_infos_dict.items():
+                                if not _lst:
+                                    continue
+                                try:
+                                    _arr = np.asarray(_lst, dtype=np.float64)
+                                except (TypeError, ValueError):
+                                    continue  # non-numeric extras (e.g. extracted_answer)
+                                if _arr.size == 0 or not np.all(np.isfinite(_arr)):
+                                    continue
+                                metrics[f"reward/{_key}/mean"] = float(_arr.mean())
+                                metrics[f"reward/{_key}/max"] = float(_arr.max())
+                                metrics[f"reward/{_key}/min"] = float(_arr.min())
 
                         # compute rewards. apply_kl_penalty if available
                         if self.config.algorithm.use_kl_in_reward:
