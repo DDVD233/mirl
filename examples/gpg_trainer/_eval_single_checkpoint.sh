@@ -42,15 +42,15 @@ else
   exit 1
 fi
 
-if [ ! -d "$CKPT_FOLDER" ]; then
-  echo "Error: checkpoint folder '$CKPT_FOLDER' does not exist"
-  exit 1
-fi
+# if [ ! -d "$CKPT_FOLDER" ]; then
+#   echo "Error: checkpoint folder '$CKPT_FOLDER' does not exist"
+#   exit 1
+# fi
 
-if [ ! -d "$CHECKPOINT_DIR" ]; then
-  echo "Error: checkpoint directory '$CHECKPOINT_DIR' does not exist"
-  exit 1
-fi
+# if [ ! -d "$CHECKPOINT_DIR" ]; then
+#   echo "Error: checkpoint directory '$CHECKPOINT_DIR' does not exist"
+#   exit 1
+# fi
 
 export CUDA_VISIBLE_DEVICES
 unset ROCR_VISIBLE_DEVICES
