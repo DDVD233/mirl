@@ -101,7 +101,7 @@ GEMMA_LEGACY_THINKING=1
 # The script scans every *.jsonl in that dir, collects valid predictions, and runs
 # inference only on what remains. Leave empty for a fresh run (if shards from a previous
 # run exist at the same output paths, they will be auto-resumed automatically).
-RESUME_DIR=""
+RESUME_DIR="/human-behavior/verl/verl_independent_test_eval/results"
 
 # Set to 1 to skip inference entirely and jump straight to merge + metrics.
 # Merges per-dataset shard files from RESUME_DIR (if set) or OUTPUT_DIR.

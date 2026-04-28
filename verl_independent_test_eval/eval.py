@@ -35,6 +35,7 @@ import re
 import signal
 import sys
 import traceback
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from contextlib import contextmanager
 
 import numpy as np
@@ -93,6 +94,29 @@ def _media_timeout(seconds: int = MEDIA_LOAD_TIMEOUT_SECS, path: str = ""):
     finally:
         signal.alarm(0)
         signal.signal(signal.SIGALRM, old)
+
+
+INFERENCE_TIMEOUT_SECS = 300  # seconds before a hanging model.generate() is abandoned
+
+
+def _generate_with_timeout(model, inputs: dict, max_new_tokens: int,
+                           skw: dict, gen_kwargs: dict,
+                           timeout: int = INFERENCE_TIMEOUT_SECS):
+    """Run model.generate() in a background thread with a hard wall-clock timeout.
+
+    SIGALRM cannot be used here (already used by _media_timeout, and SIGALRM
+    cannot nest). ThreadPoolExecutor.result(timeout=...) is safe across C
+    extensions and CUDA kernels.
+    """
+    with ThreadPoolExecutor(max_workers=1) as ex:
+        fut = ex.submit(model.generate, **inputs,
+                        max_new_tokens=max_new_tokens, **skw, **gen_kwargs)
+        try:
+            return fut.result(timeout=timeout)
+        except FuturesTimeoutError:
+            raise RuntimeError(
+                f"model.generate() timed out after {timeout}s — sample will be skipped"
+            )
 
 
 def _resolve(path: str, base_dir: str) -> str:
@@ -532,11 +556,8 @@ def run_batch(model, processor, entries: list[dict], base_dir: str,
             inputs["attention_mask"] = torch.ones_like(inputs["input_ids"])
 
         with torch.inference_mode():
-            raw = model.generate(
-                **inputs,
-                max_new_tokens=max_new_tokens,
-                **_skw,
-                **_generate_kwargs(processor),
+            raw = _generate_with_timeout(
+                model, inputs, max_new_tokens, _skw, _generate_kwargs(processor)
             )
 
         # Qwen2_5OmniThinkerForConditionalGeneration returns (text_ids, audio); unwrap if needed
@@ -591,13 +612,14 @@ def _run_one(model, processor, entry: dict, base_dir: str,
         inputs["attention_mask"] = torch.ones_like(inputs["input_ids"])
 
     _skw = sampling_kwargs if sampling_kwargs is not None else {"do_sample": False}
-    with torch.inference_mode():
-        raw = model.generate(
-            **inputs,
-            max_new_tokens=max_new_tokens,
-            **_skw,
-            **_generate_kwargs(processor),
-        )
+    try:
+        with torch.inference_mode():
+            raw = _generate_with_timeout(
+                model, inputs, max_new_tokens, _skw, _generate_kwargs(processor)
+            )
+    except RuntimeError as exc:
+        print(f"\n[WARN] _run_one skipping sample: {exc}")
+        return ""
 
     # Qwen2_5OmniThinkerForConditionalGeneration returns (text_ids, audio); unwrap if needed
     out_ids = raw[0] if isinstance(raw, (tuple, list)) else raw
