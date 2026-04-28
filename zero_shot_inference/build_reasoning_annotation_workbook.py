@@ -33,9 +33,10 @@ from openpyxl.styles import Alignment, Font
 RESULTS_DIR = Path("/home/keaneong/human-behavior/verl/zero_shot_inference/results/thinking_w_params")
 ANCHOR_MODEL = "keentomato/harpo_hier_step400"
 BASELINE_MODELS = [
-    "PhilipC/HumanOmniV2",
-    "ddvd233/OmniSapiens-7B-RL",
-    "Qwen/Qwen2.5-Omni-7B",
+    # "PhilipC/HumanOmniV2",
+    # "ddvd233/OmniSapiens-7B-RL",
+    # "Qwen/Qwen2.5-Omni-7B",
+    "google_gemma-4-e4b-it"
 ]
 KNOWN_DATASETS = [
     "av-asd",

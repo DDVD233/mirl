@@ -32,8 +32,10 @@ import importlib.util
 import json
 import os
 import re
+import signal
 import sys
 import traceback
+from contextlib import contextmanager
 
 import numpy as np
 import torch
@@ -76,6 +78,23 @@ def extract_answer(text: str) -> str:
 
 # ── Media loaders ─────────────────────────────────────────────────────────────
 
+MEDIA_LOAD_TIMEOUT_SECS = 30  # seconds before a hanging media load is killed
+
+
+@contextmanager
+def _media_timeout(seconds: int = MEDIA_LOAD_TIMEOUT_SECS, path: str = ""):
+    """SIGALRM-based timeout for media I/O that can hang on corrupted files."""
+    def _handler(sig, frame):
+        raise TimeoutError(f"media load timed out after {seconds}s: {path}")
+    old = signal.signal(signal.SIGALRM, _handler)
+    signal.alarm(seconds)
+    try:
+        yield
+    finally:
+        signal.alarm(0)
+        signal.signal(signal.SIGALRM, old)
+
+
 def _resolve(path: str, base_dir: str) -> str:
     return path if os.path.isabs(path) else os.path.join(base_dir, path)
 
@@ -92,11 +111,12 @@ def _default_load_audio_list(audio_paths: list[str], base_dir: str, target_sr: i
     arrays = []
     for p in audio_paths:
         try:
-            arr, sr = sf.read(_resolve(p, base_dir), dtype="float32")
-            if arr.ndim > 1:
-                arr = arr.mean(axis=1)
-            if sr != target_sr:
-                arr = librosa.resample(arr, orig_sr=sr, target_sr=target_sr)
+            with _media_timeout(path=p):
+                arr, sr = sf.read(_resolve(p, base_dir), dtype="float32")
+                if arr.ndim > 1:
+                    arr = arr.mean(axis=1)
+                if sr != target_sr:
+                    arr = librosa.resample(arr, orig_sr=sr, target_sr=target_sr)
             arrays.append(arr)
         except Exception as e:
             import numpy as np
@@ -136,10 +156,14 @@ def _default_load_video_frames(video_paths: list[str], base_dir: str,
         raise ImportError("pip install decord")
     frames = []
     for p in video_paths:
-        vr = VideoReader(_resolve(p, base_dir), ctx=cpu(0))
-        stride = max(1, int(vr.get_avg_fps() / fps))
-        indices = list(range(0, len(vr), stride))[:max_frames]
-        frames.extend(vr[i].asnumpy() for i in indices)
+        try:
+            with _media_timeout(path=p):
+                vr = VideoReader(_resolve(p, base_dir), ctx=cpu(0))
+                stride = max(1, int(vr.get_avg_fps() / fps))
+                indices = list(range(0, len(vr), stride))[:max_frames]
+                frames.extend(vr[i].asnumpy() for i in indices)
+        except Exception as e:
+            print(f"[WARN] Failed to load video {p}: {e}; skipping frames.")
     return frames
 
 
@@ -200,11 +224,12 @@ def _load_video_frame_images(path: str, base_dir: str, num_frames: int) -> list[
 
     frames = []
     try:
-        vr = VideoReader(_resolve(path, base_dir), ctx=cpu(0))
-        if len(vr) > 0:
-            n = min(num_frames, len(vr))
-            indices = np.linspace(0, len(vr) - 1, num=n, dtype=int).tolist()
-            frames = [vr[i].asnumpy() for i in indices]
+        with _media_timeout(path=path):
+            vr = VideoReader(_resolve(path, base_dir), ctx=cpu(0))
+            if len(vr) > 0:
+                n = min(num_frames, len(vr))
+                indices = np.linspace(0, len(vr) - 1, num=n, dtype=int).tolist()
+                frames = [vr[i].asnumpy() for i in indices]
     except Exception as e:
         print(f"[WARN] Failed to load video frames {path}: {e}; substituting blank frames.")
     return _frames_to_fixed_rgb_images(frames, num_frames)
@@ -987,6 +1012,10 @@ def main(args):
     with open(args.input_jsonl, "r", encoding="utf-8") as f:
         all_entries = [json.loads(ln) for ln in f if ln.strip()]
 
+    if args.dataset_filter:
+        all_entries = [e for e in all_entries if e.get("dataset") == args.dataset_filter]
+        print(f"Dataset filter: '{args.dataset_filter}' → {len(all_entries)} entries")
+
     if args.smoke_n_per_dataset:
         import random
         from collections import defaultdict as _defaultdict
@@ -1205,6 +1234,8 @@ if __name__ == "__main__":
                              "run without having to specify shard indices.")
 
     # Misc
+    parser.add_argument("--dataset_filter", default=None,
+                        help="Only process entries whose 'dataset' field matches this value exactly.")
     parser.add_argument("--max_samples", type=int, default=None,
                         help="Cap number of entries processed (smoke-testing)")
     parser.add_argument("--smoke_n_per_dataset", type=int, default=None,

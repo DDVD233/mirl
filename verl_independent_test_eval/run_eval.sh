@@ -3,9 +3,11 @@
 # Test-set evaluation pipeline — single combined JSONL across all HB datasets.
 #
 # Speed strategy:
-#   • Each GPU runs one shard of the JSONL in parallel (data parallelism)
-#   • Shards are merged after all GPUs finish; shard files are then deleted
-#   • After merge, unified per-dataset metrics are computed automatically
+#   • Datasets are processed sequentially (one at a time)
+#   • Within each dataset, all shards run in parallel across GPUs
+#   • Shards are merged after all shards for that dataset finish
+#   • Per-dataset metrics + LLM-judge JSON are written immediately after merge
+#   • A completed dataset (_merged.jsonl present) is skipped on re-run
 #
 # Usage:
 #   bash run_eval.sh
@@ -102,7 +104,7 @@ GEMMA_LEGACY_THINKING=1
 RESUME_DIR="/home/keaneong/human-behavior/verl/verl_independent_test_eval/results"
 
 # Set to 1 to skip inference entirely and jump straight to merge + metrics.
-# Combined with RESUME_DIR, merges from that directory instead of OUTPUT_DIR.
+# Merges per-dataset shard files from RESUME_DIR (if set) or OUTPUT_DIR.
 MERGE_ONLY=0
 
 # ── END CONFIG ────────────────────────────────────────────────────────────────
@@ -111,15 +113,7 @@ EVAL="$SCRIPT_DIR/eval.py"
 
 RUN_TIMESTAMP="$(date +%Y-%m-%d_%H-%M-%S)"
 MODEL_SLUG="${MODEL_NAME//\//_}"
-OUT_BASE="$OUTPUT_DIR/${MODEL_SLUG}"
 LOG_DIR="$OUTPUT_DIR/logs/$RUN_TIMESTAMP"
-
-# Merge source: if MERGE_ONLY + RESUME_DIR, merge the prior dir; otherwise OUT_BASE.
-if [[ "$MERGE_ONLY" == "1" && -n "$RESUME_DIR" ]]; then
-    MERGE_SHARD_PATTERN="${RESUME_DIR}/${MODEL_SLUG}_shard*.jsonl"
-else
-    MERGE_SHARD_PATTERN="${OUT_BASE}_shard*.jsonl"
-fi
 
 # ── Validation ────────────────────────────────────────────────────────────────
 [[ -f "$INPUT_JSONL"    ]] || { echo "[ERROR] Missing input JSONL: $INPUT_JSONL"; exit 1; }
@@ -144,6 +138,16 @@ fi
 TOTAL_SHARDS=$(( NUM_GPUS * JOBS_PER_GPU ))
 echo "Total shards: $TOTAL_SHARDS  ($NUM_GPUS GPU(s) × $JOBS_PER_GPU job(s)/GPU)"
 echo "Logs → $LOG_DIR"
+
+# ── Dataset discovery ─────────────────────────────────────────────────────────
+mapfile -t DATASETS < <(
+    python3 -c "
+import json
+dsets = sorted({json.loads(l)['dataset'] for l in open('${INPUT_JSONL}') if l.strip()})
+print('\n'.join(dsets))
+"
+)
+echo "Datasets (${#DATASETS[@]}): ${DATASETS[*]}"
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -193,56 +197,16 @@ sampling_args() {
     fi
 }
 
-# ── Inference ─────────────────────────────────────────────────────────────────
-
-if [[ "$MERGE_ONLY" != "1" ]]; then
-
-echo ""
-echo "============================================================"
-echo "  Model   : $MODEL_NAME"
-echo "  Input   : $INPUT_JSONL"
-echo "  GPUs    : ${GPUS[*]}  |  jobs/GPU: $JOBS_PER_GPU  |  shards: $TOTAL_SHARDS"
-echo "  bs      : $BATCH_SIZE  |  data_loading: $DATA_LOADING  |  num_frames: ${NUM_FRAMES:-auto}"
-[[ -n "$RESUME_DIR" ]] && echo "  Resume  : $RESUME_DIR"
-echo "============================================================"
-
-pids=()
-
-for (( shard=0; shard<TOTAL_SHARDS; shard++ )); do
-    gpu="${GPUS[$(( shard % NUM_GPUS ))]}"
-    shard_out="${OUT_BASE}_shard${shard}.jsonl"
-    echo "  [GPU $gpu] shard $shard/$TOTAL_SHARDS → $shard_out"
-
-    CUDA_VISIBLE_DEVICES=$gpu python "$EVAL" \
-        --model_name      "$MODEL_NAME" \
-        --input_jsonl     "$INPUT_JSONL" \
-        --output_jsonl    "$shard_out" \
-        --label_map_path  "$LABEL_MAP_PATH" \
-        --batch_size      "$BATCH_SIZE" \
-        --max_new_tokens  "$MAX_NEW_TOKENS" \
-        --num_shards      "$TOTAL_SHARDS" \
-        --shard_idx       "$shard" \
-        --data_loading    "$DATA_LOADING" \
-        $(smoke_n_flag) \
-        $(compile_flag) \
-        $(sampling_args) \
-        $(num_frames_flag "$NUM_FRAMES") \
-        $(gemma_legacy_flag) \
-        $(resume_dir_flag) \
-        $EXTRA_ARGS \
-        &> "$LOG_DIR/${MODEL_SLUG}_shard${shard}.log" &
-
-    pids+=($!)
-done
-
 # ── Combined progress monitor ─────────────────────────────────────────────────
 # Polls each shard's .progress sidecar file (written by eval.py) every 5 s and
 # renders a single aggregated bar across all shards on one terminal line.
+# $1 = DS_OUT_BASE (the per-dataset path prefix for shard files)
 _progress_bar() {
+    local base="$1"
     while true; do
         local done_total=0 samples_total=0
         for (( s=0; s<TOTAL_SHARDS; s++ )); do
-            local pf="${OUT_BASE}_shard${s}.jsonl.progress"
+            local pf="${base}_shard${s}.jsonl.progress"
             [[ -f "$pf" ]] || continue
             local d=0 t=0
             { read -r d && read -r t; } < "$pf" 2>/dev/null || true
@@ -261,54 +225,123 @@ _progress_bar() {
     done
 }
 
-_progress_bar &
-_pbar_pid=$!
-
-# ── Wait for all shards ───────────────────────────────────────────────────────
-failed=0
-for pid in "${pids[@]}"; do
-    if ! wait "$pid"; then
-        failed=$(( failed + 1 ))
-    fi
-done
-
-kill "$_pbar_pid" 2>/dev/null
-wait "$_pbar_pid" 2>/dev/null || true
-printf "\n"
-
-if [[ "$failed" -gt 0 ]]; then
-    echo "[ERROR] $failed shard(s) failed — check logs in $LOG_DIR"
-    exit 1
-fi
-
-echo "All shards done."
-
-fi  # end MERGE_ONLY guard
-
-# ── Merge + compute unified metrics ──────────────────────────────────────────
-MERGED_OUT="${OUT_BASE}_merged.jsonl"
-METRICS_OUT="${OUT_BASE}_metrics.json"
-JUDGE_OUT="${OUT_BASE}_judge.json"
-
-echo "Merging shards → $MERGED_OUT"
-python "$EVAL" \
-    --merge_shards   "$MERGE_SHARD_PATTERN" \
-    --output_jsonl   "$MERGED_OUT" \
-    --model_name     "$MODEL_NAME" \
-    --label_map_path "$LABEL_MAP_PATH" \
-    --metrics_output "$METRICS_OUT" \
-    --judge_output   "$JUDGE_OUT" \
-    $(wandb_args)
-
-# ── Clean up shard files ──────────────────────────────────────────────────────
-if [[ "$MERGE_ONLY" != "1" ]]; then
-    rm -f "${OUT_BASE}_shard"*.jsonl "${OUT_BASE}_shard"*.jsonl.progress
-    echo "Shard files deleted."
-fi
+# ── Per-dataset loop ──────────────────────────────────────────────────────────
 
 echo ""
-echo "Done."
-echo "  Merged JSONL  → $MERGED_OUT"
-echo "  Metrics       → $METRICS_OUT"
-echo "  Judge format  → $JUDGE_OUT"
-echo "  Logs          → $LOG_DIR"
+echo "============================================================"
+echo "  Model   : $MODEL_NAME"
+echo "  Input   : $INPUT_JSONL"
+echo "  GPUs    : ${GPUS[*]}  |  jobs/GPU: $JOBS_PER_GPU  |  shards: $TOTAL_SHARDS"
+echo "  bs      : $BATCH_SIZE  |  data_loading: $DATA_LOADING  |  num_frames: ${NUM_FRAMES:-auto}"
+[[ -n "$RESUME_DIR" ]] && echo "  Resume  : $RESUME_DIR"
+echo "============================================================"
+
+ds_idx=0
+for dataset in "${DATASETS[@]}"; do
+    ds_idx=$(( ds_idx + 1 ))
+    dataset_slug="${dataset//[^a-zA-Z0-9_]/_}"
+    DS_OUT_BASE="${OUTPUT_DIR}/${MODEL_SLUG}_${dataset_slug}"
+    MERGED_DS="${DS_OUT_BASE}_merged.jsonl"
+    METRICS_DS="${DS_OUT_BASE}_metrics.json"
+    JUDGE_DS="${DS_OUT_BASE}_judge.json"
+
+    echo ""
+    echo "── [$ds_idx/${#DATASETS[@]}] Dataset: $dataset ──"
+
+    # ── MERGE_ONLY: merge existing shard files and skip inference ─────────────
+    if [[ "$MERGE_ONLY" == "1" ]]; then
+        merge_base="${RESUME_DIR:-$OUTPUT_DIR}/${MODEL_SLUG}_${dataset_slug}"
+        if compgen -G "${merge_base}_shard*.jsonl" > /dev/null 2>&1; then
+            python "$EVAL" \
+                --merge_shards   "${merge_base}_shard*.jsonl" \
+                --output_jsonl   "$MERGED_DS" \
+                --model_name     "$MODEL_NAME" \
+                --label_map_path "$LABEL_MAP_PATH" \
+                --metrics_output "$METRICS_DS" \
+                --judge_output   "$JUDGE_DS" \
+                $(wandb_args) && echo "  Merged → $MERGED_DS" \
+                             || echo "[WARN] Merge failed for $dataset"
+        else
+            echo "  [SKIP] no shard files found for $dataset in ${merge_base%/*}"
+        fi
+        continue
+    fi
+
+    # ── Skip if this dataset was already fully merged ─────────────────────────
+    if [[ -f "$MERGED_DS" ]]; then
+        echo "  [SKIP] merged output already exists: $MERGED_DS"
+        continue
+    fi
+
+    # ── Launch shards in parallel ─────────────────────────────────────────────
+    pids=()
+    for (( shard=0; shard<TOTAL_SHARDS; shard++ )); do
+        gpu="${GPUS[$(( shard % NUM_GPUS ))]}"
+        shard_out="${DS_OUT_BASE}_shard${shard}.jsonl"
+
+        CUDA_VISIBLE_DEVICES=$gpu python "$EVAL" \
+            --model_name      "$MODEL_NAME" \
+            --input_jsonl     "$INPUT_JSONL" \
+            --output_jsonl    "$shard_out" \
+            --label_map_path  "$LABEL_MAP_PATH" \
+            --batch_size      "$BATCH_SIZE" \
+            --max_new_tokens  "$MAX_NEW_TOKENS" \
+            --num_shards      "$TOTAL_SHARDS" \
+            --shard_idx       "$shard" \
+            --data_loading    "$DATA_LOADING" \
+            --dataset_filter  "$dataset" \
+            $(smoke_n_flag) \
+            $(compile_flag) \
+            $(sampling_args) \
+            $(num_frames_flag "$NUM_FRAMES") \
+            $(gemma_legacy_flag) \
+            $(resume_dir_flag) \
+            $EXTRA_ARGS \
+            &> "$LOG_DIR/${MODEL_SLUG}_${dataset_slug}_shard${shard}.log" &
+
+        pids+=($!)
+    done
+
+    # ── Monitor progress ──────────────────────────────────────────────────────
+    _progress_bar "$DS_OUT_BASE" &
+    _pbar_pid=$!
+
+    # ── Wait for all shards ───────────────────────────────────────────────────
+    failed=0
+    for pid in "${pids[@]}"; do
+        wait "$pid" || failed=$(( failed + 1 ))
+    done
+
+    kill "$_pbar_pid" 2>/dev/null
+    wait "$_pbar_pid" 2>/dev/null || true
+    printf "\n"
+
+    if [[ "$failed" -gt 0 ]]; then
+        echo "[ERROR] $failed shard(s) failed for '$dataset' — skipping merge."
+        echo "        Partial shard files kept for resume. Check logs in $LOG_DIR"
+        continue
+    fi
+
+    # ── Merge + per-dataset metrics + judge output ────────────────────────────
+    echo "  Merging shards → $MERGED_DS"
+    python "$EVAL" \
+        --merge_shards   "${DS_OUT_BASE}_shard*.jsonl" \
+        --output_jsonl   "$MERGED_DS" \
+        --model_name     "$MODEL_NAME" \
+        --label_map_path "$LABEL_MAP_PATH" \
+        --metrics_output "$METRICS_DS" \
+        --judge_output   "$JUDGE_DS" \
+        $(wandb_args)
+
+    rm -f "${DS_OUT_BASE}_shard"*.jsonl "${DS_OUT_BASE}_shard"*.jsonl.progress
+    echo "  Done."
+    echo "    Merged  → $MERGED_DS"
+    echo "    Metrics → $METRICS_DS"
+    echo "    Judge   → $JUDGE_DS"
+
+done
+
+echo ""
+echo "All datasets done."
+echo "Results in: $OUTPUT_DIR"
+echo "Logs      : $LOG_DIR"
