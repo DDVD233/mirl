@@ -94,6 +94,7 @@ PYTHON_BIN="${PYTHON_BIN:-python3}"
     trainer.total_epochs=1 \
     trainer.total_training_steps=500 \
     trainer.test_freq=10 \
+    trainer.val_before_train=True \
     trainer.save_freq=-1 \
     trainer.project_name=self_evolving_medical \
     trainer.experiment_name="$EXPERIMENT_NAME" \
