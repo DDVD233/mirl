@@ -26,6 +26,7 @@ import os
 import random
 import re
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from typing import Optional
 
@@ -216,6 +217,11 @@ class SelfEvolvingDataset(RLHFDataset):
         self.n_queries = se_config.get("n_queries", 10)
         self.questions_per_query = se_config.get("questions_per_query", 1)
         self.no_label = se_config.get("no_label", False)
+        # Concurrency for the generator/validator fan-out across queries.
+        # Each unit issues an LLM request to the chat server; vLLM batches
+        # them server-side, so this directly trades off latency-per-target
+        # against chat-server throughput. Default tuned for one TP=1 H200.
+        self.gen_concurrency = int(se_config.get("gen_concurrency", 8))
 
         print(f"SelfEvolvingDataset: dynamic mode with {len(self.target_questions)} seed targets")
         print(f"  Milvus: {self.milvus_uri} / {self.milvus_collection}")
@@ -583,42 +589,76 @@ class SelfEvolvingDataset(RLHFDataset):
             return
         self._stats["total_queries"] += len(queries)
 
-        # Agents 2 & 3: for each query, retrieve top-K passages, pass ALL of them
-        # to the generator to synthesize ONE question aggregating the knowledge.
+        # Agents 2 & 3: for each query, retrieve top-K passages, then run the
+        # generator + validator. The N queries are independent, so we fan out
+        # over a thread pool — vLLM on the chat server batches the concurrent
+        # requests, which keeps both the generator GPU busy and shortens the
+        # critical path that the trainer is otherwise idle behind.
         # Alternate MCQ/free across queries for a balanced mix (~50/50).
-        new_entries = []
-        rejected = []
-        for q_idx, query in enumerate(queries):
-            hits = self._milvus_search(query, top_k=self.milvus_top_k)
+        formats = []
+        for _ in queries:
+            formats.append("mcq" if self._format_counter % 2 == 0 else "free")
+            self._format_counter += 1
+
+        def _process_query(q_idx: int, query: str, required_format: str):
+            """Run milvus → generator → validator for one query, possibly
+            multiple times (questions_per_query). Returns (accepted, rejected)
+            lists for this query."""
+            local_accepted = []
+            local_rejected = []
+            try:
+                hits = self._milvus_search(query, top_k=self.milvus_top_k)
+            except Exception as e:
+                logger.warning(f"Milvus search failed on query {q_idx}: {e}")
+                return local_accepted, local_rejected
             if not hits:
-                continue
+                return local_accepted, local_rejected
             knowledge = "\n\n".join(
                 f"[passage {i + 1} / source={h.get('source', '?')}]\n{h['text']}"
                 for i, h in enumerate(hits)
             )
-            required_format = "mcq" if self._format_counter % 2 == 0 else "free"
-            self._format_counter += 1
             for _ in range(self.questions_per_query):
                 try:
                     gen = self._agent_question_generator(
                         target_question, knowledge, stats, required_format
                     )
                 except Exception as e:
-                    logger.warning(f"Generator failed on query {q_idx} ({required_format}): {e}")
+                    logger.warning(
+                        f"Generator failed on query {q_idx} ({required_format}): {e}"
+                    )
                     continue
-                self._stats["total_generated"] += 1
                 try:
                     ok, reason = self._agent_validator(gen)
                 except Exception as e:
                     ok, reason = True, f"validator error: {e}"
                 if ok:
                     entry = self._build_entry(gen, target, knowledge, query)
-                    new_entries.append(entry)
-                    self._stats["total_accepted"] += 1
+                    local_accepted.append(entry)
                 else:
-                    rejected.append({"question": gen, "reason": reason,
-                                     "retrieval_query": query, "passage": knowledge[:500]})
-                    self._stats["total_rejected"] += 1
+                    local_rejected.append({
+                        "question": gen,
+                        "reason": reason,
+                        "retrieval_query": query,
+                        "passage": knowledge[:500],
+                    })
+            return local_accepted, local_rejected
+
+        new_entries = []
+        rejected = []
+        max_workers = min(len(queries), self.gen_concurrency)
+        with ThreadPoolExecutor(max_workers=max_workers) as pool:
+            futures = [
+                pool.submit(_process_query, i, q, f)
+                for i, (q, f) in enumerate(zip(queries, formats))
+            ]
+            for fut in as_completed(futures):
+                accepted_q, rejected_q = fut.result()
+                new_entries.extend(accepted_q)
+                rejected.extend(rejected_q)
+
+        self._stats["total_generated"] += len(new_entries) + len(rejected)
+        self._stats["total_accepted"] += len(new_entries)
+        self._stats["total_rejected"] += len(rejected)
 
         self._generated_questions.extend(new_entries)
         self._log_accepted(new_entries, target, queries)
