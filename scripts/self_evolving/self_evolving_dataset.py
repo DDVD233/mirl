@@ -642,7 +642,7 @@ class SelfEvolvingDataset(RLHFDataset):
     # --------------------------------------------------------------
     def _log_accepted(self, entries: list[dict], target: dict, queries: list[str]) -> None:
         target_question = target.get("extra_info", {}).get("question", "") or \
-                          self._extract_user_text(target)[:200]
+                          self._extract_user_text(target)
         stats = self._get_accuracy_stats()
         records = []
         with open(self.question_log_path, "a") as f:
@@ -672,7 +672,7 @@ class SelfEvolvingDataset(RLHFDataset):
         if not rejected:
             return
         target_question = target.get("extra_info", {}).get("question", "") or \
-                          self._extract_user_text(target)[:200]
+                          self._extract_user_text(target)
         with open(self.rejected_log_path, "a") as f:
             for r in rejected:
                 record = {
@@ -703,13 +703,13 @@ class SelfEvolvingDataset(RLHFDataset):
                     r["cycle"],
                     r["target_idx"],
                     r["solver_accuracy"],
-                    r["target_question"][:500],
+                    r["target_question"],
                     r["format"],
-                    r["question"][:500],
-                    str(r["answer"])[:200],
-                    json.dumps(r["options"])[:500] if r.get("options") else "",
-                    r.get("retrieval_query", "")[:300],
-                    r.get("passage", "")[:2000],
+                    r["question"],
+                    str(r["answer"]),
+                    json.dumps(r["options"]) if r.get("options") else "",
+                    r.get("retrieval_query", ""),
+                    r.get("passage", ""),
                 )
             self._wandb_question_table = new_table
             wandb.log({"proposer/questions": new_table}, commit=False)
