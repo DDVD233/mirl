@@ -177,6 +177,17 @@ class vLLMRollout(BaseRollout):
             else:
                 logger.warning(f"cudagraph_capture_sizes must be a list, but got {cudagraph_capture_sizes}")
 
+        # vLLM calls AutoConfig.from_pretrained internally; register any custom model
+        # type so that lookup succeeds even when the installed transformers version
+        # doesn't natively include it (e.g. qwen2_5_omni_thinker from a custom checkpoint).
+        if type(model_hf_config).__name__ == "Qwen2_5OmniThinkerConfig":
+            from transformers import AutoConfig
+            from transformers import Qwen2_5OmniThinkerConfig as _Qwen2_5OmniThinkerConfig
+            try:
+                AutoConfig.register("qwen2_5_omni_thinker", _Qwen2_5OmniThinkerConfig)
+            except ValueError:
+                pass  # already registered
+
         self.inference_engine = LLM(
             model=model_path,
             enable_sleep_mode=config.free_cache_engine,
