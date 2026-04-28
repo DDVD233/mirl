@@ -343,5 +343,44 @@ done
 
 echo ""
 echo "All datasets done."
+
+# ── Merge all per-dataset judge outputs ──────────────────────────────────────
+ALL_JUDGE="$OUTPUT_DIR/${MODEL_SLUG}_all_judge.json"
+echo ""
+echo "Merging per-dataset judge outputs → $ALL_JUDGE"
+ALL_JUDGE="$ALL_JUDGE" OUTPUT_DIR="$OUTPUT_DIR" MODEL_SLUG="$MODEL_SLUG" \
+python3 - <<'PYEOF'
+import json, glob, os, sys
+
+output_dir = os.environ["OUTPUT_DIR"]
+model_slug = os.environ["MODEL_SLUG"]
+all_judge  = os.environ["ALL_JUDGE"]
+
+pattern = os.path.join(output_dir, f"{model_slug}_*_judge.json")
+files   = sorted(glob.glob(pattern))
+
+if not files:
+    print(f"  [WARN] No judge files found matching {pattern}", file=sys.stderr)
+    sys.exit(0)
+
+merged = {"model": None, "predictions": [], "ground_truths": [],
+          "datasets": [], "extracted_predictions": [], "sample_ids": []}
+
+for fpath in files:
+    with open(fpath) as f:
+        d = json.load(f)
+    merged["model"] = d.get("model", merged["model"])
+    for key in ("predictions", "ground_truths", "datasets",
+                "extracted_predictions", "sample_ids"):
+        merged[key].extend(d.get(key, []))
+
+with open(all_judge, "w") as f:
+    json.dump(merged, f, indent=2)
+
+print(f"  Merged {len(files)} judge file(s) → {len(merged['predictions'])} total samples")
+PYEOF
+echo "  All-judge → $ALL_JUDGE"
+
+echo ""
 echo "Results in: $OUTPUT_DIR"
 echo "Logs      : $LOG_DIR"
