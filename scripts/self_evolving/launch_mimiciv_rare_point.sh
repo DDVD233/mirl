@@ -12,6 +12,7 @@
 
 set -e
 export PATH="/home/dvdai/miniconda3/envs/verl/bin:$PATH"
+export PYTHON_BIN="/home/dvdai/miniconda3/envs/verl/bin/python"
 export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0,1}"
 export RAY_ADDRESS=local
 export API_BASE="${API_BASE:-http://localhost:8002/v1}"
@@ -21,9 +22,9 @@ export DATA_DIR="${DATA_DIR:-/home/dvdai/scratch/dvdai/self_evolving_datasets/mi
 LOG_DIR="${LOG_DIR:-/home/dvdai/scratch/dvdai/self_evolving_datasets/logs}"
 
 cd /home/dvdai/verl
-echo "python3 -> $(which python3)"
-python3 -c "import tensordict; print('tensordict OK', tensordict.__version__)"
+echo "python3 -> $(which python3)" >&2
+python3 -c "import tensordict, sys; sys.stderr.write(f'tensordict OK {tensordict.__version__}\n')"
 
-exec bash scripts/self_evolving/run_multi_agent_mimiciv_rare.sh \
+bash scripts/self_evolving/run_multi_agent_mimiciv_rare.sh \
     +data.self_evolving.log_dir="$LOG_DIR" \
     "$@"
