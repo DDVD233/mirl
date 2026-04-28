@@ -12,11 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import logging
 from io import BytesIO
 from typing import Optional
 
 import torch
 from PIL import Image
+
+_logger = logging.getLogger(__name__)
 
 
 def process_image(image: dict | Image.Image, image_patch_size: int = 14) -> Image.Image:
@@ -25,32 +28,35 @@ def process_image(image: dict | Image.Image, image_patch_size: int = 14) -> Imag
     if isinstance(image, Image.Image):
         try:
             return image.convert("RGB")
-        except Exception:
-            return _placeholder_image()
+        except Exception as e:
+            return _placeholder_image(image_ref="<PIL.Image instance>", error=e)
 
     if "bytes" in image:
         assert "image" not in image, "Cannot have both `bytes` and `image`"
         image["image"] = Image.open(BytesIO(image["bytes"]))
 
+    image_ref = image.get("image", image.get("url", "<unknown>"))
     try:
         ans = fetch_image(image, image_patch_size=image_patch_size)
     except TypeError:
         # Older qwen_vl_utils signature without image_patch_size
         try:
             ans = fetch_image(image)
-        except Exception:
-            ans = _placeholder_image()
-    except Exception:
-        ans = _placeholder_image()
+        except Exception as e:
+            ans = _placeholder_image(image_ref=image_ref, error=e)
+    except Exception as e:
+        ans = _placeholder_image(image_ref=image_ref, error=e)
     return ans
 
 
-def _placeholder_image() -> Image.Image:
+def _placeholder_image(image_ref: str = "<unknown>", error: Optional[Exception] = None) -> Image.Image:
     """Black 224x224 RGB placeholder for unreadable / corrupt images.
 
-    Returned in lieu of raising so that one bad chest X-ray or ECG render
-    does not kill an entire training run.
+    Logs a warning so a flood of these surfaces a systemic data issue
+    instead of failing silently.
     """
+    err_msg = f"{type(error).__name__}: {error}" if error is not None else "unknown error"
+    _logger.warning("[vision_utils] using black placeholder for unreadable image '%s' (%s)", image_ref, err_msg)
     return Image.new("RGB", (224, 224), color=(0, 0, 0))
 
 

@@ -421,11 +421,25 @@ class RLHFDataset(Dataset):
 
     @staticmethod
     def _sanitize_image_messages(messages: list[dict]) -> None:
-        """In-place replace any unreadable image with a black PIL placeholder."""
+        """In-place replace any unreadable image with a black PIL placeholder.
+
+        Each replacement emits a WARNING so a flood of them is visible in the
+        training log; that signal indicates a systemic data issue rather than
+        the occasional corrupt file we expect to tolerate.
+        """
+        import logging as _logging
         from io import BytesIO
         from PIL import Image as _PILImage
 
-        def _placeholder():
+        _log = _logging.getLogger(__name__)
+
+        def _placeholder(image_ref: str, error: Exception):
+            _log.warning(
+                "[RLHFDataset.process_vision_info] using black placeholder for unreadable image '%s' (%s: %s)",
+                image_ref,
+                type(error).__name__,
+                error,
+            )
             return _PILImage.new("RGB", (224, 224), color=(0, 0, 0))
 
         def _try_load(image_field):
@@ -435,8 +449,8 @@ class RLHFDataset(Dataset):
                 try:
                     image_field.load()
                     return image_field
-                except Exception:
-                    return _placeholder()
+                except Exception as e:
+                    return _placeholder("<PIL.Image instance>", e)
             if isinstance(image_field, str):
                 path = image_field[len("file://"):] if image_field.startswith("file://") else image_field
                 try:
@@ -445,8 +459,8 @@ class RLHFDataset(Dataset):
                     img = _PILImage.open(BytesIO(data))
                     img.load()
                     return img
-                except Exception:
-                    return _placeholder()
+                except Exception as e:
+                    return _placeholder(path, e)
             return image_field  # unknown type — leave for fetch_image to handle
 
         for msg in messages or []:
