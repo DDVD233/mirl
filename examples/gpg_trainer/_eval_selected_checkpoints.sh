@@ -8,22 +8,23 @@ set -x
 PROJECT_NAME="rl_omni_heldout"
 
 # Exact checkpoint/split sequence to evaluate when no CLI args are passed.
-# Format: "<checkpoint_folder>|<global_step_N|N>|<val|test>|<adv_estimator>[|wandb_name]"
+# Format: "<checkpoint_folder>|<global_step_N|N>|<val|test>|<adv_estimator>|<n_gpus>[|wandb_name]"
 # Examples:
-#   "/scratch/keane/human_behaviour/22apr_gpg|global_step_350|val|gpg"
-#   "/scratch/keane/human_behaviour/dapo_enhanced_harpo|400|test|tarpo"
+#   "/scratch/keane/human_behaviour/22apr_gpg|global_step_350|val|gpg|4"
+#   "/scratch/keane/human_behaviour/dapo_enhanced_harpo|400|test|tarpo|2"
+#   "/scratch/keane/human_behaviour/dapo_enhanced_harpo|400|test|tarpo|8|myrun"  # custom wandb_name
 # If wandb_name is omitted, the checkpoint folder basename is used.
 EVAL_PLAN=(
-  # "/scratch/keane/human_behaviour/22apr_gpg|global_step_400|test|gpg"
-  # "/scratch/keane/human_behaviour/v2_emagrpo_engaging_baseline|global_step_300|val|emagrpo"
-  # "/scratch/keane/human_behaviour/v2_emagrpo_engaging_baseline|global_step_350|val|emagrpo"
-  # "/scratch/keane/human_behaviour/v2_emagrpo_engaging_baseline|global_step_400|val|emagrpo"
-  "/scratch/keane/human_behaviour/v2_emagrpo_engaging_baseline|global_step_450|val|emagrpo"
-  "/scratch/keane/human_behaviour/v2_emagrpo_engaging_baseline|global_step_500|val|emagrpo"
-  # "/scratch/keane/human_behaviour/grpo_engaging_baseline_4_gpus|global_step_300|val|grpo"
-  # "/scratch/keane/human_behaviour/grpo_engaging_baseline_4_gpus|global_step_350|val|grpo"
-  "/scratch/keane/human_behaviour/grpo_engaging_baseline_4_gpus|global_step_400|val|grpo"
-  "/scratch/keane/human_behaviour/grpo_engaging_baseline_4_gpus|global_step_450|val|grpo"
+  # "/scratch/keane/human_behaviour/22apr_gpg|global_step_400|test|gpg|4"
+  # "/scratch/keane/human_behaviour/v2_emagrpo_engaging_baseline|global_step_300|val|emagrpo|2"
+  # "/scratch/keane/human_behaviour/v2_emagrpo_engaging_baseline|global_step_350|val|emagrpo|2"
+  # "/scratch/keane/human_behaviour/v2_emagrpo_engaging_baseline|global_step_400|val|emagrpo|2"
+  "/scratch/keane/human_behaviour/v2_emagrpo_engaging_baseline|global_step_450|val|emagrpo|2"
+  "/scratch/keane/human_behaviour/v2_emagrpo_engaging_baseline|global_step_500|val|emagrpo|2"
+  # "/scratch/keane/human_behaviour/grpo_engaging_baseline_4_gpus|global_step_300|val|grpo|4"
+  # "/scratch/keane/human_behaviour/grpo_engaging_baseline_4_gpus|global_step_350|val|grpo|4"
+  "/scratch/keane/human_behaviour/grpo_engaging_baseline_4_gpus|global_step_400|val|grpo|4"
+  "/scratch/keane/human_behaviour/grpo_engaging_baseline_4_gpus|global_step_450|val|grpo|4"
 )
 
 TRAIN_FILE="/scratch/keane/human_behaviour/human_behaviour_data/final_v8_train_cleaned_2.jsonl"
@@ -34,7 +35,6 @@ VAL_BATCH_SIZE=64
 TEST_BATCH_SIZE=64
 
 CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0,1,2,3}"
-N_GPUS_PER_NODE=4
 GPU_MEMORY_UTILIZATION=0.6
 DATALOADER_NUM_WORKERS=4
 # ============================================
@@ -88,11 +88,16 @@ parse_eval_entry() {
   local entry="$1"
   local extra=""
 
-  IFS='|' read -r checkpoint_folder raw_step split adv_estimator wandb_name extra <<< "$entry"
+  IFS='|' read -r checkpoint_folder raw_step split adv_estimator entry_n_gpus wandb_name extra <<< "$entry"
 
-  if [ -n "$extra" ] || [ -z "$checkpoint_folder" ] || [ -z "$raw_step" ] || [ -z "$split" ] || [ -z "$adv_estimator" ]; then
+  if [ -n "$extra" ] || [ -z "$checkpoint_folder" ] || [ -z "$raw_step" ] || [ -z "$split" ] || [ -z "$adv_estimator" ] || [ -z "$entry_n_gpus" ]; then
     echo "Error: invalid eval entry '$entry'" >&2
-    echo "Expected: <checkpoint_folder>|<global_step_N|N>|<val|test>|<adv_estimator>[|wandb_name]" >&2
+    echo "Expected: <checkpoint_folder>|<global_step_N|N>|<val|test>|<adv_estimator>|<n_gpus>[|wandb_name]" >&2
+    return 1
+  fi
+
+  if [[ ! "$entry_n_gpus" =~ ^[1-9][0-9]*$ ]]; then
+    echo "Error: n_gpus '$entry_n_gpus' in entry '$entry' must be a positive integer" >&2
     return 1
   fi
 
@@ -137,6 +142,7 @@ for entry in "${EVAL_PLAN[@]}"; do
   echo "Resume from: $checkpoint_dir"
   echo "Validation dir: $validation_dir"
   echo "Experiment name: $experiment_name"
+  echo "N GPUs per node: $effective_n_gpus"
   echo "=================================================="
 
   python3 -m verl.trainer.main_ppo \
@@ -193,7 +199,7 @@ for entry in "${EVAL_PLAN[@]}"; do
     trainer.logger='["console","wandb"]' \
     trainer.project_name="$PROJECT_NAME" \
     trainer.experiment_name="$experiment_name" \
-    trainer.n_gpus_per_node="$N_GPUS_PER_NODE" \
+    trainer.n_gpus_per_node="$entry_n_gpus" \
     trainer.nnodes=1 \
     trainer.save_freq=25 \
     trainer.val_before_train=True \
