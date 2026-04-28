@@ -34,7 +34,9 @@ if [ ! -f "$DATA_DIR/train.jsonl" ]; then
     exit 1
 fi
 
-python3 -m verl.trainer.main_ppo \
+PYTHON_BIN="${PYTHON_BIN:-python3}"
+
+"$PYTHON_BIN" -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
     data.train_files="$DATA_DIR/train.jsonl" \
     data.val_files="$DATA_DIR/test.jsonl" \
