@@ -946,7 +946,7 @@ def merge_shards(
     wandb_run_name: str | None = None,
     wandb_entity: str | None = None,
 ):
-    paths = sorted(glob.glob(shard_pattern))
+    paths = sorted(p for p in glob.glob(shard_pattern) if not p.endswith("_failed.jsonl"))
     if not paths:
         raise FileNotFoundError(f"No files match: {shard_pattern}")
 

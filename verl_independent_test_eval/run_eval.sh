@@ -76,7 +76,7 @@ NUM_FRAMES="4"
 # Only evaluate these specific datasets (empty = run all datasets found in INPUT_JSONL).
 # Example: ONLY_DATASETS=("msp_podcast" "cremad")
 # mosei_emotion, chsimsv2, mosei_senti
-ONLY_DATASETS=("mosei_emotion" "chsimsv2" "mosei_senti")
+ONLY_DATASETS=("mosei_emotion" "mosei_senti" "chsimsv2")
 
 # Smoke test: take N random samples from every dataset (empty = disabled).
 # Ensures all dataset code paths are exercised. Takes priority over MAX_SAMPLES.
@@ -262,6 +262,7 @@ for dataset in "${DATASETS[@]}"; do
     dataset_slug="${dataset//[^a-zA-Z0-9_]/_}"
     DS_OUT_BASE="${OUTPUT_DIR}/${MODEL_SLUG}_${dataset_slug}"
     MERGED_DS="${DS_OUT_BASE}_merged.jsonl"
+    FAILED_MERGED_DS="${DS_OUT_BASE}_merged_failed.jsonl"
     METRICS_DS="${DS_OUT_BASE}_metrics.json"
     JUDGE_DS="${DS_OUT_BASE}_judge.json"
 
@@ -353,9 +354,15 @@ for dataset in "${DATASETS[@]}"; do
         --judge_output   "$JUDGE_DS" \
         $(wandb_args)
 
+    failed_shard_logs=( "${DS_OUT_BASE}_shard"*_failed.jsonl )
+    if [[ -e "${failed_shard_logs[0]}" ]]; then
+        cat "${failed_shard_logs[@]}" > "$FAILED_MERGED_DS"
+    fi
+
     rm -f "${DS_OUT_BASE}_shard"*.jsonl "${DS_OUT_BASE}_shard"*.jsonl.progress
     echo "  Done."
     echo "    Merged  → $MERGED_DS"
+    [[ -f "$FAILED_MERGED_DS" ]] && echo "    Failed  → $FAILED_MERGED_DS"
     echo "    Metrics → $METRICS_DS"
     echo "    Judge   → $JUDGE_DS"
 
