@@ -1,17 +1,19 @@
 #!/usr/bin/env bash
-# Multi-agent self-evolving training on PubMedQA.
+# Multi-agent self-evolving training on MIMIC-IV rare-disease primary-diagnosis QA.
 #
-# Architecture:
-#   - Milvus knowledge base: http://mib.media.mit.edu:19531 (remote, reached from vps3)
-#   - vLLM chat API (proposer/generator/validator/judge): GPU 0
-#   - vLLM embedding API (for Milvus queries): GPU 1
-#   - Training: GPUs 2,3 with verl
+# Train: train.jsonl (used as seeds for the self-evolving question-generation pipeline)
+# Val:   test.jsonl  (real admissions with chest X-ray + 12-lead ECG, evaluated directly via RLHFDataset)
+#
+# Token budget:
+#   - 8K context (max_model_len)
+#   - 6K prompt cap (text + multimodal tokens)
+#   - 2K response
 #
 # Prerequisites (on vps3):
-#   - conda env `cu128` with vllm for the servers (already running from pmcvqa setup)
-#   - conda env `verl` with verl installed for training
-#   - Milvus reachable at mib.media.mit.edu:19531 with `medical_knowledge` collection
-#   - PubMedQA preprocessed: /scratch/dvdai/self_evolving_datasets/pubmedqa/{train,test}.jsonl
+#   - vLLM chat API on GPU 0
+#   - vLLM embedding API on GPU 1
+#   - Milvus reachable at mib.media.mit.edu:19531
+#   - Dataset preprocessed under DATA_DIR
 
 set -xeuo pipefail
 
@@ -22,30 +24,29 @@ export MODEL_NAME="${MODEL_NAME:-Qwen/Qwen3-VL-8B-Instruct}"
 export EMBED_MODEL="${EMBED_MODEL:-Qwen/Qwen3-VL-Embedding-2B}"
 export MILVUS_URI="${MILVUS_URI:-http://mib.media.mit.edu:19531}"
 export MILVUS_TOKEN="${MILVUS_TOKEN:-root:Milvus}"
-export DATA_DIR="${DATA_DIR:-/scratch/dvdai/self_evolving_datasets/pubmedqa}"
-export EXPERIMENT_NAME="${EXPERIMENT_NAME:-pubmedqa_multi_agent_qwen3vl8b}"
+export DATA_DIR="${DATA_DIR:-/scratch/self_evolving_datasets/mimiciv_rare}"
+export EXPERIMENT_NAME="${EXPERIMENT_NAME:-mimiciv_rare_multi_agent_qwen3vl8b}"
 
 unset RAY_ADDRESS 2>/dev/null || true
 
 if [ ! -f "$DATA_DIR/train.jsonl" ]; then
-    echo "Preprocessing PubMedQA dataset..."
-    python scripts/self_evolving/preprocess_pubmedqa.py --output_dir "$DATA_DIR"
+    echo "ERROR: $DATA_DIR/train.jsonl not found. Run preprocess_mimiciv_rare.py first." >&2
+    exit 1
 fi
 
-# Use test.jsonl as train: self-evolving pipeline masks label/context during target
-# generation, so using the test set as training targets simulates unsupervised learning
-# while letting us measure true generalization on the same held-out set with labels.
 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
-    data.train_files="$DATA_DIR/test.jsonl" \
+    data.train_files="$DATA_DIR/train.jsonl" \
     data.val_files="$DATA_DIR/test.jsonl" \
     data.custom_cls.path=scripts/self_evolving/self_evolving_dataset.py \
     data.custom_cls.name=SelfEvolvingDataset \
     data.train_batch_size=64 \
-    data.max_prompt_length=4096 \
+    data.max_prompt_length=6144 \
     data.max_response_length=2048 \
     data.shuffle=False \
     data.val_batch_size=200 \
+    data.image_key=images \
+    data.truncation=right \
     +data.self_evolving.api_base="$API_BASE" \
     +data.self_evolving.api_key="$API_KEY" \
     +data.self_evolving.model_name="$MODEL_NAME" \
@@ -60,7 +61,7 @@ python3 -m verl.trainer.main_ppo \
     +data.self_evolving.accuracy_window=32 \
     +data.self_evolving.dataset_length=100000 \
     +data.self_evolving.no_label=True \
-    +data.self_evolving.log_dir=/scratch/dvdai/self_evolving_datasets/logs \
+    +data.self_evolving.log_dir=/scratch/self_evolving_datasets/logs \
     reward.custom_reward_function.path=verl/utils/reward_score/self_evolving.py \
     reward.custom_reward_function.name=compute_score \
     +reward.custom_reward_function.reward_kwargs.api_base="$API_BASE" \
