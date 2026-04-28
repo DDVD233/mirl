@@ -91,6 +91,7 @@ python3 -m verl.trainer.main_ppo \
   data.val_modality_batching.drop_last=False \
   data.format_prompt=/home/keaneong/human-behavior/verl/examples/format_prompt/default.jinja \
   actor_rollout_ref.model.path=keentomato/harpo_hier_step400 \
+  actor_rollout_ref.model.trust_remote_code=True \
   actor_rollout_ref.actor.optim.lr=1e-6 \
   actor_rollout_ref.model.use_remove_padding=True \
   actor_rollout_ref.actor.ppo_mini_batch_size=128 \

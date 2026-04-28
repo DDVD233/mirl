@@ -267,15 +267,23 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         if "Qwen2.5-Omni" in local_path:
             from transformers import Qwen2_5OmniThinkerConfig
             actor_model_config = Qwen2_5OmniThinkerConfig.from_pretrained(
-                local_path, 
-                trust_remote_code=trust_remote_code, 
-                # torch_dtype=torch.bfloat16, 
+                local_path,
+                trust_remote_code=trust_remote_code,
+                # torch_dtype=torch.bfloat16,
                 attn_implementation="flash_attention_2"
             )
         else:
-            actor_model_config = AutoConfig.from_pretrained(
-                local_path, trust_remote_code=trust_remote_code, attn_implementation="flash_attention_2"
-            )
+            try:
+                actor_model_config = AutoConfig.from_pretrained(
+                    local_path, trust_remote_code=trust_remote_code, attn_implementation="flash_attention_2"
+                )
+            except ValueError as exc:
+                if "does not recognize this architecture" not in str(exc) and "model type" not in str(exc):
+                    raise
+                from transformers import Qwen2_5OmniThinkerConfig
+                actor_model_config = Qwen2_5OmniThinkerConfig.from_pretrained(
+                    local_path, trust_remote_code=trust_remote_code, attn_implementation="flash_attention_2"
+                )
 
         # patch for kimi-vl
         if getattr(actor_model_config, "model_type", None) == "kimi_vl":
@@ -300,7 +308,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
 
         with init_context(), warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            if "Qwen2.5-Omni" in local_path:
+            if "Qwen2.5-Omni" in local_path or type(actor_model_config).__name__ == "Qwen2_5OmniThinkerConfig":
                 from transformers import Qwen2_5OmniThinkerForConditionalGeneration
                 actor_module_class = Qwen2_5OmniThinkerForConditionalGeneration
             elif type(actor_model_config) in AutoModelForVision2Seq._model_mapping.keys():
