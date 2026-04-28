@@ -15,6 +15,8 @@ export PATH="/home/dvdai/miniconda3/envs/verl/bin:$PATH"
 export PYTHON_BIN="/home/dvdai/miniconda3/envs/verl/bin/python"
 export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0,1}"
 export RAY_ADDRESS=local
+# Surface real tracebacks if Hydra/Ray swallows them.
+export HYDRA_FULL_ERROR=1
 export API_BASE="${API_BASE:-http://localhost:8002/v1}"
 export EMBED_API_BASE="${EMBED_API_BASE:-http://localhost:8001/v1}"
 export MILVUS_URI="${MILVUS_URI:-http://mib.media.mit.edu:19531}"
