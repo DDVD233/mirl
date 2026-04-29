@@ -225,6 +225,10 @@ async def _eval_one(
     score = dict(score)
     score["error"] = err is not None
     score["response_chars"] = len(response)
+    score["response"] = response
+    score["error_msg"] = err or ""
+    score["ground_truth"] = entry["reward_model"]["ground_truth"]
+    score["hadm_id"] = entry.get("extra_info", {}).get("hadm_id")
     return score
 
 
