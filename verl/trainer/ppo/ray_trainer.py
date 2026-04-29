@@ -1456,9 +1456,9 @@ class RayPPOTrainer:
                             # Per-component reward training metrics. Mirrors what
                             # _val_metrics_update emits for validation, so wandb
                             # has e.g. reward/acc/mean alongside reward/score/mean.
+                            # Values may be Python lists or numpy arrays; `len`
+                            # is the safe emptiness check for both.
                             for _key, _lst in reward_extra_infos_dict.items():
-                                if not _lst:
-                                    continue
                                 try:
                                     _arr = np.asarray(_lst, dtype=np.float64)
                                 except (TypeError, ValueError):
