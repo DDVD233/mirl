@@ -237,7 +237,8 @@ class SelfEvolvingDataset(RLHFDataset):
 
         # Lazy-init Milvus client (so dataloader workers can share config but each
         # worker creates its own connection).
-        self._milvus_client = None
+        self._milvus_client = None  # legacy single-client slot, kept for compat
+        self._milvus_local = None  # threading.local() lazily; per-thread MilvusClient
 
         # State
         self.target_idx = 0
@@ -296,10 +297,37 @@ class SelfEvolvingDataset(RLHFDataset):
     # Milvus retrieval
     # --------------------------------------------------------------
     def _get_milvus_client(self):
-        if self._milvus_client is None:
+        """Return a thread-local MilvusClient.
+
+        pymilvus's gRPC channel is not safe to use concurrently from many
+        threads, and once it errors out the cached client raises
+        'Cannot invoke RPC on closed channel!' on every subsequent call.
+        Giving each worker thread its own client + reconnecting on failure
+        keeps the retrieval pipeline alive when the chat-server fan-out
+        runs N parallel searches.
+        """
+        if self._milvus_local is None:
+            import threading as _threading
+            self._milvus_local = _threading.local()
+        client = getattr(self._milvus_local, "client", None)
+        if client is None:
             from pymilvus import MilvusClient
-            self._milvus_client = MilvusClient(uri=self.milvus_uri, token=self.milvus_token)
-        return self._milvus_client
+            client = MilvusClient(uri=self.milvus_uri, token=self.milvus_token)
+            self._milvus_local.client = client
+        return client
+
+    def _reset_milvus_client(self):
+        """Drop this thread's cached Milvus client so the next call reconnects."""
+        if self._milvus_local is not None:
+            try:
+                client = getattr(self._milvus_local, "client", None)
+                if client is not None and hasattr(client, "close"):
+                    try:
+                        client.close()
+                    except Exception:
+                        pass
+            finally:
+                self._milvus_local.client = None
 
     def _embed_text(self, text: str) -> list[float]:
         """Get embedding via vLLM OpenAI-compatible /v1/embeddings endpoint."""
@@ -322,32 +350,50 @@ class SelfEvolvingDataset(RLHFDataset):
         except Exception as e:
             logger.warning(f"Embedding failed for query '{query_text[:60]}': {e}")
             return []
-        try:
-            client = self._get_milvus_client()
-            results = client.search(
-                collection_name=self.milvus_collection,
-                data=[embedding],
-                limit=top_k,
-                output_fields=["source_dataset", "modality", "content_type",
-                               "text_content", "question", "answer"],
-            )
-            hits = []
-            for hit_list in results:
-                for hit in hit_list:
-                    e = hit["entity"]
-                    hits.append({
-                        "source": e.get("source_dataset", ""),
-                        "modality": e.get("modality", ""),
-                        "content_type": e.get("content_type", ""),
-                        "text": e.get("text_content", ""),
-                        "question": e.get("question", ""),
-                        "answer": e.get("answer", ""),
-                        "score": hit["distance"],
-                    })
-            return hits
-        except Exception as e:
-            logger.warning(f"Milvus search failed: {e}")
-            return []
+
+        last_err = None
+        for attempt in range(2):
+            try:
+                client = self._get_milvus_client()
+                results = client.search(
+                    collection_name=self.milvus_collection,
+                    data=[embedding],
+                    limit=top_k,
+                    output_fields=["source_dataset", "modality", "content_type",
+                                   "text_content", "question", "answer"],
+                )
+                hits = []
+                for hit_list in results:
+                    for hit in hit_list:
+                        e = hit["entity"]
+                        hits.append({
+                            "source": e.get("source_dataset", ""),
+                            "modality": e.get("modality", ""),
+                            "content_type": e.get("content_type", ""),
+                            "text": e.get("text_content", ""),
+                            "question": e.get("question", ""),
+                            "answer": e.get("answer", ""),
+                            "score": hit["distance"],
+                        })
+                return hits
+            except Exception as e:
+                last_err = e
+                msg = str(e)
+                # Closed-channel / connection errors are recoverable:
+                # drop this thread's client and retry once.
+                if attempt == 0 and (
+                    "closed channel" in msg
+                    or "RPC" in msg
+                    or "UNAVAILABLE" in msg
+                    or "Connection" in msg
+                ):
+                    logger.warning(f"Milvus search failed ({msg[:120]}); reconnecting and retrying once")
+                    self._reset_milvus_client()
+                    continue
+                break
+
+        logger.warning(f"Milvus search failed: {last_err}")
+        return []
 
     # --------------------------------------------------------------
     # LLM API
