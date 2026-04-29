@@ -143,9 +143,17 @@ def _build_gemini_request(entry: dict, model_name: str) -> dict:
 
     body: dict = {
         "contents": [{"role": "user", "parts": parts}],
+        # Gemini 2.5+ / 3.x preview models are "thinking" models: internal
+        # reasoning tokens count against maxOutputTokens. We need a generous
+        # budget so the visible response (the part we score) isn't truncated
+        # while the model is still thinking. includeThoughts=False keeps the
+        # raw chain-of-thought out of the returned text — we score only the
+        # final answer, matching how the actor's <think>...</think> is treated
+        # by extract_boxed_answer in compute_score.
         "generationConfig": {
             "temperature": 0.0,
-            "maxOutputTokens": 2048,
+            "maxOutputTokens": 16384,
+            "thinkingConfig": {"includeThoughts": False},
         },
     }
     if sys_text:
