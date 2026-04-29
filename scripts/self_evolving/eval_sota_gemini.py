@@ -65,35 +65,82 @@ from verl.utils.reward_score.self_evolving import compute_score  # noqa: E402
 GEMINI_DEFAULT_MODEL = "gemini-3.1-pro-preview"
 
 
-def _read_image_b64(path: str, max_bytes: int = 6 * 1024 * 1024) -> tuple[str, str] | None:
+def _read_image_b64(
+    path: str,
+    max_pixels: int = 256 * 256,
+    max_bytes: int = 6 * 1024 * 1024,
+) -> tuple[str, str] | None:
     """Return (mime_type, base64_data) for the given path, or None if unreadable.
 
-    Caps at max_bytes to keep request bodies manageable.
+    Resizes the image so total pixels <= max_pixels (aspect ratio preserved)
+    to mirror what the training pipeline gives Qwen3-VL via
+    qwen_vl_utils.fetch_image with max_pixels=65536 (256x256). This keeps
+    Gemini and the trained actor on parity for visual input bandwidth.
     """
     try:
-        with open(path, "rb") as f:
-            data = f.read(max_bytes + 1)
+        from io import BytesIO
+        from PIL import Image as _PILImage
+
+        with _PILImage.open(path) as im:
+            im.load()
+            im = im.convert("RGB")
+            w, h = im.size
+            total = w * h
+            if total > max_pixels:
+                import math
+                scale = math.sqrt(max_pixels / total)
+                new_w = max(1, int(w * scale))
+                new_h = max(1, int(h * scale))
+                im = im.resize((new_w, new_h), _PILImage.BILINEAR)
+            buf = BytesIO()
+            im.save(buf, format="JPEG", quality=85)
+            data = buf.getvalue()
         if len(data) > max_bytes:
             data = data[:max_bytes]
-        ext = os.path.splitext(path)[1].lower()
-        mime = {
-            ".jpg": "image/jpeg",
-            ".jpeg": "image/jpeg",
-            ".png": "image/png",
-            ".webp": "image/webp",
-        }.get(ext, "image/jpeg")
-        return mime, base64.b64encode(data).decode("ascii")
+        return "image/jpeg", base64.b64encode(data).decode("ascii")
     except Exception:
         return None
 
 
-def _build_gemini_request(entry: dict, model_name: str) -> dict:
+def _truncate_middle(text: str, max_chars: int) -> str:
+    """If text exceeds max_chars, drop the middle and insert a marker.
+
+    Keeps the head + tail (which usually carry demographics + final
+    question) and ellides the labs/charts in the middle if necessary.
+    The training preprocessor already caps the user content to
+    max_text_chars=9000, so this is a defensive safety net for any
+    entries that slipped past or any new evals run on uncapped data.
+    """
+    if max_chars <= 0 or len(text) <= max_chars:
+        return text
+    marker = "\n\n[... middle truncated to fit context ...]\n\n"
+    keep = max_chars - len(marker)
+    if keep <= 0:
+        return text[:max_chars]
+    head_keep = keep // 2
+    tail_keep = keep - head_keep
+    return text[:head_keep] + marker + text[-tail_keep:]
+
+
+def _build_gemini_request(
+    entry: dict,
+    model_name: str,
+    max_pixels: int = 256 * 256,
+    max_text_chars: int = 9000,
+) -> dict:
     """Convert a verl-format prompt entry into a Gemini API request body.
 
     Gemini's REST API expects a `contents` list of `parts`, where text and
     image parts are interleaved. We follow the order of `<image>` placeholders
     in the user content so the model sees images in the same positions as the
     Qwen3-VL actor would.
+
+    To match training input parity:
+    - images are resized so total pixels <= max_pixels (default 65536 ≈
+      256x256 — same cap as preprocess_mimiciv_rare.py:max_pixels_per_image);
+    - the user text is middle-truncated to <= max_text_chars (default 9000
+      — same as preprocessing). test.jsonl is already capped, so this is
+      a defensive safety net.
     """
     prompt = entry.get("prompt", [])
     images = entry.get("images", []) or []
@@ -118,6 +165,8 @@ def _build_gemini_request(entry: dict, model_name: str) -> dict:
         elif role == "user":
             user_text = content
 
+    user_text = _truncate_middle(user_text, max_text_chars)
+
     parts: list[dict] = []
     img_iter = iter(image_paths)
     pieces = re.split(r"<image>", user_text)
@@ -129,14 +178,14 @@ def _build_gemini_request(entry: dict, model_name: str) -> dict:
                 ipath = next(img_iter)
             except StopIteration:
                 continue
-            blob = _read_image_b64(ipath)
+            blob = _read_image_b64(ipath, max_pixels=max_pixels)
             if blob is not None:
                 mime, b64 = blob
                 parts.append({"inline_data": {"mime_type": mime, "data": b64}})
 
     # Any remaining unmatched image paths get appended after the text.
     for ipath in img_iter:
-        blob = _read_image_b64(ipath)
+        blob = _read_image_b64(ipath, max_pixels=max_pixels)
         if blob is not None:
             mime, b64 = blob
             parts.append({"inline_data": {"mime_type": mime, "data": b64}})
@@ -211,7 +260,12 @@ async def _eval_one(
 ) -> dict:
     """Generate with Gemini, then score with the verl pipeline."""
     async with sem:
-        body = _build_gemini_request(entry, args.model_name)
+        body = _build_gemini_request(
+            entry,
+            args.model_name,
+            max_pixels=args.max_pixels,
+            max_text_chars=args.max_text_chars,
+        )
         try:
             response = await _call_gemini(session, args.model_name, args.gemini_api_key, body)
         except Exception as e:
@@ -334,6 +388,22 @@ def main() -> None:
     parser.add_argument("--concurrency", type=int, default=8)
     parser.add_argument("--limit", type=int, default=0, help="0 means evaluate all entries")
     parser.add_argument("--output_jsonl", default="")
+    parser.add_argument(
+        "--max_pixels",
+        type=int,
+        default=256 * 256,
+        help="Per-image max pixel count (aspect preserved). Defaults to 65536, "
+             "matching preprocess_mimiciv_rare.py's max_pixels_per_image so "
+             "Gemini and the trained actor see the same visual input bandwidth.",
+    )
+    parser.add_argument(
+        "--max_text_chars",
+        type=int,
+        default=9000,
+        help="Char cap on user content. Test entries are already truncated to "
+             "this in preprocessing; the runtime middle-truncate here is a "
+             "defensive safety net.",
+    )
     args = parser.parse_args()
 
     if not args.gemini_api_key:
