@@ -1,0 +1,823 @@
+"""
+Self-evolving question generation server.
+
+A long-lived FastAPI process that owns the entire question-generation
+pipeline (QueryProposer -> Milvus retrieval -> QuestionGenerator ->
+QuestionValidator) and continuously refills a pool of accepted training
+samples. The trainer's dataset is a thin HTTP client over this server.
+
+Endpoints
+---------
+GET  /healthz   liveness check
+GET  /stats     pool size, totals, recent accuracy
+GET  /sample    pop one entry from the pool (blocks up to 600s if empty)
+POST /report    {question_id, accuracy} feedback for difficulty calibration
+
+Why this exists
+---------------
+The previous in-process pipeline blocked the trainer's main loop on every
+batch, leaving vLLM and the actor GPUs idle while ~10 sequential LLM
+calls per target ran. Externalizing it lets:
+  - N workers fan out across vLLM concurrently and keep the chat server
+    saturated independent of the trainer's step cadence,
+  - the pool absorb generation latency (trainer never waits if the pool
+    is non-empty),
+  - per-question accuracy be reported back via a single HTTP POST
+    instead of being inferred from a sliding rm_scores window.
+
+Run with `start_generation_server.sh`.
+"""
+
+import argparse
+import asyncio
+import json
+import logging
+import os
+import re
+import time
+import uuid
+from collections import defaultdict, deque
+from contextlib import asynccontextmanager
+from datetime import datetime
+from typing import Optional
+
+import httpx
+import uvicorn
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
+
+logger = logging.getLogger("gen_server")
+
+
+# ======================================================================
+# AGENT SYSTEM PROMPTS (verbatim from self_evolving_dataset.py)
+# ======================================================================
+
+QUERY_PROPOSER_SYSTEM_PROMPT = """\
+You are a medical information retrieval expert. Given a training question, propose 10 \
+diverse search queries for retrieving medical knowledge from a multimodal database \
+(PubMedQA abstracts, MIRAGE MCQs, MedRAG textbooks, PubMed, Wikipedia, PMC-VQA, CLIMB \
+clinical QA across chest X-ray, derm, CT, ECG, fundus, MRI, mammography, ultrasound, \
+pathology).
+
+Output EXACTLY 10 queries, one per angle below (IN ORDER). Each query is a complete \
+sentence (not keywords), specific enough to retrieve focused results, and should retrieve \
+DIFFERENT content — avoid near-paraphrases.
+
+1. MECHANISM / pathophysiology (molecular, cellular, systems level)
+2. DIAGNOSTIC CRITERIA or workup (specific tests, thresholds, scoring systems)
+3. COMPARATIVE effectiveness (treatment A vs B, test A vs B with outcome metric)
+4. ADVERSE EFFECTS / complications / contraindications
+5. PROGNOSIS / outcome / natural history (specific numbers, survival, risk factors)
+6. ATYPICAL PRESENTATION or edge case (rare variant, unusual demographic)
+7. DIFFERENTIAL DIAGNOSIS (distinguishing from 1–2 named mimics)
+8. IMAGING / VISUAL FINDINGS (modality-specific features, if applicable — else another \
+   angle not yet covered)
+9. EPIDEMIOLOGY or risk-factor association (quantitative if possible)
+10. RELATED CONDITION or downstream effect (comorbidity, systemic link, long-term sequela)
+
+Output ONLY a JSON array of 10 strings in the above order. No markdown, no explanation.
+["query 1", "query 2", ..., "query 10"]"""
+
+
+QUESTION_GENERATOR_SYSTEM_PROMPT = """\
+You are a medical educator creating training questions for a medical AI. You are given: \
+(1) a reference training question, (2) several relevant passages from a medical \
+knowledge base, (3) the solver's recent accuracy, (4) the REQUIRED format for this \
+question.
+
+SYNTHESIZE a NEW question that AGGREGATES information across the retrieved passages \
+(not a copy of any one source). The question MUST:
+
+- NOT be a direct copy or paraphrase of any single passage or the reference question.
+- Combine facts, conditions, or mechanisms across MULTIPLE passages when possible (e.g. \
+  complex clinical scenarios, rare corner cases mentioned by multiple sources, \
+  differentials where passages disagree partially, treatment tradeoffs weighing \
+  different sources).
+- Hit one of these depths: complex clinical scenario, rare corner case, differential \
+  diagnosis where multiple dx fit partially, treatment tradeoff, atypical presentation.
+
+REQUIRED FORMAT: {required_format}
+
+DIFFICULTY CALIBRATION:
+- Solver's recent accuracy: {accuracy:.0%} over {accuracy_count} questions.
+- Target ~50% accuracy. If accuracy is high, add more nuance / closer distractors. If \
+  low, sharpen phrasing but keep the inferential step.
+
+ANSWER RULES:
+- Answer must be verifiable FROM THE PASSAGE + standard textbook facts.
+- For MCQ: 4 plausible options. Distractors must be defensible misinterpretations (e.g. \
+  adjacent condition, wrong phase of treatment, right concept but wrong threshold) — \
+  NOT obvious nonsense.
+- For free response: answer is a specific phrase (1-15 words, e.g. a diagnosis, drug \
+  name, mechanism, threshold value).
+- The correct answer must be UNAMBIGUOUS — exactly one option is defensible.
+
+Output ONLY a JSON object. No markdown, no explanation.
+
+For MCQ (required_format="mcq"):
+{{"format": "mcq", "question": "...", "options": {{"A": "...", "B": "...", "C": "...", "D": "..."}}, "answer": "A"}}
+
+For free response (required_format="free"):
+{{"format": "free", "question": "...", "answer": "short expected answer"}}"""
+
+
+QUESTION_VALIDATOR_SYSTEM_PROMPT = """\
+You are a medical fact-checker. You are given:
+(1) A candidate training question + its proposed answer (+ options if MCQ).
+(2) Retrieved passages from a medical knowledge database (re-queried using the \
+candidate question).
+
+Decide whether the question's proposed answer CONTRADICTS the retrieved knowledge.
+
+BE LENIENT — only reject obvious contradictions:
+- If the retrieved knowledge directly and unambiguously STATES something that makes \
+  the proposed answer WRONG → "contradict"
+- If the retrieved knowledge is silent, tangential, or only partially relevant → "ok"
+- If the question is about something NOT in the retrieved passages (out-of-knowledge) \
+  → "ok" (we accept new knowledge)
+- If the question is well-formed but the answer seems questionable without direct \
+  contradiction from the passages → "ok"
+- If the question is poorly formed / ungrammatical / incoherent → "contradict"
+
+Output ONLY a JSON object with a one-sentence reason. No markdown, no explanation.
+{{"verdict": "ok" or "contradict", "reason": "..."}}"""
+
+
+SOLVER_SYSTEM_PROMPT_MCQ = (
+    "You are a medical expert. Read the question carefully and choose the best answer. "
+    "You FIRST think about the reasoning process as an internal monologue enclosed in "
+    "<think> </think> tags. The final answer MUST BE a single letter (A, B, C, or D) "
+    "wrapped in \\boxed{}.\n\n"
+    "Example format:\n"
+    "<think>\n[Your reasoning here]\n</think>\n\\boxed{C}"
+)
+
+SOLVER_SYSTEM_PROMPT_FREE = (
+    "You are a medical expert. Answer the question with a short specific phrase. "
+    "You FIRST think about the reasoning process as an internal monologue enclosed in "
+    "<think> </think> tags. The final answer MUST BE a short phrase (1-15 words) "
+    "wrapped in \\boxed{}.\n\n"
+    "Example format:\n"
+    "<think>\n[Your reasoning here]\n</think>\n\\boxed{acute pancreatitis}"
+)
+
+
+# ======================================================================
+# Server state
+# ======================================================================
+class ServerState:
+    def __init__(self, args, loop: asyncio.AbstractEventLoop):
+        self.args = args
+        self.loop = loop
+        self.seeds = self._load_seeds(args.seeds_path)
+
+        self.pool: asyncio.Queue = asyncio.Queue(maxsize=args.max_pool_size)
+        self.target_idx = 0
+        self.cycle = 0
+        self.question_counter = 0
+        self.format_counter = 0
+
+        self.accuracy_history: deque = deque(maxlen=args.accuracy_window)
+        self.accuracy_by_id: dict[str, float] = {}
+        self.stats = {
+            "total_queries": 0,
+            "total_generated": 0,
+            "total_accepted": 0,
+            "total_rejected": 0,
+            "served": 0,
+            "reports": 0,
+            "started_at": datetime.now().isoformat(),
+        }
+
+        os.makedirs(args.log_dir, exist_ok=True)
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        self.accepted_log = os.path.join(args.log_dir, f"server_accepted_{ts}.jsonl")
+        self.rejected_log = os.path.join(args.log_dir, f"server_rejected_{ts}.jsonl")
+        self.report_log = os.path.join(args.log_dir, f"server_reports_{ts}.jsonl")
+        self.log_lock = asyncio.Lock()
+
+        # threading.local for per-thread Milvus clients (sync calls go through
+        # asyncio.to_thread, which uses a default ThreadPoolExecutor).
+        import threading
+        self._milvus_local = threading.local()
+
+        # shared async http client
+        self.http_client: Optional[httpx.AsyncClient] = None
+
+        # per-step timing windows (rolling, last 512 samples per step)
+        self.timings: dict[str, deque[float]] = defaultdict(lambda: deque(maxlen=512))
+        # in-flight gauges per step (incremented at start, decremented at end)
+        self.inflight: dict[str, int] = defaultdict(int)
+
+    def _load_seeds(self, path: str) -> list[dict]:
+        if not os.path.isfile(path):
+            raise FileNotFoundError(f"seeds_path not found: {path}")
+        seeds: list[dict] = []
+        with open(path, "r") as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    seeds.append(json.loads(line))
+        if not seeds:
+            raise RuntimeError(f"no seeds loaded from {path}")
+        logger.info(f"loaded {len(seeds)} seeds from {path}")
+        return seeds
+
+    def accuracy_stats(self) -> dict:
+        if not self.accuracy_history:
+            return {"mean": 0.5, "count": 0}
+        return {
+            "mean": sum(self.accuracy_history) / len(self.accuracy_history),
+            "count": len(self.accuracy_history),
+        }
+
+
+STATE: Optional[ServerState] = None
+
+
+@asynccontextmanager
+async def timed(state: ServerState, name: str):
+    """Measure wall-clock for a pipeline step and track in-flight count.
+    Both timing and concurrency feed into /stats so we can see whether each
+    step is slow per-call or slow because we're queueing behind a small
+    number of vLLM seats."""
+    state.inflight[name] += 1
+    t0 = time.perf_counter()
+    try:
+        yield
+    finally:
+        state.timings[name].append(time.perf_counter() - t0)
+        state.inflight[name] -= 1
+
+
+def _summarize_timings(timings: dict[str, deque[float]]) -> dict:
+    out = {}
+    for name, w in timings.items():
+        if not w:
+            continue
+        arr = sorted(w)
+        n = len(arr)
+        out[name] = {
+            "n": n,
+            "avg": round(sum(arr) / n, 3),
+            "p50": round(arr[n // 2], 3),
+            "p95": round(arr[min(int(n * 0.95), n - 1)], 3),
+            "max": round(arr[-1], 3),
+        }
+    return out
+
+
+# ======================================================================
+# LLM / Milvus helpers
+# ======================================================================
+async def _api_call(state: ServerState, system_prompt: str, user_prompt: str,
+                    max_tokens: int = 2048, temperature: float = 0.8,
+                    label: str = "chat") -> str:
+    payload = {
+        "model": state.args.model_name,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+        "max_tokens": max_tokens,
+        "temperature": temperature,
+    }
+    headers = {"Authorization": f"Bearer {state.args.api_key}"}
+    async with timed(state, label):
+        resp = await state.http_client.post(
+            f"{state.args.api_base}/chat/completions",
+            json=payload, headers=headers, timeout=180,
+        )
+        resp.raise_for_status()
+        return resp.json()["choices"][0]["message"]["content"]
+
+
+async def _embed_text(state: ServerState, text: str) -> list[float]:
+    payload = {"model": state.args.embed_model, "input": [text[:2000]]}
+    headers = {"Authorization": f"Bearer {state.args.api_key}"}
+    async with timed(state, "embed"):
+        resp = await state.http_client.post(
+            f"{state.args.embed_api_base}/embeddings",
+            json=payload, headers=headers, timeout=60,
+        )
+        resp.raise_for_status()
+        return resp.json()["data"][0]["embedding"]
+
+
+def _milvus_search_sync(state: ServerState, embedding: list[float], top_k: int) -> list[dict]:
+    """Sync Milvus call. Each thread keeps its own MilvusClient (gRPC channels
+    are not safe to share across threads, and a closed channel poisons the
+    cached client). Reconnect once on closed-channel errors before giving up."""
+    from pymilvus import MilvusClient
+
+    def _new_client():
+        return MilvusClient(uri=state.args.milvus_uri, token=state.args.milvus_token)
+
+    client = getattr(state._milvus_local, "client", None)
+    if client is None:
+        client = _new_client()
+        state._milvus_local.client = client
+
+    last_err = None
+    for attempt in range(2):
+        try:
+            results = client.search(
+                collection_name=state.args.milvus_collection,
+                data=[embedding],
+                limit=top_k,
+                output_fields=[
+                    "source_dataset", "modality", "content_type",
+                    "text_content", "question", "answer",
+                ],
+            )
+            hits: list[dict] = []
+            for hit_list in results:
+                for hit in hit_list:
+                    e = hit["entity"]
+                    hits.append({
+                        "source": e.get("source_dataset", ""),
+                        "modality": e.get("modality", ""),
+                        "content_type": e.get("content_type", ""),
+                        "text": e.get("text_content", ""),
+                        "question": e.get("question", ""),
+                        "answer": e.get("answer", ""),
+                        "score": hit["distance"],
+                    })
+            return hits
+        except Exception as e:
+            last_err = e
+            msg = str(e)
+            recoverable = (
+                "closed channel" in msg or "RPC" in msg
+                or "UNAVAILABLE" in msg or "Connection" in msg
+            )
+            if attempt == 0 and recoverable:
+                try:
+                    if hasattr(client, "close"):
+                        client.close()
+                except Exception:
+                    pass
+                client = _new_client()
+                state._milvus_local.client = client
+                continue
+            break
+    logger.warning(f"milvus search failed: {last_err}")
+    return []
+
+
+async def _milvus_search(state: ServerState, query_text: str, top_k: int) -> list[dict]:
+    try:
+        embedding = await _embed_text(state, query_text)
+    except Exception as e:
+        logger.warning(f"embed failed for '{query_text[:60]}': {e}")
+        return []
+    async with timed(state, "milvus_search"):
+        return await asyncio.to_thread(_milvus_search_sync, state, embedding, top_k)
+
+
+def _parse_json(s: str, expect_array: bool = False):
+    pat = r"\[.*\]" if expect_array else r"\{.*\}"
+    m = re.search(pat, s, re.DOTALL)
+    if not m:
+        raise ValueError(f"no JSON found in: {s[:200]}")
+    return json.loads(m.group())
+
+
+def _extract_user_text(target: dict) -> str:
+    for msg in target.get("prompt", []):
+        if msg.get("role") == "user":
+            content = msg["content"]
+            if isinstance(content, str):
+                return content
+            if isinstance(content, list):
+                texts = [c.get("text", "") for c in content if c.get("type") == "text"]
+                return " ".join(texts)
+    return ""
+
+
+# ======================================================================
+# Agents
+# ======================================================================
+async def agent_query_proposer(state: ServerState, target: dict) -> list[str]:
+    target_question = (
+        target.get("extra_info", {}).get("question", "")
+        or _extract_user_text(target)
+    )
+    user_prompt = (
+        f"Target training question:\n{target_question}\n\n"
+        f"Generate {state.args.n_queries} diverse search queries."
+    )
+    response = await _api_call(state, QUERY_PROPOSER_SYSTEM_PROMPT, user_prompt,
+                               max_tokens=1024, temperature=0.8,
+                               label="chat_query_proposer")
+    queries = _parse_json(response, expect_array=True)
+    if not isinstance(queries, list):
+        raise ValueError("query proposer did not return a list")
+    queries = [q for q in queries if isinstance(q, str) and q.strip()]
+    if not queries:
+        raise ValueError("query proposer returned no valid queries")
+    return queries[:state.args.n_queries]
+
+
+async def agent_question_generator(state: ServerState, target_question: str,
+                                   knowledge: str, accuracy_stats: dict,
+                                   required_format: str) -> dict:
+    sys_prompt = QUESTION_GENERATOR_SYSTEM_PROMPT.format(
+        required_format=required_format,
+        accuracy=accuracy_stats["mean"],
+        accuracy_count=accuracy_stats["count"],
+    )
+    user_prompt = (
+        f"Reference training question:\n{target_question}\n\n"
+        f"Retrieved medical knowledge:\n{knowledge}\n\n"
+        f"Synthesize one new training question in the required format ({required_format})."
+    )
+    response = await _api_call(state, sys_prompt, user_prompt, max_tokens=1024,
+                                temperature=0.9, label="chat_generator")
+    q = _parse_json(response)
+    fmt = q.get("format", "").lower()
+    question = q.get("question", "").strip()
+    answer = str(q.get("answer", "")).strip()
+    if not question or not answer:
+        raise ValueError(f"missing question/answer: {q}")
+    if fmt != required_format:
+        raise ValueError(f"format mismatch: got {fmt}, want {required_format}")
+    if fmt == "mcq":
+        options = q.get("options", {})
+        if not isinstance(options, dict) or len(options) < 2:
+            raise ValueError(f"mcq missing options: {q}")
+        ans_letter = answer.upper()[:1]
+        if ans_letter not in options:
+            raise ValueError(f"mcq answer {answer} not in options {list(options)}")
+        q["format"] = "mcq"
+        q["answer"] = ans_letter
+        q["options"] = options
+    else:
+        q["format"] = "free"
+        q["answer"] = answer
+    return q
+
+
+async def agent_validator(state: ServerState, generated: dict) -> tuple[bool, str]:
+    query_text = generated["question"]
+    if generated.get("format") == "mcq":
+        query_text += " " + " ".join(generated.get("options", {}).values())
+    hits = await _milvus_search(state, query_text, top_k=3)
+    if not hits:
+        return True, "no retrieval results — out-of-knowledge, accepted"
+
+    passages = "\n\n".join(f"[{h['source']}] {h['text']}" for h in hits[:3])
+    if generated.get("format") == "mcq":
+        q_text = (
+            f"Question: {generated['question']}\n"
+            f"Options: {json.dumps(generated.get('options', {}))}\n"
+            f"Proposed answer: {generated['answer']}"
+        )
+    else:
+        q_text = (
+            f"Question: {generated['question']}\n"
+            f"Proposed answer: {generated['answer']}"
+        )
+    user_prompt = (
+        f"{q_text}\n\nRetrieved passages from the database:\n{passages}\n\n"
+        "Does the proposed answer CONTRADICT the retrieved knowledge?"
+    )
+    try:
+        response = await _api_call(state, QUESTION_VALIDATOR_SYSTEM_PROMPT, user_prompt,
+                                   max_tokens=256, temperature=0.2,
+                                   label="chat_validator")
+        result = _parse_json(response)
+        verdict = result.get("verdict", "").lower()
+        reason = result.get("reason", "")
+        if verdict == "contradict":
+            return False, reason
+        return True, reason
+    except Exception as e:
+        logger.warning(f"validator failed, accepting: {e}")
+        return True, f"validator error: {e}"
+
+
+def _build_entry(state: ServerState, generated: dict, target: dict,
+                 passage: str, query: str, target_idx: int, cycle: int) -> dict:
+    state.question_counter += 1
+    target_id = (
+        target.get("extra_info", {}).get("pubmed_id", "")
+        or target.get("extra_info", {}).get("hadm_id", "")
+        or target.get("id", "")
+        or f"t{target_idx}"
+    )
+
+    if generated["format"] == "mcq":
+        options = generated["options"]
+        options_text = "\n".join(f"{k}. {v}" for k, v in sorted(options.items()))
+        user_content = (
+            f"{generated['question']}\n\n"
+            f"Options:\n{options_text}\n\n"
+            "Choose the single best answer (A, B, C, or D)."
+        )
+        sys_prompt = SOLVER_SYSTEM_PROMPT_MCQ
+        gt = generated["answer"]
+        style = "rule_mcq"
+    else:
+        user_content = generated["question"]
+        sys_prompt = SOLVER_SYSTEM_PROMPT_FREE
+        gt = generated["answer"]
+        style = "rule_free"
+
+    if state.args.no_label:
+        gt = ""
+
+    qid = uuid.uuid4().hex
+    return {
+        "data_source": "self_evolving",
+        "prompt": [
+            {"role": "system", "content": sys_prompt},
+            {"role": "user", "content": user_content},
+        ],
+        "reward_model": {"style": style, "ground_truth": gt},
+        "extra_info": {
+            "question_id": qid,
+            "index": state.question_counter,
+            "split": "train",
+            "source": "self_evolving_multi_agent",
+            "cycle": cycle,
+            "target_idx": target_idx,
+            "target_id": str(target_id),
+            "format": generated["format"],
+            "question": generated["question"],
+            "answer": generated["answer"],
+            "options": generated.get("options", {}) if generated["format"] == "mcq" else {},
+            "passage": passage[:4000],
+            "retrieval_query": query,
+        },
+    }
+
+
+# ======================================================================
+# Worker loop
+# ======================================================================
+async def _process_query_inner(state: ServerState, query: str, required_format: str,
+                               target_question: str) -> tuple[list[tuple], list[dict]]:
+    """One query -> milvus -> generator -> validator. Returns (accepted, rejected)
+    where accepted holds (gen_dict, knowledge_str, query_str) tuples to be built
+    into entries by the caller."""
+    accepted: list[tuple] = []
+    rejected: list[dict] = []
+    try:
+        hits = await _milvus_search(state, query, top_k=state.args.milvus_top_k)
+    except Exception as e:
+        logger.warning(f"milvus failed on query: {e}")
+        return accepted, rejected
+    if not hits:
+        return accepted, rejected
+
+    knowledge = "\n\n".join(
+        f"[passage {i + 1} / source={h.get('source', '?')}]\n{h['text']}"
+        for i, h in enumerate(hits)
+    )
+    stats = state.accuracy_stats()
+    for _ in range(state.args.questions_per_query):
+        try:
+            gen = await agent_question_generator(
+                state, target_question, knowledge, stats, required_format,
+            )
+        except Exception as e:
+            logger.warning(f"generator failed ({required_format}): {e}")
+            continue
+        try:
+            ok, reason = await agent_validator(state, gen)
+        except Exception as e:
+            ok, reason = True, f"validator error: {e}"
+        if ok:
+            accepted.append((gen, knowledge, query))
+        else:
+            rejected.append({
+                "question": gen,
+                "reason": reason,
+                "retrieval_query": query,
+                "passage": knowledge[:500],
+            })
+    return accepted, rejected
+
+
+async def _process_query(state: ServerState, query: str, required_format: str,
+                         target_question: str) -> tuple[list[tuple], list[dict]]:
+    async with timed(state, "process_query_total"):
+        return await _process_query_inner(state, query, required_format, target_question)
+
+
+async def worker_loop(state: ServerState, worker_id: int):
+    logger.info(f"worker {worker_id} started")
+    while True:
+        try:
+            # Backoff while pool is full so we don't keep generating into a
+            # blocked queue.put (also gives the trainer slack on bursty fetches).
+            while state.pool.full():
+                await asyncio.sleep(0.5)
+
+            target = state.seeds[state.target_idx]
+            cur_target_idx = state.target_idx
+            cur_cycle = state.cycle
+            state.target_idx += 1
+            if state.target_idx >= len(state.seeds):
+                state.target_idx = 0
+                state.cycle += 1
+                logger.info(f"completed cycle {state.cycle}")
+
+            target_question = (
+                target.get("extra_info", {}).get("question", "")
+                or _extract_user_text(target)
+            )
+
+            queries: list[str] = []
+            for attempt in range(3):
+                try:
+                    queries = await agent_query_proposer(state, target)
+                    break
+                except Exception as e:
+                    logger.warning(
+                        f"worker {worker_id}: query proposer attempt {attempt + 1}/3 failed: {e}"
+                    )
+            if not queries:
+                continue
+            state.stats["total_queries"] += len(queries)
+
+            formats = []
+            for _ in queries:
+                formats.append("mcq" if state.format_counter % 2 == 0 else "free")
+                state.format_counter += 1
+
+            tasks = [
+                _process_query(state, q, fmt, target_question)
+                for q, fmt in zip(queries, formats)
+            ]
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+
+            accepted_pairs: list[tuple] = []
+            rejected_list: list[dict] = []
+            for r in results:
+                if isinstance(r, Exception):
+                    logger.warning(f"worker {worker_id}: process_query exception: {r}")
+                    continue
+                a, rj = r
+                accepted_pairs.extend(a)
+                rejected_list.extend(rj)
+
+            for gen, passage, query in accepted_pairs:
+                entry = _build_entry(state, gen, target, passage, query,
+                                     cur_target_idx, cur_cycle)
+                async with state.log_lock:
+                    with open(state.accepted_log, "a") as f:
+                        f.write(json.dumps({
+                            "ts": datetime.now().isoformat(),
+                            "question_id": entry["extra_info"]["question_id"],
+                            "target_idx": cur_target_idx,
+                            "cycle": cur_cycle,
+                            "queries_used": queries,
+                            "entry": entry,
+                        }) + "\n")
+                state.stats["total_accepted"] += 1
+                state.stats["total_generated"] += 1
+                await state.pool.put(entry)
+
+            for r in rejected_list:
+                async with state.log_lock:
+                    with open(state.rejected_log, "a") as f:
+                        f.write(json.dumps({
+                            "ts": datetime.now().isoformat(),
+                            "target_idx": cur_target_idx,
+                            "cycle": cur_cycle,
+                            **r,
+                        }) + "\n")
+                state.stats["total_rejected"] += 1
+                state.stats["total_generated"] += 1
+
+        except asyncio.CancelledError:
+            logger.info(f"worker {worker_id} cancelled")
+            raise
+        except Exception as e:
+            logger.exception(f"worker {worker_id}: unexpected error, sleeping 5s: {e}")
+            await asyncio.sleep(5)
+
+
+# ======================================================================
+# FastAPI app
+# ======================================================================
+class ReportPayload(BaseModel):
+    question_id: str
+    accuracy: float
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    global STATE
+    args: argparse.Namespace = app.state.args
+    loop = asyncio.get_running_loop()
+    STATE = ServerState(args, loop)
+    STATE.http_client = httpx.AsyncClient(
+        limits=httpx.Limits(max_connections=args.workers * 4,
+                            max_keepalive_connections=args.workers * 2),
+    )
+
+    workers = [
+        asyncio.create_task(worker_loop(STATE, i)) for i in range(args.workers)
+    ]
+    logger.info(f"started {args.workers} workers; pool max={args.max_pool_size}")
+    try:
+        yield
+    finally:
+        for w in workers:
+            w.cancel()
+        await asyncio.gather(*workers, return_exceptions=True)
+        await STATE.http_client.aclose()
+
+
+app = FastAPI(lifespan=lifespan)
+
+
+@app.get("/healthz")
+async def healthz():
+    return {"ok": True}
+
+
+@app.get("/stats")
+async def stats():
+    s = STATE
+    return {
+        "pool_size": s.pool.qsize(),
+        "max_pool_size": s.args.max_pool_size,
+        "accuracy": s.accuracy_stats(),
+        "target_idx": s.target_idx,
+        "cycle": s.cycle,
+        "seeds": len(s.seeds),
+        "timings": _summarize_timings(s.timings),
+        "inflight": dict(s.inflight),
+        **s.stats,
+    }
+
+
+@app.get("/sample")
+async def sample():
+    s = STATE
+    try:
+        entry = await asyncio.wait_for(s.pool.get(), timeout=600)
+    except asyncio.TimeoutError:
+        raise HTTPException(status_code=503, detail="pool empty (timeout)")
+    s.stats["served"] += 1
+    return entry
+
+
+@app.post("/report")
+async def report(payload: ReportPayload):
+    s = STATE
+    s.accuracy_by_id[payload.question_id] = float(payload.accuracy)
+    s.accuracy_history.append(float(payload.accuracy))
+    s.stats["reports"] += 1
+    async with s.log_lock:
+        with open(s.report_log, "a") as f:
+            f.write(json.dumps({
+                "ts": datetime.now().isoformat(),
+                "question_id": payload.question_id,
+                "accuracy": float(payload.accuracy),
+            }) + "\n")
+    return {"ok": True}
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--seeds_path", required=True,
+                        help="JSONL of seed targets (typically train.jsonl)")
+    parser.add_argument("--api_base", required=True, help="vLLM chat /v1 base URL")
+    parser.add_argument("--api_key", default="EMPTY")
+    parser.add_argument("--model_name", required=True)
+    parser.add_argument("--embed_api_base", required=True, help="vLLM embed /v1 base URL")
+    parser.add_argument("--embed_model", required=True)
+    parser.add_argument("--milvus_uri", required=True)
+    parser.add_argument("--milvus_token", default="root:Milvus")
+    parser.add_argument("--milvus_collection", default="medical_knowledge")
+    parser.add_argument("--milvus_top_k", type=int, default=16)
+    parser.add_argument("--n_queries", type=int, default=10)
+    parser.add_argument("--questions_per_query", type=int, default=1)
+    parser.add_argument("--no_label", action="store_true")
+    parser.add_argument("--accuracy_window", type=int, default=64)
+    parser.add_argument("--max_pool_size", type=int, default=200)
+    parser.add_argument("--workers", type=int, default=8,
+                        help="Concurrent generation workers (each runs the full "
+                             "pipeline; use ~1 per N target seeds for steady throughput)")
+    parser.add_argument("--log_dir", default="/scratch/self_evolving_datasets/logs")
+    parser.add_argument("--host", default="0.0.0.0")
+    parser.add_argument("--port", type=int, default=8004)
+    args = parser.parse_args()
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    )
+
+    app.state.args = args
+    uvicorn.run(app, host=args.host, port=args.port, log_level="info")
+
+
+if __name__ == "__main__":
+    main()

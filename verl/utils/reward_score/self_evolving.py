@@ -197,6 +197,30 @@ async def judge_answer_quality(
         return 1.0
 
 
+async def _report_to_gen_server(
+    gen_server_url: str, question_id: str, accuracy: float,
+) -> None:
+    """POST per-question accuracy to the generation server's /report endpoint.
+
+    Called after compute_score so the server can update its sliding accuracy
+    window (used to calibrate next-question difficulty) and the per-id log.
+    Failures are logged and swallowed — reward scoring must not depend on
+    the gen-server being reachable.
+    """
+    if not gen_server_url or not question_id:
+        return
+    url = f"{gen_server_url.rstrip('/')}/report"
+    timeout = aiohttp.ClientTimeout(total=10)
+    try:
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.post(
+                url, json={"question_id": question_id, "accuracy": float(accuracy)}
+            ) as resp:
+                resp.raise_for_status()
+    except Exception as e:
+        logger.warning(f"report to gen server failed: {e}")
+
+
 async def biobert_similarity(
     biobert_api_base: str, prediction: str, reference: str,
 ) -> float:
@@ -288,6 +312,7 @@ async def compute_score(
     api_key: str = "EMPTY",
     model_name: str = "",
     biobert_api_base: str = "",
+    gen_server_url: str = "",
     **kwargs,
 ) -> dict:
     """Compute composite reward.
@@ -389,6 +414,15 @@ async def compute_score(
         print(f"  total_score={score:.3f}")
         print(f"  response (first 300): {solution_str[:300]}")
         print(f"{'=' * 60}\n")
+
+    # Feed accuracy back to the generation server so it can keep its
+    # sliding-window difficulty calibration and per-id log up to date.
+    # gen_server_url comes from reward_kwargs in the run script; falls back
+    # to env var so ad-hoc evals can opt in / out without re-launching.
+    server_url = gen_server_url or os.environ.get("GEN_SERVER_URL", "")
+    question_id = (extra_info or {}).get("question_id", "")
+    if server_url and question_id:
+        await _report_to_gen_server(server_url, question_id, accuracy)
 
     return {
         "score": score,
