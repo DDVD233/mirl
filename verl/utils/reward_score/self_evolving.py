@@ -69,11 +69,42 @@ if the model's extracted answer is correct.
 Output ONLY one of: "correct" or "incorrect"."""
 
 
+JUDGE_ACCURACY_PROMPT = """\
+You are a medical answer grader. You are given:
+- A medical question
+- The correct ground-truth answer (typically a disease, often with an ICD code)
+- The model's extracted final answer
+
+Decide whether the model's answer matches the ground truth as the SAME disease. \
+Match should be approximate — accept different ways of naming the same disease:
+- Synonyms (e.g. "MI" = "myocardial infarction" = "heart attack")
+- Different ICD codes for the same underlying disease
+- ICD code with vs. without descriptive text (e.g. "C22.0" vs. "C22.0: Liver cell carcinoma")
+- More specific vs. more general subtype if the core diagnosis is correct \
+  (e.g. "pneumonia" when GT is "bacterial pneumonia") — accept when the core dx is right
+- Misspellings or differences in capitalization / abbreviation
+
+REJECT:
+- A different disease — even if related or in the same family \
+  (e.g. "atrial flutter" when GT is "atrial fibrillation"; \
+  "Hodgkin lymphoma" when GT is "non-Hodgkin lymphoma")
+- Wrong organ system / wrong category
+- Generic non-answers ("unknown", "no diagnosis", "see above")
+- Empty or missing answer
+
+Output ONLY one of: "correct" or "incorrect"."""
+
+
 # Reward component weights (sum to 1.0).
+# accuracy = strict normalized exact match; judge_accuracy = LLM-judged
+# approximate disease match (synonyms / ICD-code variants accepted, different
+# diseases rejected). Both fire when ground truth is available; the LLM judge
+# gives partial credit the strict match misses (a real positive on rare ICD
+# codes is still rare with strict match).
 # biobert_sim and char_bleu are smooth surrogates that fire even when the
-# discrete accuracy/answer_quality signals collapse to 0; they're what
-# keep reward shaping above the noise floor while accuracy is still ~0.
-ACCURACY_WEIGHT = 0.20
+# discrete signals collapse to 0; they keep reward shaping above the noise floor.
+ACCURACY_WEIGHT = 0.10
+JUDGE_ACCURACY_WEIGHT = 0.10
 REASONING_WEIGHT = 0.15
 ANSWER_QUALITY_WEIGHT = 0.20
 FORMAT_WEIGHT = 0.15
@@ -277,6 +308,42 @@ def char_bleu(prediction: str, reference: str) -> float:
         return 0.0
 
 
+async def judge_accuracy(
+    api_base: str, api_key: str, model_name: str,
+    question: str, ground_truth: str, extracted_answer: str,
+    options: dict | None = None,
+) -> float:
+    """LLM-judged binary accuracy when ground truth IS available.
+
+    Different from judge_correctness: this one TAKES the ground truth and asks
+    the judge whether the extracted answer is the same disease as the GT
+    (synonyms / ICD-code variants accepted, different diseases rejected).
+    judge_correctness is for the no-label path and decides correctness from
+    the question + model knowledge alone.
+    """
+    if not extracted_answer:
+        return 0.0
+    options_line = ""
+    if options:
+        options_line = "Options: " + ", ".join(f"{k}. {v}" for k, v in options.items()) + "\n"
+    user_prompt = (
+        f"Question: {question}\n"
+        f"{options_line}"
+        f"Ground truth answer: {ground_truth}\n"
+        f"Model's extracted answer: {extracted_answer}\n\n"
+        "Is the model's answer the same disease as the ground truth?"
+    )
+    try:
+        content = await _call_api(
+            api_base, api_key, model_name, JUDGE_ACCURACY_PROMPT, user_prompt, max_tokens=16
+        )
+        c = content.lower()
+        return 1.0 if "correct" in c and "incorrect" not in c else 0.0
+    except Exception as e:
+        logger.warning(f"judge_accuracy failed: {e}")
+        return 0.0
+
+
 async def judge_correctness(
     api_base: str, api_key: str, model_name: str,
     question: str, context: str, response: str, extracted_answer: str,
@@ -341,16 +408,29 @@ async def compute_score(
     format_ok = 1.0 if check_format(solution_str) else 0.0
 
     # 2. Accuracy check
+    # `accuracy` is strict normalized exact match (or LLM correctness in no-label).
+    # `judge_acc` is the lenient LLM-judged disease match — only meaningful with a
+    # ground truth, mirrors `accuracy` in no-label so the weight isn't wasted.
     extracted_answer = extract_boxed_answer(solution_str)
+    judge_acc = 0.0
     if has_label:
         is_correct, extracted_answer = check_accuracy(solution_str, ground_truth)
         accuracy = 1.0 if is_correct else 0.0
+        if api_base and extracted_answer:
+            judge_acc = await judge_accuracy(
+                api_base=api_base, api_key=api_key, model_name=model_name,
+                question=question, ground_truth=ground_truth,
+                extracted_answer=extracted_answer, options=options,
+            )
+        else:
+            judge_acc = float(accuracy)
     elif api_base and extracted_answer:
         accuracy = await judge_correctness(
             api_base=api_base, api_key=api_key, model_name=model_name,
             question=question, context=context,
             response=solution_str, extracted_answer=extracted_answer,
         )
+        judge_acc = accuracy
     else:
         accuracy = 0.0
 
@@ -394,6 +474,7 @@ async def compute_score(
     # 7. Composite
     score = (
         ACCURACY_WEIGHT * accuracy
+        + JUDGE_ACCURACY_WEIGHT * judge_acc
         + ANSWER_QUALITY_WEIGHT * (answer_quality / 5.0)
         + REASONING_WEIGHT * (reasoning_score / 5.0)
         + FORMAT_WEIGHT * format_ok
@@ -408,9 +489,10 @@ async def compute_score(
         print(f"  question: {question[:200]}")
         print(f"  ground_truth: {ground_truth!r}")
         print(f"  extracted: {extracted_answer!r}")
-        print(f"  accuracy={accuracy:.1f}  answer_q={answer_quality:.1f}  "
-              f"reasoning={reasoning_score:.1f}  format={format_ok:.1f}  "
-              f"bio_sim={bio_sim:.2f}  char_bleu={char_bleu_score:.2f}")
+        print(f"  accuracy={accuracy:.1f}  judge_acc={judge_acc:.1f}  "
+              f"answer_q={answer_quality:.1f}  reasoning={reasoning_score:.1f}  "
+              f"format={format_ok:.1f}  bio_sim={bio_sim:.2f}  "
+              f"char_bleu={char_bleu_score:.2f}")
         print(f"  total_score={score:.3f}")
         print(f"  response (first 300): {solution_str[:300]}")
         print(f"{'=' * 60}\n")
@@ -427,6 +509,7 @@ async def compute_score(
     return {
         "score": score,
         "acc": accuracy,
+        "judge_acc": judge_acc,
         "answer_quality": answer_quality,
         "reasoning_quality": reasoning_score,
         "format_ok": format_ok,
