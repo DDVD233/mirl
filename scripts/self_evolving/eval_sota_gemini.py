@@ -49,17 +49,29 @@ from statistics import mean, median
 import aiohttp
 
 
-def _add_repo_to_path() -> None:
+def _load_compute_score():
+    """Load compute_score directly from the source file, bypassing
+    verl/__init__.py (which drags in ray, tensordict, omegaconf, etc.).
+    The reward function only needs aiohttp + nltk and we don't want eval
+    machines to install the entire training stack just to score outputs.
+    """
+    import importlib.util
     here = Path(__file__).resolve()
+    target = None
     for parent in here.parents:
-        if (parent / "verl").is_dir() and (parent / "verl" / "__init__.py").exists():
-            sys.path.insert(0, str(parent))
-            return
+        candidate = parent / "verl" / "utils" / "reward_score" / "self_evolving.py"
+        if candidate.exists():
+            target = candidate
+            break
+    if target is None:
+        raise RuntimeError("could not locate verl/utils/reward_score/self_evolving.py")
+    spec = importlib.util.spec_from_file_location("self_evolving_reward", target)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod.compute_score
 
 
-_add_repo_to_path()
-
-from verl.utils.reward_score.self_evolving import compute_score  # noqa: E402
+compute_score = _load_compute_score()
 
 
 GEMINI_DEFAULT_MODEL = "gemini-3.1-pro-preview"
