@@ -39,7 +39,7 @@ exec "$PYTHON_BIN" scripts/self_evolving/eval_sota_gemini.py \
     --judge_model_name "$MODEL_NAME" \
     --api_base "$API_BASE" \
     --biobert_api_base "$BIOBERT_API_BASE" \
-    --concurrency "$COCURRENCY" \
+    --concurrency "$CONCURRENCY" \
     --limit "$LIMIT" \
     --output_jsonl "$OUTPUT_JSONL" \
     "$@"
