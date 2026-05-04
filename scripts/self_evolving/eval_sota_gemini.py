@@ -315,47 +315,93 @@ async def _main_async(args) -> int:
     print(f"Gemini model: {args.model_name}, judge: {args.judge_model_name} @ {args.api_base}")
     print(f"BioBERT: {args.biobert_api_base or '(disabled)'}")
 
+    output_path = Path(args.output_jsonl)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Resume: read previously completed entries (keyed by hadm_id) and seed the
+    # aggregator with them so the final summary covers the full set, then skip
+    # those hadm_ids when issuing new Gemini calls. The last line of the JSONL
+    # may be a partial write from a SIGINT mid-flush — caught by the JSONDecodeError
+    # handler and silently skipped.
+    aggregated: dict[str, list[float]] = defaultdict(list)
+    done_ids: set = set()
+    resumed = 0
+    if output_path.exists():
+        with output_path.open("r") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    rec = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                hid = rec.get("hadm_id")
+                if hid is None:
+                    continue
+                done_ids.add(hid)
+                resumed += 1
+                if rec.get("error"):
+                    pass  # still counted in done_ids; skip on retry
+                for k in ("acc", "answer_quality", "reasoning_quality",
+                          "biobert_sim", "char_bleu", "format_ok", "score"):
+                    if k in rec and isinstance(rec[k], (int, float)):
+                        aggregated[k].append(float(rec[k]))
+        if resumed:
+            print(f"Resuming from {output_path}: {resumed} entries already done")
+
+    pending_entries = [
+        e for e in entries
+        if e.get("extra_info", {}).get("hadm_id") not in done_ids
+    ]
+    skipped = len(entries) - len(pending_entries)
+    if skipped:
+        print(f"Skipping {skipped} entries already in {output_path.name}")
+
     sem = asyncio.Semaphore(args.concurrency)
     connector = aiohttp.TCPConnector(limit=args.concurrency * 2)
     timeout = aiohttp.ClientTimeout(total=300)
 
-    aggregated: dict[str, list[float]] = defaultdict(list)
-    error_count = 0
+    error_count = 0  # NEW errors this run; existing errors already in the file
     started = time.time()
     completed = 0
+    total = len(pending_entries)
 
-    output_path = Path(args.output_jsonl) if args.output_jsonl else None
-    if output_path is not None:
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        out_fp = output_path.open("w")
+    out_fp = output_path.open("a")
+    flush_every = max(1, int(getattr(args, "flush_every", 10)))
+    log_every = flush_every
+
+    if total == 0:
+        print("Nothing to do — all entries already completed.")
+        out_fp.close()
     else:
-        out_fp = None
-
-    async with aiohttp.ClientSession(connector=connector, timeout=timeout) as session:
-        tasks = [asyncio.create_task(_eval_one(sem, session, e, args)) for e in entries]
-        for fut in asyncio.as_completed(tasks):
-            score = await fut
-            completed += 1
-            if score.get("error"):
-                error_count += 1
-            for k in ("acc", "answer_quality", "reasoning_quality",
-                      "biobert_sim", "char_bleu", "format_ok", "score"):
-                if k in score and isinstance(score[k], (int, float)):
-                    aggregated[k].append(float(score[k]))
-            if out_fp is not None:
+        async with aiohttp.ClientSession(connector=connector, timeout=timeout) as session:
+            tasks = [asyncio.create_task(_eval_one(sem, session, e, args)) for e in pending_entries]
+            for fut in asyncio.as_completed(tasks):
+                score = await fut
+                completed += 1
+                if score.get("error"):
+                    error_count += 1
+                for k in ("acc", "answer_quality", "reasoning_quality",
+                          "biobert_sim", "char_bleu", "format_ok", "score"):
+                    if k in score and isinstance(score[k], (int, float)):
+                        aggregated[k].append(float(score[k]))
                 out_fp.write(json.dumps(score) + "\n")
-                out_fp.flush()
-            if completed % max(1, len(entries) // 20) == 0:
-                elapsed = time.time() - started
-                rate = completed / max(elapsed, 1e-9)
-                eta_min = (len(entries) - completed) / max(rate, 1e-9) / 60
-                acc_so_far = sum(aggregated["acc"]) / max(len(aggregated["acc"]), 1)
-                print(
-                    f"  [{completed}/{len(entries)}]  err={error_count}  "
-                    f"acc={acc_so_far:.4f}  rate={rate:.2f}/s  eta={eta_min:.1f} min"
-                )
+                if completed % flush_every == 0:
+                    out_fp.flush()
+                    os.fsync(out_fp.fileno())
+                if completed % log_every == 0 or completed == total:
+                    elapsed = time.time() - started
+                    rate = completed / max(elapsed, 1e-9)
+                    eta_min = (total - completed) / max(rate, 1e-9) / 60
+                    acc_so_far = sum(aggregated["acc"]) / max(len(aggregated["acc"]), 1)
+                    print(
+                        f"  [{completed}/{total}]  new_err={error_count}  "
+                        f"acc(all)={acc_so_far:.4f}  rate={rate:.2f}/s  eta={eta_min:.1f} min"
+                    )
 
-    if out_fp is not None:
+        out_fp.flush()
+        os.fsync(out_fp.fileno())
         out_fp.close()
 
     print()
@@ -387,7 +433,22 @@ def main() -> None:
     parser.add_argument("--biobert_api_base", default=os.environ.get("BIOBERT_API_BASE", "http://localhost:8003"))
     parser.add_argument("--concurrency", type=int, default=8)
     parser.add_argument("--limit", type=int, default=0, help="0 means evaluate all entries")
-    parser.add_argument("--output_jsonl", default="")
+    parser.add_argument(
+        "--output_jsonl",
+        default="",
+        help="Path to per-sample JSONL. Defaults to ./eval_gemini_<model>.jsonl. "
+             "If the file exists, completed entries (matched by hadm_id) are "
+             "skipped and we append new ones — so the run is resumable across "
+             "interruptions. Pick a stable filename per run; do NOT timestamp "
+             "it if you want resume to work.",
+    )
+    parser.add_argument(
+        "--flush_every",
+        type=int,
+        default=10,
+        help="fsync the output JSONL every N completed entries (default 10). "
+             "Smaller = more durable on crash, more I/O.",
+    )
     parser.add_argument(
         "--max_pixels",
         type=int,
@@ -412,6 +473,13 @@ def main() -> None:
         print("WARNING: api_base is empty — Qwen judge metrics will fall back to defaults")
     if not args.biobert_api_base:
         print("WARNING: biobert_api_base is empty — biobert_sim will be 0.0 for every sample")
+
+    if not args.output_jsonl:
+        # Stable default — no timestamp — so re-running resumes the prior run
+        # for the same model. Override with --output_jsonl if you want a fresh
+        # file or to keep multiple runs separate.
+        safe = re.sub(r"[^A-Za-z0-9._-]+", "_", args.model_name).strip("_")
+        args.output_jsonl = f"eval_gemini_{safe}.jsonl"
 
     sys.exit(asyncio.run(_main_async(args)))
 

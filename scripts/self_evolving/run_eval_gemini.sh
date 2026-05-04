@@ -23,7 +23,9 @@ VAL_FILE="${VAL_FILE:-/home/dvdai/scratch/dvdai/self_evolving_datasets/mimiciv_r
 GEMINI_MODEL="${GEMINI_MODEL:-gemini-3.1-pro-preview}"
 CONCURRENCY="${CONCURRENCY:-8}"
 LIMIT="${LIMIT:-0}"
-OUTPUT_JSONL="${OUTPUT_JSONL:-/home/dvdai/scratch/dvdai/self_evolving_datasets/logs/eval_gemini_$(date +%Y%m%d_%H%M%S).jsonl}"
+# Stable filename per model so re-running resumes the prior run on interrupt.
+# Override OUTPUT_JSONL or pass a new --output_jsonl to force a fresh run.
+OUTPUT_JSONL="${OUTPUT_JSONL:-/home/dvdai/scratch/dvdai/self_evolving_datasets/logs/eval_gemini_${GEMINI_MODEL//\//_}.jsonl}"
 
 if [ -z "$GEMINI_API_KEY" ]; then
     echo "ERROR: GEMINI_API_KEY is required" >&2
@@ -37,7 +39,7 @@ exec "$PYTHON_BIN" scripts/self_evolving/eval_sota_gemini.py \
     --judge_model_name "$MODEL_NAME" \
     --api_base "$API_BASE" \
     --biobert_api_base "$BIOBERT_API_BASE" \
-    --concurrency "$CONCURRENCY" \
+    --concurrency "$COCURRENCY" \
     --limit "$LIMIT" \
     --output_jsonl "$OUTPUT_JSONL" \
     "$@"
