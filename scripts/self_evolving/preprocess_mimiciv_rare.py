@@ -87,6 +87,102 @@ def load_subject_admit_map(csv_gz_path: str) -> dict:
     return out
 
 
+def load_microbiology_map(
+    csv_gz_path: str, keep_hadms: set | None = None
+) -> dict:
+    """Group microbiologyevents.csv.gz rows by hadm_id, aggregating antibiotic
+    susceptibilities back into one dict per (specimen, isolate).
+
+    Returns dict[hadm_id, list[culture]]. Each culture has:
+      date, spec (specimen type), test (test name), organism (or None),
+      susc (list of (antibiotic, S/I/R)), comments.
+
+    `keep_hadms` (optional) — restrict to a known set of admissions to keep
+    memory low; rows for other admissions are dropped on read.
+    """
+    by_admit: dict[int, dict] = defaultdict(dict)
+    with gzip.open(csv_gz_path, "rt", errors="replace") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            hadm_str = (row.get("hadm_id") or "").strip()
+            if not hadm_str:
+                continue  # outpatient / pre-admit
+            try:
+                hadm_id = int(hadm_str)
+            except ValueError:
+                continue
+            if keep_hadms is not None and hadm_id not in keep_hadms:
+                continue
+            spec_id = row.get("micro_specimen_id") or ""
+            isolate = (row.get("isolate_num") or "0").strip() or "0"
+            test_name = (row.get("test_name") or "").strip()
+            key = (spec_id, test_name, isolate)
+            d = by_admit[hadm_id].get(key)
+            if d is None:
+                date = (row.get("charttime") or row.get("chartdate") or "")[:10]
+                d = {
+                    "date": date,
+                    "spec": (row.get("spec_type_desc") or "").strip(),
+                    "test": test_name,
+                    "organism": (row.get("org_name") or "").strip() or None,
+                    "susc": [],
+                    "comments": (row.get("comments") or "").strip(),
+                }
+                by_admit[hadm_id][key] = d
+            ab = (row.get("ab_name") or "").strip()
+            interp = (row.get("interpretation") or "").strip()
+            if ab and interp:
+                d["susc"].append((ab, interp))
+    return {h: list(v.values()) for h, v in by_admit.items()}
+
+
+def format_microbiology(cultures: list) -> list:
+    """Render cultures as compact lines. Skip rows that are entirely empty
+    or only contain redacted-PHI placeholders ('___')."""
+    if not cultures:
+        return []
+    cultures = sorted(cultures, key=lambda c: c.get("date", ""))
+    body: list = []
+    for c in cultures:
+        date = c.get("date", "")
+        spec = (c.get("spec") or "").strip()
+        test = (c.get("test") or "").strip()
+        org = c.get("organism")
+        comments = (c.get("comments") or "").strip()
+        susc = c.get("susc") or []
+
+        if test and spec and test.lower() != spec.lower():
+            label = f"{spec} / {test}"
+        else:
+            label = spec or test
+        if not label:
+            continue
+
+        if org:
+            extras = ""
+            if susc:
+                # group antibiotics by S/I/R (rounded), cap to 12 to keep tight
+                by_interp: dict[str, list] = defaultdict(list)
+                for ab, ip in susc[:12]:
+                    by_interp[ip].append(ab)
+                extras = " — susc: " + "; ".join(
+                    f"{ip}: " + ", ".join(abs_) for ip, abs_ in by_interp.items()
+                )
+            body.append(f"  - {date} {label}: {org}{extras}")
+        else:
+            clean = " ".join(comments.split())
+            # strip mostly-redacted noise
+            if clean and clean.replace("_", "").strip():
+                if len(clean) > 200:
+                    clean = clean[:200] + "…"
+                body.append(f"  - {date} {label}: {clean}")
+            elif "CULTURE" in label.upper():
+                body.append(f"  - {date} {label}: no growth")
+    if not body:
+        return []
+    return ["# Microbiology"] + body + [""]
+
+
 def render_ecg_png(mat_path: str, out_png: str) -> bool:
     """Render a 12-lead ECG .mat file to a PNG plot. Returns True on success."""
     if os.path.exists(out_png):
@@ -165,8 +261,17 @@ def summarize_series(name: str, events: list) -> str | None:
     return f"  - {name}: {latest}{(' ' + unit) if unit else ''}"
 
 
-def build_user_prompt(admission: dict, n_xrays: int, n_ecgs: int) -> str:
-    """Build the masked clinical-note prompt with <image> placeholders."""
+def build_user_prompt(
+    admission: dict, n_xrays: int, n_ecgs: int,
+    microbiology: list | None = None,
+) -> str:
+    """Build the masked clinical-note prompt with <image> placeholders.
+
+    Section order is also the priority order for truncation: the trailing
+    sections (labs, vitals, meds) get trimmed first; high-value sections
+    (microbiology, procedures) are placed early so they survive when content
+    overflows the char budget.
+    """
     inp = admission["input"]
     lines = []
 
@@ -205,6 +310,9 @@ def build_user_prompt(admission: dict, n_xrays: int, n_ecgs: int) -> str:
         for _ in range(n_ecgs):
             lines.append("<image>")
         lines.append("")
+
+    if microbiology:
+        lines.extend(format_microbiology(microbiology))
 
     procs = inp.get("procedures") or []
     if procs:
@@ -292,6 +400,7 @@ def process_one(args: tuple) -> dict | None:
         idx2code,
         code2desc,
         hadm_to_subject,
+        hadm_to_micro,
         chest_xray_root,
         ecg_root,
         ecg_png_dir,
@@ -353,7 +462,10 @@ def process_one(args: tuple) -> dict | None:
             n_ecgs_actual += 1
 
     masked = mask_admission(d)
-    user_content = build_user_prompt(masked, n_xrays_actual, n_ecgs_actual)
+    micro = hadm_to_micro.get(hadm_id) if hadm_to_micro else None
+    user_content = build_user_prompt(
+        masked, n_xrays_actual, n_ecgs_actual, microbiology=micro,
+    )
     user_content = truncate_to_chars(user_content, max_chars)
 
     pretty_code = code if len(code) <= 3 else f"{code[:3]}.{code[3:]}"
@@ -421,6 +533,13 @@ def main():
         default="/scratch/high_modality/multimodal/mimiciv/hosp/admissions.csv.gz",
     )
     parser.add_argument(
+        "--microbiology_csv",
+        default="/scratch/high_modality/multimodal/mimiciv/hosp/microbiologyevents.csv.gz",
+        help="MIMIC-IV microbiologyevents.csv.gz; cultures are joined to each "
+             "admission by hadm_id and rendered into a # Microbiology section "
+             "placed early in the prompt so it survives truncation.",
+    )
+    parser.add_argument(
         "--orphanet_xml",
         default="/scratch/self_evolving_datasets/orphanet/en_product1.xml",
     )
@@ -470,6 +589,20 @@ def main():
     files = sorted(glob(os.path.join(args.admissions_dir, "*.json")))
     print(f"Processing {len(files)} files with {args.num_workers} workers ...")
 
+    keep_hadms = set()
+    for fp in files:
+        try:
+            keep_hadms.add(int(os.path.basename(fp).split(".")[0]))
+        except ValueError:
+            continue
+    hadm_to_micro: dict = {}
+    if args.microbiology_csv and os.path.exists(args.microbiology_csv):
+        print(f"Loading microbiology events from {args.microbiology_csv} ...")
+        hadm_to_micro = load_microbiology_map(args.microbiology_csv, keep_hadms=keep_hadms)
+        print(f"  admissions with microbiology: {len(hadm_to_micro)}")
+    else:
+        print("  microbiology CSV not found — skipping # Microbiology section")
+
     work = [
         (
             fp,
@@ -477,6 +610,7 @@ def main():
             idx2code,
             code2desc,
             hadm_to_subject,
+            hadm_to_micro,
             args.chest_xray_root,
             args.ecg_root,
             args.ecg_png_dir,
