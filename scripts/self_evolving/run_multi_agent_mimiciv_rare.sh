@@ -92,6 +92,7 @@ PYTHON_BIN="${PYTHON_BIN:-python3}"
     trainer.test_freq=10 \
     trainer.val_before_train=True \
     trainer.save_freq=10 \
+    +trainer.validation_data_dir=/home/dvdai/scratch/dvdai/self_evolving_datasets/logs/val_generations/mimiciv_rare \
     trainer.project_name=self_evolving_medical \
     trainer.experiment_name="$EXPERIMENT_NAME" \
     'trainer.logger=["console","wandb"]' \
