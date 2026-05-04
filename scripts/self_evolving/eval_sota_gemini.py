@@ -355,7 +355,8 @@ async def _main_async(args) -> int:
                 resumed += 1
                 if rec.get("error"):
                     pass  # still counted in done_ids; skip on retry
-                for k in ("acc", "answer_quality", "reasoning_quality",
+                for k in ("acc", "judge_acc_lenient", "judge_acc_strict",
+                          "answer_quality", "reasoning_quality",
                           "biobert_sim", "char_bleu", "format_ok", "score"):
                     if k in rec and isinstance(rec[k], (int, float)):
                         aggregated[k].append(float(rec[k]))
@@ -394,7 +395,8 @@ async def _main_async(args) -> int:
                 completed += 1
                 if score.get("error"):
                     error_count += 1
-                for k in ("acc", "answer_quality", "reasoning_quality",
+                for k in ("acc", "judge_acc_lenient", "judge_acc_strict",
+                          "answer_quality", "reasoning_quality",
                           "biobert_sim", "char_bleu", "format_ok", "score"):
                     if k in score and isinstance(score[k], (int, float)):
                         aggregated[k].append(float(score[k]))
@@ -421,7 +423,8 @@ async def _main_async(args) -> int:
     print(f"Gemini evaluation summary  (model={args.model_name})")
     print(f"  total: {completed}, errors: {error_count}")
     print("=" * 70)
-    for key in ("score", "acc", "answer_quality", "reasoning_quality",
+    for key in ("score", "acc", "judge_acc_lenient", "judge_acc_strict",
+                "answer_quality", "reasoning_quality",
                 "biobert_sim", "char_bleu", "format_ok"):
         a = _agg(aggregated.get(key, []))
         print(
