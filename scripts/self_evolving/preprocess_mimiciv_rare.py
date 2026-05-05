@@ -136,6 +136,122 @@ def load_microbiology_map(
     return {h: list(v.values()) for h, v in by_admit.items()}
 
 
+_DD_RE = re.compile(r"DISCHARGE\s+DIAGNOS[EI]S\s*:", re.IGNORECASE)
+# matches a HISTORY-like section header at the start of a line
+_HISTORY_HDR_RE = re.compile(
+    r"^[ \t]*(CLINICAL\s+HISTORY|HISTORY|INDICATION|REASON\s+FOR\s+(?:STUDY|EXAM(?:INATION)?))\s*:",
+    re.IGNORECASE | re.MULTILINE,
+)
+# next ALL-CAPS section header (FINDINGS:, IMPRESSION:, COMPARISON:, etc.)
+_NEXT_HDR_RE = re.compile(
+    r"^[ \t]*[A-Z][A-Z /&\-]{2,}\s*:",
+    re.MULTILINE,
+)
+
+
+def filter_radiology_leaks(text: str) -> str:
+    """Strip leak-y parts from a radiology report.
+
+    1. DISCHARGE DIAGNOSIS: → cut from this point to end (rare in radiology
+       but a hard leak when it occurs).
+    2. HISTORY / CLINICAL HISTORY / INDICATION sections that contain the word
+       "known" → replace the section body with "[history redacted]" up to
+       the next ALL-CAPS section header. We keep the header itself so the
+       structure of the rest of the report (FINDINGS, IMPRESSION) is intact.
+    """
+    if not text:
+        return ""
+
+    m = _DD_RE.search(text)
+    if m:
+        text = text[: m.start()].rstrip()
+
+    out = text
+    # iterate from the end to keep offsets stable as we rewrite
+    matches = list(_HISTORY_HDR_RE.finditer(out))
+    for h in reversed(matches):
+        # find next section header AFTER this one (skip the header line itself)
+        nm = _NEXT_HDR_RE.search(out, h.end())
+        section_end = nm.start() if nm else len(out)
+        section_body = out[h.end():section_end]
+        if re.search(r"\bknown\b", section_body, re.IGNORECASE):
+            redacted = "  [history redacted]\n\n"
+            out = out[: h.end()] + redacted + out[section_end:]
+    return out
+
+
+def load_radiology_map(
+    csv_gz_path: str, keep_hadms: set | None = None
+) -> dict:
+    """Group radiology reports by hadm_id. Reports without an hadm_id (outpatient
+    / ED orders) are dropped. Returns dict[hadm_id, list[report]] where each
+    report is {date, note_id, text}."""
+    by_admit: dict[int, list] = defaultdict(list)
+    with gzip.open(csv_gz_path, "rt", errors="replace") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            hadm_str = (row.get("hadm_id") or "").strip()
+            if not hadm_str:
+                continue
+            try:
+                hadm_id = int(hadm_str)
+            except ValueError:
+                continue
+            if keep_hadms is not None and hadm_id not in keep_hadms:
+                continue
+            text = row.get("text", "") or ""
+            if not text.strip():
+                continue
+            by_admit[hadm_id].append({
+                "date": (row.get("charttime") or "")[:10],
+                "note_id": row.get("note_id", "") or "",
+                "text": text,
+            })
+    return dict(by_admit)
+
+
+def format_radiology(
+    reports: list, max_per_report: int = 1000, max_total_chars: int = 3500
+) -> list:
+    """Render radiology reports compactly.
+
+    Per-report cap preserves IMPRESSION (the most diagnostic section) when
+    truncating: we keep the head + tail (which typically contains IMPRESSION).
+    Total cap stops us from blowing the prompt budget when an admit has 50+
+    reports — earliest reports first, since admission imaging is usually
+    most diagnostic.
+    """
+    if not reports:
+        return []
+    reports = sorted(reports, key=lambda r: r.get("date", ""))
+    body: list = []
+    used = 0
+    n_kept = 0
+    for r in reports:
+        text = filter_radiology_leaks(r.get("text", ""))
+        if not text or not text.strip():
+            continue
+        # collapse whitespace
+        text = re.sub(r"\n{3,}", "\n\n", text).strip()
+        if len(text) > max_per_report:
+            # keep head + IMPRESSION/findings tail
+            head = text[: max_per_report // 2].rstrip()
+            tail = text[-(max_per_report // 2):].lstrip()
+            text = head + "\n[...]\n" + tail
+        if used + len(text) > max_total_chars and n_kept >= 1:
+            body.append(f"  [...{len(reports) - n_kept} additional radiology reports truncated]")
+            break
+        date = r.get("date", "")
+        body.append(f"## {date}")
+        body.append(text)
+        body.append("")
+        used += len(text)
+        n_kept += 1
+    if not body:
+        return []
+    return ["# Radiology"] + body
+
+
 def format_microbiology(cultures: list) -> list:
     """Render cultures as compact lines. Skip rows that are entirely empty
     or only contain redacted-PHI placeholders ('___')."""
@@ -264,6 +380,7 @@ def summarize_series(name: str, events: list) -> str | None:
 def build_user_prompt(
     admission: dict, n_xrays: int, n_ecgs: int,
     microbiology: list | None = None,
+    radiology: list | None = None,
 ) -> str:
     """Build the masked clinical-note prompt with <image> placeholders.
 
@@ -313,6 +430,9 @@ def build_user_prompt(
 
     if microbiology:
         lines.extend(format_microbiology(microbiology))
+
+    if radiology:
+        lines.extend(format_radiology(radiology))
 
     procs = inp.get("procedures") or []
     if procs:
@@ -401,6 +521,7 @@ def process_one(args: tuple) -> dict | None:
         code2desc,
         hadm_to_subject,
         hadm_to_micro,
+        hadm_to_radiology,
         chest_xray_root,
         ecg_root,
         ecg_png_dir,
@@ -463,8 +584,10 @@ def process_one(args: tuple) -> dict | None:
 
     masked = mask_admission(d)
     micro = hadm_to_micro.get(hadm_id) if hadm_to_micro else None
+    radiology = hadm_to_radiology.get(hadm_id) if hadm_to_radiology else None
     user_content = build_user_prompt(
-        masked, n_xrays_actual, n_ecgs_actual, microbiology=micro,
+        masked, n_xrays_actual, n_ecgs_actual,
+        microbiology=micro, radiology=radiology,
     )
     user_content = truncate_to_chars(user_content, max_chars)
 
@@ -540,6 +663,15 @@ def main():
              "placed early in the prompt so it survives truncation.",
     )
     parser.add_argument(
+        "--radiology_csv",
+        default="/scratch/high_modality/multimodal/mimiciv/physionet.org/files/mimic-iv-note/2.2/note/radiology.csv.gz",
+        help="MIMIC-IV-Note radiology.csv.gz. Joined by hadm_id only — "
+             "outpatient/ED reports without an hadm_id are dropped. We only "
+             "include radiology, NOT discharge summaries (those leak the dx). "
+             "DISCHARGE DIAGNOSIS: suffixes and HISTORY sections containing "
+             "'known' are stripped via filter_radiology_leaks().",
+    )
+    parser.add_argument(
         "--orphanet_xml",
         default="/scratch/self_evolving_datasets/orphanet/en_product1.xml",
     )
@@ -603,6 +735,14 @@ def main():
     else:
         print("  microbiology CSV not found — skipping # Microbiology section")
 
+    hadm_to_radiology: dict = {}
+    if args.radiology_csv and os.path.exists(args.radiology_csv):
+        print(f"Loading radiology reports from {args.radiology_csv} ...")
+        hadm_to_radiology = load_radiology_map(args.radiology_csv, keep_hadms=keep_hadms)
+        print(f"  admissions with radiology: {len(hadm_to_radiology)}")
+    else:
+        print("  radiology CSV not found — skipping # Radiology section")
+
     work = [
         (
             fp,
@@ -611,6 +751,7 @@ def main():
             code2desc,
             hadm_to_subject,
             hadm_to_micro,
+            hadm_to_radiology,
             args.chest_xray_root,
             args.ecg_root,
             args.ecg_png_dir,
