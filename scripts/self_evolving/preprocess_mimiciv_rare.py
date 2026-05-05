@@ -513,23 +513,27 @@ def mask_admission(admission: dict) -> dict:
     return a
 
 
-def process_one(args: tuple) -> dict | None:
-    (
-        fp,
-        e_set,
-        idx2code,
-        code2desc,
-        hadm_to_subject,
-        hadm_to_micro,
-        hadm_to_radiology,
-        chest_xray_root,
-        ecg_root,
-        ecg_png_dir,
-        max_xrays,
-        max_ecgs,
-        max_chars,
-        max_pixels_per_image,
-    ) = args
+# Set once in main(). Workers inherit via Linux fork — avoids re-pickling
+# the (large) hadm_to_* dicts on every Pool.map chunk.
+_WORKER_CTX: dict = {}
+
+
+def process_one(fp: str) -> dict | None:
+    ctx = _WORKER_CTX
+    e_set = ctx["e_set"]
+    idx2code = ctx["idx2code"]
+    code2desc = ctx["code2desc"]
+    hadm_to_subject = ctx["hadm_to_subject"]
+    hadm_to_micro = ctx["hadm_to_micro"]
+    hadm_to_radiology = ctx["hadm_to_radiology"]
+    chest_xray_root = ctx["chest_xray_root"]
+    ecg_root = ctx["ecg_root"]
+    ecg_png_dir = ctx["ecg_png_dir"]
+    max_xrays = ctx["max_xrays"]
+    max_ecgs = ctx["max_ecgs"]
+    max_chars = ctx["max_chars"]
+    max_pixels_per_image = ctx["max_pixels_per_image"]
+
     try:
         with open(fp) as f:
             d = json.load(f)
@@ -743,27 +747,26 @@ def main():
     else:
         print("  radiology CSV not found — skipping # Radiology section")
 
-    work = [
-        (
-            fp,
-            e_set,
-            idx2code,
-            code2desc,
-            hadm_to_subject,
-            hadm_to_micro,
-            hadm_to_radiology,
-            args.chest_xray_root,
-            args.ecg_root,
-            args.ecg_png_dir,
-            args.max_xrays,
-            args.max_ecgs,
-            args.max_text_chars,
-            args.max_pixels_per_image,
-        )
-        for fp in files
-    ]
+    # Set worker globals BEFORE Pool() — Linux fork shares them via copy-on-
+    # write so we don't re-pickle the (~18 MB) radiology dict per chunk.
+    _WORKER_CTX.update({
+        "e_set": e_set,
+        "idx2code": idx2code,
+        "code2desc": code2desc,
+        "hadm_to_subject": hadm_to_subject,
+        "hadm_to_micro": hadm_to_micro,
+        "hadm_to_radiology": hadm_to_radiology,
+        "chest_xray_root": args.chest_xray_root,
+        "ecg_root": args.ecg_root,
+        "ecg_png_dir": args.ecg_png_dir,
+        "max_xrays": args.max_xrays,
+        "max_ecgs": args.max_ecgs,
+        "max_chars": args.max_text_chars,
+        "max_pixels_per_image": args.max_pixels_per_image,
+    })
+
     with Pool(args.num_workers) as pool:
-        results = pool.map(process_one, work, chunksize=128)
+        results = pool.map(process_one, files, chunksize=128)
     entries = [r for r in results if r is not None]
     print(f"  Matched (Orphanet E primary, with subject_id): {len(entries)}")
 
