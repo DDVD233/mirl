@@ -32,6 +32,7 @@ from torch.utils.data import Dataset
 from transformers import PreTrainedTokenizer, ProcessorMixin
 
 from verl.utils.import_utils import load_extern_object
+from verl.utils.tokenizer import normalize_token_ids
 
 logger = logging.getLogger(__name__)
 
@@ -157,7 +158,7 @@ class RLHFDataset(Dataset):
             # read files and cache
             if parquet_file.endswith(".parquet"):
                 dataframe = datasets.load_dataset("parquet", data_files=parquet_file)["train"]
-            elif parquet_file.endswith(".json"):
+            elif parquet_file.endswith(".json") or parquet_file.endswith(".jsonl"):
                 dataframe = datasets.load_dataset("json", data_files=parquet_file)["train"]
             else:
                 raise ValueError(f"Unsupported file format: {parquet_file}")
@@ -193,7 +194,7 @@ class RLHFDataset(Dataset):
 
                 def doc2len(doc) -> int:
                     try:
-                        messages = self._build_messages(doc)
+                        messages = self._build_messages(doc, key=self.prompt_key)
                         # pass tool schemas if available so the processor can format prompts
                         apply_kwargs = dict(**self.apply_chat_template_kwargs)
                         if self.tool_schemas is not None:
@@ -226,11 +227,22 @@ class RLHFDataset(Dataset):
                             videos = None
                             videos_kwargs = {}
 
-                        return len(
-                            processor(text=[raw_prompt], images=images, videos=videos, videos_kwargs=videos_kwargs)[
-                                "input_ids"
-                            ][0]
-                        )
+                        if images is None and videos is None:
+                            # only text prompt
+                            return len(
+                                processor.tokenizer(
+                                    text=raw_prompt,
+                                    add_special_tokens=False,  # avoid adding special tokens
+                                    return_attention_mask=False,
+                                )["input_ids"]
+                            )
+                        else:
+                            # multi-modal prompt
+                            return len(
+                                processor(text=[raw_prompt], images=images, videos=videos, videos_kwargs=videos_kwargs)[
+                                    "input_ids"
+                                ][0]
+                            )
                     except Exception:
                         print("Error processing one of the samples, skipping...")
                         traceback.print_exc()
@@ -244,9 +256,15 @@ class RLHFDataset(Dataset):
                         if self.tool_schemas is not None:
                             apply_kwargs["tools"] = self.tool_schemas
 
-                        return len(
-                            tokenizer.apply_chat_template(doc[prompt_key], add_generation_prompt=True, **apply_kwargs)
+                        # Keep explicit tokenization to avoid transformers version default changes.
+                        apply_kwargs.pop("tokenize", None)
+                        apply_kwargs.pop("return_dict", None)
+                        apply_kwargs.pop("return_tensors", None)
+
+                        tokenized_prompt = tokenizer.apply_chat_template(
+                            doc[prompt_key], add_generation_prompt=True, tokenize=True, **apply_kwargs
                         )
+                        return len(normalize_token_ids(tokenized_prompt))
                     except Exception:
                         print("Error processing one of the samples, skipping...")
                         traceback.print_exc()
@@ -283,7 +301,7 @@ class RLHFDataset(Dataset):
     def __len__(self):
         return len(self.dataframe)
 
-    def _build_messages(self, example: dict):
+    def _build_messages(self, example: dict, key: str):
         """Replace <image> and <video> placeholder in messages with corresponding image and video
         which is required by processor.apply_chat_template.
         - <image>: {"type": "image", **image}
@@ -295,10 +313,10 @@ class RLHFDataset(Dataset):
         Returns:
             messages: List of messages with replaced placeholder.
         """
-        messages: list = example[self.prompt_key]
-        # When concatenating image and video datasets, pop will return None for image or video sample
-        images = example.pop(self.image_key, None) or []
-        videos = example.pop(self.video_key, None) or []
+        messages: list = example[key]
+        # When concatenating image and video datasets, get will return None for image or video sample
+        images = example.get(self.image_key, None) or []
+        videos = example.get(self.video_key, None) or []
 
         image_offset, video_offset = 0, 0
         for message in messages:
@@ -345,7 +363,10 @@ class RLHFDataset(Dataset):
     def __getitem__(self, item):
         """For rollout, apply_chat_template has been moved to AgentLoop, so we only return raw_prompt here."""
         row_dict: dict = self.dataframe[item]
-        row_dict["raw_prompt"] = self._build_messages(row_dict)
+        row_dict["raw_prompt"] = self._build_messages(row_dict, key=self.prompt_key)
+
+        row_dict.pop(self.image_key, None)
+        row_dict.pop(self.video_key, None)
 
         # TODO(wuxibin): We still need a dummy tensor to make sure DataProto.batch is not empty.
         # Remove this after deprecate DataProto by TensorDict.
@@ -356,13 +377,11 @@ class RLHFDataset(Dataset):
             row_dict["extra_info"] = dict()
         index = row_dict.get("extra_info", {}).get("index", 0)
         tools_kwargs = row_dict.get("extra_info", {}).get("tools_kwargs", {})
-        interaction_kwargs = row_dict.get("extra_info", {}).get("interaction_kwargs", {})
         need_tools_kwargs = row_dict.get("extra_info", {}).get("need_tools_kwargs", self.need_tools_kwargs)
         if need_tools_kwargs and not tools_kwargs:
-            logger.warning("tools_kwargs is empty for index {}, data source: {}", index, row_dict["data_source"])
+            logger.warning("tools_kwargs is empty for index %s, data source: %s", index, row_dict["data_source"])
         row_dict["index"] = index
         row_dict["tools_kwargs"] = tools_kwargs
-        row_dict["interaction_kwargs"] = interaction_kwargs
         return row_dict
 
     @classmethod
@@ -424,8 +443,12 @@ class RLHFDataset(Dataset):
         print(f"total_samples: {total_samples}")
         if total_samples == 0:
             raise ValueError("Cannot split an empty dataset")
+
+        # Calculate effective sample count after dropping remainders if needed
         if total_samples % num_splits != 0:
-            raise ValueError(f"Cannot split dataset size {total_samples} into {num_splits} splits")
+            total_samples = total_samples - (total_samples % num_splits)
+            logging.warning(f"Dropping {len(self.dataframe) % num_splits} samples, effective samples: {total_samples}")
+
         split_size = total_samples // num_splits
         splits = []
 

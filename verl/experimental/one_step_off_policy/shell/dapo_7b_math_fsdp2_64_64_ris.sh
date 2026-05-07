@@ -63,7 +63,7 @@ n_resp_per_prompt=16
 train_prompt_mini_bsz=32
 test_freq=20
 
-# https://github.com/volcengine/verl/blob/main/docs/algo/rollout_corr.md
+# https://github.com/verl-project/verl/blob/main/docs/algo/rollout_corr.md
 # use decoupled_geo_rs
 #algorithm:
 #  rollout_correction:
@@ -85,7 +85,7 @@ python -m verl.experimental.one_step_off_policy.main_ppo \
     algorithm.adv_estimator=${adv_estimator} \
     algorithm.use_kl_in_reward=${use_kl_in_reward} \
     algorithm.kl_ctrl.kl_coef=${kl_coef} \
-    actor_rollout_ref.actor.strategy=fsdp2 \
+    actor_rollout_ref.actor.fsdp_config.strategy=fsdp2 \
     critic.strategy=fsdp2 \
     actor_rollout_ref.actor.use_kl_loss=${use_kl_loss} \
     actor_rollout_ref.actor.kl_loss_coef=${kl_loss_coef} \

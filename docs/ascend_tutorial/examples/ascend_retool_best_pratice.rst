@@ -1,7 +1,7 @@
 Ascend Retool Best Practice
 ===================================
 
-Last updated: 02/10/2026.
+Last updated: 03/01/2026.
 
 引言
 ----------------------------------
@@ -27,10 +27,10 @@ Retool论文参考([Retool](https://arxiv.org/pdf/2504.11536))
 ============    ============================================================
 software        version 
 ============    ============================================================
-Python          ``>= 3.10, <3.12``
-CANN            ``== 8.3.RC1``
-torch           ``== 2.7.1``
-torch_npu       ``== 2.7.1``
+Python          ``>=3.10, <3.12``
+CANN            ``==8.3.RC1``
+torch           ``==2.7.1``
+torch_npu       ``==2.7.1``
 verl            ``v0.6.1 commitId=d62da4950573d7a4b7ef2362337952e7ab59e78d``
 vllm            ``v0.11.0``
 vllm-ascend     ``v0.11.0-dev``
@@ -82,8 +82,8 @@ transformers    ``4.57.6``
 .. code-block:: bash
 
   python3 -m verl.model_merger merge --backend fsdp \
-      --local_dir ${DATASETS}/checkpoint/multiturn-sft-qwen-2.5-7b-instruct/global_step_372 \
-      --target_dir ${DATASETS}/checkpoint/multiturn-sft-qwen-2.5-7b-instruct/global_step_372/huggingface
+      --local_dir /PATH/TO/checkpoint/multiturn-sft-qwen-2.5-7b-instruct/global_step_372 \
+      --target_dir /PATH/TO/checkpoint/multiturn-sft-qwen-2.5-7b-instruct/global_step_372/huggingface
 
 2.代码沙箱准备
 
@@ -100,6 +100,7 @@ https://github.com/bytedance/SandboxFusion
 
 .. code-block:: bash
 
+  cd SandboxFusion
   conda create -n sandbox -y python=3.11
   conda activate sandbox
   pip install poetry
@@ -108,6 +109,7 @@ https://github.com/bytedance/SandboxFusion
   mkdir -p docs/build
   cd runtime/python
   bash install-python-runtime.sh
+  cd ../../
   make run-online
 
 3.训练
@@ -135,7 +137,7 @@ https://github.com/bytedance/SandboxFusion
   dapo_math_17k=$DATA_ROOT/dataset/BytedTsinghua-SIA/DAPO-Math-17k
   aime_2024=$DATA_ROOT/dataset/Maxwell-Jia/AIME_2024
   #aime_2025=$DATA_ROOT/dataset/yentinglin/aime_2025
-  model_path=$DATA_ROOT/dataset/checkpoint/multiturn-sft-qwen-2.5-7b-instruct/  global_step_372/huggingface
+  model_path=$DATA_ROOT/dataset/checkpoint/multiturn-sft-qwen-2.5-7b-instruct/global_step_372/huggingface
   
   train_files="['$dapo_math_17k']"
   test_files="['$aime_2024']"

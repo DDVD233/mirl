@@ -55,3 +55,38 @@ def is_transformers_version_in_range(min_version: Optional[str] = None, max_vers
         upper_bound_check = transformers_version <= version.parse(max_version)
 
     return lower_bound_check and upper_bound_check
+
+
+@lru_cache
+def get_auto_model_for_vision2seq():
+    """Return the available VL auto model class across transformers versions."""
+
+    try:
+        # Prefer the newer class when available. In transformers 4.x this class has
+        # a broader mapping than AutoModelForVision2Seq, and AutoModelForVision2Seq
+        # is deprecated for removal in v5.
+        from transformers import AutoModelForImageTextToText
+    except ImportError:
+        from transformers import AutoModelForVision2Seq
+
+        return AutoModelForVision2Seq
+
+    return AutoModelForImageTextToText
+
+
+def unpack_visual_output(visual_output):
+    """Unpack the output from the visual encoder, handling both tuple and object return types.
+
+    Newer versions of transformers return an object with `pooler_output` and `deepstack_features`
+    attributes instead of a plain tuple.
+    """
+    if hasattr(visual_output, "pooler_output"):
+        # For newer versions(>=5.0.0) of transformers, return the pooler_output and deepstack_features
+        if hasattr(visual_output, "deepstack_features"):
+            return visual_output.pooler_output, visual_output.deepstack_features
+        else:
+            return visual_output.pooler_output, None
+    if isinstance(visual_output, tuple):
+        return visual_output
+    else:
+        return visual_output, None

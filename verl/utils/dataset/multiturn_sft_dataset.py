@@ -32,10 +32,11 @@ from transformers import PreTrainedTokenizer, ProcessorMixin
 
 from verl.models.transformers.qwen2_vl import get_rope_index as get_rope_index_qwen2_vl
 from verl.utils import hf_tokenizer
-from verl.utils.chat_template import extract_system_prompt_and_generation
+from verl.utils.chat_template import apply_chat_template, extract_system_prompt_and_generation
 from verl.utils.dataset.dataset_utils import DatasetPadMode
 from verl.utils.dataset.vision_utils import process_image, process_video
 from verl.utils.fs import copy_local_path_from_hdfs
+from verl.utils.py_functional import convert_nested_value_to_list_recursive
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -64,22 +65,10 @@ def print_assembled_message(tokenizer, message_list, input_ids, loss_mask, attn_
     sep = "\n\n"
     str = f"tokenized entire message:\n{tokenized}"
     str += sep
-    str += f"tokenized seperately    :\n{tokenizer.decode(input_ids)}"
+    decoded_ids = input_ids.tolist() if hasattr(input_ids, "tolist") else input_ids
+    str += f"tokenized seperately    :\n{tokenizer.decode(decoded_ids)}"
 
     logger.debug(str)
-
-
-def convert_nested_value_to_list_recursive(data_item):
-    if isinstance(data_item, dict):
-        return {k: convert_nested_value_to_list_recursive(v) for k, v in data_item.items()}
-    elif isinstance(data_item, list):
-        return [convert_nested_value_to_list_recursive(elem) for elem in data_item]
-    elif isinstance(data_item, np.ndarray):
-        # Convert to list, then recursively process the elements of the new list
-        return convert_nested_value_to_list_recursive(data_item.tolist())
-    else:
-        # Base case: item is already a primitive type (int, str, float, bool, etc.)
-        return data_item
 
 
 class MultiTurnSFTDataset(Dataset):
@@ -222,8 +211,9 @@ class MultiTurnSFTDataset(Dataset):
         if enable_thinking is not None:
             apply_chat_template_kwargs["enable_thinking"] = enable_thinking
 
-        inputs = processor.apply_chat_template(
-            [message],
+        inputs = apply_chat_template(
+            processor,
+            messages=[message],
             tools=tools,
             add_generation_prompt=False,
             tokenize=True,
@@ -262,19 +252,21 @@ class MultiTurnSFTDataset(Dataset):
         Returns:
             messages: List of messages with replaced placeholder.
         """
-        messages: list = example[self.messages_key]
+        messages: list = convert_nested_value_to_list_recursive(example[self.messages_key])
         images = example[self.image_key] if self.image_key in example else []
         videos = example[self.video_key] if self.video_key in example else []
 
         image_offset, video_offset = 0, 0
         for message in messages:
-            if self.image_key not in example and self.video_key not in example:
-                continue
-            assert self.processor is not None, "processor is needed to process image and video"
-
             content = message["content"]
             if not isinstance(content, str):
                 continue
+
+            if self.image_key not in example and self.video_key not in example:
+                if self.processor is not None:
+                    message["content"] = [{"type": "text", "text": content}]
+                continue
+            assert self.processor is not None, "processor is needed to process image and video"
 
             content_list = []
             segments = re.split("(<image>|<video>)", content)
@@ -462,6 +454,8 @@ class MultiTurnSFTDataset(Dataset):
         enable_thinking = (
             self.enable_thinking[item] if self.enable_thinking is not None else self.enable_thinking_default
         )
+        if enable_thinking is not None:
+            enable_thinking = bool(enable_thinking)
 
         # For multimodal conversations, process through processor at once to avoid
         # per-frame video placeholder expansion issues (GitHub issue #5024).
@@ -510,6 +504,8 @@ class MultiTurnSFTDataset(Dataset):
 
             for k, v in multi_modal_inputs.items():
                 multi_modal_inputs[k] = torch.concat(v, dim=0)
+
+        multi_modal_inputs.pop("mm_token_type_ids", None)
 
         # handle position_ids for Qwen-VL series models
         if self.processor is not None and "Qwen2VLImageProcessor" in self.processor.image_processor.__class__.__name__:
@@ -580,6 +576,8 @@ class MultiTurnSFTDataset(Dataset):
                 res["multi_modal_inputs"] = multi_modal_inputs
             return res
         elif self.pad_mode == DatasetPadMode.NO_PADDING:
+            if sequence_length > self.max_length and self.truncation == "error":
+                raise ValueError(f"{sequence_length=} is larger than {self.max_length=}")
             # truncate input_ids if it is longer than max_length
             if len(input_ids) > self.max_length:
                 input_ids = input_ids[: self.max_length]
