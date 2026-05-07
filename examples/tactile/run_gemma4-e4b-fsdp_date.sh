@@ -1,5 +1,6 @@
 set -x
 ENGINE=${1:-vllm}
+[ $# -gt 0 ] && shift
 
 export VLLM_ALLREDUCE_USE_SYMM_MEM=0
 
