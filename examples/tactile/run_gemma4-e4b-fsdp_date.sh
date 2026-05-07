@@ -3,6 +3,7 @@ ENGINE=${1:-sglang}
 [ $# -gt 0 ] && shift
 
 export VLLM_ALLREDUCE_USE_SYMM_MEM=0
+export NCCL_P2P_DISABLE=1
 
 ROLLOUT_TP=${ROLLOUT_TP:-2}
 SP_SIZE=${SP_SIZE:-1}
