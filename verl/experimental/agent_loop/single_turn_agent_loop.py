@@ -16,7 +16,13 @@ import os
 from typing import Any
 from uuid import uuid4
 
-from verl.experimental.agent_loop.agent_loop import AgentLoopBase, AgentLoopOutput, register
+from verl.experimental.agent_loop.agent_loop import (
+    AgentLoopBase,
+    AgentLoopOutput,
+    _expand_videos_to_frames,
+    _processor_accepts_videos_inst,
+    register,
+)
 from verl.utils.profiler import simple_timer
 from verl.utils.rollout_trace import rollout_trace_op
 from verl.workers.rollout.replica import TokenOutput
@@ -42,6 +48,18 @@ class SingleTurnAgentLoop(AgentLoopBase):
         multi_modal_data = await self.process_vision_info(messages)
         images = multi_modal_data.get("images")
         videos = multi_modal_data.get("videos")
+
+        # 1a. If the processor doesn't accept videos (e.g. Gemma3Processor), or
+        # the rollout backend doesn't support videos for this model (e.g. vLLM
+        # Gemma3 raises "At most 0 video(s) may be provided"), expand each
+        # video tensor into frames-as-images so the rest of the pipeline only
+        # sees image inputs. We unwrap the (tensor, metadata) pairs from
+        # process_vision_info first.
+        if videos is not None and self.processor is not None and not _processor_accepts_videos_inst(self.processor):
+            video_pairs = list(videos)
+            messages, images = _expand_videos_to_frames(messages, video_pairs, images)
+            videos = None
+            multi_modal_data = {**multi_modal_data, "images": images, "videos": None}
 
         # 2. apply chat template and tokenize
         prompt_ids = await self.apply_chat_template(
