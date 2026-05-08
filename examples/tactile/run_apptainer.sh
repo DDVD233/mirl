@@ -130,6 +130,7 @@ exec apptainer exec --nv --writable-tmpfs --cleanenv \
   --env "PYTHONPATH=$PYTHON_PATH_VAL" \
   --env "VLLM_ALLREDUCE_USE_SYMM_MEM=0" \
   --env "NCCL_P2P_DISABLE=1" \
+  --env "VERL_SKIP_INIT_SYNC=${VERL_SKIP_INIT_SYNC:-0}" \
   --bind "$VERL_HOST:/workspace/verl" \
   $PYOVERRIDES_BIND \
   $EXTRA_BINDS \
