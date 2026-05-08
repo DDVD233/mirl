@@ -41,9 +41,13 @@ ROPE_NEW = """        if self.rope_type in ROPE_INIT_FUNCTIONS:
 
 # Patch 2: rope_local_base_freq was renamed to rope_parameters in transformers
 # 5.x (a dict keyed by 'sliding_attention'/'full_attention'). Fall back to the
-# global rope_theta if neither is present.
-LOCAL_OLD = "        config.rope_theta = config.rope_local_base_freq"
-LOCAL_NEW = """        if hasattr(config, "rope_local_base_freq"):
+# global rope_theta if neither is present. Two variants exist in the file:
+#   - module-level ``        config.rope_theta = config.rope_local_base_freq``
+#   - inside ``if self.is_sliding:`` ``            self.rope_theta = config.rope_local_base_freq``
+LOCAL_OLD_VARIANTS = [
+    (
+        "        config.rope_theta = config.rope_local_base_freq",
+        """        if hasattr(config, "rope_local_base_freq"):
             config.rope_theta = config.rope_local_base_freq
         else:
             _rp = getattr(config, "rope_parameters", None) or {}
@@ -51,7 +55,23 @@ LOCAL_NEW = """        if hasattr(config, "rope_local_base_freq"):
             if isinstance(_local, dict) and "rope_theta" in _local:
                 config.rope_theta = _local["rope_theta"]
             elif _local is not None and hasattr(_local, "rope_theta"):
-                config.rope_theta = _local.rope_theta"""
+                config.rope_theta = _local.rope_theta""",
+    ),
+    (
+        "            self.rope_theta = config.rope_local_base_freq",
+        """            if hasattr(config, "rope_local_base_freq"):
+                self.rope_theta = config.rope_local_base_freq
+            else:
+                _rp = getattr(config, "rope_parameters", None) or {}
+                _local = _rp.get("sliding_attention") if isinstance(_rp, dict) else None
+                if isinstance(_local, dict) and "rope_theta" in _local:
+                    self.rope_theta = _local["rope_theta"]
+                elif _local is not None and hasattr(_local, "rope_theta"):
+                    self.rope_theta = _local.rope_theta
+                else:
+                    self.rope_theta = getattr(config, "rope_theta", 10000.0)""",
+    ),
+]
 
 
 def apply_patch(s, old, new, name):
@@ -73,14 +93,12 @@ def main():
         print(f"patching {path}")
         s = path.read_text()
         s, c1 = apply_patch(s, ROPE_OLD, ROPE_NEW, "rope_init_fn fallback")
-        # rope_local_base_freq appears in two places (line ~172 and ~455), patch both
-        s2 = s
-        for _ in range(2):
-            s2, changed = apply_patch(s2, LOCAL_OLD, LOCAL_NEW, "rope_local_base_freq fallback")
-            if not changed:
-                break
-        if c1 or s2 != s:
-            path.write_text(s2)
+        any_changed = c1
+        for old, new in LOCAL_OLD_VARIANTS:
+            s, changed = apply_patch(s, old, new, f"rope_local_base_freq @ {old.lstrip()[:30]}...")
+            any_changed = any_changed or changed
+        if any_changed:
+            path.write_text(s)
         return
     sys.exit("ERROR: no candidate gemma3_causal.py found")
 
