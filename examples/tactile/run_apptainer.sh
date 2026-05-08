@@ -60,16 +60,20 @@ fi
 #     and pip --user installs.
 #   - We strip any leaked host build env (NVCC_PREPEND_FLAGS, CC/CXX, etc.)
 #     so the container's own toolchain isn't hijacked.
-exec apptainer exec --nv --writable-tmpfs \
+# --cleanenv strips host env from the container shell. We then re-export only
+# what verl needs. This avoids inheriting host BASH_ENV (which points at lmod
+# init scripts that don't exist inside the image), CONDA_*, NVCC_PREPEND_FLAGS
+# that leaked from a sibling conda env, etc.
+exec apptainer exec --nv --writable-tmpfs --cleanenv \
+  --env "HOME=$HOME" \
+  --env "PYTHONPATH=/workspace/verl" \
+  --env "HF_HOME=$SCRATCH/huggingface" \
+  --env "VLLM_ALLREDUCE_USE_SYMM_MEM=0" \
+  --env "NCCL_P2P_DISABLE=1" \
   --bind "$VERL_HOST:/workspace/verl" \
   "$SIF" \
   bash -c '
     set -x
-    unset NVCC_PREPEND_FLAGS CC CXX CUDAHOSTCXX CUDACXX \
-          CPPFLAGS CFLAGS CXXFLAGS DEBUG_CFLAGS DEBUG_CXXFLAGS \
-          LDFLAGS CONDA_BUILD_SYSROOT
-    export PYTHONPATH=/workspace/verl${PYTHONPATH:+:$PYTHONPATH}
-    export HF_HOME='"$SCRATCH"'/huggingface
     cd /workspace/verl
     bash '"$TRAIN_SCRIPT"' "$@"
   ' bash "$@"
