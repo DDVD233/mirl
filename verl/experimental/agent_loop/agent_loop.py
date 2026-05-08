@@ -801,15 +801,17 @@ class AgentLoopWorker:
             videos, video_metadatas = list(videos), list(video_metadatas)
         else:
             video_metadatas = None
-        current_text = self.tokenizer.decode(input_ids.squeeze(0), skip_special_tokens=True)
-        multi_modal_inputs = self.processor(
-            text=[current_text],
-            images=images,
-            videos=videos,
-            video_metadata=video_metadatas,
-            return_tensors="pt",
-            do_sample_frames=False,
-        )
+        # Keep special tokens so vision placeholders (e.g. Gemma3's <image>)
+        # survive the decode/re-encode round-trip. Stripping them causes
+        # processors that strict-check prompt-vs-image-token-count to error
+        # with "Prompt contained 0 image tokens but received N images".
+        current_text = self.tokenizer.decode(input_ids.squeeze(0), skip_special_tokens=False)
+        processor_kwargs = {"return_tensors": "pt"}
+        if videos is not None:
+            processor_kwargs["videos"] = videos
+            processor_kwargs["video_metadata"] = video_metadatas
+            processor_kwargs["do_sample_frames"] = False
+        multi_modal_inputs = self.processor(text=[current_text], images=images, **processor_kwargs)
         multi_modal_inputs.pop("input_ids", None)
         multi_modal_inputs.pop("attention_mask", None)
 
