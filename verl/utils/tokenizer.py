@@ -146,6 +146,8 @@ def hf_processor(name_or_path, **kwargs):
                 model_class = Glm4vModel
             case "MllamaProcessor":
                 pass  # MllamaProcessor and MllamaModel doesn't have get_rope_index property
+            case "Gemma3Processor":
+                pass  # Gemma3 uses standard RoPE; no custom rope_index needed
             case _:
                 raise ValueError(f"Unsupported processor type: {processor.__class__.__name__}")
 
