@@ -10,6 +10,32 @@ logger = logging.getLogger(__name__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 
+def _system_prompt_tokens(tokenizer) -> list[int]:
+    """Derive system-prompt token prefix by diffing one vs two user turns.
+
+    Some chat templates (e.g. Gemma 3) require strict user/assistant alternation
+    and reject the two-user probe. In that case there's no reliable way to
+    deduce a system prefix, so we return an empty list.
+    """
+    token1 = normalize_token_ids(
+        tokenizer.apply_chat_template([{"role": "user", "content": ""}], add_generation_prompt=False, tokenize=True)
+    )
+    try:
+        token2 = normalize_token_ids(
+            tokenizer.apply_chat_template(
+                [{"role": "user", "content": ""}] * 2, add_generation_prompt=False, tokenize=True
+            )
+        )
+    except Exception as e:
+        logger.warning(
+            "Could not probe two-user turn for system prompt extraction (%s); "
+            "assuming empty system prompt.",
+            type(e).__name__,
+        )
+        return []
+    return token1[: -(len(token2) - len(token1))]
+
+
 def initialize_system_prompt(tokenizer, **apply_chat_template_kwargs) -> list[int]:
     """
     Initialize system prompt tokens for chat templates that support them.
@@ -21,26 +47,14 @@ def initialize_system_prompt(tokenizer, **apply_chat_template_kwargs) -> list[in
     Returns:
         List of token IDs for the system prompt, or empty list if not supported
     """
-    token1 = normalize_token_ids(
-        tokenizer.apply_chat_template([{"role": "user", "content": ""}], add_generation_prompt=False, tokenize=True)
-    )
-    token2 = normalize_token_ids(
-        tokenizer.apply_chat_template([{"role": "user", "content": ""}] * 2, add_generation_prompt=False, tokenize=True)
-    )
-    # get system prompt tokens
-    system_prompt = token1[: -(len(token2) - len(token1))]
-    return system_prompt
+    return _system_prompt_tokens(tokenizer)
 
 
 def extract_system_prompt_and_generation(tokenizer):
     token1 = normalize_token_ids(
         tokenizer.apply_chat_template([{"role": "user", "content": ""}], add_generation_prompt=False, tokenize=True)
     )
-    token2 = normalize_token_ids(
-        tokenizer.apply_chat_template([{"role": "user", "content": ""}] * 2, add_generation_prompt=False, tokenize=True)
-    )
-    # get system prompt tokens
-    system_prompt = token1[: -(len(token2) - len(token1))]
+    system_prompt = _system_prompt_tokens(tokenizer)
     # get generate prompt tokens
     token3 = normalize_token_ids(
         tokenizer.apply_chat_template([{"role": "user", "content": ""}], add_generation_prompt=True, tokenize=True)
