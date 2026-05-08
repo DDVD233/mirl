@@ -28,6 +28,7 @@ and is designed to be fully replaceable by other agent frameworks such as:
 """
 
 import asyncio
+import functools
 import logging
 import os
 import random
@@ -69,6 +70,84 @@ logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 DEFAULT_ROUTING_CACHE_SIZE = 10000
+
+
+@functools.lru_cache(maxsize=8)
+def _processor_accepts_videos(processor_cls: type) -> bool:
+    """Whether ``processor_cls.__call__`` declares a ``videos=`` keyword.
+
+    Processors that don't (e.g. Gemma3Processor) silently drop the videos
+    we pass and end up emitting <image> placeholders without backing pixel
+    features, which makes the model generate from uninitialised vision-
+    token slots. We detect that case and expand videos -> frames upstream.
+    """
+    import inspect
+    try:
+        sig = inspect.signature(processor_cls.__call__)
+    except (TypeError, ValueError):
+        return True  # unknown -- assume yes, fail loudly downstream if not
+    return "videos" in sig.parameters
+
+
+def _processor_accepts_videos_inst(processor) -> bool:
+    return _processor_accepts_videos(type(processor))
+
+
+def _expand_videos_to_frames(
+    messages: list[dict],
+    videos: list[tuple["torch.Tensor", dict]],
+    images: list | None,
+):
+    """Replace ``{type:"video"}`` content blocks with N ``{type:"image"}`` blocks.
+
+    For each video in ``videos`` (a list of (tensor, metadata) tuples where
+    tensor has shape ``(T, C, H, W)``), iterate over the frames, append them
+    to ``images``, and rewrite the corresponding video block in the messages
+    with that many image blocks. Operates on a deep-copied messages list so
+    callers' input isn't mutated.
+
+    Returns the rewritten ``messages`` and the new ``images`` list.
+    """
+    import copy
+    from PIL import Image as PILImage
+
+    images = list(images) if images else []
+    new_messages = copy.deepcopy(messages)
+    video_iter = iter(videos)
+
+    def _frames_to_pil(frames_tensor):
+        # frames_tensor: (T, C, H, W) uint8 or float
+        out = []
+        for frame in frames_tensor:
+            t = frame
+            if hasattr(t, "permute"):
+                t = t.permute(1, 2, 0)  # (C,H,W) -> (H,W,C)
+            arr = t.detach().cpu().numpy() if hasattr(t, "detach") else t
+            if arr.dtype.kind == "f":
+                arr = arr.clip(0, 255).astype("uint8") if arr.max() > 1.5 else (arr * 255).clip(0, 255).astype("uint8")
+            out.append(PILImage.fromarray(arr))
+        return out
+
+    for msg in new_messages:
+        content = msg.get("content")
+        if not isinstance(content, list):
+            continue
+        new_content = []
+        for block in content:
+            if isinstance(block, dict) and block.get("type") == "video":
+                try:
+                    video_tensor, _meta = next(video_iter)
+                except StopIteration:
+                    new_content.append(block)
+                    continue
+                frames = _frames_to_pil(video_tensor)
+                images.extend(frames)
+                new_content.extend({"type": "image", "image": f} for f in frames)
+            else:
+                new_content.append(block)
+        msg["content"] = new_content
+
+    return new_messages, images
 
 
 class AgentLoopMetrics(BaseModel):
@@ -252,6 +331,15 @@ class AgentLoopBase(ABC):
             list[int]: Prompt token ids.
         """
         if self.processor is not None:
+            # Some processors (e.g. Gemma3Processor) only accept ``images=`` and
+            # silently drop ``videos=``. For those, expand each video tensor into
+            # its frames as PIL images, and rewrite ``{type:"video"}`` content
+            # blocks in the messages into N consecutive ``{type:"image"}`` blocks
+            # so the chat template inserts N image placeholders.
+            if videos is not None and not _processor_accepts_videos(self.processor):
+                messages, images = _expand_videos_to_frames(messages, videos, images)
+                videos = None
+
             raw_prompt = await self.loop.run_in_executor(
                 None,
                 lambda: apply_chat_template(
@@ -271,14 +359,12 @@ class AgentLoopBase(ABC):
             else:
                 video_metadatas = None
 
-            model_inputs = self.processor(
-                text=[raw_prompt],
-                images=images,
-                videos=videos,
-                video_metadata=video_metadatas,
-                return_tensors="pt",
-                do_sample_frames=False,
-            )
+            processor_kwargs = {"return_tensors": "pt"}
+            if videos is not None:
+                processor_kwargs["videos"] = videos
+                processor_kwargs["video_metadata"] = video_metadatas
+                processor_kwargs["do_sample_frames"] = False
+            model_inputs = self.processor(text=[raw_prompt], images=images, **processor_kwargs)
             prompt_ids = normalize_token_ids(model_inputs.pop("input_ids"))
         else:
             tokenized_prompt = await self.loop.run_in_executor(
