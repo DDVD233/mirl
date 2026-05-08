@@ -2,6 +2,13 @@ set -x
 ENGINE=${1:-sglang}
 [ $# -gt 0 ] && shift
 
+# Strip leaked conda-build / spack compiler env so nvcc doesn't pick up a
+# foreign sysroot at JIT time (sgl-kernel JIT-compiles e.g.
+# resolve_future_token_ids when n>1, even with enforce_eager=True).
+unset NVCC_PREPEND_FLAGS CC CXX CUDAHOSTCXX CUDACXX \
+      CPPFLAGS CFLAGS CXXFLAGS DEBUG_CFLAGS DEBUG_CXXFLAGS \
+      LDFLAGS CONDA_BUILD_SYSROOT
+
 export VLLM_ALLREDUCE_USE_SYMM_MEM=0
 export NCCL_P2P_DISABLE=1
 
