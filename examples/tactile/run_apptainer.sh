@@ -56,6 +56,10 @@ VERL_HOST="${VERL_HOST:-$HOME/verl}"
 SCRATCH="${SCRATCH:-$HOME/scratch}"
 IMAGE_TAG="${IMAGE_TAG:-verlai/verl:sgl059.dev3}"
 SIF="${SIF:-$SCRATCH/apptainer/$(echo "$IMAGE_TAG" | tr ':/' '_').sif}"
+# Persistent overrides directory: holds python packages that we want to shadow
+# the ones inside the image (notably transformers 4.57.1, since sglang 0.5.9's
+# Gemma3 implementation has many incompatibilities with transformers >= 5).
+PYOVERRIDES="${PYOVERRIDES:-$SCRATCH/python_overrides}"
 
 # On this cluster, $HOME/{scratch,verl/outputs,verl/checkpoints} are symlinks
 # into /orcd/compute/.../<user>. apptainer auto-binds $HOME, but does NOT
@@ -75,7 +79,7 @@ for p in "${!_bind_set[@]}"; do
   EXTRA_BINDS="$EXTRA_BINDS --bind $p:$p"
 done
 
-mkdir -p "$(dirname "$SIF")" "$SCRATCH/apptainer/cache" "$VERL_HOST/logs"
+mkdir -p "$(dirname "$SIF")" "$SCRATCH/apptainer/cache" "$VERL_HOST/logs" "$PYOVERRIDES"
 
 # One-time pull. apptainer pull is idempotent only via the cachedir; the .sif
 # itself is the persistent artifact, so guard with a file existence check.
@@ -83,6 +87,19 @@ if [ ! -f "$SIF" ]; then
   echo ">>> Pulling $IMAGE_TAG -> $SIF (one-time, multi-GB download)"
   APPTAINER_CACHEDIR="$SCRATCH/apptainer/cache" \
     apptainer pull "$SIF" "docker://$IMAGE_TAG"
+fi
+
+# One-time pin: install transformers 4.57.1 into $PYOVERRIDES. We use --target
+# (not --user) so the install is location-agnostic and we control the path that
+# gets prepended to PYTHONPATH. --no-deps avoids tugging in tokenizers etc.
+TRANSFORMERS_PIN="${TRANSFORMERS_PIN:-4.57.1}"
+if [ ! -d "$PYOVERRIDES/transformers" ]; then
+  echo ">>> Installing transformers==$TRANSFORMERS_PIN to $PYOVERRIDES (one-time)"
+  apptainer exec --nv --writable-tmpfs --cleanenv \
+    --env "HOME=$HOME" \
+    --bind "$PYOVERRIDES:/pyoverrides" \
+    "$SIF" \
+    pip install --no-deps --target=/pyoverrides "transformers==$TRANSFORMERS_PIN"
 fi
 
 # Inside the container:
@@ -99,17 +116,15 @@ fi
 # that leaked from a sibling conda env, etc.
 exec apptainer exec --nv --writable-tmpfs --cleanenv \
   --env "HOME=$HOME" \
-  --env "PYTHONPATH=/workspace/verl" \
+  --env "PYTHONPATH=/pyoverrides:/workspace/verl" \
   --env "VLLM_ALLREDUCE_USE_SYMM_MEM=0" \
   --env "NCCL_P2P_DISABLE=1" \
   --bind "$VERL_HOST:/workspace/verl" \
+  --bind "$PYOVERRIDES:/pyoverrides" \
   $EXTRA_BINDS \
   "$SIF" \
   bash -c '
     set -x
-    # Apply runtime patches to sglang for transformers 5.x compatibility.
-    # writable-tmpfs makes these survive only for this run, which is fine.
-    python3 /workspace/verl/scripts/sglang_overrides/patch_gemma3_causal.py || true
     cd /workspace/verl
     bash '"$TRAIN_SCRIPT"' "$@"
   ' bash "$@"
