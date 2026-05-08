@@ -608,20 +608,29 @@ class RayPPOTrainer:
 
             data_source_lst.append(test_batch.non_tensor_batch.get("data_source", ["unknown"] * reward_tensor.shape[0]))
 
-        self._maybe_log_val_generations(inputs=sample_inputs, outputs=sample_outputs, scores=sample_scores)
+            # Console-print one sample per batch as it streams in, so the user can
+            # eyeball model behaviour live during validation instead of having to
+            # wait for the full pass to finish.
+            if scores:
+                inp = input_texts[0]
+                out = output_texts[0]
+                sc = scores[0]
+                print(
+                    f"[validate] batch {len(sample_scores) // len(scores)}/?? "
+                    f"score={sc:.4f}"
+                )
+                print(
+                    f"  input ({len(inp)} chars): "
+                    f"{inp[:300].replace(chr(10), ' / ')}{'...' if len(inp) > 300 else ''}",
+                    flush=True,
+                )
+                print(
+                    f"  output ({len(out)} chars): "
+                    f"{out[:500].replace(chr(10), ' / ')}{'...' if len(out) > 500 else ''}",
+                    flush=True,
+                )
 
-        # Console-print a few sample (input -> output, score) to make it easy to
-        # eyeball the model's behaviour during validation without opening wandb.
-        if sample_outputs:
-            n_print = min(3, len(sample_outputs))
-            print(f"[validate] showing {n_print}/{len(sample_outputs)} samples:")
-            for i in range(n_print):
-                inp = sample_inputs[i]
-                out = sample_outputs[i]
-                sc = sample_scores[i]
-                print(f"  [{i}] score={sc:.4f}")
-                print(f"      input ({len(inp)} chars): {inp[:300].replace(chr(10), ' / ')}{'...' if len(inp) > 300 else ''}")
-                print(f"      output ({len(out)} chars): {out[:500].replace(chr(10), ' / ')}{'...' if len(out) > 500 else ''}")
+        self._maybe_log_val_generations(inputs=sample_inputs, outputs=sample_outputs, scores=sample_scores)
 
         # dump generations
         val_data_dir = self.config.trainer.get("validation_data_dir", None)
