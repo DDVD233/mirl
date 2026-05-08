@@ -75,7 +75,7 @@ for p in "${!_bind_set[@]}"; do
   EXTRA_BINDS="$EXTRA_BINDS --bind $p:$p"
 done
 
-mkdir -p "$(dirname "$SIF")" "$SCRATCH/apptainer/cache" "$SCRATCH/huggingface" "$VERL_HOST/logs"
+mkdir -p "$(dirname "$SIF")" "$SCRATCH/apptainer/cache" "$VERL_HOST/logs"
 
 # One-time pull. apptainer pull is idempotent only via the cachedir; the .sif
 # itself is the persistent artifact, so guard with a file existence check.
@@ -100,7 +100,6 @@ fi
 exec apptainer exec --nv --writable-tmpfs --cleanenv \
   --env "HOME=$HOME" \
   --env "PYTHONPATH=/workspace/verl" \
-  --env "HF_HOME=$SCRATCH/huggingface" \
   --env "VLLM_ALLREDUCE_USE_SYMM_MEM=0" \
   --env "NCCL_P2P_DISABLE=1" \
   --bind "$VERL_HOST:/workspace/verl" \
