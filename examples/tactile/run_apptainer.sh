@@ -89,17 +89,23 @@ if [ ! -f "$SIF" ]; then
     apptainer pull "$SIF" "docker://$IMAGE_TAG"
 fi
 
-# One-time pin: install transformers 4.57.1 into $PYOVERRIDES. We use --target
-# (not --user) so the install is location-agnostic and we control the path that
-# gets prepended to PYTHONPATH. --no-deps avoids tugging in tokenizers etc.
+# One-time pin: install transformers 4.57.1 (and its incompatible-with-image
+# deps) into $PYOVERRIDES. We use --target so the install is location-agnostic
+# and we control the path prepended to PYTHONPATH. --no-deps avoids dragging in
+# torch / tokenizers / safetensors / etc. (those stay on the image), but a few
+# packages that move in lockstep with transformers must be co-pinned:
+#   - huggingface-hub<1.0 (image has 1.x; transformers 4.x rejects it)
+#   - tokenizers<0.23 if image has 0.23+ (verlai image has 0.22.x already, OK)
 TRANSFORMERS_PIN="${TRANSFORMERS_PIN:-4.57.1}"
-if [ ! -d "$PYOVERRIDES/transformers" ]; then
-  echo ">>> Installing transformers==$TRANSFORMERS_PIN to $PYOVERRIDES (one-time)"
+HF_HUB_PIN="${HF_HUB_PIN:-0.34.4}"
+if [ ! -d "$PYOVERRIDES/transformers" ] || [ ! -d "$PYOVERRIDES/huggingface_hub" ]; then
+  echo ">>> Installing transformers==$TRANSFORMERS_PIN + huggingface-hub==$HF_HUB_PIN to $PYOVERRIDES (one-time)"
   apptainer exec --nv --writable-tmpfs --cleanenv \
     --env "HOME=$HOME" \
     --bind "$PYOVERRIDES:/pyoverrides" \
     "$SIF" \
-    pip install --no-deps --target=/pyoverrides "transformers==$TRANSFORMERS_PIN"
+    pip install --no-deps --target=/pyoverrides --upgrade \
+      "transformers==$TRANSFORMERS_PIN" "huggingface-hub==$HF_HUB_PIN"
 fi
 
 # Inside the container:
