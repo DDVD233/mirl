@@ -107,6 +107,9 @@ exec apptainer exec --nv --writable-tmpfs --cleanenv \
   "$SIF" \
   bash -c '
     set -x
+    # Apply runtime patches to sglang for transformers 5.x compatibility.
+    # writable-tmpfs makes these survive only for this run, which is fine.
+    python3 /workspace/verl/scripts/sglang_overrides/patch_gemma3_causal.py || true
     cd /workspace/verl
     bash '"$TRAIN_SCRIPT"' "$@"
   ' bash "$@"
