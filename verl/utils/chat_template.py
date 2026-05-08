@@ -10,30 +10,57 @@ logger = logging.getLogger(__name__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 
-def _system_prompt_tokens(tokenizer) -> list[int]:
-    """Derive system-prompt token prefix by diffing one vs two user turns.
-
-    Some chat templates (e.g. Gemma 3) require strict user/assistant alternation
-    and reject the two-user probe. In that case there's no reliable way to
-    deduce a system prefix, so we return an empty list.
-    """
-    token1 = normalize_token_ids(
-        tokenizer.apply_chat_template([{"role": "user", "content": ""}], add_generation_prompt=False, tokenize=True)
+def _render(tokenizer, messages) -> list[int]:
+    return normalize_token_ids(
+        tokenizer.apply_chat_template(messages, add_generation_prompt=False, tokenize=True)
     )
+
+
+def _system_prompt_tokens(tokenizer) -> list[int]:
+    """Derive the per-conversation system-prompt token prefix.
+
+    The prefix is whatever the chat template emits before the first user turn
+    (typically just BOS, sometimes a literal system header). We compute it by
+    finding the size of one user turn and subtracting that from a single-user
+    rendering.
+
+    Two probe strategies, in order:
+
+      1. ``[user, user]`` minus ``[user]`` — works for templates that allow
+         repeated user turns (Qwen, Llama, Mistral, ...).
+      2. ``[user, assistant, user]`` minus ``[user, assistant]`` — works for
+         templates that enforce strict user/assistant alternation (Gemma 3).
+
+    If both fail, return an empty list (no truncation downstream is fine).
+    """
+    msg_user = {"role": "user", "content": ""}
+    msg_asst = {"role": "assistant", "content": ""}
+
+    one_user = _render(tokenizer, [msg_user])
+
+    # Strategy 1: two consecutive user turns.
     try:
-        token2 = normalize_token_ids(
-            tokenizer.apply_chat_template(
-                [{"role": "user", "content": ""}] * 2, add_generation_prompt=False, tokenize=True
-            )
-        )
+        two_user = _render(tokenizer, [msg_user, msg_user])
+        user_turn_len = len(two_user) - len(one_user)
+        if user_turn_len > 0:
+            return one_user[:-user_turn_len]
+    except Exception:
+        pass
+
+    # Strategy 2: alternating user/assistant — for Gemma 3 etc.
+    try:
+        ua = _render(tokenizer, [msg_user, msg_asst])
+        uau = _render(tokenizer, [msg_user, msg_asst, msg_user])
+        user_turn_len = len(uau) - len(ua)
+        if user_turn_len > 0 and user_turn_len <= len(one_user):
+            return one_user[:-user_turn_len]
     except Exception as e:
-        logger.warning(
-            "Could not probe two-user turn for system prompt extraction (%s); "
-            "assuming empty system prompt.",
+        logger.debug(
+            "system-prompt probe (alternating) failed (%s); assuming empty.",
             type(e).__name__,
         )
-        return []
-    return token1[: -(len(token2) - len(token1))]
+
+    return []
 
 
 def initialize_system_prompt(tokenizer, **apply_chat_template_kwargs) -> list[int]:
