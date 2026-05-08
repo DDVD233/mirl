@@ -20,8 +20,9 @@ CANDIDATES = [
     "/usr/local/lib/python3.12/dist-packages/sglang/srt/models/gemma3_causal.py",
 ]
 
-OLD = "        self.rope_init_fn = ROPE_INIT_FUNCTIONS[self.rope_type]"
-NEW = """        if self.rope_type in ROPE_INIT_FUNCTIONS:
+# Patch 1: ROPE_INIT_FUNCTIONS no longer has 'default' in transformers 5.x.
+ROPE_OLD = "        self.rope_init_fn = ROPE_INIT_FUNCTIONS[self.rope_type]"
+ROPE_NEW = """        if self.rope_type in ROPE_INIT_FUNCTIONS:
             self.rope_init_fn = ROPE_INIT_FUNCTIONS[self.rope_type]
         else:
             # transformers 5.x removed the 'default' entry; reproduce the
@@ -38,21 +39,48 @@ NEW = """        if self.rope_type in ROPE_INIT_FUNCTIONS:
                 return inv_freq, 1.0
             self.rope_init_fn = _default_rope_init_fn"""
 
+# Patch 2: rope_local_base_freq was renamed to rope_parameters in transformers
+# 5.x (a dict keyed by 'sliding_attention'/'full_attention'). Fall back to the
+# global rope_theta if neither is present.
+LOCAL_OLD = "        config.rope_theta = config.rope_local_base_freq"
+LOCAL_NEW = """        if hasattr(config, "rope_local_base_freq"):
+            config.rope_theta = config.rope_local_base_freq
+        else:
+            _rp = getattr(config, "rope_parameters", None) or {}
+            _local = _rp.get("sliding_attention") if isinstance(_rp, dict) else None
+            if isinstance(_local, dict) and "rope_theta" in _local:
+                config.rope_theta = _local["rope_theta"]
+            elif _local is not None and hasattr(_local, "rope_theta"):
+                config.rope_theta = _local.rope_theta"""
+
+
+def apply_patch(s, old, new, name):
+    if new in s:
+        print(f"  already applied: {name}")
+        return s, False
+    if old not in s:
+        print(f"  WARN: {name} marker not found", file=sys.stderr)
+        return s, False
+    print(f"  applied: {name}")
+    return s.replace(old, new), True
+
 
 def main():
     for p in CANDIDATES:
         path = Path(p)
         if not path.is_file():
             continue
+        print(f"patching {path}")
         s = path.read_text()
-        if NEW in s:
-            print(f"already patched: {path}")
-            return
-        if OLD not in s:
-            print(f"old line not found in {path}; skipping", file=sys.stderr)
-            continue
-        path.write_text(s.replace(OLD, NEW, 1))
-        print(f"patched: {path}")
+        s, c1 = apply_patch(s, ROPE_OLD, ROPE_NEW, "rope_init_fn fallback")
+        # rope_local_base_freq appears in two places (line ~172 and ~455), patch both
+        s2 = s
+        for _ in range(2):
+            s2, changed = apply_patch(s2, LOCAL_OLD, LOCAL_NEW, "rope_local_base_freq fallback")
+            if not changed:
+                break
+        if c1 or s2 != s:
+            path.write_text(s2)
         return
     sys.exit("ERROR: no candidate gemma3_causal.py found")
 
