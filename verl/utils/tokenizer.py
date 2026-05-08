@@ -146,6 +146,7 @@ def hf_processor(name_or_path, **kwargs):
         # Bind vlm model's get_rope_index method to processor
         processor.config = config
         model_class = None
+        verl_rope_fn = None
         match processor.__class__.__name__:
             case "Qwen2VLProcessor":
                 from transformers.models.qwen2_vl import Qwen2VLModel
@@ -156,9 +157,13 @@ def hf_processor(name_or_path, **kwargs):
 
                 model_class = Qwen2_5_VLModel
             case "Qwen3VLProcessor":
-                from transformers.models.qwen3_vl import Qwen3VLModel
+                # Qwen3-VL uses per-frame video timestamps (1 video_grid_thw entry but
+                # N video pad sequences), which the HF Qwen3VLModel.get_rope_index does
+                # not handle (it raises StopIteration on `next(grid_iters[...])`).
+                # Use verl's patched implementation instead.
+                from verl.models.transformers.qwen3_vl import get_rope_index as _verl_qwen3_vl_get_rope_index
 
-                model_class = Qwen3VLModel
+                verl_rope_fn = _verl_qwen3_vl_get_rope_index
             case "Glm4vImageProcessor":
                 from transformers.models.glm4v import Glm4vModel
 
@@ -174,6 +179,26 @@ def hf_processor(name_or_path, **kwargs):
             processor.get_rope_index = types.MethodType(model_class.get_rope_index, processor)
             if hasattr(model_class, "get_vision_position_ids"):
                 processor.get_vision_position_ids = types.MethodType(model_class.get_vision_position_ids, processor)
+        elif verl_rope_fn is not None:
+            # verl's get_rope_index expects 1D input_ids and returns (3, seq_len);
+            # callers like agent_loop pass batched (1, seq_len) and expect HF's
+            # (position_ids, mrope_deltas) tuple where position_ids is (3, B, seq_len).
+            # Adapt by squeezing the batch dim for the call and re-adding it.
+            def _bound_verl_get_rope_index(self, input_ids=None, attention_mask=None, **kwargs):
+                squeeze_back = False
+                ids = input_ids
+                mask = attention_mask
+                if ids is not None and ids.dim() == 2 and ids.shape[0] == 1:
+                    ids = ids[0]
+                    if mask is not None and mask.dim() == 2:
+                        mask = mask[0]
+                    squeeze_back = True
+                pos = verl_rope_fn(self, input_ids=ids, attention_mask=mask, **kwargs)
+                if squeeze_back:
+                    pos = pos.unsqueeze(1)  # (3, seq_len) -> (3, 1, seq_len)
+                return pos, None
+
+            processor.get_rope_index = types.MethodType(_bound_verl_get_rope_index, processor)
     except Exception as e:
         processor = None
         # TODO(haibin.lin): try-catch should be removed after adding transformer version req to setup.py to avoid
