@@ -52,7 +52,22 @@ def main():
         print(f"already up to date: {fp}")
         return
 
-    if patched_old in s:
+    patched_v2 = (
+        "        for name, loaded_weight in weights:\n"
+        "            # transformers 5.x Gemma3 -> sglang key remap:\n"
+        "            # model.language_model.X -> language_model.X\n"
+        "            # model.vision_tower.X   -> vision_tower.vision_model.X\n"
+        "            # model.multi_modal_projector.X -> multi_modal_projector.X\n"
+        '            if name.startswith("model."):\n'
+        '                name = name[len("model."):]\n'
+        '                if name.startswith("vision_tower.") and not name.startswith("vision_tower.vision_model."):\n'
+        '                    name = "vision_tower.vision_model." + name[len("vision_tower."):]\n'
+        '            if "language_model" in name:'
+    )
+
+    if patched_v2 in s:
+        s2 = s.replace(patched_v2, new_patch, 1)
+    elif patched_old in s:
         s2 = s.replace(patched_old, new_patch, 1)
     elif original in s:
         s2 = s.replace(original, new_patch, 1)
