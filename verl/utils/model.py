@@ -746,9 +746,25 @@ def extract_multi_modal_inputs(
                     multi_modal_inputs_collected[key] = []
                 multi_modal_inputs_collected[key].append(value)
 
+    # Some multi-modal keys are variable-length per sample on dim 1
+    # (e.g. Gemma3's token_type_ids, which is shape [1, seq_len] and the
+    # seq_len differs across samples in a micro-batch). Naive torch.cat
+    # along dim 0 then fails because non-cat dims must match. Pad those
+    # keys to the max length first. See GH issue #5524.
+    VARYING_LENGTH_KEYS = ("token_type_ids", "mm_token_type_ids")
+
     for key, values in multi_modal_inputs_collected.items():
         if has_image_bound:  # minicpm-o logic
             multi_modal_inputs[key] = values
+        elif key in VARYING_LENGTH_KEYS and len(values) > 1:
+            max_seq_len = max(v.size(-1) for v in values)
+            padded = []
+            for v in values:
+                pad_len = max_seq_len - v.size(-1)
+                if pad_len > 0:
+                    v = torch.nn.functional.pad(v, (0, pad_len), value=0)
+                padded.append(v)
+            multi_modal_inputs[key] = torch.cat(padded, dim=0)
         else:
             multi_modal_inputs[key] = torch.cat(values, dim=0)
 

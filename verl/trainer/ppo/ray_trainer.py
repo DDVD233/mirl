@@ -610,6 +610,19 @@ class RayPPOTrainer:
 
         self._maybe_log_val_generations(inputs=sample_inputs, outputs=sample_outputs, scores=sample_scores)
 
+        # Console-print a few sample (input -> output, score) to make it easy to
+        # eyeball the model's behaviour during validation without opening wandb.
+        if sample_outputs:
+            n_print = min(3, len(sample_outputs))
+            print(f"[validate] showing {n_print}/{len(sample_outputs)} samples:")
+            for i in range(n_print):
+                inp = sample_inputs[i]
+                out = sample_outputs[i]
+                sc = sample_scores[i]
+                print(f"  [{i}] score={sc:.4f}")
+                print(f"      input ({len(inp)} chars): {inp[:300].replace(chr(10), ' / ')}{'...' if len(inp) > 300 else ''}")
+                print(f"      output ({len(out)} chars): {out[:500].replace(chr(10), ' / ')}{'...' if len(out) > 500 else ''}")
+
         # dump generations
         val_data_dir = self.config.trainer.get("validation_data_dir", None)
         if val_data_dir:
