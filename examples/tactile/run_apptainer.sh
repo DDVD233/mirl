@@ -28,13 +28,28 @@ fi
 TRAIN_SCRIPT="$1"; shift
 
 # Make sure apptainer is on PATH (cluster modules-style env).
+# On compute nodes apptainer is provided via lmod ("module load apptainer").
+# 'module' is a shell function only set up after sourcing lmod's init script,
+# which is normally done by /etc/profile.d/* — but we run as a non-interactive
+# script, so we may need to source it ourselves.
 if ! command -v apptainer >/dev/null 2>&1; then
-  if command -v module >/dev/null 2>&1; then
-    module load apptainer
-  else
-    echo "apptainer not found and 'module' command unavailable" >&2
-    exit 1
+  if ! type module >/dev/null 2>&1; then
+    for init in /etc/profile.d/lmod.sh /usr/share/lmod/lmod/init/bash /usr/share/lmod/lmod/init/profile; do
+      if [ -f "$init" ]; then
+        # shellcheck source=/dev/null
+        source "$init" 2>/dev/null || true
+        break
+      fi
+    done
   fi
+  if type module >/dev/null 2>&1; then
+    module load apptainer
+  fi
+fi
+if ! command -v apptainer >/dev/null 2>&1; then
+  echo "ERROR: apptainer not on PATH and 'module load apptainer' did not help." >&2
+  echo "       Try running 'module load apptainer' manually before launching." >&2
+  exit 1
 fi
 
 VERL_HOST="${VERL_HOST:-$HOME/verl}"
