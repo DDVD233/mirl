@@ -58,7 +58,7 @@ from verl.utils.rollout_trace import (
     RolloutTraceConfig,
     rollout_trace_attr,
 )
-from verl.utils.tokenizer import normalize_token_ids
+from verl.utils.tokenizer import get_image_patch_size, normalize_token_ids
 from verl.workers.config import (
     HFModelConfig,
     RolloutConfig,
@@ -222,7 +222,7 @@ class AgentLoopBase(ABC):
         multi_modal_data = {}
         if self.processor is not None:
             images, videos = await self.dataset_cls.process_vision_info(
-                messages, image_patch_size=self.processor.image_processor.patch_size, config=self.data_config
+                messages, image_patch_size=get_image_patch_size(self.processor), config=self.data_config
             )
             if images is not None:
                 multi_modal_data["images"] = images

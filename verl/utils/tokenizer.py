@@ -16,7 +16,26 @@
 import types
 import warnings
 
-__all__ = ["hf_tokenizer", "hf_processor", "normalize_token_ids"]
+__all__ = ["hf_tokenizer", "hf_processor", "normalize_token_ids", "get_image_patch_size"]
+
+
+def get_image_patch_size(processor) -> int | None:
+    """Resolve the vision-encoder patch size from a multimodal processor.
+
+    Qwen2-VL and friends expose ``patch_size`` directly on the image processor.
+    Gemma 3 (and other Siglip-based models) put it in ``config.vision_config.patch_size``.
+    Returns ``None`` if neither is available.
+    """
+    image_processor = getattr(processor, "image_processor", None)
+    if image_processor is not None:
+        patch_size = getattr(image_processor, "patch_size", None)
+        if patch_size is not None:
+            return patch_size
+    config = getattr(processor, "config", None)
+    vision_config = getattr(config, "vision_config", None) if config is not None else None
+    if vision_config is not None:
+        return getattr(vision_config, "patch_size", None)
+    return None
 
 
 def normalize_token_ids(tokenized_output) -> list[int]:

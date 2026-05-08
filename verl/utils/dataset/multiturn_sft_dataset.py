@@ -37,6 +37,7 @@ from verl.utils.dataset.dataset_utils import DatasetPadMode
 from verl.utils.dataset.vision_utils import process_image, process_video
 from verl.utils.fs import copy_local_path_from_hdfs
 from verl.utils.py_functional import convert_nested_value_to_list_recursive
+from verl.utils.tokenizer import get_image_patch_size
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -104,9 +105,7 @@ class MultiTurnSFTDataset(Dataset):
         self.messages_key = config.get("messages_key", "messages")
         self.image_key = config.get("image_key", "images")
         self.video_key = config.get("video_key", "videos")
-        self.image_patch_size = config.get(
-            "image_patch_size", processor.image_processor.patch_size if processor else None
-        )
+        self.image_patch_size = config.get("image_patch_size", get_image_patch_size(processor))
         self.tools_key = config.get("tools_key", "tools")
         self.enable_thinking_key = config.get("enable_thinking_key", "enable_thinking")
         self.enable_thinking_default = config.get("enable_thinking_default", None)
