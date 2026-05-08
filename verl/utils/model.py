@@ -698,8 +698,24 @@ def get_hf_auto_model_class(hf_config):
                 actor_module_class = AutoModel
     else:
         actor_module_class = AutoModel
-        # For VLM models, we use type to check instead of architecture
-        if type(hf_config) in AutoModelForImageTextToText._model_mapping.keys():
+        # For VLM models, we use type to check instead of architecture.
+        # Note: ``_model_mapping.keys()`` lazy-imports every config class in
+        # the mapping. transformers ships some that have optional deps we
+        # may not have installed (e.g. Gemma3nConfig in 4.57), and that
+        # blows up the iteration. Use the underlying _config_mapping (which
+        # holds class-name strings, no imports) when available, otherwise
+        # fall back to a try/except.
+        config_name = type(hf_config).__name__
+        cfg_map = getattr(AutoModelForImageTextToText._model_mapping, "_config_mapping", None)
+        is_image_text = False
+        if cfg_map is not None:
+            is_image_text = config_name in cfg_map.values()
+        else:
+            try:
+                is_image_text = type(hf_config) in AutoModelForImageTextToText._model_mapping.keys()
+            except (ModuleNotFoundError, ImportError):
+                is_image_text = False
+        if is_image_text:
             actor_module_class = AutoModelForImageTextToText
         else:
             for key, cls in _architecture_to_auto_class.items():
