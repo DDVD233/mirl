@@ -245,29 +245,19 @@ class vLLMColocateWorkerExtension:
                 logger.info(f"FP8 weights loaded (async), loaded_params: {len(loaded_params)}")
             else:
                 logger.info("Loading standard weights (non-FP8, async)")
-                # Materialize so we can both inspect incoming keys and feed load_weights.
-                weights_list = list(weights)
-                incoming_names = [k for k, _ in weights_list]
-                loaded = self.model_runner.model.load_weights(iter(weights_list))
-                if loaded is None:
-                    loaded_names: set[str] = set()
+                if os.environ.get("VERL_SKIP_INIT_SYNC", "0") == "1":
+                    # Diagnostic mode: drain incoming weights without applying them so
+                    # vllm keeps its disk-loaded weights (load_format=auto). The
+                    # surrounding sleep/wake_up cycle still runs so KV cache is set up.
+                    n = 0
+                    for _ in weights:
+                        n += 1
+                    logger.warning(
+                        "[verl-debug] VERL_SKIP_INIT_SYNC=1 -> drained %d incoming weights without loading",
+                        n,
+                    )
                 else:
-                    loaded_names = set(loaded)
-                missing = [k for k in incoming_names if k not in loaded_names]
-                logger.warning(
-                    "[verl-debug] vllm load_weights: incoming=%d loaded=%d missing=%d",
-                    len(incoming_names),
-                    len(loaded_names),
-                    len(missing),
-                )
-                if missing:
-                    sample = missing[:20]
-                    logger.warning("[verl-debug] sample missing incoming keys (first 20): %s", sample)
-                if incoming_names:
-                    logger.warning("[verl-debug] sample incoming keys (first 5): %s", incoming_names[:5])
-                if loaded_names:
-                    sample_loaded = list(loaded_names)[:5]
-                    logger.warning("[verl-debug] sample loaded vllm keys (first 5): %s", sample_loaded)
+                    self.model_runner.model.load_weights(weights)
 
     def _get_zmq_handle(self) -> str:
         """Get ZMQ handle for communication.
