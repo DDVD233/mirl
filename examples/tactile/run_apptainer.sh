@@ -57,6 +57,24 @@ SCRATCH="${SCRATCH:-$HOME/scratch}"
 IMAGE_TAG="${IMAGE_TAG:-verlai/verl:sgl059.dev3}"
 SIF="${SIF:-$SCRATCH/apptainer/$(echo "$IMAGE_TAG" | tr ':/' '_').sif}"
 
+# On this cluster, $HOME/{scratch,verl/outputs,verl/checkpoints} are symlinks
+# into /orcd/compute/.../<user>. apptainer auto-binds $HOME, but does NOT
+# follow those symlinks, so we must bind their real target dir explicitly.
+# Walk a few candidate symlinks and collect the unique top-level prefixes.
+declare -A _bind_set
+for src in "$SCRATCH" "$VERL_HOST/outputs" "$VERL_HOST/checkpoints"; do
+  if [ -L "$src" ]; then
+    real="$(readlink -f "$src")"
+    # Use the first 4 path components, e.g. /orcd/compute/ppliang/001
+    prefix="$(echo "$real" | awk -F/ '{print "/"$2"/"$3"/"$4"/"$5}')"
+    [ -d "$prefix" ] && _bind_set[$prefix]=1
+  fi
+done
+EXTRA_BINDS=""
+for p in "${!_bind_set[@]}"; do
+  EXTRA_BINDS="$EXTRA_BINDS --bind $p:$p"
+done
+
 mkdir -p "$(dirname "$SIF")" "$SCRATCH/apptainer/cache" "$SCRATCH/huggingface" "$VERL_HOST/logs"
 
 # One-time pull. apptainer pull is idempotent only via the cachedir; the .sif
@@ -86,6 +104,7 @@ exec apptainer exec --nv --writable-tmpfs --cleanenv \
   --env "VLLM_ALLREDUCE_USE_SYMM_MEM=0" \
   --env "NCCL_P2P_DISABLE=1" \
   --bind "$VERL_HOST:/workspace/verl" \
+  $EXTRA_BINDS \
   "$SIF" \
   bash -c '
     set -x
