@@ -20,7 +20,7 @@ python3 -m verl.trainer.main_ppo \
     data.val_batch_size=32 \
     data.max_prompt_length=8192 \
     data.max_response_length=4096 \
-    data.filter_overlong_prompts=True \
+    data.filter_overlong_prompts=False \
     data.truncation='left' \
     actor_rollout_ref.model.path=google/gemma-3-4b-it \
     actor_rollout_ref.model.use_remove_padding=True \
