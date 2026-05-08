@@ -801,11 +801,11 @@ class AgentLoopWorker:
             videos, video_metadatas = list(videos), list(video_metadatas)
         else:
             video_metadatas = None
-        # Keep special tokens so vision placeholders (e.g. Gemma3's <image>)
-        # survive the decode/re-encode round-trip. Stripping them causes
-        # processors that strict-check prompt-vs-image-token-count to error
-        # with "Prompt contained 0 image tokens but received N images".
-        current_text = self.tokenizer.decode(input_ids.squeeze(0), skip_special_tokens=False)
+        # Strip special tokens so the processor re-inserts placeholders based
+        # on the images/videos we pass. Qwen-VL family expands one placeholder
+        # per image into many tokens, and re-feeding the expanded prompt
+        # causes the processor to over-index video_metadata.
+        current_text = self.tokenizer.decode(input_ids.squeeze(0), skip_special_tokens=True)
         processor_kwargs = {"return_tensors": "pt"}
         if videos is not None:
             processor_kwargs["videos"] = videos
