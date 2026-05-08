@@ -1,5 +1,5 @@
 set -x
-ENGINE=${1:-sglang}
+ENGINE=${1:-vllm}
 [ $# -gt 0 ] && shift
 
 # Strip leaked conda-build / spack compiler env so nvcc doesn't pick up a

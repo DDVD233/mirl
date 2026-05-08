@@ -54,12 +54,13 @@ fi
 
 VERL_HOST="${VERL_HOST:-$HOME/verl}"
 SCRATCH="${SCRATCH:-$HOME/scratch}"
-IMAGE_TAG="${IMAGE_TAG:-verlai/verl:sgl059.dev3}"
+IMAGE_TAG="${IMAGE_TAG:-verlai/verl:vllm018.dev1}"
 SIF="${SIF:-$SCRATCH/apptainer/$(echo "$IMAGE_TAG" | tr ':/' '_').sif}"
-# Persistent overrides directory: holds python packages that we want to shadow
-# the ones inside the image (notably transformers 4.57.1, since sglang 0.5.9's
-# Gemma3 implementation has many incompatibilities with transformers >= 5).
-PYOVERRIDES="${PYOVERRIDES:-$SCRATCH/python_overrides}"
+# Persistent overrides directory: holds python packages we want to shadow the
+# ones inside the image. Empty by default; set ENABLE_TRANSFORMERS_PIN=1 to
+# install a specific transformers version (was needed for sgl059.dev3 but not
+# for vllm018.dev1).
+PYOVERRIDES="${PYOVERRIDES:-$SCRATCH/python_overrides_$(echo "$IMAGE_TAG" | tr ':/' '_')}"
 
 # On this cluster, $HOME/{scratch,verl/outputs,verl/checkpoints} are symlinks
 # into /orcd/compute/.../<user>. apptainer auto-binds $HOME, but does NOT
@@ -89,23 +90,20 @@ if [ ! -f "$SIF" ]; then
     apptainer pull "$SIF" "docker://$IMAGE_TAG"
 fi
 
-# One-time pin: install transformers 4.57.1 (and its incompatible-with-image
-# deps) into $PYOVERRIDES. We use --target so the install is location-agnostic
-# and we control the path prepended to PYTHONPATH. --no-deps avoids dragging in
-# torch / tokenizers / safetensors / etc. (those stay on the image), but a few
-# packages that move in lockstep with transformers must be co-pinned:
-#   - huggingface-hub<1.0 (image has 1.x; transformers 4.x rejects it)
-#   - tokenizers<0.23 if image has 0.23+ (verlai image has 0.22.x already, OK)
-TRANSFORMERS_PIN="${TRANSFORMERS_PIN:-4.57.1}"
-HF_HUB_PIN="${HF_HUB_PIN:-0.34.4}"
-if [ ! -d "$PYOVERRIDES/transformers" ] || [ ! -d "$PYOVERRIDES/huggingface_hub" ]; then
-  echo ">>> Installing transformers==$TRANSFORMERS_PIN + huggingface-hub==$HF_HUB_PIN to $PYOVERRIDES (one-time)"
-  apptainer exec --nv --writable-tmpfs --cleanenv \
-    --env "HOME=$HOME" \
-    --bind "$PYOVERRIDES:/pyoverrides" \
-    "$SIF" \
-    pip install --no-deps --target=/pyoverrides --upgrade \
-      "transformers==$TRANSFORMERS_PIN" "huggingface-hub==$HF_HUB_PIN"
+# Optional one-time transformers pin (only needed for sgl059.dev3; vllm018
+# has a working transformers stack out of the box).
+if [ "${ENABLE_TRANSFORMERS_PIN:-0}" = "1" ]; then
+  TRANSFORMERS_PIN="${TRANSFORMERS_PIN:-4.57.1}"
+  HF_HUB_PIN="${HF_HUB_PIN:-0.34.4}"
+  if [ ! -d "$PYOVERRIDES/transformers" ] || [ ! -d "$PYOVERRIDES/huggingface_hub" ]; then
+    echo ">>> Installing transformers==$TRANSFORMERS_PIN + huggingface-hub==$HF_HUB_PIN to $PYOVERRIDES (one-time)"
+    apptainer exec --nv --writable-tmpfs --cleanenv \
+      --env "HOME=$HOME" \
+      --bind "$PYOVERRIDES:/pyoverrides" \
+      "$SIF" \
+      pip install --no-deps --target=/pyoverrides --upgrade \
+        "transformers==$TRANSFORMERS_PIN" "huggingface-hub==$HF_HUB_PIN"
+  fi
 fi
 
 # Inside the container:
@@ -120,13 +118,20 @@ fi
 # what verl needs. This avoids inheriting host BASH_ENV (which points at lmod
 # init scripts that don't exist inside the image), CONDA_*, NVCC_PREPEND_FLAGS
 # that leaked from a sibling conda env, etc.
+PYTHON_PATH_VAL="/workspace/verl"
+PYOVERRIDES_BIND=""
+if [ "${ENABLE_TRANSFORMERS_PIN:-0}" = "1" ]; then
+  PYTHON_PATH_VAL="/pyoverrides:/workspace/verl"
+  PYOVERRIDES_BIND="--bind $PYOVERRIDES:/pyoverrides"
+fi
+
 exec apptainer exec --nv --writable-tmpfs --cleanenv \
   --env "HOME=$HOME" \
-  --env "PYTHONPATH=/pyoverrides:/workspace/verl" \
+  --env "PYTHONPATH=$PYTHON_PATH_VAL" \
   --env "VLLM_ALLREDUCE_USE_SYMM_MEM=0" \
   --env "NCCL_P2P_DISABLE=1" \
   --bind "$VERL_HOST:/workspace/verl" \
-  --bind "$PYOVERRIDES:/pyoverrides" \
+  $PYOVERRIDES_BIND \
   $EXTRA_BINDS \
   "$SIF" \
   bash -c '
