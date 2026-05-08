@@ -216,12 +216,17 @@ class vLLMColocateWorkerExtension:
             modelopt_process_weights_after_loading(self.model_runner.model)
             logger.info("ModelOpt QAT: process_weights_after_loading completed")
         elif use_standard_weight_load:
-            # Some post-load transforms are non-idempotent; run once after all buckets.
-            from vllm.model_executor.model_loader.utils import process_weights_after_loading
+            if os.environ.get("VERL_SKIP_INIT_SYNC", "0") == "1":
+                logger.warning(
+                    "[verl-debug] VERL_SKIP_INIT_SYNC=1 -> skipping process_weights_after_loading"
+                )
+            else:
+                # Some post-load transforms are non-idempotent; run once after all buckets.
+                from vllm.model_executor.model_loader.utils import process_weights_after_loading
 
-            model = self.model_runner.model
-            model_config = self.model_runner.vllm_config.model_config
-            process_weights_after_loading(model, model_config, self.device)
+                model = self.model_runner.model
+                model_config = self.model_runner.vllm_config.model_config
+                process_weights_after_loading(model, model_config, self.device)
 
     def _update_weights(self, weights: list[tuple[str, torch.Tensor]], peft_config: dict, base_sync_done: bool):
         if peft_config and base_sync_done:
