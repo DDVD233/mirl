@@ -320,16 +320,20 @@ class AgentLoopBase(ABC):
         Returns:
             list[int]: Prompt token ids suitable for vLLM inference.
         """
-        prompt_ids = await self.loop.run_in_executor(
+        tokenized = await self.loop.run_in_executor(
             None,
             lambda: self.tokenizer.apply_chat_template(
                 messages,
                 tools=tools,
                 add_generation_prompt=True,
                 tokenize=True,
+                return_dict=False,
                 **self.apply_chat_template_kwargs,
             ),
         )
+        # transformers 5.x may wrap the single-prompt output as list[list[int]];
+        # normalize_token_ids flattens it back to list[int].
+        prompt_ids = normalize_token_ids(tokenized)
 
         if remove_system_prompt:
             prompt_ids = prompt_ids[len(self.system_prompt) :]
