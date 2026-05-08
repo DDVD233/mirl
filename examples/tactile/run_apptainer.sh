@@ -63,7 +63,7 @@ fi
 exec apptainer exec --nv --writable-tmpfs \
   --bind "$VERL_HOST:/workspace/verl" \
   "$SIF" \
-  bash -lc '
+  bash -c '
     set -x
     unset NVCC_PREPEND_FLAGS CC CXX CUDAHOSTCXX CUDACXX \
           CPPFLAGS CFLAGS CXXFLAGS DEBUG_CFLAGS DEBUG_CXXFLAGS \
