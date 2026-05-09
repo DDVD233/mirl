@@ -19,6 +19,42 @@ import warnings
 __all__ = ["hf_tokenizer", "hf_processor", "normalize_token_ids", "get_image_patch_size"]
 
 
+def _patch_transformers_extra_special_tokens() -> None:
+    """Compat shim: gemma-4 ships ``extra_special_tokens`` as a ``list[str]``,
+    but transformers' ``_set_model_specific_special_tokens`` (both 4.x and 5.x)
+    treats it as a ``dict``. Wrap the method to coerce list -> dict before the
+    upstream code calls ``.keys()`` on it.
+    """
+    try:
+        from transformers.tokenization_utils_base import AddedToken, PreTrainedTokenizerBase
+    except ImportError:
+        return
+
+    if getattr(PreTrainedTokenizerBase._set_model_specific_special_tokens, "_verl_patched", False):
+        return
+
+    original = PreTrainedTokenizerBase._set_model_specific_special_tokens
+
+    def patched(self, special_tokens):
+        if isinstance(special_tokens, list):
+            converted = {}
+            for tok in special_tokens:
+                content = tok.content if isinstance(tok, AddedToken) else tok
+                if not isinstance(content, str):
+                    continue
+                # "<|video|>" -> "video_token"
+                name = content.strip("<>|").lower().replace(" ", "_") + "_token"
+                converted[name] = tok
+            special_tokens = converted
+        return original(self, special_tokens)
+
+    patched._verl_patched = True
+    PreTrainedTokenizerBase._set_model_specific_special_tokens = patched
+
+
+_patch_transformers_extra_special_tokens()
+
+
 def get_image_patch_size(processor) -> int | None:
     """Resolve the vision-encoder patch size from a multimodal processor.
 
