@@ -553,6 +553,29 @@ class vLLMHttpServer:
             multi_modal_data["image"] = image_data
         if video_data is not None:
             multi_modal_data["video"] = video_data
+            # one-shot debug print so we can see the exact shape verl sends to vllm
+            try:
+                import sys
+                if not getattr(self, "_logged_video_shape", False):
+                    self._logged_video_shape = True
+                    for i, vd in enumerate(video_data):
+                        if isinstance(vd, tuple) and len(vd) == 2:
+                            t, m = vd
+                            print(
+                                f"[verl-debug] video[{i}] tuple: tensor type={type(t).__name__} "
+                                f"shape={getattr(t, 'shape', '?')} dtype={getattr(t, 'dtype', '?')} "
+                                f"metadata_keys={list(m.keys()) if isinstance(m, dict) else type(m).__name__} "
+                                f"metadata={m if isinstance(m, dict) else None}",
+                                flush=True, file=sys.stderr,
+                            )
+                        else:
+                            print(
+                                f"[verl-debug] video[{i}] non-tuple: type={type(vd).__name__} "
+                                f"shape={getattr(vd, 'shape', '?')} dtype={getattr(vd, 'dtype', '?')}",
+                                flush=True, file=sys.stderr,
+                            )
+            except Exception as e:
+                print(f"[verl-debug] log failed: {e}", flush=True)
 
         prompt = TokensPrompt(prompt_token_ids=prompt_ids, multi_modal_data=multi_modal_data)
 
