@@ -684,7 +684,11 @@ class AgentLoopWorker:
             videos, video_metadatas = list(videos), list(video_metadatas)
         else:
             video_metadatas = None
-        current_text = self.tokenizer.decode(input_ids.squeeze(0), skip_special_tokens=True)
+        # Some processors (e.g. Gemma-3) register image placeholders as special
+        # tokens, so skip_special_tokens=True would strip them and the processor
+        # would then complain about a token-vs-image-count mismatch. Keep them.
+        skip_special = self.processor.__class__.__name__ != "Gemma3Processor"
+        current_text = self.tokenizer.decode(input_ids.squeeze(0), skip_special_tokens=skip_special)
         multi_modal_inputs = self.processor(
             text=[current_text],
             images=images,
