@@ -146,9 +146,12 @@ def _get_input_embeds(
     video_grid_thw: Optional[torch.LongTensor] = None,
 ):
     inputs_embeds = model.get_input_embeddings()(input_ids)
+    visual_device = next(model.visual.parameters()).device
     image_mask, video_mask = None, None
     if pixel_values is not None:
-        pixel_values = pixel_values.type(model.visual.dtype)
+        pixel_values = pixel_values.to(device=visual_device, dtype=model.visual.dtype)
+        if image_grid_thw is not None:
+            image_grid_thw = image_grid_thw.to(visual_device)
         image_embeds, deepstack_image_embeds = unpack_visual_output(model.visual(pixel_values, grid_thw=image_grid_thw))
         n_image_tokens = (input_ids == model.config.image_token_id).sum().item()
         n_image_features = image_embeds.shape[0]
@@ -166,7 +169,9 @@ def _get_input_embeds(
         inputs_embeds = inputs_embeds.masked_scatter(image_mask, image_embeds)
 
     if pixel_values_videos is not None:
-        pixel_values_videos = pixel_values_videos.type(model.visual.dtype)
+        pixel_values_videos = pixel_values_videos.to(device=visual_device, dtype=model.visual.dtype)
+        if video_grid_thw is not None:
+            video_grid_thw = video_grid_thw.to(visual_device)
         video_embeds, deepstack_video_embeds = unpack_visual_output(
             model.visual(pixel_values_videos, grid_thw=video_grid_thw)
         )
