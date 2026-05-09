@@ -1,0 +1,74 @@
+#!/bin/bash
+set -x
+
+# Evaluate vanilla Qwen3-VL-8B-Instruct on all date split test sets (baseline comparison)
+
+MODEL_PATH="Qwen/Qwen3-VL-8B-Instruct"
+echo "Evaluating vanilla model: ${MODEL_PATH}"
+
+DATA_DIR="$HOME/scratch/raofu/3DHaptic"
+
+TEST_SUFFIXES=("" "_no_tactile" "_no_video" "_single_view")
+EXP_SUFFIXES=("" "_no_tactile" "_no_video" "_single_view")
+TOTAL=${#TEST_SUFFIXES[@]}
+
+for i in "${!TEST_SUFFIXES[@]}"; do
+    suffix="${TEST_SUFFIXES[$i]}"
+    exp_suffix="${EXP_SUFFIXES[$i]}"
+    test_path="${DATA_DIR}/annotation_verl_split_date_test${suffix}.json"
+    exp_name="eval_vanilla_qwen3vl_split_date${exp_suffix}"
+
+    echo "=== [$((i+1))/${TOTAL}] Eval: ${exp_name} ==="
+    mkdir -p "outputs/${exp_name}"
+
+    python3 -m verl.trainer.main_ppo \
+        algorithm.adv_estimator=grpo \
+        data.train_files="$test_path" \
+        data.val_files="$test_path" \
+        data.train_batch_size=64 \
+        data.val_batch_size=64 \
+        data.max_prompt_length=8192 \
+        data.max_response_length=4096 \
+        data.filter_overlong_prompts=True \
+        data.truncation='left' \
+        actor_rollout_ref.model.path="$MODEL_PATH" \
+        actor_rollout_ref.model.use_remove_padding=True \
+        actor_rollout_ref.model.enable_gradient_checkpointing=True \
+        actor_rollout_ref.actor.optim.lr=1e-6 \
+        actor_rollout_ref.actor.ppo_mini_batch_size=64 \
+        actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=2 \
+        actor_rollout_ref.actor.use_kl_loss=True \
+        actor_rollout_ref.actor.kl_loss_coef=0.01 \
+        actor_rollout_ref.actor.kl_loss_type=low_var_kl \
+        actor_rollout_ref.actor.entropy_coeff=0 \
+        actor_rollout_ref.actor.fsdp_config.param_offload=False \
+        actor_rollout_ref.actor.fsdp_config.optimizer_offload=False \
+        actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=4 \
+        actor_rollout_ref.rollout.tensor_model_parallel_size=1 \
+        actor_rollout_ref.rollout.name=vllm \
+        actor_rollout_ref.rollout.gpu_memory_utilization=0.7 \
+        actor_rollout_ref.rollout.n=5 \
+        actor_rollout_ref.rollout.checkpoint_engine.update_weights_bucket_megabytes=4096 \
+        actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=4 \
+        actor_rollout_ref.ref.fsdp_config.param_offload=True \
+        algorithm.use_kl_in_reward=False \
+        reward_model.reward_manager=dapo \
+        +reward_model.reward_kwargs.overlong_buffer_cfg.enable=True \
+        +reward_model.reward_kwargs.overlong_buffer_cfg.len=512 \
+        +reward_model.reward_kwargs.overlong_buffer_cfg.penalty_factor=1.0 \
+        +reward_model.reward_kwargs.overlong_buffer_cfg.log=False \
+        +reward_model.reward_kwargs.max_resp_len=4096 \
+        trainer.critic_warmup=0 \
+        trainer.logger='["console","wandb"]' \
+        trainer.project_name='tactile' \
+        trainer.experiment_name="$exp_name" \
+        trainer.n_gpus_per_node=4 \
+        trainer.nnodes=1 \
+        trainer.save_freq=20 \
+        trainer.test_freq=5 \
+        trainer.val_only=True \
+        trainer.validation_data_dir="outputs/${exp_name}" \
+        trainer.total_epochs=15 $@
+done
+
+echo "=== All ${TOTAL} vanilla evaluations complete ==="
