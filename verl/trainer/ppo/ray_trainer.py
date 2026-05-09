@@ -1268,7 +1268,10 @@ class RayPPOTrainer:
 
         # load checkpoint and update weights before doing anything
         self._load_checkpoint()
-        self.checkpoint_manager.update_weights(self.global_steps)
+        if os.environ.get("VERL_SKIP_INIT_SYNC", "0") != "1":
+            self.checkpoint_manager.update_weights(self.global_steps)
+        else:
+            print("[verl-debug] VERL_SKIP_INIT_SYNC=1 -> skipping initial FSDP->rollout sync", flush=True)
 
         current_epoch = self.global_steps // len(self.train_dataloader)
 

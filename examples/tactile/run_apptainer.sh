@@ -178,6 +178,7 @@ exec apptainer exec --nv --writable-tmpfs --cleanenv \
   --env "LD_LIBRARY_PATH=/ffmpeg_links:/usr/local/lib/python3.12/dist-packages/av.libs" \
   --env "VLLM_ALLREDUCE_USE_SYMM_MEM=0" \
   --env "NCCL_P2P_DISABLE=1" \
+  --env "VERL_SKIP_INIT_SYNC=${VERL_SKIP_INIT_SYNC:-0}" \
   --env "FORCE_QWENVL_VIDEO_READER=${FORCE_QWENVL_VIDEO_READER:-torchcodec}" \
   --bind "$VERL_HOST:/workspace/verl" \
   --bind "$FFMPEG_LINKS:/ffmpeg_links" \
