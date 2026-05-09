@@ -714,6 +714,11 @@ class AgentLoopWorker:
         if self.processor is None:
             return compute_position_id_with_mask(attention_mask)  # (1, seq_len)
 
+        # Image-only VLMs that share the LM's standard 1-D rope (e.g. Gemma-3)
+        # don't bind a get_rope_index — fall through to plain position ids.
+        if not hasattr(self.processor, "get_rope_index"):
+            return compute_position_id_with_mask(attention_mask)  # (1, seq_len)
+
         image_grid_thw = multi_modal_inputs.get("image_grid_thw")
         video_grid_thw = multi_modal_inputs.get("video_grid_thw")
 
