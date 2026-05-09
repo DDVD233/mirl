@@ -72,15 +72,23 @@ logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 DEFAULT_ROUTING_CACHE_SIZE = 10000
 
 
+_PROCESSORS_WITHOUT_VIDEO_SUPPORT = frozenset({"Gemma3Processor"})
+
+
 @functools.lru_cache(maxsize=8)
 def _processor_accepts_videos(processor_cls: type) -> bool:
-    """Whether ``processor_cls.__call__`` declares a ``videos=`` keyword.
+    """Whether the processor truly handles videos end-to-end.
 
-    Processors that don't (e.g. Gemma3Processor) silently drop the videos
-    we pass and end up emitting <image> placeholders without backing pixel
-    features, which makes the model generate from uninitialised vision-
-    token slots. We detect that case and expand videos -> frames upstream.
+    Some processors declare ``videos=`` in ``__call__`` but the underlying model
+    doesn't actually consume them — Gemma 3 is the canonical example: the
+    HF processor accepts the kwarg, but vLLM's Gemma3 model rejects videos with
+    "At most 0 video(s) may be provided in one prompt." Blacklist those so we
+    expand videos -> frames upstream.
+
+    Otherwise fall back to the ``videos=`` keyword check.
     """
+    if processor_cls.__name__ in _PROCESSORS_WITHOUT_VIDEO_SUPPORT:
+        return False
     import inspect
     try:
         sig = inspect.signature(processor_cls.__call__)
