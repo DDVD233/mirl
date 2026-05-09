@@ -36,7 +36,7 @@ from verl.experimental.agent_loop.utils import resolve_config_path
 from verl.protocol import DataProto
 from verl.single_controller.ray.base import RayResourcePool, RayWorkerGroup
 from verl.utils import hf_processor, hf_tokenizer
-from verl.utils.chat_template import initialize_system_prompt
+from verl.utils.chat_template import initialize_system_prompt, merge_consecutive_same_role_messages
 from verl.utils.dataset.rl_dataset import RLHFDataset, get_dataset_class
 from verl.utils.fs import copy_to_local
 from verl.utils.model import compute_position_id_with_mask
@@ -263,6 +263,7 @@ class AgentLoopBase(ABC):
         Returns:
             list[int]: Prompt token ids.
         """
+        messages = merge_consecutive_same_role_messages(messages)
         if self.processor is not None:
             raw_prompt = await self.loop.run_in_executor(
                 None,
@@ -329,6 +330,7 @@ class AgentLoopBase(ABC):
         Returns:
             list[int]: Prompt token ids suitable for vLLM inference.
         """
+        messages = merge_consecutive_same_role_messages(messages)
         prompt_ids = await self.loop.run_in_executor(
             None,
             lambda: self.tokenizer.apply_chat_template(

@@ -6,6 +6,35 @@ logger = logging.getLogger(__name__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 
+def merge_consecutive_same_role_messages(messages: list[dict]) -> list[dict]:
+    """Merge adjacent messages with the same role.
+
+    Some chat templates (e.g. Gemma-3) reject consecutive same-role messages —
+    typically when a dataset emits ``[system, user]`` and an upstream step has
+    already folded ``system`` into a ``user`` message, leaving ``[user, user]``.
+    Merging joins their content so the template sees a single message per turn.
+
+    Handles both string ``content`` and the multimodal list-of-parts form.
+    """
+    if not messages:
+        return messages
+    merged = [dict(messages[0])]
+    for msg in messages[1:]:
+        prev = merged[-1]
+        if msg["role"] != prev["role"]:
+            merged.append(dict(msg))
+            continue
+        prev_c, cur_c = prev.get("content", ""), msg.get("content", "")
+        if isinstance(prev_c, str) and isinstance(cur_c, str):
+            sep = "\n\n" if prev_c and cur_c else ""
+            prev["content"] = prev_c + sep + cur_c
+        else:
+            prev_list = prev_c if isinstance(prev_c, list) else [{"type": "text", "text": prev_c}]
+            cur_list = cur_c if isinstance(cur_c, list) else [{"type": "text", "text": cur_c}]
+            prev["content"] = list(prev_list) + list(cur_list)
+    return merged
+
+
 def initialize_system_prompt(tokenizer, **apply_chat_template_kwargs) -> list[int]:
     """
     Initialize system prompt tokens for chat templates that support them.
