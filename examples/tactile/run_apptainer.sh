@@ -106,6 +106,51 @@ if [ "${ENABLE_TRANSFORMERS_PIN:-0}" = "1" ]; then
   fi
 fi
 
+# torchcodec for qwen_vl_utils video decoding. The vllm017.latest image has
+# pyav 16 (which bundles ffmpeg 8 shared libs) but no system ffmpeg, so we
+# (1) install torchcodec 0.10.0+cu129 (matches torch 2.10) into pyoverrides
+# (2) build a directory of soname symlinks (libavcodec.so.62 etc.) pointing
+#     at pyav's hash-suffixed libs so torchcodec's dlopen can find them
+# (3) mount that dir + pyav's .libs dir on LD_LIBRARY_PATH at run time.
+TORCHCODEC_VERSION="${TORCHCODEC_VERSION:-0.10.0}"
+TORCHCODEC_INDEX_URL="${TORCHCODEC_INDEX_URL:-https://download.pytorch.org/whl/cu129}"
+FFMPEG_LINKS="${FFMPEG_LINKS:-$SCRATCH/ffmpeg_links_$(echo "$IMAGE_TAG" | tr ':/' '_')}"
+mkdir -p "$FFMPEG_LINKS"
+if [ ! -d "$PYOVERRIDES/torchcodec" ]; then
+  echo ">>> Installing torchcodec==$TORCHCODEC_VERSION+cu129 to $PYOVERRIDES (one-time)"
+  apptainer exec --writable-tmpfs --cleanenv \
+    --env "HOME=$HOME" \
+    --bind "$PYOVERRIDES:/pyoverrides" \
+    "$SIF" \
+    pip install --target=/pyoverrides --upgrade \
+      --index-url="$TORCHCODEC_INDEX_URL" "torchcodec==$TORCHCODEC_VERSION"
+fi
+if [ ! -e "$FFMPEG_LINKS/libavcodec.so.62" ]; then
+  echo ">>> Building ffmpeg soname symlinks at $FFMPEG_LINKS (one-time)"
+  apptainer exec --cleanenv \
+    --env "HOME=$HOME" \
+    --bind "$FFMPEG_LINKS:/ffmpeg_links" \
+    "$SIF" \
+    bash -c '
+      cd /ffmpeg_links
+      # Hash-stripped copies (libavcodec.so.62.11.100 etc.)
+      for f in /usr/local/lib/python3.12/dist-packages/av.libs/lib*-*.so.*; do
+        base=$(basename "$f")
+        short=$(echo "$base" | sed -E "s/-[a-f0-9]+\.so\./.so./")
+        ln -sfn "$f" "$short"
+      done
+      # Soname symlinks (libavcodec.so.62 -> libavcodec.so.62.11.100)
+      for f in libavcodec.so.62.* libavformat.so.62.* libavutil.so.60.* \
+               libavfilter.so.11.* libavdevice.so.62.* \
+               libswresample.so.6.* libswscale.so.9.*; do
+        if [ -e "$f" ]; then
+          short=${f%.[0-9]*.[0-9]*}
+          ln -sfn "$f" "$short"
+        fi
+      done
+    '
+fi
+
 # Inside the container:
 #   - $HOME is auto-bound, so $HOME/scratch/... paths in inner scripts resolve.
 #   - Bind our verl source over /workspace/verl and prepend to PYTHONPATH so
@@ -130,10 +175,12 @@ fi
 exec apptainer exec --nv --writable-tmpfs --cleanenv \
   --env "HOME=$HOME" \
   --env "PYTHONPATH=$PYTHON_PATH_VAL" \
+  --env "LD_LIBRARY_PATH=/ffmpeg_links:/usr/local/lib/python3.12/dist-packages/av.libs" \
   --env "VLLM_ALLREDUCE_USE_SYMM_MEM=0" \
   --env "NCCL_P2P_DISABLE=1" \
-  --env "FORCE_QWENVL_VIDEO_READER=${FORCE_QWENVL_VIDEO_READER:-decord}" \
+  --env "FORCE_QWENVL_VIDEO_READER=${FORCE_QWENVL_VIDEO_READER:-torchcodec}" \
   --bind "$VERL_HOST:/workspace/verl" \
+  --bind "$FFMPEG_LINKS:/ffmpeg_links" \
   $PYOVERRIDES_BIND \
   $EXTRA_BINDS \
   "$SIF" \
