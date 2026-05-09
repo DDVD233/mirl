@@ -20,7 +20,9 @@ import os
 from pprint import pprint
 from typing import Any, Callable, Optional
 
+import numpy as np
 import ray
+import torch
 import vllm.entrypoints.cli.serve
 from packaging import version
 from ray.actor import ActorHandle
@@ -552,30 +554,33 @@ class vLLMHttpServer:
         if image_data is not None:
             multi_modal_data["image"] = image_data
         if video_data is not None:
-            multi_modal_data["video"] = video_data
-            # one-shot debug print so we can see the exact shape verl sends to vllm
-            try:
-                import sys
-                if not getattr(self, "_logged_video_shape", False):
-                    self._logged_video_shape = True
-                    for i, vd in enumerate(video_data):
-                        if isinstance(vd, tuple) and len(vd) == 2:
-                            t, m = vd
-                            print(
-                                f"[verl-debug] video[{i}] tuple: tensor type={type(t).__name__} "
-                                f"shape={getattr(t, 'shape', '?')} dtype={getattr(t, 'dtype', '?')} "
-                                f"metadata_keys={list(m.keys()) if isinstance(m, dict) else type(m).__name__} "
-                                f"metadata={m if isinstance(m, dict) else None}",
-                                flush=True, file=sys.stderr,
-                            )
-                        else:
-                            print(
-                                f"[verl-debug] video[{i}] non-tuple: type={type(vd).__name__} "
-                                f"shape={getattr(vd, 'shape', '?')} dtype={getattr(vd, 'dtype', '?')}",
-                                flush=True, file=sys.stderr,
-                            )
-            except Exception as e:
-                print(f"[verl-debug] log failed: {e}", flush=True)
+            # qwen_vl_utils returns videos as torch.Tensor (T, C, H, W) float32
+            # in [0,255], but vLLM's Qwen3-VL processor expects uint8 numpy in
+            # (T, H, W, C). Without this conversion vLLM reinterprets the
+            # float-CHW bytes as pixel data and the model emits gibberish.
+            normalized = []
+            for vd in video_data:
+                if isinstance(vd, tuple) and len(vd) == 2:
+                    t, meta = vd
+                else:
+                    t, meta = vd, None
+                if isinstance(t, torch.Tensor):
+                    arr = t.detach().cpu()
+                    # CHW -> HWC if shape suggests channels-first
+                    if arr.dim() == 4 and arr.shape[1] in (1, 3) and arr.shape[-1] not in (1, 3):
+                        arr = arr.permute(0, 2, 3, 1).contiguous()
+                    arr = arr.clamp(0, 255).to(torch.uint8).numpy()
+                else:
+                    arr = np.asarray(t)
+                    if arr.ndim == 4 and arr.shape[1] in (1, 3) and arr.shape[-1] not in (1, 3):
+                        arr = arr.transpose(0, 2, 3, 1)
+                    if arr.dtype != np.uint8:
+                        arr = np.clip(arr, 0, 255).astype(np.uint8)
+                if meta is not None:
+                    normalized.append((arr, meta))
+                else:
+                    normalized.append(arr)
+            multi_modal_data["video"] = normalized
 
         prompt = TokensPrompt(prompt_token_ids=prompt_ids, multi_modal_data=multi_modal_data)
 
