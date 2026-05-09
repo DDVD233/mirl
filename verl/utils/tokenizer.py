@@ -100,6 +100,8 @@ def hf_processor(name_or_path, **kwargs):
                 processor.get_rope_index = types.MethodType(Glm4vModel.get_rope_index, processor)
             case "MllamaProcessor":
                 pass  # MllamaProcessor and MllamaModel doesn't have get_rope_index property
+            case "Gemma3Processor":
+                pass  # Gemma3 uses standard rope, no get_rope_index needed
             case _:
                 raise ValueError(f"Unsupported processor type: {processor.__class__.__name__}")
     except Exception as e:
