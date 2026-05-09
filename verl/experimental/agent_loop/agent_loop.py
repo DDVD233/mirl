@@ -813,7 +813,12 @@ class AgentLoopWorker:
         # on the images/videos we pass. Qwen-VL family expands one placeholder
         # per image into many tokens, and re-feeding the expanded prompt
         # causes the processor to over-index video_metadata.
-        current_text = self.tokenizer.decode(input_ids.squeeze(0), skip_special_tokens=True)
+        # Exception: Gemma-3 registers its image tokens (<start_of_image>,
+        # <image_soft_token>, <end_of_image>) as special, so stripping them
+        # leaves the processor with 0 image tokens for N images and it
+        # raises. Keep them for Gemma-3.
+        skip_special = self.processor.__class__.__name__ != "Gemma3Processor"
+        current_text = self.tokenizer.decode(input_ids.squeeze(0), skip_special_tokens=skip_special)
         processor_kwargs = {"return_tensors": "pt"}
         if videos is not None:
             processor_kwargs["videos"] = videos
