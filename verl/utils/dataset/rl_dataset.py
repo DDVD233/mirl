@@ -107,6 +107,10 @@ class RLHFDataset(Dataset):
         self.prompt_key = config.get("prompt_key", "prompt")
         self.image_key = config.get("image_key", "images")
         self.video_key = config.get("video_key", "videos")
+        # Resolve relative image/video paths inside the annotation file against
+        # the directory the file lives in, matching how the tactile annotation
+        # JSONs reference media (e.g. "reencoded/visual-tactile/..mp4").
+        self.data_source_dir = os.path.dirname(os.path.abspath(data_files[0])) if data_files else ""
         self.image_patch_size = config.get("image_patch_size", 14)
         self.max_prompt_length = config.get("max_prompt_length", 1024)
         self.return_raw_chat = config.get("return_raw_chat", False)
@@ -329,13 +333,31 @@ class RLHFDataset(Dataset):
                     elif isinstance(image, dict):
                         if "bytes" in image:
                             image["image"] = Image.open(BytesIO(image["bytes"]))
+                        elif (
+                            isinstance(image.get("image"), str)
+                            and not os.path.isabs(image["image"])
+                            and self.data_source_dir
+                        ):
+                            image["image"] = os.path.join(self.data_source_dir, image["image"])
                         content_list.append({"type": "image", **image})
+                    elif isinstance(image, str):
+                        if not os.path.isabs(image) and self.data_source_dir:
+                            image = os.path.join(self.data_source_dir, image)
+                        content_list.append({"type": "image", "image": image})
                     else:
                         raise TypeError(f"image must be dict or PIL.Image, unsupported image type: {type(image)}")
                     image_offset += 1
                 elif segment == "<video>":
                     assert video_offset < len(videos), f"video_offset {video_offset} >= len(videos) {len(videos)}"
-                    content_list.append({"type": "video", **videos[video_offset]})
+                    video = videos[video_offset]
+                    video = dict(video) if isinstance(video, dict) else {"video": video}
+                    if (
+                        isinstance(video.get("video"), str)
+                        and not os.path.isabs(video["video"])
+                        and self.data_source_dir
+                    ):
+                        video["video"] = os.path.join(self.data_source_dir, video["video"])
+                    content_list.append({"type": "video", **video})
                     video_offset += 1
                 else:
                     content_list.append({"type": "text", "text": segment})
