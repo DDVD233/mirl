@@ -356,6 +356,34 @@ class AgentLoopBase(ABC):
 
         return prompt_ids
 
+    async def apply_chat_template_for_vllm(
+        self,
+        messages: list[dict],
+        tools: list[dict] = None,
+        remove_system_prompt: bool = False,
+    ):
+        """Generate prompt_ids using the plain tokenizer for vLLM generation.
+
+        For Qwen3-VL, processor.apply_chat_template() creates per-frame video
+        placeholders that conflict with vLLM's own video expansion (vLLM
+        expects one <|video_pad|> per video and expands it itself). Using the
+        tokenizer keeps the single-placeholder form vLLM expects.
+        """
+        tokenized = await self.loop.run_in_executor(
+            None,
+            lambda: self.tokenizer.apply_chat_template(
+                messages,
+                tools=tools,
+                add_generation_prompt=True,
+                tokenize=True,
+                **self.apply_chat_template_kwargs,
+            ),
+        )
+        prompt_ids = normalize_token_ids(tokenized)
+        if remove_system_prompt:
+            prompt_ids = prompt_ids[len(self.system_prompt) :]
+        return prompt_ids
+
     @abstractmethod
     async def run(self, sampling_params: dict[str, Any], **kwargs) -> AgentLoopOutput:
         """Run agent loop to interact with LLM server and environment.

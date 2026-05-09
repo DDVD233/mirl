@@ -48,12 +48,22 @@ class SingleTurnAgentLoop(AgentLoopBase):
             videos=videos,
         )
 
+        # For video inputs, the processor's apply_chat_template expands each
+        # video into per-frame timestamp placeholders (Qwen3-VL behaviour),
+        # but vLLM expects a single <|video_pad|> per video and runs its own
+        # expansion. Re-tokenize via the plain tokenizer to keep the
+        # single-placeholder form for the vLLM call only.
+        if videos is not None and self.processor is not None:
+            vllm_prompt_ids = await self.apply_chat_template_for_vllm(messages)
+        else:
+            vllm_prompt_ids = prompt_ids
+
         # 3. generate sequences
         metrics = {}
         with simple_timer("generate_sequences", metrics):
             output: TokenOutput = await self.server_manager.generate(
                 request_id=uuid4().hex,
-                prompt_ids=prompt_ids,
+                prompt_ids=vllm_prompt_ids,
                 sampling_params=sampling_params,
                 image_data=images,
                 video_data=videos,
