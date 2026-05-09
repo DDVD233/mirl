@@ -577,10 +577,29 @@ class vLLMHttpServer:
                     if arr.dtype != np.uint8:
                         arr = np.clip(arr, 0, 255).astype(np.uint8)
                 if meta is not None:
+                    # vllm 0.17 looks for `frames_indices` to compute timestamps;
+                    # qwen_vl_utils may give us a python list — pass it through.
+                    # Also flag do_sample_frames=False so vllm doesn't resample.
+                    meta = dict(meta)
+                    meta.setdefault("do_sample_frames", False)
                     normalized.append((arr, meta))
                 else:
                     normalized.append(arr)
             multi_modal_data["video"] = normalized
+            try:
+                import sys
+                if not getattr(self, "_logged_video_shape", False):
+                    self._logged_video_shape = True
+                    for i, (a, mm) in enumerate(
+                        (v if isinstance(v, tuple) else (v, None)) for v in normalized
+                    ):
+                        print(
+                            f"[verl-debug] post-norm video[{i}] shape={a.shape} dtype={a.dtype} "
+                            f"meta={mm}",
+                            flush=True, file=sys.stderr,
+                        )
+            except Exception as e:
+                print(f"[verl-debug] log failed: {e}", flush=True)
 
         prompt = TokensPrompt(prompt_token_ids=prompt_ids, multi_modal_data=multi_modal_data)
 
