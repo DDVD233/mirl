@@ -120,7 +120,9 @@ fi
 # that leaked from a sibling conda env, etc.
 PYTHON_PATH_VAL="/workspace/verl"
 PYOVERRIDES_BIND=""
-if [ "${ENABLE_TRANSFORMERS_PIN:-0}" = "1" ]; then
+# Mount pyoverrides whenever it has any installed package (e.g. decord for
+# qwen_vl_utils video reading) — not just when ENABLE_TRANSFORMERS_PIN is set.
+if [ "${ENABLE_TRANSFORMERS_PIN:-0}" = "1" ] || [ -d "$PYOVERRIDES" ] && [ "$(ls -A "$PYOVERRIDES" 2>/dev/null)" ]; then
   PYTHON_PATH_VAL="/pyoverrides:/workspace/verl"
   PYOVERRIDES_BIND="--bind $PYOVERRIDES:/pyoverrides"
 fi
@@ -130,6 +132,7 @@ exec apptainer exec --nv --writable-tmpfs --cleanenv \
   --env "PYTHONPATH=$PYTHON_PATH_VAL" \
   --env "VLLM_ALLREDUCE_USE_SYMM_MEM=0" \
   --env "NCCL_P2P_DISABLE=1" \
+  --env "FORCE_QWENVL_VIDEO_READER=${FORCE_QWENVL_VIDEO_READER:-decord}" \
   --bind "$VERL_HOST:/workspace/verl" \
   $PYOVERRIDES_BIND \
   $EXTRA_BINDS \
