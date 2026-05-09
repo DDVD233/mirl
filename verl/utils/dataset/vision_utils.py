@@ -106,6 +106,28 @@ def process_video(
     )
 
 
+def sample_video_as_frames(
+    video: dict | str,
+    n_frames: int = 4,
+    image_patch_size: int = 14,
+) -> list[Image.Image]:
+    """Read a video and return ``n_frames`` uniformly sampled frames as PIL images.
+
+    For image-only VLMs (e.g. Gemma-3), each frame is treated as an independent
+    image in the chat content.
+    """
+    if not isinstance(video, dict):
+        video = {"video": video}
+    video = dict(video)
+    video["nframes"] = n_frames
+    frames = process_video(video, image_patch_size=image_patch_size, nframes=n_frames)
+    # frames: torch tensor [N, 3, H, W]
+    if frames.dtype != torch.uint8:
+        frames = frames.clamp(0, 255).to(torch.uint8)
+    arr = frames.permute(0, 2, 3, 1).contiguous().cpu().numpy()
+    return [Image.fromarray(a) for a in arr]
+
+
 def process_multi_modal_inputs_for_minicpmo(input_ids, attention_mask, position_ids, cu_seqlens, multi_modal_inputs):
     # Adjust image bounds based on left padding and cumulative sequence lengths
     # This is necessary for MiniCPM-o's vision-language alignment

@@ -108,6 +108,9 @@ class RLHFDataset(Dataset):
         self.video_key = config.get("video_key", "videos")
         self.data_source_dir = os.path.dirname(os.path.abspath(data_files[0]))
         self.image_patch_size = config.get("image_patch_size", 14)
+        # For image-only VLMs (e.g. Gemma-3), sample N uniform frames per video
+        # and emit them as images in the chat content. 0 disables conversion.
+        self.video_as_frames = int(config.get("video_as_frames", 0))
         self.max_prompt_length = config.get("max_prompt_length", 1024)
         self.return_raw_chat = config.get("return_raw_chat", False)
         self.return_full_prompt = config.get("return_full_prompt", False)
@@ -332,7 +335,17 @@ class RLHFDataset(Dataset):
                     video = dict(videos[video_offset]) if isinstance(videos[video_offset], dict) else {"video": videos[video_offset]}
                     if "video" in video and not os.path.isabs(video["video"]):
                         video["video"] = os.path.join(self.data_source_dir, video["video"])
-                    content_list.append({"type": "video", **video})
+                    if self.video_as_frames > 0:
+                        from verl.utils.dataset.vision_utils import sample_video_as_frames
+
+                        for frame in sample_video_as_frames(
+                            video,
+                            n_frames=self.video_as_frames,
+                            image_patch_size=self.image_patch_size,
+                        ):
+                            content_list.append({"type": "image", "image": frame})
+                    else:
+                        content_list.append({"type": "video", **video})
                     video_offset += 1
                 else:
                     content_list.append({"type": "text", "text": segment})

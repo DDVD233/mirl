@@ -29,6 +29,7 @@ python3 -m verl.trainer.main_ppo \
     data.max_response_length=4096 \
     data.filter_overlong_prompts=False \
     data.truncation='left' \
+    +data.video_as_frames=4 \
     actor_rollout_ref.model.path=google/gemma-3-4b-it \
     actor_rollout_ref.model.use_remove_padding=True \
     actor_rollout_ref.model.enable_gradient_checkpointing=True \
