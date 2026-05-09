@@ -106,18 +106,30 @@ if [ "${ENABLE_TRANSFORMERS_PIN:-0}" = "1" ]; then
   fi
 fi
 
-# torchcodec for qwen_vl_utils video decoding. The vllm017.latest image has
-# pyav 16 (which bundles ffmpeg 8 shared libs) but no system ffmpeg, so we
-# (1) install torchcodec 0.10.0+cu129 (matches torch 2.10) into pyoverrides
-# (2) build a directory of soname symlinks (libavcodec.so.62 etc.) pointing
-#     at pyav's hash-suffixed libs so torchcodec's dlopen can find them
-# (3) mount that dir + pyav's .libs dir on LD_LIBRARY_PATH at run time.
-TORCHCODEC_VERSION="${TORCHCODEC_VERSION:-0.10.0}"
-TORCHCODEC_INDEX_URL="${TORCHCODEC_INDEX_URL:-https://download.pytorch.org/whl/cu129}"
+# Video reader for qwen_vl_utils. The system torchvision in these images has a
+# broken read_video (returns empty info dict, qwen_vl_utils KeyErrors on
+# 'video_fps'), so we install one of {torchcodec, decord} into pyoverrides and
+# point qwen_vl_utils at it via FORCE_QWENVL_VIDEO_READER.
+#
+# torchcodec is preferred but its wheels are tightly tied to a specific torch
+# build; the vllm011.dev_qwenvl_cp image (torch 2.8/cu128) has libavcodec.so.62
+# (ffmpeg 8) bundled via pyav, but the cu128 torchcodec 0.7 only ships ffmpeg
+# 4-7 cores, and 0.8.1 (which has ffmpeg 8) was built against torch 2.9 and
+# segfaults under torch 2.8. So default to decord on that image and torchcodec
+# elsewhere.
+VIDEO_BACKEND="${VIDEO_BACKEND:-}"
+if [ -z "$VIDEO_BACKEND" ]; then
+  case "$IMAGE_TAG" in
+    *vllm011*) VIDEO_BACKEND="decord" ;;
+    *)         VIDEO_BACKEND="torchcodec" ;;
+  esac
+fi
 FFMPEG_LINKS="${FFMPEG_LINKS:-$SCRATCH/ffmpeg_links_$(echo "$IMAGE_TAG" | tr ':/' '_')}"
 mkdir -p "$FFMPEG_LINKS"
-if [ ! -d "$PYOVERRIDES/torchcodec" ]; then
-  echo ">>> Installing torchcodec==$TORCHCODEC_VERSION+cu129 to $PYOVERRIDES (one-time)"
+if [ "$VIDEO_BACKEND" = "torchcodec" ] && [ ! -d "$PYOVERRIDES/torchcodec" ]; then
+  TORCHCODEC_VERSION="${TORCHCODEC_VERSION:-0.10.0}"
+  TORCHCODEC_INDEX_URL="${TORCHCODEC_INDEX_URL:-https://download.pytorch.org/whl/cu129}"
+  echo ">>> Installing torchcodec==$TORCHCODEC_VERSION to $PYOVERRIDES (one-time)"
   apptainer exec --writable-tmpfs --cleanenv \
     --env "HOME=$HOME" \
     --bind "$PYOVERRIDES:/pyoverrides" \
@@ -125,7 +137,15 @@ if [ ! -d "$PYOVERRIDES/torchcodec" ]; then
     pip install --target=/pyoverrides --upgrade \
       --index-url="$TORCHCODEC_INDEX_URL" "torchcodec==$TORCHCODEC_VERSION"
 fi
-if [ ! -e "$FFMPEG_LINKS/libavcodec.so.62" ]; then
+if [ "$VIDEO_BACKEND" = "decord" ] && [ ! -d "$PYOVERRIDES/decord" ]; then
+  echo ">>> Installing decord to $PYOVERRIDES (one-time stopgap)"
+  apptainer exec --writable-tmpfs --cleanenv \
+    --env "HOME=$HOME" \
+    --bind "$PYOVERRIDES:/pyoverrides" \
+    "$SIF" \
+    pip install --no-deps --target=/pyoverrides decord
+fi
+if [ "$VIDEO_BACKEND" = "torchcodec" ] && [ ! -e "$FFMPEG_LINKS/libavcodec.so.62" ]; then
   echo ">>> Building ffmpeg soname symlinks at $FFMPEG_LINKS (one-time)"
   apptainer exec --cleanenv \
     --env "HOME=$HOME" \
@@ -172,14 +192,19 @@ if [ "${ENABLE_TRANSFORMERS_PIN:-0}" = "1" ] || [ -d "$PYOVERRIDES" ] && [ "$(ls
   PYOVERRIDES_BIND="--bind $PYOVERRIDES:/pyoverrides"
 fi
 
+FFMPEG_LD_PATH=""
+if [ "$VIDEO_BACKEND" = "torchcodec" ]; then
+  FFMPEG_LD_PATH="/ffmpeg_links:/usr/local/lib/python3.12/dist-packages/av.libs"
+fi
+
 exec apptainer exec --nv --writable-tmpfs --cleanenv \
   --env "HOME=$HOME" \
   --env "PYTHONPATH=$PYTHON_PATH_VAL" \
-  --env "LD_LIBRARY_PATH=/ffmpeg_links:/usr/local/lib/python3.12/dist-packages/av.libs" \
+  --env "LD_LIBRARY_PATH=$FFMPEG_LD_PATH" \
   --env "VLLM_ALLREDUCE_USE_SYMM_MEM=0" \
   --env "NCCL_P2P_DISABLE=1" \
   --env "VERL_SKIP_INIT_SYNC=${VERL_SKIP_INIT_SYNC:-0}" \
-  --env "FORCE_QWENVL_VIDEO_READER=${FORCE_QWENVL_VIDEO_READER:-torchcodec}" \
+  --env "FORCE_QWENVL_VIDEO_READER=${FORCE_QWENVL_VIDEO_READER:-$VIDEO_BACKEND}" \
   --bind "$VERL_HOST:/workspace/verl" \
   --bind "$FFMPEG_LINKS:/ffmpeg_links" \
   $PYOVERRIDES_BIND \
