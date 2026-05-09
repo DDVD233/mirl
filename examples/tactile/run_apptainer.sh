@@ -54,7 +54,7 @@ fi
 
 VERL_HOST="${VERL_HOST:-$HOME/verl}"
 SCRATCH="${SCRATCH:-$HOME/scratch}"
-IMAGE_TAG="${IMAGE_TAG:-verlai/verl:vllm011.dev_qwenvl_cp}"
+IMAGE_TAG="${IMAGE_TAG:-verlai/verl:vllm011.2.dev3}"
 SIF="${SIF:-$SCRATCH/apptainer/$(echo "$IMAGE_TAG" | tr ':/' '_').sif}"
 # Persistent overrides directory: holds python packages we want to shadow the
 # ones inside the image. Empty by default; set ENABLE_TRANSFORMERS_PIN=1 to
@@ -120,8 +120,9 @@ fi
 VIDEO_BACKEND="${VIDEO_BACKEND:-}"
 if [ -z "$VIDEO_BACKEND" ]; then
   case "$IMAGE_TAG" in
-    *vllm011*) VIDEO_BACKEND="decord" ;;
-    *)         VIDEO_BACKEND="torchcodec" ;;
+    *vllm011.2*) VIDEO_BACKEND="torchcodec" ;;
+    *vllm011*)   VIDEO_BACKEND="decord" ;;
+    *)           VIDEO_BACKEND="torchcodec" ;;
   esac
 fi
 FFMPEG_LINKS="${FFMPEG_LINKS:-$SCRATCH/ffmpeg_links_$(echo "$IMAGE_TAG" | tr ':/' '_')}"
