@@ -590,6 +590,25 @@ class RayPPOTrainer:
 
             data_source_lst.append(test_batch.non_tensor_batch.get("data_source", ["unknown"] * reward_tensor.shape[0]))
 
+            # Stream one (input, output, score) per validation batch as it lands
+            # so we can eyeball model behaviour live.
+            if scores:
+                inp = input_texts[0]
+                out = output_texts[0]
+                sc = scores[0]
+                batch_idx = (len(sample_scores) + len(scores) - 1) // max(len(scores), 1)
+                print(f"[validate] batch {batch_idx}/?? score={sc:.4f}", flush=True)
+                print(
+                    f"  input ({len(inp)} chars): "
+                    f"{inp[:300].replace(chr(10), ' / ')}{'...' if len(inp) > 300 else ''}",
+                    flush=True,
+                )
+                print(
+                    f"  output ({len(out)} chars): "
+                    f"{out[:500].replace(chr(10), ' / ')}{'...' if len(out) > 500 else ''}",
+                    flush=True,
+                )
+
         self._maybe_log_val_generations(inputs=sample_inputs, outputs=sample_outputs, scores=sample_scores)
 
         # dump generations
