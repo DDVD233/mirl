@@ -200,15 +200,21 @@ if [ "${ENABLE_TRANSFORMERS_PIN:-0}" = "1" ] || [ -d "$PYOVERRIDES" ] && [ "$(ls
   PYOVERRIDES_BIND="--bind $PYOVERRIDES:/pyoverrides"
 fi
 
-FFMPEG_LD_PATH=""
+# Default LD_LIBRARY_PATH inside these images puts CUDA + MPI + nvidia libs
+# on the search path. --cleanenv drops it, so we must rebuild it. Prepend the
+# torchcodec ffmpeg paths (when needed) so they take priority but still keep
+# CUDA libs reachable for vllm engine init.
+LD_LIB_DEFAULT="/usr/local/x86_64-linux-gnu:/usr/local/mpi/lib:/usr/local/nvidia/lib64:/usr/local/cuda/lib64:/.singularity.d/libs"
 if [ "$VIDEO_BACKEND" = "torchcodec" ]; then
-  FFMPEG_LD_PATH="/ffmpeg_links:/usr/local/lib/python3.12/dist-packages/av.libs"
+  LD_LIB_VAL="/ffmpeg_links:/usr/local/lib/python3.12/dist-packages/av.libs:$LD_LIB_DEFAULT"
+else
+  LD_LIB_VAL="$LD_LIB_DEFAULT"
 fi
 
 exec apptainer exec --nv --writable-tmpfs --cleanenv \
   --env "HOME=$HOME" \
   --env "PYTHONPATH=$PYTHON_PATH_VAL" \
-  --env "LD_LIBRARY_PATH=$FFMPEG_LD_PATH" \
+  --env "LD_LIBRARY_PATH=$LD_LIB_VAL" \
   --env "VLLM_ALLREDUCE_USE_SYMM_MEM=0" \
   --env "NCCL_P2P_DISABLE=1" \
   --env "VERL_SKIP_INIT_SYNC=${VERL_SKIP_INIT_SYNC:-0}" \
