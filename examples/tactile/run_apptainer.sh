@@ -128,9 +128,16 @@ fi
 FFMPEG_LINKS="${FFMPEG_LINKS:-$SCRATCH/ffmpeg_links_$(echo "$IMAGE_TAG" | tr ':/' '_')}"
 mkdir -p "$FFMPEG_LINKS"
 if [ "$VIDEO_BACKEND" = "torchcodec" ] && [ ! -d "$PYOVERRIDES/torchcodec" ]; then
-  TORCHCODEC_VERSION="${TORCHCODEC_VERSION:-0.10.0}"
-  TORCHCODEC_INDEX_URL="${TORCHCODEC_INDEX_URL:-https://download.pytorch.org/whl/cu129}"
-  echo ">>> Installing torchcodec==$TORCHCODEC_VERSION to $PYOVERRIDES (one-time)"
+  # torchcodec wheel must match the image's torch ABI:
+  #   torch 2.10 -> torchcodec 0.10.x
+  #   torch 2.9  -> torchcodec 0.9.x
+  #   torch 2.8  -> torchcodec 0.8.x  (only on cu128 index)
+  case "$IMAGE_TAG" in
+    *vllm017*)   TORCHCODEC_VERSION="${TORCHCODEC_VERSION:-0.10.0}"; TORCHCODEC_INDEX_URL="${TORCHCODEC_INDEX_URL:-https://download.pytorch.org/whl/cu129}" ;;
+    *vllm011.2*) TORCHCODEC_VERSION="${TORCHCODEC_VERSION:-0.9.1}";  TORCHCODEC_INDEX_URL="${TORCHCODEC_INDEX_URL:-https://download.pytorch.org/whl/cu128}" ;;
+    *)           TORCHCODEC_VERSION="${TORCHCODEC_VERSION:-0.10.0}"; TORCHCODEC_INDEX_URL="${TORCHCODEC_INDEX_URL:-https://download.pytorch.org/whl/cu129}" ;;
+  esac
+  echo ">>> Installing torchcodec==$TORCHCODEC_VERSION (index $TORCHCODEC_INDEX_URL) to $PYOVERRIDES (one-time)"
   apptainer exec --writable-tmpfs --cleanenv \
     --env "HOME=$HOME" \
     --bind "$PYOVERRIDES:/pyoverrides" \
