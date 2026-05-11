@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import asyncio
 import logging
 import os
 import time
@@ -39,7 +40,8 @@ from verl.trainer.ppo.utils import Role, WorkerType, need_critic, need_reference
 from verl.utils.checkpoint.checkpoint_manager import find_latest_ckpt_path, should_save_ckpt_esi
 from verl.utils.config import omega_conf_to_dataclass
 from verl.utils.debug import marked_timer
-from verl.utils.tracking import Tracking
+from verl.utils.tracking import Tracking, ValidationGenerationsLogger
+from verl.workers.rollout.llm_server import LLMServerManager
 
 logger = logging.getLogger(__name__)
 
@@ -83,6 +85,14 @@ class FullyAsyncTrainer(SeparateRayPPOTrainer):
 
         self.use_rm = need_reward_model(self.config)
 
+        # distillation config needed by _update_actor in ray_trainer.py
+        from verl.trainer.distillation.losses import is_distillation_enabled
+
+        if is_distillation_enabled(self.config.get("distillation")):
+            self.distillation_config = omega_conf_to_dataclass(self.config.distillation)
+        else:
+            self.distillation_config = None
+
         self.use_critic = need_critic(self.config)
         self.ray_worker_group_cls = ray_worker_group_cls
         self.device_name = device_name if device_name else self.config.trainer.device
@@ -99,7 +109,6 @@ class FullyAsyncTrainer(SeparateRayPPOTrainer):
             self.kl_ctrl_in_reward = core_algos.get_kl_controller(self.config.algorithm.kl_ctrl)
 
         self.use_prefix_grouper = self.config.actor_rollout_ref.actor.get("use_prefix_grouper", False)
-        self.use_legacy_worker_impl = config.trainer.get("use_legacy_worker_impl", "auto")
 
         # ==================== SeparateRayPPOTrainer config ====================
         self.global_steps = 0
@@ -123,6 +132,10 @@ class FullyAsyncTrainer(SeparateRayPPOTrainer):
             experiment_name=self.config.trainer.experiment_name,
             default_backend=self.config.trainer.logger,
             config=OmegaConf.to_container(self.config, resolve=True),
+        )
+        self.validation_generations_logger = ValidationGenerationsLogger(
+            project_name=self.config.trainer.project_name,
+            experiment_name=self.config.trainer.experiment_name,
         )
 
         # ==================== fully async config ====================
@@ -243,7 +256,7 @@ class FullyAsyncTrainer(SeparateRayPPOTrainer):
         queue_len = 0
         while len(queue_samples) < self.required_samples:
             # Get a single sample and wait until there is a sample or None is received
-            sample, queue_len = self.message_queue_client.get_sample_sync()
+            sample, queue_len = await self.message_queue_client.get_sample()
 
             if sample is None:
                 print(
@@ -290,9 +303,14 @@ class FullyAsyncTrainer(SeparateRayPPOTrainer):
             role_cls = RayClassWithInitArgs(
                 cls=self.role_worker_mapping[role],
                 config=self.config.actor_rollout_ref,
+                distillation_config=self.config.get("distillation"),
                 role=str(role),
             )
             self.resource_pool_to_cls[resource_pool][str(role)] = role_cls
+
+    def _create_reward_model_class(self):
+        # In fully async mode, RM is managed by RewardLoopManager (standalone). Skip worker group creation for RM.
+        pass
 
     def _init_models(self):
         if self.use_critic:
@@ -302,10 +320,6 @@ class FullyAsyncTrainer(SeparateRayPPOTrainer):
         if self.use_reference_policy and not self.ref_in_actor:
             self.ref_policy_wg = self.all_wg[str(Role.RefPolicy)]
             self.ref_policy_wg.init_model()
-
-        if self.use_rm:
-            self.rm_wg = self.all_wg[str(Role.RewardModel)]
-            self.rm_wg.init_model()
 
         self.actor_wg = self.all_wg[str(self.train_role)]
         self.actor_wg.init_model()
@@ -352,9 +366,12 @@ class FullyAsyncTrainer(SeparateRayPPOTrainer):
             self.async_rollout_mode = True
             from verl.experimental.agent_loop import AgentLoopManager
 
+            self.llm_server_manager = await LLMServerManager.create(
+                config=self.config, worker_group=self.actor_rollout_wg
+            )
             self.async_rollout_manager = await AgentLoopManager.create(
                 config=self.config,
-                worker_group=self.actor_rollout_wg,
+                llm_client=self.llm_server_manager.get_client(),
                 reward_loop_worker_handles=reward_loop_worker_handles,
             )
             print("[FullyAsyncTrainer] async_rollout_manager initialized")
@@ -371,7 +388,7 @@ class FullyAsyncTrainer(SeparateRayPPOTrainer):
             self.colocate_checkpoint_manager = CheckpointEngineManager(
                 config=checkpoint_engine_config,
                 trainer=self.actor_rollout_wg,
-                replicas=self.async_rollout_manager.rollout_replicas,
+                replicas=self.llm_server_manager.get_replicas(),
             )
 
             # sleep all replicas to load checkpoint
@@ -402,6 +419,14 @@ class FullyAsyncTrainer(SeparateRayPPOTrainer):
         self.max_steps_duration = 0
 
         self.global_steps += 1
+
+        self.prev_step_profile = False
+        self.curr_step_profile = (
+            self.global_steps in self.config.global_profiler.steps
+            if self.config.global_profiler.steps is not None
+            else False
+        )
+        self.next_step_profile = False
 
         # Use queue mode, no need for traditional dataloader iterator
         # Initialize to get the first batch of data
@@ -456,7 +481,6 @@ class FullyAsyncTrainer(SeparateRayPPOTrainer):
         self._fit_save_checkpoint()
         self._fit_stop_profile()
         self._fit_collect_metrics(batch)
-        self._fit_torch_memory()
         self._fit_postprocess_step()
 
     async def _fit_generate(self, batch: DataProto = None) -> DataProto | None:
@@ -519,7 +543,7 @@ class FullyAsyncTrainer(SeparateRayPPOTrainer):
         )
 
         # Reset staleness in rollouter
-        timing_raw = ray.get(self.rollouter.reset_staleness.remote())
+        timing_raw = await asyncio.wrap_future(self.rollouter.reset_staleness.remote().future())
         self.logger.log(
             data=timing_raw,
             step=self.current_param_version,
@@ -531,6 +555,28 @@ class FullyAsyncTrainer(SeparateRayPPOTrainer):
             step=self.current_param_version,
         )
         self.metrics_aggregator.reset()
+
+    def _maybe_log_val_generations(self, inputs, outputs, scores):
+        """Capture validation generations for deferred logging in _fit_validate.
+
+        When use_trainer_do_validate=True, the trainer also runs _validate(True) which
+        calls this method. We capture instead of logging immediately so that we can
+        merge with rollouter-side generations and log once with the correct step.
+        """
+        generations_to_log = self.config.trainer.log_val_generations
+        if generations_to_log == 0:
+            self._captured_val_generations = []
+            return
+
+        import numpy as np
+
+        samples = list(zip(inputs, outputs, scores, strict=True))
+        samples.sort(key=lambda x: x[0])
+
+        rng = np.random.RandomState(42)
+        rng.shuffle(samples)
+
+        self._captured_val_generations = samples[:generations_to_log]
 
     async def _validate_process(self):
         """Run trainer-side validation using async rollout manager"""
@@ -573,10 +619,11 @@ class FullyAsyncTrainer(SeparateRayPPOTrainer):
         val_future = self.rollouter.do_validate.remote()
 
         # Run trainer-side validation
+        self._captured_val_generations = []
         train_val_metrics = await self._validate_process()
 
         # Wait for rollouter validation result and log
-        val_metrics: ValidateMetrics = ray.get(val_future)
+        val_metrics: ValidateMetrics = await asyncio.wrap_future(val_future.future())
         if train_val_metrics:
             # Merge trainer and rollouter validation results
             with marked_timer("timing_s/merge_val", self.timing_raw):
@@ -596,6 +643,23 @@ class FullyAsyncTrainer(SeparateRayPPOTrainer):
                 )
         self.logger.log(data=val_metrics.timing_raw, step=self.current_param_version)
 
+        # Merge and log validation generations from rollouter (and trainer if applicable)
+        generations_to_log = self.config.trainer.log_val_generations
+        if generations_to_log > 0:
+            import numpy as np
+
+            all_generations = list(self._captured_val_generations)
+            if val_metrics.val_generations:
+                all_generations.extend(val_metrics.val_generations)
+            if all_generations:
+                all_generations.sort(key=lambda x: x[0])
+                rng = np.random.RandomState(42)
+                rng.shuffle(all_generations)
+                all_generations = all_generations[:generations_to_log]
+                self.validation_generations_logger.log(
+                    self.config.trainer.logger, all_generations, self.current_param_version
+                )
+
     def _fit_save_checkpoint(self, force=False):
         if self.current_param_version == self.last_ckpt_version:
             return
@@ -614,7 +678,7 @@ class FullyAsyncTrainer(SeparateRayPPOTrainer):
         # 3. The current step number is a multiple of the save frequency.
         # 4. The ESI(Elastic Server Instance)/training plan is close to expiration.
         if self.config.trainer.save_freq > 0 and (
-            force and self.current_param_version % self.config.trainer.save_freq == 0 or esi_close_to_expiration
+            force or self.current_param_version % self.config.trainer.save_freq == 0 or esi_close_to_expiration
         ):
             if esi_close_to_expiration:
                 print("Force saving checkpoint: ESI instance expiration approaching.")

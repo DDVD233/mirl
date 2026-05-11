@@ -36,11 +36,14 @@ from megatron.core.transformer import MLATransformerConfig, TransformerConfig
 from megatron.core.transformer.module import Float16Module
 from megatron.core.transformer.multi_token_prediction import MTPLossLoggingHelper
 from megatron.core.utils import get_attr_wrapped_model
+from tensordict import TensorDict
 from transformers import PretrainedConfig
 
 import verl.utils.megatron.tensor_parallel as tp_utils
+from verl.utils import tensordict_utils as tu
 from verl.utils.device import get_device_id, get_device_name, get_torch_device
 from verl.utils.fs import local_mkdir_safe
+from verl.utils.megatron.dist_checkpointing import load_dist_checkpointing
 from verl.utils.model import normalize_model_name
 from verl.utils.torch_dtypes import PrecisionType
 from verl.workers.config import HFModelConfig, McoreEngineConfig
@@ -167,6 +170,37 @@ def get_model(
     return model
 
 
+def get_hf_rope_theta(hf_config: PretrainedConfig) -> float:
+    """Return RoPE base frequency theta.
+
+    Most configs expose ``rope_theta`` on the root. Newer models (e.g. Qwen3 in transformers>=5) store it under
+    ``rope_parameters["rope_theta"]``, optionally nested per attention pattern when ``rope_parameters`` maps names
+    to parameter dicts.
+    """
+    # For transformers <= 4.57.6
+    if hasattr(hf_config, "rope_theta"):
+        return hf_config.rope_theta
+    if hasattr(hf_config, "text_config") and hasattr(hf_config.text_config, "rope_theta"):
+        return hf_config.text_config.rope_theta
+
+    # For transformers >= 5.0.0, check rope_parameters dict (optionally nested) for rope_theta
+    rp = None
+    if hasattr(hf_config, "rope_parameters"):
+        rp = hf_config.rope_parameters
+    elif hasattr(hf_config, "text_config") and hasattr(hf_config.text_config, "rope_parameters"):
+        rp = hf_config.text_config.rope_parameters
+    if isinstance(rp, dict):
+        if "rope_theta" in rp:
+            return rp["rope_theta"]
+        for v in rp.values():
+            if isinstance(v, dict) and "rope_theta" in v:
+                return v["rope_theta"]
+    raise AttributeError(
+        f"{type(hf_config).__name__} has no rope_theta and no rope_parameters['rope_theta'] — "
+        "cannot determine RoPE base."
+    )
+
+
 @dataclass
 class McoreModuleWrapperConfig:
     """Configuration for Mcore module wrapper."""
@@ -175,6 +209,7 @@ class McoreModuleWrapperConfig:
     share_embeddings_and_output_weights: bool = False
     wrap_with_ddp: bool = True
     use_distributed_optimizer: bool = True
+    use_megatron_fsdp: bool = False
 
 
 def make_megatron_module(
@@ -188,6 +223,10 @@ def make_megatron_module(
     peft_cls: Any = None,
     peft_config: Any = None,
 ):
+    from verl.models.mcore.config_converter import get_hf_rope_theta
+
+    hf_config.rope_theta = get_hf_rope_theta(hf_config)
+
     if override_model_config is None:
         override_model_config = {}
 
@@ -220,7 +259,12 @@ def make_megatron_module(
             # Register PEFT transformation as pre-wrap hook if peft_cls is specified
             # This must happen BEFORE DDP wrapping to avoid KeyError with frozen parameters
             if peft_cls is not None:
-                from verl.utils.megatron_peft_utils import load_adapter_checkpoint, print_adapter_info
+                from megatron.bridge.training.checkpointing import (
+                    _generate_model_state_dict,
+                    apply_peft_adapter_filter_to_state_dict,
+                )
+
+                from verl.utils.megatron_peft_utils import print_adapter_info
 
                 def peft_pre_wrap_hook(model):
                     """Pre-wrap hook that applies PEFT transformation."""
@@ -235,7 +279,13 @@ def make_megatron_module(
                     adapter_path = getattr(peft_config, "adapter_path", None)
                     if adapter_path is not None and adapter_path:
                         print(f"Loading adapter weights from: {adapter_path}")
-                        load_adapter_checkpoint(transformed_model, adapter_path)
+                        model_chunks = transformed_model if isinstance(transformed_model, list) else [transformed_model]
+                        sharded_state_dict = _generate_model_state_dict(model_chunks, {})
+                        sharded_state_dict = apply_peft_adapter_filter_to_state_dict(sharded_state_dict, peft_cls)
+                        loaded_state_dict = load_dist_checkpointing(sharded_state_dict, str(adapter_path))
+                        for vpp_rank, model_chunk in enumerate(model_chunks):
+                            model_key = "model" if len(model_chunks) == 1 else f"model{vpp_rank}"
+                            model_chunk.load_state_dict(loaded_state_dict[model_key], strict=False)
 
                     # Print PEFT statistics
                     if torch.distributed.get_rank() == 0:
@@ -257,6 +307,12 @@ def make_megatron_module(
                 ddp_config_dict = {
                     "use_distributed_optimizer": wrap_config.use_distributed_optimizer,
                 }
+                if wrap_config.use_megatron_fsdp:
+                    ddp_config_dict["use_distributed_optimizer"] = True
+                    ddp_config_dict.setdefault("check_for_nan_in_grad", True)
+                    ddp_config_dict.setdefault("use_megatron_fsdp", True)
+                    ddp_config_dict.setdefault("data_parallel_sharding_strategy", "optim_grads_params")
+                    ddp_config_dict.setdefault("overlap_grad_reduce", True)
                 # Apply any DDP config overrides
                 if override_ddp_config is not None:
                     ddp_config_dict.update(override_ddp_config)
@@ -271,17 +327,28 @@ def make_megatron_module(
                 ddp_config=ddp_config,
                 fp16=provider.fp16,
                 bf16=provider.bf16,
+                use_megatron_fsdp=wrap_config.use_megatron_fsdp,
             )
 
             # Extract TransformerConfig from the created model
             tf_config = get_model_config(model[0] if isinstance(model, list) else model)
         else:
+            # Build ddp_config dict with use_distributed_optimizer, same as provider path
+            ddp_config = None
+            if wrap_config.wrap_with_ddp:
+                ddp_config_dict = {
+                    "use_distributed_optimizer": wrap_config.use_distributed_optimizer,
+                }
+                if override_ddp_config is not None:
+                    ddp_config_dict.update(override_ddp_config)
+                ddp_config = ddp_config_dict
+
             model = bridge.get_model(
                 post_model_creation_callbacks=post_model_creation_callbacks,
                 wrap_with_ddp=wrap_config.wrap_with_ddp,
                 fp16=tf_config.fp16,
                 bf16=tf_config.bf16,
-                ddp_config=override_ddp_config,
+                ddp_config=ddp_config,
             )
 
         if isinstance(tf_config, MLATransformerConfig):
@@ -316,7 +383,13 @@ def make_megatron_module(
     return model, tf_config
 
 
-ALL_MODULE_WRAPPER_CLASSNAMES = (DDP, Float16Module)
+try:
+    from megatron.core.distributed.fsdp.mcore_fsdp_adapter import FullyShardedDataParallel as _MegatronFSDP
+    from megatron.core.distributed.fsdp.src.megatron_fsdp.megatron_fsdp import MegatronFSDP
+
+    ALL_MODULE_WRAPPER_CLASSNAMES = (DDP, Float16Module, _MegatronFSDP, MegatronFSDP)
+except ImportError:
+    ALL_MODULE_WRAPPER_CLASSNAMES = (DDP, Float16Module)
 
 
 def unwrap_model(model, module_instances=ALL_MODULE_WRAPPER_CLASSNAMES):
@@ -432,8 +505,44 @@ def offload_megatron_model_to_cpu(models):
                 for buffer in buffers:
                     # offload parameters
                     if buffer.param_data.storage().size() > 0:
-                        buffer.param_data.cpu_data = buffer.param_data.data.cpu().pin_memory()
-                        buffer.param_data_size = buffer.param_data.storage().size()
+                        # Reuse a single pinned cpu_data buffer per DDP buffer.
+                        # The previous implementation reallocated cpu_data via
+                        # `.cpu().pin_memory()` on every offload. Python evaluates
+                        # the RHS before the assignment, so the new pinned block is
+                        # allocated while the old cpu_data is still referenced --
+                        # peak host memory at the moment of allocation is 2x
+                        # param_data size. On large Megatron models this transient
+                        # peak exceeds the cgroup limit and OOMKills the pod even
+                        # though steady-state usage would be 1x. Reallocating here
+                        # would re-trigger the same 2x peak, so we allocate at most
+                        # once per buffer and assert shape/dtype invariance on
+                        # subsequent calls -- a mismatch means a caller rebuilt
+                        # param_data under us, which is a bug we want surfaced
+                        # rather than silently worked around.
+                        existing = getattr(buffer.param_data, "cpu_data", None)
+                        if existing is None:
+                            buffer.param_data.cpu_data = torch.empty(
+                                buffer.param_data.size(),
+                                dtype=buffer.param_data.dtype,
+                                device="cpu",
+                                pin_memory=True,
+                            )
+                            buffer.param_data_size = buffer.param_data.storage().size()
+                        else:
+                            assert existing.shape == buffer.param_data.shape, (
+                                f"cpu_data shape {tuple(existing.shape)} != "
+                                f"param_data shape {tuple(buffer.param_data.shape)}; "
+                                "reallocating would reintroduce the 2x peak."
+                            )
+                            assert existing.dtype == buffer.param_data.dtype, (
+                                f"cpu_data dtype {existing.dtype} != "
+                                f"param_data dtype {buffer.param_data.dtype}; "
+                                "reallocating would reintroduce the 2x peak."
+                            )
+                        # Synchronous D2H copy into the preexisting pinned
+                        # buffer; must complete before resize_(0) frees the
+                        # GPU storage.
+                        buffer.param_data.cpu_data.copy_(buffer.param_data.data, non_blocking=False)
                         buffer.param_data.storage().resize_(0)
 
                     assert buffer.param_data_size == buffer.param_data.cpu_data.storage().size()
@@ -1324,9 +1433,10 @@ def get_megatron_module_device(models: list[Any]) -> str:
         return "cpu"
 
     model_chunk = models[0]
-    if not model_chunk.buffers:
+    if not model_chunk.buffers or not isinstance(model_chunk.buffers, list):
         try:
-            return next(model_chunk.module.parameters()).device.type
+            module = getattr(model_chunk, "module", model_chunk)
+            return next(module.parameters()).device.type
         except StopIteration:
             return "cpu"
 
@@ -1335,6 +1445,111 @@ def get_megatron_module_device(models: list[Any]) -> str:
         return "cpu"
     else:
         return get_device_name()
+
+
+def dynamic_cp_split_batch(
+    batch: TensorDict, engine_config: McoreEngineConfig, dp_size: int, dp_rank: int
+) -> TensorDict:
+    """
+    Split the batch into sub-batches for dynamic context parallel.
+
+    we can spilt a microbatch into several sub-batches with different local_cp_size, but for simplicity now,
+    we only split the batch into a fixed local_cp_size.
+
+    """
+    input_ids = batch["input_ids"]
+    assert input_ids.is_nested, "input_ids must be a nested tensor"
+    seq_len_effective: torch.Tensor = input_ids.offsets().diff()
+    max_seq_len = max(seq_len_effective)
+    # if num of sequences is less than dp_size, we don't need to split the batch
+    local_cp_size = None
+    if len(seq_len_effective) < dp_size:
+        local_cp_size = dp_size
+        return batch
+    else:
+        # decide the local_cp_size based on the max_seq_len and dp_size
+        max_seqlen_per_dp_cp_rank = engine_config.max_seqlen_per_dp_cp_rank
+        import math
+
+        local_cp_size = math.ceil(max_seq_len / max_seqlen_per_dp_cp_rank)
+        # round up to the nearest power of 2, for [1,2,3,4,5,6,7,8] -> [1,2,4,4,8,8,8,8]
+        local_cp_size = 1 << (local_cp_size - 1).bit_length()
+
+        assert local_cp_size <= dp_size, (
+            "local_cp_size must be less than or equal to dp_size, try to increase max_seqlen_per_dp_cp_rank"
+        )
+        if local_cp_size < dp_size:
+            # split the batch into local_cp_size sub-batches
+            local_dp_rank = dp_rank // local_cp_size
+            local_dp_size = dp_size // local_cp_size
+            indices = list(range(len(seq_len_effective)))
+            num_seq_per_local_cp = math.ceil(len(seq_len_effective) / local_dp_size)
+            start_idx = local_dp_rank * num_seq_per_local_cp
+            end_idx = min(start_idx + num_seq_per_local_cp, len(seq_len_effective))
+            selected_indices = indices[start_idx:end_idx]
+            batch = tu.index_select_tensor_dict(batch, selected_indices)
+
+    # print(f"rank={torch.distributed.get_rank()}, local_cp_size={local_cp_size} max_seq_len={max_seq_len}")
+    tu.assign_non_tensor_data(batch, "local_cp_size", local_cp_size)
+    return batch
+
+
+def dynamic_cp_merge_output(
+    outputs: dict[str, torch.Tensor],
+    dp_size: int,
+    dp_rank: int,
+    local_cp_size: int,
+) -> TensorDict:
+    """
+    Merge the outputs from different sub-batches for dynamic context parallel.
+    """
+    if local_cp_size == dp_size:
+        return outputs
+
+    merged_output = {}
+    for k in outputs:
+        data_local = outputs[k]
+        object_list = [None for _ in range(dp_size)]
+        torch.distributed.all_gather_object(
+            object_list=object_list, obj=data_local, group=mpu.get_data_parallel_group()
+        )
+
+        to_merge = object_list[(dp_rank % local_cp_size) :: local_cp_size]
+        merged = torch.nested.nested_tensor(
+            sum([list(x.to(data_local.device).unbind()) for x in to_merge], []), layout=torch.jagged
+        )
+        merged_output[k] = merged
+        # print(f'local_cp_size={local_cp_size}, dp_rank={dp_rank}, key={k},
+        # data_local shape={data_local.shape}, merged shape={merged_output[k].shape} ')
+
+    return merged_output
+
+
+def _get_mtp_num_layers(hf_config):
+    """Get MTP layer count from various config formats.
+
+    Supports:
+        - num_nextn_predict_layers (DeepSeek, Qwen3 style)
+        - mtp_num_hidden_layers (Qwen3.5 style, in hf_config or text_config)
+    """
+    if hasattr(hf_config, "num_nextn_predict_layers") and hf_config.num_nextn_predict_layers > 0:
+        return hf_config.num_nextn_predict_layers
+    if hasattr(hf_config, "mtp_num_hidden_layers") and hf_config.mtp_num_hidden_layers > 0:
+        return hf_config.mtp_num_hidden_layers
+    if hasattr(hf_config, "text_config") and hasattr(hf_config.text_config, "mtp_num_hidden_layers"):
+        if hf_config.text_config.mtp_num_hidden_layers > 0:
+            return hf_config.text_config.mtp_num_hidden_layers
+    return 0
+
+
+def _set_mtp_num_layers(hf_config, value: int):
+    """Set MTP layer count in the appropriate config field."""
+    if hasattr(hf_config, "num_nextn_predict_layers"):
+        hf_config.num_nextn_predict_layers = value
+    elif hasattr(hf_config, "mtp_num_hidden_layers"):
+        hf_config.mtp_num_hidden_layers = value
+    elif hasattr(hf_config, "text_config") and hasattr(hf_config.text_config, "mtp_num_hidden_layers"):
+        hf_config.text_config.mtp_num_hidden_layers = value
 
 
 def check_mtp_config(model_config: HFModelConfig, engine_config: McoreEngineConfig):
@@ -1347,17 +1562,15 @@ def check_mtp_config(model_config: HFModelConfig, engine_config: McoreEngineConf
         - mtp.enable == True and has MTP layers: configure override_transformer_config
         - mtp.enable == True and no MTP layers: raise ValueError
     """
-    has_mtp = (
-        model_config.hf_config.num_nextn_predict_layers > 0
-        if hasattr(model_config.hf_config, "num_nextn_predict_layers")
-        else False
-    )
+    hf_config = model_config.hf_config
+    mtp_num_layers = _get_mtp_num_layers(hf_config)
+    has_mtp = mtp_num_layers > 0
     enable_mtp = model_config.mtp.enable
 
     if not enable_mtp and not has_mtp:
         return
     elif not enable_mtp and has_mtp:
-        model_config.hf_config.num_nextn_predict_layers = 0
+        _set_mtp_num_layers(hf_config, 0)
     elif enable_mtp and not has_mtp:
         raise ValueError("enable mtp while model has no mtp layer, please use a model with mtp layer")
     elif enable_mtp and has_mtp:
@@ -1417,6 +1630,8 @@ def copy_megatron_model_to_cpu(models):
                     # Copy parameter data to CPU
                     if buffer.param_data.storage().size() > 0:
                         buffer_state["param_data"] = buffer.param_data.data.cpu().clone().pin_memory()
+                    else:
+                        buffer_state["param_data"] = buffer.param_data.cpu_data.clone().pin_memory()
 
                     buffer_list.append(buffer_state)
                 buffer_states.append(buffer_list)
@@ -1459,7 +1674,10 @@ def restore_megatron_model_from_cpu(models, cpu_state):
                 for buffer, buffer_state in zip(buffers, buffer_list, strict=False):
                     # Restore parameter data
                     if "param_data" in buffer_state:
-                        buffer.param_data.data.copy_(buffer_state["param_data"].to(buffer.param_data.device))
+                        if buffer.param_data.storage().size() > 0:
+                            buffer.param_data.data.copy_(buffer_state["param_data"].to(buffer.param_data.device))
+                        else:
+                            buffer.param_data.cpu_data.copy_(buffer_state["param_data"])
 
         elif not chunk_state["is_ddp"] and not isinstance(model_chunk, DDP):
             # Restore non-DDP models

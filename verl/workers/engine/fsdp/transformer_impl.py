@@ -133,6 +133,12 @@ class FSDPEngine(BaseEngine):
         self._is_offload_optimizer = self.engine_config.optimizer_offload
         self._is_lora = self.model_config.lora_rank > 0
 
+        # Defaults for mixed-precision state. _build_fsdp_module overrides these when it
+        # runs; subclasses that bypass _build_fsdp_module (e.g. VeOmniEngine) keep the
+        # defaults so forward_step / optimizer_step can still read them safely.
+        self._autocast_dtype = torch.bfloat16
+        self.scaler = None
+
         # QAT (Quantization-Aware Training)
         self._qat_config = getattr(self.engine_config, "qat", None)
         self._qat_enabled = self._qat_config is not None and getattr(self._qat_config, "enable", False)
@@ -231,21 +237,42 @@ class FSDPEngine(BaseEngine):
         with init_context(), warnings.catch_warnings():
             warnings.simplefilter("ignore")
 
-            auto_class = get_hf_auto_model_class(hf_config=self.model_config.hf_config)
+            if self.model_config.model_type == "language_model":
+                auto_class = get_hf_auto_model_class(hf_config=self.model_config.hf_config)
 
-            module = auto_class.from_pretrained(
-                pretrained_model_name_or_path=self.model_config.local_path,
-                torch_dtype=torch_dtype,
-                config=self.model_config.hf_config,
-                trust_remote_code=self.model_config.trust_remote_code,
-            )
+                module = auto_class.from_pretrained(
+                    pretrained_model_name_or_path=self.model_config.local_path,
+                    torch_dtype=torch_dtype,
+                    config=self.model_config.hf_config,
+                    trust_remote_code=self.model_config.trust_remote_code,
+                )
+            else:
+                from verl.utils.model import load_valuehead_model
+
+                assert self.model_config.model_type == "value_model", (
+                    f"Unsupported model type: {self.model_config.model_type}"
+                )
+                self.model_config.hf_config.num_labels = 1
+                self.model_config.hf_config.classifier_dropout = 0.0
+                self.model_config.hf_config.hidden_dropout = "0"
+                self.model_config.hf_config.summary_dropout_prob = 0.0
+                module = load_valuehead_model(
+                    local_path=self.model_config.local_path,
+                    torch_dtype=torch_dtype,
+                    model_config=self.model_config.hf_config,
+                    trust_remote_code=self.model_config.trust_remote_code,
+                )
 
             use_liger = self.model_config.use_liger
-            # Apply Liger kernel to the model if use_liger is set to True
+            # Apply Liger kernel; disable fused_linear_cross_entropy (conflicts with verl's forward patching)
             if use_liger:
                 from liger_kernel.transformers.monkey_patch import _apply_liger_kernel_to_instance
 
-                _apply_liger_kernel_to_instance(model=module)
+                _apply_liger_kernel_to_instance(
+                    model=module,
+                    fused_linear_cross_entropy=False,
+                    swiglu=True,
+                )
 
             fused_kernel_options = self.model_config.fused_kernel_options
             fused_kernels_backend = (
@@ -318,6 +345,16 @@ class FSDPEngine(BaseEngine):
             buffer_dtype = torch.float32
 
         mixed_precision = MixedPrecision(param_dtype=param_dtype, reduce_dtype=reduce_dtype, buffer_dtype=buffer_dtype)
+
+        self._autocast_dtype = param_dtype
+        # fp16 training requires loss scaling to avoid gradient underflow. Mirror the pattern
+        # landed in #4036 for the legacy dp_actor path. bf16 / fp32 do not need a scaler.
+        if param_dtype == torch.float16:
+            from torch.distributed.fsdp.sharded_grad_scaler import ShardedGradScaler
+
+            self.scaler = ShardedGradScaler(growth_interval=400)
+        else:
+            self.scaler = None
 
         auto_wrap_policy = get_fsdp_wrap_policy(
             module=module,
@@ -587,12 +624,19 @@ class FSDPEngine(BaseEngine):
 
         ctx = torch.no_grad() if forward_only else nullcontext()
 
+        # getattr fallback: some subclasses (e.g. VeOmniEngine) bypass FSDPEngine.__init__
+        # and _build_fsdp_module, so self.scaler may not be set.
+        scaler = getattr(self, "scaler", None)
+
         for micro_batch in micro_batches:
             with ctx:
                 loss, meta_info = self.forward_step(micro_batch, loss_function=loss_function, forward_only=forward_only)
 
                 if not forward_only:
-                    loss.backward()
+                    if scaler is not None:
+                        scaler.scale(loss).backward()
+                    else:
+                        loss.backward()
 
             output_lst.append(meta_info)
 
@@ -617,6 +661,14 @@ class FSDPEngine(BaseEngine):
         """
         assert self.optimizer_config.clip_grad is not None
 
+        # getattr fallback: some subclasses (e.g. VeOmniEngine) bypass FSDPEngine.__init__.
+        scaler = getattr(self, "scaler", None)
+
+        # Unscale gradients before clip so the clip threshold is applied to true gradient
+        # magnitudes, not scaled ones. scaler.step() will skip the update if any grad is inf/nan.
+        if scaler is not None:
+            scaler.unscale_(self.optimizer)
+
         if isinstance(self.module, FSDP):
             grad_norm = self.module.clip_grad_norm_(self.optimizer_config.clip_grad)
         elif isinstance(self.module, FSDPModule):
@@ -629,12 +681,17 @@ class FSDPEngine(BaseEngine):
         if isinstance(grad_norm, DTensor):
             grad_norm = grad_norm.full_tensor()
 
-        # if grad_norm is not finite, skip the update
-        if not torch.isfinite(grad_norm):
-            print(f"WARN: grad_norm is not finite: {grad_norm}")
-            self.optimizer.zero_grad()
+        if scaler is not None:
+            # scaler handles inf/nan skipping internally via _check_inf_per_device.
+            scaler.step(self.optimizer)
+            scaler.update()
         else:
-            self.optimizer.step()
+            # if grad_norm is not finite, skip the update
+            if not torch.isfinite(grad_norm):
+                print(f"WARN: grad_norm is not finite: {grad_norm}")
+                self.optimizer.zero_grad()
+            else:
+                self.optimizer.step()
 
         if self._qat_enabled:
             from verl.utils.qat.core import invalidate_all_scales
@@ -989,11 +1046,21 @@ class FSDPEngineWithLMHead(FSDPEngine):
 
         return model_inputs, output_args
 
-    def prepare_model_outputs(self, output, output_args, micro_batch: TensorDict):
+    def prepare_model_outputs(self, output, output_args, micro_batch: TensorDict, logits_processor_func):
         use_remove_padding = tu.get_non_tensor_data(data=micro_batch, key="use_remove_padding", default=True)
         pad_mode = tu.get_non_tensor_data(data=micro_batch, key="pad_mode", default=DatasetPadMode.NO_PADDING)
         use_fused_kernels = tu.get_non_tensor_data(data=micro_batch, key="use_fused_kernels", default=False)
         calculate_entropy = tu.get_non_tensor_data(data=micro_batch, key="calculate_entropy", default=False)
+        calculate_sum_pi_squared = tu.get_non_tensor_data(
+            data=micro_batch, key="calculate_sum_pi_squared", default=False
+        )
+        distillation_use_topk = tu.get_non_tensor_data(data=micro_batch, key="distillation_use_topk", default=False)
+
+        if calculate_sum_pi_squared and use_fused_kernels:
+            raise NotImplementedError(
+                "calculate_sum_pi_squared=True is not supported with use_fused_kernels=True: "
+                "fused kernels do not materialize the full logits tensor needed for Σπ²."
+            )
 
         model_output = {}
 
@@ -1030,6 +1097,22 @@ class FSDPEngineWithLMHead(FSDPEngine):
                             self.compute_entropy_from_logits, logits_rmpad
                         )
 
+                # compute sum_pi_squared (Σπ²) for optimal-baseline advantage estimators
+                if calculate_sum_pi_squared:
+                    sum_pi_squared_rmpad = verl_F.calculate_sum_pi_squared_from_logits(logits_rmpad)
+
+                # logits_processor_func return tensors with shape (1, total_nnz/sp_size)
+                if distillation_use_topk:
+                    outputs = logits_processor_func(student_logits=logits_rmpad.unsqueeze(0), data=micro_batch)
+                    cu_seqlens = input_ids.offsets()
+                    for k, v in outputs.items():
+                        v = v.squeeze(0)
+                        assert v.shape == log_probs.shape, f"log_probs shape: {log_probs.shape}, {k} shape: {v.shape}"
+                        if self.use_ulysses_sp:
+                            pad_size = output_args["pad_size"]
+                            v = gather_outputs_and_unpad(v, gather_dim=0, unpad_dim=0, padding_size=pad_size)
+                        model_output[k] = torch.nested.nested_tensor_from_jagged(v, cu_seqlens)
+
             # gather log_prob if sp > 1
             if self.use_ulysses_sp:
                 pad_size = output_args["pad_size"]
@@ -1048,6 +1131,13 @@ class FSDPEngineWithLMHead(FSDPEngine):
                         unpad_dim=0,
                         padding_size=pad_size,
                     )
+                if calculate_sum_pi_squared:
+                    sum_pi_squared_rmpad = gather_outputs_and_unpad(
+                        sum_pi_squared_rmpad,
+                        gather_dim=0,
+                        unpad_dim=0,
+                        padding_size=pad_size,
+                    )
 
             if pad_mode == DatasetPadMode.NO_PADDING:
                 cu_seqlens = input_ids.offsets()
@@ -1055,6 +1145,8 @@ class FSDPEngineWithLMHead(FSDPEngine):
                 log_probs = torch.nested.nested_tensor_from_jagged(log_probs, cu_seqlens)
                 if calculate_entropy:
                     entropy = torch.nested.nested_tensor_from_jagged(entropy_rmpad, cu_seqlens)
+                if calculate_sum_pi_squared:
+                    sum_pi_squared = torch.nested.nested_tensor_from_jagged(sum_pi_squared_rmpad, cu_seqlens)
             else:
                 raise NotImplementedError(f"pad_mode {pad_mode} not implemented")
 
@@ -1076,6 +1168,9 @@ class FSDPEngineWithLMHead(FSDPEngine):
                     else:
                         entropy = torch.utils.checkpoint.checkpoint(verl_F.entropy_from_logits, logits)
 
+                if calculate_sum_pi_squared:
+                    sum_pi_squared = verl_F.calculate_sum_pi_squared_from_logits(logits)
+
                 if pad_mode == DatasetPadMode.NO_PADDING:
                     cu_seqlens = input_ids.offsets()
                     seq_lengths = cu_seqlens.diff()
@@ -1090,12 +1185,20 @@ class FSDPEngineWithLMHead(FSDPEngine):
                         entropy = torch.nested.narrow(entropy, 1, starts, seq_lengths, layout=torch.jagged)
                         entropy_rmpad = torch.cat([t for t in entropy.unbind()])
                         entropy = torch.nested.nested_tensor_from_jagged(entropy_rmpad, cu_seqlens)
+                    if calculate_sum_pi_squared:
+                        sum_pi_squared = torch.nested.narrow(
+                            sum_pi_squared, 1, starts, seq_lengths, layout=torch.jagged
+                        )
+                        sum_pi_squared_rmpad = torch.cat([t for t in sum_pi_squared.unbind()])
+                        sum_pi_squared = torch.nested.nested_tensor_from_jagged(sum_pi_squared_rmpad, cu_seqlens)
                 else:
                     raise NotImplementedError(f"pad_mode {pad_mode} not implemented")
 
         model_output["log_probs"] = log_probs
         if calculate_entropy:
             model_output["entropy"] = entropy
+        if calculate_sum_pi_squared:
+            model_output["sum_pi_squared"] = sum_pi_squared
 
         return model_output
 
@@ -1105,14 +1208,24 @@ class FSDPEngineWithLMHead(FSDPEngine):
         micro_batch = micro_batch.to(get_device_id())
         model_inputs, output_args = self.prepare_model_inputs(micro_batch=micro_batch)
 
-        with torch.autocast(device_type=device_name, dtype=torch.bfloat16):
+        # Honor mixed_precision.param_dtype resolved during FSDP setup. When dtype is fp32,
+        # autocast is a no-op at best and a footgun at worst, so skip it entirely.
+        # getattr fallback: some subclasses (e.g. VeOmniEngine) bypass FSDPEngine.__init__
+        # and _build_fsdp_module, so self._autocast_dtype may not be set.
+        autocast_dtype = getattr(self, "_autocast_dtype", torch.bfloat16)
+        autocast_ctx: ContextManager = (
+            nullcontext()
+            if autocast_dtype == torch.float32
+            else torch.autocast(device_type=device_name, dtype=autocast_dtype)
+        )
+        with autocast_ctx:
             raw_output = self.module(
                 **model_inputs,
                 use_cache=False,
             )  # prevent model thinks we are generating
 
             model_output = self.prepare_model_outputs(
-                output=raw_output, output_args=output_args, micro_batch=micro_batch
+                output=raw_output, output_args=output_args, micro_batch=micro_batch, logits_processor_func=loss_function
             )
 
             if loss_function is not None:
@@ -1139,7 +1252,7 @@ class FSDPEngineWithValueHead(FSDPEngineWithLMHead):
     The only difference between critic and actor is how the raw model output is processed
     """
 
-    def prepare_model_outputs(self, output, output_args, micro_batch: TensorDict):
+    def prepare_model_outputs(self, output, output_args, micro_batch: TensorDict, logits_processor_func):
         use_remove_padding = tu.get_non_tensor_data(data=micro_batch, key="use_remove_padding", default=True)
         pad_mode = tu.get_non_tensor_data(data=micro_batch, key="pad_mode", default=DatasetPadMode.NO_PADDING)
 
@@ -1147,7 +1260,7 @@ class FSDPEngineWithValueHead(FSDPEngineWithLMHead):
         if use_remove_padding:
             if hasattr(self.module, "v_head"):
                 # For trl.AutoModelForCausalLMWithValueHead
-                values_rmpad = output[2].squeeze(0).unsqueeze(-1)
+                values_rmpad = output[2].squeeze(0)
             else:
                 values_rmpad = output.logits
                 values_rmpad = values_rmpad.squeeze(0)  # (total_nnz, 1)
@@ -1172,7 +1285,7 @@ class FSDPEngineWithValueHead(FSDPEngineWithLMHead):
                 # For trl.AutoModelForCausalLMWithValueHead
                 values = output[2]
             else:
-                values = output.logits
+                values = output.logits.squeeze(-1)
 
             if pad_mode == DatasetPadMode.NO_PADDING:
                 cu_seqlens = input_ids.offsets()

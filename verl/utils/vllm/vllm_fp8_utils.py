@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import inspect
 import logging
 from dataclasses import dataclass, field
 from unittest.mock import patch
@@ -48,8 +49,11 @@ fp8_state: FP8State = FP8State()
 def is_fp8_model(vllm_config):
     from vllm.model_executor.layers.quantization.fp8 import Fp8Config
 
-    if hasattr(vllm_config, "quant_config") and isinstance(vllm_config.quant_config, Fp8Config):
-        return True
+    if hasattr(vllm_config, "quant_config"):
+        if isinstance(vllm_config.quant_config, Fp8Config):
+            return True
+        elif is_mxfp8_vllm_ascend(vllm_config.quant_config):
+            return True
 
     return False
 
@@ -101,6 +105,55 @@ def is_fp8_weight(name, model):
     return name in fp8_state.fp8_param_names
 
 
+def is_mxfp8_vllm_ascend(quant_config):
+    try:
+        from vllm_ascend.quantization.modelslim_config import AscendModelSlimConfig
+        from vllm_ascend.quantization.quant_config import AscendQuantConfig
+
+        if isinstance(quant_config, AscendModelSlimConfig) or isinstance(quant_config, AscendQuantConfig):
+            quant_method = quant_config.quant_description.get("quant_method")
+            return quant_method in ["ascend"]
+        return False
+    except ImportError:
+        # vllm_ascend not installed, so this can't be an Ascend MXFP8 config
+        return False
+
+
+def restore_mxfp8_weights_for_loading(model):
+    for name, module in model.named_modules():
+        if (
+            hasattr(module, "_mxfp8_transformed")
+            and hasattr(module, "quant_method")
+            and hasattr(module.quant_method, "quant_method")
+            and hasattr(module.quant_method.quant_method, "restore_weights_for_rl_loading")
+        ):
+            module.quant_method.quant_method.restore_weights_for_rl_loading(module)
+
+
+def apply_mxfp8_transformation_after_loading(model):
+    """Re-apply MXFP8 transformations after weight loading.
+
+    This function iterates through all linear modules in the model and applies
+    the MXFP8 transformations (transpose, reshape) that are required for NPU
+    inference.
+
+    Must be called AFTER model.load_weights() in RL training loops.
+    """
+    try:
+        from vllm.model_executor.layers.linear import LinearBase
+    except ImportError:
+        logger.warning("Could not import LinearBase, skipping MXFP8 transformation")
+        return
+
+    for name, module in model.named_modules():
+        if (isinstance(module, LinearBase) or isinstance(module, FusedMoE)) and hasattr(
+            module, "_mxfp8_original_shapes"
+        ):
+            if hasattr(module, "quant_method") and hasattr(module.quant_method, "process_weights_after_loading"):
+                logger.debug(f"Applying MXFP8 transformation for module: {name}")
+                module.quant_method.process_weights_after_loading(module)
+
+
 def quant_weights(weights, model, quant_config, dtype=torch.bfloat16):
     """Quantize weights to FP8 format using a memory-efficient generator.
 
@@ -114,9 +167,10 @@ def quant_weights(weights, model, quant_config, dtype=torch.bfloat16):
     Yields:
         Tuples of (name, tensor) for each weight and its scale
     """
-    if quant_config.weight_block_size is None:
-        raise ValueError("Currently only support blockwise quantization, please set weight_block_size in quant_config")
 
+    is_mxfp8_npu = is_mxfp8_vllm_ascend(quant_config)
+    if is_mxfp8_npu:
+        import torch_npu
     # vLLM v0.11-v0.12 renamed weight_scale_inv → weight_scale in process_weights_after_loading,
     # so load_weights expects "_scale" suffix. v0.14+ keeps weight_scale_inv, so expects "_scale_inv".
     _use_scale_not_scale_inv = version.parse("0.11.0") <= version.parse(vllm.__version__) < version.parse("0.14.0")
@@ -129,18 +183,27 @@ def quant_weights(weights, model, quant_config, dtype=torch.bfloat16):
         # Cast the weight into fp8 and its scale factor
         if torch.distributed.get_rank() == 0:
             logger.debug(f"Quantizing to FP8 blockwise: {k}")
-
-        param_lp, param_scale = scaled_fp8_blockwise(
-            v.to(dtype),
-            weight_block_size=quant_config.weight_block_size,
-        )
+        if is_mxfp8_npu:
+            param_lp, param_scale = torch_npu.npu_dynamic_mx_quant(
+                v.to(dtype),
+                axis=-1,
+                dst_type=torch_npu.float8_e4m3fn,
+            )
+            param_scale = param_scale.flatten(-2, -1)
+        else:
+            param_lp, param_scale = scaled_fp8_blockwise(
+                v.to(dtype),
+                weight_block_size=quant_config.weight_block_size,
+            )
         param_scale = param_scale.squeeze(-1)
 
         # Yield the quantized weight
         yield (k, param_lp)
 
         # Yield the scale with appropriate naming based on vLLM version
-        if _use_scale_not_scale_inv and "expert" not in k:
+        if is_mxfp8_npu:
+            yield (k + "_scale", param_scale)
+        elif _use_scale_not_scale_inv and "expert" not in k:
             yield (k + "_scale", param_scale)
         else:
             yield (k + "_scale_inv", param_scale)
@@ -153,6 +216,15 @@ def load_quanted_weights(weights, model_runner):
     model = model_runner.model
     quant_config = model_runner.vllm_config.quant_config
     vllm_dtype = model_runner.vllm_config.model_config.dtype
+
+    is_mxfp8_npu = is_mxfp8_vllm_ascend(quant_config)
+
+    if is_mxfp8_npu:
+        # For MXFP8 on NPU, we need to restore weights to original shapes
+        # before loading, then re-apply transformation after loading.
+        # This is because process_weights_after_loading transposes the weights,
+        # but the weight_loader expects original shapes.
+        restore_mxfp8_weights_for_loading(model)
 
     weights_quantized = quant_weights(weights, model, quant_config, dtype=vllm_dtype)
 
@@ -168,6 +240,11 @@ def load_quanted_weights(weights, model_runner):
     for name, param in model.named_parameters():
         if hasattr(param, "subclass_type"):
             param.__class__ = param.orig_type
+
+    if is_mxfp8_npu:
+        # Re-apply MXFP8 transformations after weight loading
+        apply_mxfp8_transformation_after_loading(model)
+
     return loaded_params
 
 
@@ -537,14 +614,27 @@ def process_weights_after_loading_moe_for_vllm14(self, layer) -> None:
     if self.moe_quant_config:
         assert self.experts_cls is not None
 
-        self.moe_kernel = make_fp8_moe_kernel(
-            moe_quant_config=self.moe_quant_config,
-            moe_config=self.moe,
-            fp8_backend=self.fp8_backend,
-            experts_cls=self.experts_cls,
-            routing_tables=layer._maybe_init_expert_routing_tables(),
-            shared_experts=layer.shared_experts,
-        )
+        # Check for the new API by inspecting the function signature, which is more
+        # robust than version string comparison, especially for dev/pre-release versions.
+        sig = inspect.signature(make_fp8_moe_kernel)
+        if "routing_tables" in sig.parameters:
+            # vLLM >= 0.16+: routing_tables/shared_experts added, returns kernel directly
+            self.moe_kernel = make_fp8_moe_kernel(
+                moe_quant_config=self.moe_quant_config,
+                moe_config=self.moe,
+                fp8_backend=self.fp8_backend,
+                experts_cls=self.experts_cls,
+                routing_tables=layer._maybe_init_expert_routing_tables(),
+                shared_experts=layer.shared_experts,
+            )
+        else:
+            # vLLM 0.14/0.15: routing_tables/shared_experts not supported, returns (kernel, use_inplace)
+            self.kernel, self.use_inplace = make_fp8_moe_kernel(
+                moe_quant_config=self.moe_quant_config,
+                moe_config=self.moe,
+                fp8_backend=self.fp8_backend,
+                experts_cls=self.experts_cls,
+            )
 
 
 def apply_vllm_fp8_patches():
