@@ -377,11 +377,39 @@ async def _milvus_search(state: ServerState, query_text: str, top_k: int) -> lis
 
 
 def _parse_json(s: str, expect_array: bool = False):
-    pat = r"\[.*\]" if expect_array else r"\{.*\}"
-    m = re.search(pat, s, re.DOTALL)
-    if not m:
-        raise ValueError(f"no JSON found in: {s[:200]}")
-    return json.loads(m.group())
+    """Extract JSON from a possibly-noisy model response.
+
+    Tries three strategies in order: (1) the whole string parsed as JSON; (2) a
+    ```json ... ``` fenced block; (3) a permissive greedy regex for the first
+    `[...]` / `{...}` span. Reasoning models (Qwen3.x thinking mode) sometimes
+    prefix their JSON with "Here's a thinking process: ..." — those still hit
+    strategy 3 as long as JSON appears somewhere. With `--reasoning-parser
+    qwen3` on the vLLM server, the `<think>...</think>` block is stripped and
+    strategy 1 or 2 usually succeeds.
+    """
+    s = s.strip()
+    try:
+        v = json.loads(s)
+        if (expect_array and isinstance(v, list)) or (not expect_array and isinstance(v, dict)):
+            return v
+    except (json.JSONDecodeError, ValueError):
+        pass
+    fence = re.search(r"```(?:json)?\s*([\s\S]*?)```", s, re.IGNORECASE)
+    if fence:
+        try:
+            v = json.loads(fence.group(1).strip())
+            if (expect_array and isinstance(v, list)) or (not expect_array and isinstance(v, dict)):
+                return v
+        except (json.JSONDecodeError, ValueError):
+            pass
+    pat = r"\[[\s\S]*\]" if expect_array else r"\{[\s\S]*\}"
+    m = re.search(pat, s)
+    if m:
+        try:
+            return json.loads(m.group())
+        except (json.JSONDecodeError, ValueError) as e:
+            raise ValueError(f"failed to parse JSON match: {e}; from: {s[:200]}")
+    raise ValueError(f"no JSON found in: {s[:200]}")
 
 
 def _extract_user_text(target: dict) -> str:
