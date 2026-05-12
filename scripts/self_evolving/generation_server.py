@@ -389,36 +389,50 @@ async def _milvus_search(state: ServerState, query_text: str, top_k: int) -> lis
 def _parse_json(s: str, expect_array: bool = False):
     """Extract JSON from a possibly-noisy model response.
 
-    Tries three strategies in order: (1) the whole string parsed as JSON; (2) a
-    ```json ... ``` fenced block; (3) a permissive greedy regex for the first
-    `[...]` / `{...}` span. Reasoning models (Qwen3.x thinking mode) sometimes
-    prefix their JSON with "Here's a thinking process: ..." — those still hit
-    strategy 3 as long as JSON appears somewhere. With `--reasoning-parser
-    qwen3` on the vLLM server, the `<think>...</think>` block is stripped and
-    strategy 1 or 2 usually succeeds.
+    Tries in order: (1) whole string as JSON; (2) ```json ... ``` fenced block;
+    (3) scan for the first character that starts a JSON value of the expected
+    type (`[` for arrays, `{` for objects) and use `JSONDecoder.raw_decode` to
+    consume the first complete value, which tolerates trailing text like
+    "...thought... {valid json} ...more explanation...".
+
+    Reasoning models (Qwen3.x thinking mode) often emit JSON embedded in a
+    longer prose response, especially when the chat server's reasoning_parser
+    has truncated `<think>` and we fall back to `reasoning_content`.
     """
     s = s.strip()
+    expect_type = list if expect_array else dict
+    decoder = json.JSONDecoder()
+
     try:
         v = json.loads(s)
-        if (expect_array and isinstance(v, list)) or (not expect_array and isinstance(v, dict)):
+        if isinstance(v, expect_type):
             return v
     except (json.JSONDecodeError, ValueError):
         pass
+
     fence = re.search(r"```(?:json)?\s*([\s\S]*?)```", s, re.IGNORECASE)
     if fence:
         try:
             v = json.loads(fence.group(1).strip())
-            if (expect_array and isinstance(v, list)) or (not expect_array and isinstance(v, dict)):
+            if isinstance(v, expect_type):
                 return v
         except (json.JSONDecodeError, ValueError):
             pass
-    pat = r"\[[\s\S]*\]" if expect_array else r"\{[\s\S]*\}"
-    m = re.search(pat, s)
-    if m:
+
+    open_char = "[" if expect_array else "{"
+    idx = 0
+    while True:
+        start = s.find(open_char, idx)
+        if start < 0:
+            break
         try:
-            return json.loads(m.group())
-        except (json.JSONDecodeError, ValueError) as e:
-            raise ValueError(f"failed to parse JSON match: {e}; from: {s}")
+            v, _ = decoder.raw_decode(s[start:])
+            if isinstance(v, expect_type):
+                return v
+        except json.JSONDecodeError:
+            pass
+        idx = start + 1
+
     raise ValueError(f"no JSON found in: {s}")
 
 
