@@ -290,7 +290,7 @@ async def _api_call(state: ServerState, system_prompt: str, user_prompt: str,
     async with timed(state, label):
         resp = await state.http_client.post(
             f"{state.args.api_base}/chat/completions",
-            json=payload, headers=headers, timeout=180,
+            json=payload, headers=headers, timeout=600,
         )
         resp.raise_for_status()
         msg = resp.json()["choices"][0]["message"]
@@ -635,7 +635,9 @@ async def _process_query_inner(state: ServerState, query: str, required_format: 
                 state, target_question, knowledge, stats, required_format,
             )
         except Exception as e:
-            logger.warning(f"generator failed ({required_format}): {e}")
+            logger.warning(
+                f"generator failed ({required_format}): {type(e).__name__}: {e!r}"
+            )
             continue
         try:
             ok, reason = await agent_validator(state, gen)
@@ -689,7 +691,8 @@ async def worker_loop(state: ServerState, worker_id: int):
                     break
                 except Exception as e:
                     logger.warning(
-                        f"worker {worker_id}: query proposer attempt {attempt + 1}/3 failed: {e}"
+                        f"worker {worker_id}: query proposer attempt {attempt + 1}/3 failed: "
+                        f"{type(e).__name__}: {e!r}"
                     )
             if not queries:
                 continue
