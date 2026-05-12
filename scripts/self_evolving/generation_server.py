@@ -461,7 +461,7 @@ async def agent_query_proposer(state: ServerState, target: dict) -> list[str]:
         f"Generate {state.args.n_queries} diverse search queries."
     )
     response = await _api_call(state, QUERY_PROPOSER_SYSTEM_PROMPT, user_prompt,
-                               max_tokens=3072, temperature=0.8,
+                               max_tokens=12288, temperature=0.8,
                                label="chat_query_proposer")
     queries = _parse_json(response, expect_array=True)
     if not isinstance(queries, list):
@@ -485,7 +485,7 @@ async def agent_question_generator(state: ServerState, target_question: str,
         f"Retrieved medical knowledge:\n{knowledge}\n\n"
         f"Synthesize one new training question in the required format ({required_format})."
     )
-    response = await _api_call(state, sys_prompt, user_prompt, max_tokens=3072,
+    response = await _api_call(state, sys_prompt, user_prompt, max_tokens=12288,
                                 temperature=0.9, label="chat_generator")
     q = _parse_json(response)
     fmt = q.get("format", "").lower()
@@ -537,7 +537,7 @@ async def agent_validator(state: ServerState, generated: dict) -> tuple[bool, st
     )
     try:
         response = await _api_call(state, QUESTION_VALIDATOR_SYSTEM_PROMPT, user_prompt,
-                                   max_tokens=2048, temperature=0.2,
+                                   max_tokens=12288, temperature=0.2,
                                    label="chat_validator")
         result = _parse_json(response)
         verdict = result.get("verdict", "").lower()
