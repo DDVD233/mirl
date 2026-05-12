@@ -33,6 +33,7 @@ import asyncio
 import json
 import logging
 import os
+import random
 import re
 import time
 import uuid
@@ -174,6 +175,24 @@ class ServerState:
         self.args = args
         self.loop = loop
         self.seeds = self._load_seeds(args.seeds_path)
+        for s in self.seeds:
+            s["_origin"] = "train"
+        if args.test_seeds_path:
+            test_seeds = self._load_seeds(args.test_seeds_path)
+            for s in test_seeds:
+                # Strip the label so the generator can never see it; tag as
+                # test_masked so the worker loop knows not to direct-insert.
+                s.pop("reward_model", None)
+                s["_origin"] = "test_masked"
+            self.seeds.extend(test_seeds)
+            # Interleave train + test so the worker loop sees mixed origins
+            # rather than blocks of one kind.
+            random.shuffle(self.seeds)
+        n_train = sum(1 for s in self.seeds if s["_origin"] == "train")
+        n_test = len(self.seeds) - n_train
+        logger.info(
+            f"seeds: {len(self.seeds)} total ({n_train} train, {n_test} test_masked)"
+        )
 
         self.pool: asyncio.Queue = asyncio.Queue(maxsize=args.max_pool_size)
         self.target_idx = 0
@@ -190,6 +209,7 @@ class ServerState:
             "total_rejected": 0,
             "served": 0,
             "reports": 0,
+            "direct_inserted": 0,
             "started_at": datetime.now().isoformat(),
         }
 
@@ -552,6 +572,28 @@ async def agent_validator(state: ServerState, generated: dict) -> tuple[bool, st
         return True, f"validator error: {e}"
 
 
+def _build_raw_entry(target: dict, target_idx: int, cycle: int) -> dict:
+    """Pool entry built directly from a train.jsonl seed (no LLM rewriting).
+
+    The seed already has data_source/prompt/images/reward_model in verl shape;
+    we just clone it, add a question_id, and tag it as direct-insert.
+    """
+    entry = {
+        "data_source": target.get("data_source", "self_evolving"),
+        "prompt": list(target.get("prompt", [])),
+        "reward_model": dict(target.get("reward_model", {})),
+        "extra_info": dict(target.get("extra_info", {})),
+    }
+    if "images" in target:
+        entry["images"] = target["images"]
+    entry["extra_info"]["question_id"] = uuid.uuid4().hex
+    entry["extra_info"]["split"] = "train"
+    entry["extra_info"]["source"] = "direct_seed"
+    entry["extra_info"]["cycle"] = cycle
+    entry["extra_info"]["target_idx"] = target_idx
+    return entry
+
+
 def _build_entry(state: ServerState, generated: dict, target: dict,
                  passage: str, query: str, target_idx: int, cycle: int) -> dict:
     state.question_counter += 1
@@ -681,6 +723,28 @@ async def worker_loop(state: ServerState, worker_id: int):
                 state.cycle += 1
                 logger.info(f"completed cycle {state.cycle}")
 
+            # Direct-insert branch: a fraction of train seeds are added to the
+            # pool verbatim (ground-truth label is the original ICD answer).
+            # Skips the full LLM pipeline. test_masked seeds never take this
+            # path because their label was stripped at load time.
+            if (target.get("_origin") == "train"
+                    and random.random() < state.args.direct_train_ratio):
+                entry = _build_raw_entry(target, cur_target_idx, cur_cycle)
+                async with state.log_lock:
+                    with open(state.accepted_log, "a") as f:
+                        f.write(json.dumps({
+                            "ts": datetime.now().isoformat(),
+                            "question_id": entry["extra_info"]["question_id"],
+                            "target_idx": cur_target_idx,
+                            "cycle": cur_cycle,
+                            "direct_insert": True,
+                            "entry": entry,
+                        }) + "\n")
+                state.stats["direct_inserted"] += 1
+                state.stats["total_accepted"] += 1
+                await state.pool.put(entry)
+                continue
+
             target_question = (
                 target.get("extra_info", {}).get("question", "")
                 or _extract_user_text(target)
@@ -772,9 +836,15 @@ async def lifespan(app: FastAPI):
     args: argparse.Namespace = app.state.args
     loop = asyncio.get_running_loop()
     STATE = ServerState(args, loop)
+    # Each worker can fire up to n_queries (10) embed calls + 1 generator +
+    # 1 validator + 1 proposer concurrently, so the pool needs ~workers * 15
+    # slots. The default httpx pool is 100/20 — too small for 8+ workers.
     STATE.http_client = httpx.AsyncClient(
-        limits=httpx.Limits(max_connections=args.workers * 4,
-                            max_keepalive_connections=args.workers * 2),
+        limits=httpx.Limits(
+            max_connections=max(args.workers * 16, 256),
+            max_keepalive_connections=max(args.workers * 8, 128),
+            keepalive_expiry=120.0,
+        ),
     )
 
     workers = [
@@ -845,6 +915,15 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--seeds_path", required=True,
                         help="JSONL of seed targets (typically train.jsonl)")
+    parser.add_argument("--test_seeds_path", default="",
+                        help="Optional JSONL of test seeds. Loaded with "
+                             "reward_model stripped — used to drive question "
+                             "generation against test-like distributions, but "
+                             "never raw-inserted into the pool.")
+    parser.add_argument("--direct_train_ratio", type=float, default=0.3,
+                        help="Probability that a train seed is inserted into "
+                             "the pool verbatim (skipping the LLM pipeline). "
+                             "Test-masked seeds always go through generation.")
     parser.add_argument("--api_base", required=True, help="vLLM chat /v1 base URL")
     parser.add_argument("--api_key", default="EMPTY")
     parser.add_argument("--model_name", required=True)

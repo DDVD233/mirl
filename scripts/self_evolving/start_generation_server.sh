@@ -12,6 +12,18 @@ PYTHON_BIN="${PYTHON_BIN:-/home/dvdai/miniconda3/envs/verl/bin/python}"
 
 DATA_DIR="${DATA_DIR:-/scratch/self_evolving_datasets/mimiciv_rare}"
 SEEDS_PATH="${SEEDS_PATH:-$DATA_DIR/train.jsonl}"
+# Optional test seeds (labels stripped, used only to drive question generation
+# against test-like distributions; never inserted into the pool verbatim).
+# Auto-pick test.jsonl if it exists in DATA_DIR; override with empty string to
+# disable.
+if [ -z "${TEST_SEEDS_PATH+x}" ]; then
+    if [ -f "$DATA_DIR/test.jsonl" ]; then
+        TEST_SEEDS_PATH="$DATA_DIR/test.jsonl"
+    else
+        TEST_SEEDS_PATH=""
+    fi
+fi
+DIRECT_TRAIN_RATIO="${DIRECT_TRAIN_RATIO:-0.3}"
 LOG_DIR="${LOG_DIR:-/scratch/self_evolving_datasets/logs}"
 
 API_BASE="${API_BASE:-http://localhost:8002/v1}"
@@ -41,8 +53,15 @@ fi
 
 cd "$(dirname "$0")/../.."
 
+TEST_SEEDS_FLAG=()
+if [ -n "$TEST_SEEDS_PATH" ]; then
+    TEST_SEEDS_FLAG=(--test_seeds_path "$TEST_SEEDS_PATH")
+fi
+
 exec "$PYTHON_BIN" scripts/self_evolving/generation_server.py \
     --seeds_path "$SEEDS_PATH" \
+    "${TEST_SEEDS_FLAG[@]}" \
+    --direct_train_ratio "$DIRECT_TRAIN_RATIO" \
     --api_base "$API_BASE" \
     --api_key "$API_KEY" \
     --model_name "$MODEL_NAME" \
