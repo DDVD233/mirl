@@ -76,7 +76,8 @@ DIFFERENT content — avoid near-paraphrases.
 9. EPIDEMIOLOGY or risk-factor association (quantitative if possible)
 10. RELATED CONDITION or downstream effect (comorbidity, systemic link, long-term sequela)
 
-Output ONLY a JSON array of 10 strings in the above order. No markdown, no explanation.
+Keep any internal reasoning UNDER 500 WORDS, then output ONLY a JSON array of 10 strings \
+in the above order. No markdown, no explanation.
 ["query 1", "query 2", ..., "query 10"]"""
 
 
@@ -113,7 +114,8 @@ ANSWER RULES:
   name, mechanism, threshold value).
 - The correct answer must be UNAMBIGUOUS — exactly one option is defensible.
 
-Output ONLY a JSON object. No markdown, no explanation.
+Keep any internal reasoning UNDER 500 WORDS, then output ONLY a JSON object. No markdown, \
+no explanation.
 
 For MCQ (required_format="mcq"):
 {{"format": "mcq", "question": "...", "options": {{"A": "...", "B": "...", "C": "...", "D": "..."}}, "answer": "A"}}
@@ -140,7 +142,8 @@ BE LENIENT — only reject obvious contradictions:
   contradiction from the passages → "ok"
 - If the question is poorly formed / ungrammatical / incoherent → "contradict"
 
-Output ONLY a JSON object with a one-sentence reason. No markdown, no explanation.
+Keep any internal reasoning UNDER 500 WORDS, then output ONLY a JSON object with a \
+one-sentence reason. No markdown, no explanation.
 {{"verdict": "ok" or "contradict", "reason": "..."}}"""
 
 
