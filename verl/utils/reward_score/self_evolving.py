@@ -36,7 +36,8 @@ of the model's REASONING (not the final answer) on a scale from 1 to 5:
 4 - Good reasoning that mostly follows from the evidence
 5 - Excellent reasoning that is thorough, evidence-based, and logically sound
 
-Output ONLY a single integer from 1 to 5."""
+Think briefly (less than 200 words) and then output your final rating inside \\boxed{...}. \
+Example: \\boxed{4}"""
 
 
 JUDGE_ANSWER_QUALITY_PROMPT = """\
@@ -58,7 +59,8 @@ Scale:
 For MCQ: if the letter matches → 5; if different letter but equivalent content → 4; else 1.
 For free response: judge semantic alignment (synonyms, paraphrases count as correct).
 
-Output ONLY a single integer from 1 to 5."""
+Think briefly (less than 200 words) and then output your final rating inside \\boxed{...}. \
+Example: \\boxed{5}"""
 
 
 JUDGE_CORRECTNESS_PROMPT = """\
@@ -66,7 +68,8 @@ You are a medical expert evaluating whether a model's answer to a medical questi
 correct. Use the provided question/context and your own medical knowledge to determine \
 if the model's extracted answer is correct.
 
-Output ONLY one of: "correct" or "incorrect"."""
+Think briefly (less than 200 words) and then output your verdict inside \\boxed{...} as \
+either \\boxed{correct} or \\boxed{incorrect}."""
 
 
 JUDGE_ACCURACY_LENIENT_PROMPT = """\
@@ -92,7 +95,8 @@ REJECT:
 - Generic non-answers ("unknown", "no diagnosis", "see above")
 - Empty or missing answer
 
-Output ONLY one of: "correct" or "incorrect"."""
+Think briefly (less than 200 words) and then output your verdict inside \\boxed{...} as \
+either \\boxed{correct} or \\boxed{incorrect}."""
 
 
 JUDGE_ACCURACY_STRICT_PROMPT = """\
@@ -122,7 +126,8 @@ REJECT:
 - Generic non-answers ("unknown", "no diagnosis", "see above")
 - Empty or missing answer
 
-Output ONLY one of: "correct" or "incorrect"."""
+Think briefly (less than 200 words) and then output your verdict inside \\boxed{...} as \
+either \\boxed{correct} or \\boxed{incorrect}."""
 
 
 # Reward component weights (sum to 1.0).
@@ -178,7 +183,7 @@ async def _call_api(
     model_name: str,
     system_prompt: str,
     user_prompt: str,
-    max_tokens: int = 16,
+    max_tokens: int = 2048,
 ) -> str:
     url = f"{api_base}/chat/completions"
     headers = {
@@ -195,12 +200,51 @@ async def _call_api(
         "temperature": 0.0,
     }
 
-    timeout = aiohttp.ClientTimeout(total=60)
+    timeout = aiohttp.ClientTimeout(total=120)
     async with aiohttp.ClientSession(timeout=timeout) as session:
         async with session.post(url, json=payload, headers=headers) as resp:
             resp.raise_for_status()
             data = await resp.json()
-            return data["choices"][0]["message"]["content"].strip()
+            msg = data["choices"][0]["message"]
+            # With --reasoning-parser qwen3 the final answer is in
+            # `content`; if the model ran out of tokens while thinking,
+            # content is None and the partial thinking is in
+            # `reasoning_content`. Fall back so we can still extract a
+            # boxed verdict from the partial text.
+            content = msg.get("content") or msg.get("reasoning_content") or ""
+            return content.strip()
+
+
+def _extract_judge_verdict(text: str) -> str:
+    """Pull 'correct'/'incorrect' from a judge response.
+
+    Prefer the boxed answer (the format the prompt asks for); fall back to
+    a substring match on the raw response. Returns "" if neither matches —
+    callers should treat that as a judge failure rather than a verdict.
+    """
+    boxed = extract_boxed_answer(text)
+    candidate = (boxed or text or "").lower()
+    if "incorrect" in candidate:
+        return "incorrect"
+    if "correct" in candidate:
+        return "correct"
+    return ""
+
+
+def _extract_judge_rating(text: str, default: float) -> float:
+    """Pull an integer 1-5 from a judge response.
+
+    Prefer the boxed answer; fall back to the first 1-5 digit in the raw
+    text. Returns ``default`` if nothing usable is found.
+    """
+    boxed = extract_boxed_answer(text)
+    for source in (boxed, text):
+        if not source:
+            continue
+        m = re.search(r"[1-5]", source)
+        if m:
+            return float(m.group())
+    return default
 
 
 async def judge_reasoning(
@@ -219,12 +263,9 @@ async def judge_reasoning(
     )
     try:
         content = await _call_api(
-            api_base, api_key, model_name, JUDGE_REASONING_PROMPT, user_prompt, max_tokens=16
+            api_base, api_key, model_name, JUDGE_REASONING_PROMPT, user_prompt, max_tokens=2048
         )
-        m = re.search(r"[1-5]", content)
-        if m:
-            return float(m.group())
-        return 3.0
+        return _extract_judge_rating(content, default=3.0)
     except Exception as e:
         logger.warning(f"judge_reasoning failed: {e}")
         return 3.0
@@ -249,12 +290,9 @@ async def judge_answer_quality(
     )
     try:
         content = await _call_api(
-            api_base, api_key, model_name, JUDGE_ANSWER_QUALITY_PROMPT, user_prompt, max_tokens=16
+            api_base, api_key, model_name, JUDGE_ANSWER_QUALITY_PROMPT, user_prompt, max_tokens=2048
         )
-        m = re.search(r"[1-5]", content)
-        if m:
-            return float(m.group())
-        return 1.0
+        return _extract_judge_rating(content, default=1.0)
     except Exception as e:
         logger.warning(f"judge_answer_quality failed: {e}")
         return 1.0
@@ -366,10 +404,10 @@ async def _judge_accuracy_with_prompt(
     )
     try:
         content = await _call_api(
-            api_base, api_key, model_name, system_prompt, user_prompt, max_tokens=16
+            api_base, api_key, model_name, system_prompt, user_prompt, max_tokens=2048
         )
-        c = content.lower()
-        return 1.0 if "correct" in c and "incorrect" not in c else 0.0
+        verdict = _extract_judge_verdict(content)
+        return 1.0 if verdict == "correct" else 0.0
     except Exception as e:
         logger.warning(f"judge_accuracy ({label}) failed: {e}")
         return 0.0
@@ -420,10 +458,10 @@ async def judge_correctness(
     )
     try:
         content = await _call_api(
-            api_base, api_key, model_name, JUDGE_CORRECTNESS_PROMPT, user_prompt, max_tokens=16
+            api_base, api_key, model_name, JUDGE_CORRECTNESS_PROMPT, user_prompt, max_tokens=2048
         )
-        c = content.lower()
-        return 1.0 if "correct" in c and "incorrect" not in c else 0.0
+        verdict = _extract_judge_verdict(content)
+        return 1.0 if verdict == "correct" else 0.0
     except Exception as e:
         logger.warning(f"judge_correctness failed: {e}")
         return 0.0
