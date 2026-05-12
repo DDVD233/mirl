@@ -607,6 +607,10 @@ def process_one(fp: str) -> dict | None:
         "images": images,
         "reward_model": {"style": "rule", "ground_truth": answer},
         "extra_info": {
+            # `question` is read by the reward function (self_evolving.compute_score)
+            # for the LLM judges; absent for older test.jsonl files, leaves judges
+            # with no question context.
+            "question": user_content,
             "hadm_id": hadm_id,
             "subject_id": meta["subject_id"],
             "admittime": meta["admittime"],

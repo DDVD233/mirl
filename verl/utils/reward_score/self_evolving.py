@@ -555,7 +555,7 @@ async def compute_score(
         mode = "label" if has_label else "no-label"
         print(f"\n{'=' * 60}")
         print(f"[REWARD DEBUG] mode={mode}  format={extra_info.get('format', '?')}")
-        print(f"  question: {question[:200]}")
+        print(f"  question: {question}")
         print(f"  ground_truth: {ground_truth!r}")
         print(f"  extracted: {extracted_answer!r}")
         print(f"  accuracy={accuracy:.1f}  judge_lenient={judge_acc_lenient:.1f}  "
@@ -564,7 +564,7 @@ async def compute_score(
               f"format={format_ok:.1f}  bio_sim={bio_sim:.2f}  "
               f"char_bleu={char_bleu_score:.2f}")
         print(f"  total_score={score:.3f}")
-        print(f"  response (first 300): {solution_str[:300]}")
+        print(f"  response: {solution_str}")
         print(f"{'=' * 60}\n")
 
     # Feed accuracy back to the generation server so it can keep its
