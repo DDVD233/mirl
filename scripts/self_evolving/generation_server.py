@@ -950,6 +950,11 @@ def main():
         level=logging.INFO,
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     )
+    # pymilvus logs every gRPC retry at ERROR with full traceback even when
+    # our wrapper recovers; silence it — real failures are logged by
+    # _milvus_search_sync when both attempts fail.
+    logging.getLogger("pymilvus.decorators").setLevel(logging.CRITICAL)
+    logging.getLogger("pymilvus").setLevel(logging.WARNING)
 
     app.state.args = args
     uvicorn.run(app, host=args.host, port=args.port, log_level="info")
