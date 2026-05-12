@@ -411,8 +411,8 @@ def _parse_json(s: str, expect_array: bool = False):
         try:
             return json.loads(m.group())
         except (json.JSONDecodeError, ValueError) as e:
-            raise ValueError(f"failed to parse JSON match: {e}; from: {s[:200]}")
-    raise ValueError(f"no JSON found in: {s[:200]}")
+            raise ValueError(f"failed to parse JSON match: {e}; from: {s}")
+    raise ValueError(f"no JSON found in: {s}")
 
 
 def _extract_user_text(target: dict) -> str:
