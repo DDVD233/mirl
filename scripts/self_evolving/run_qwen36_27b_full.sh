@@ -8,7 +8,8 @@ set -xeuo pipefail
 export API_BASE="http://node2500:8002/v1"
 export API_KEY="EMPTY"
 # Judge / chat model — name string used by reward_function for the LLM judges.
-export MODEL_NAME="${MODEL_NAME:-Qwen/Qwen3.6-35B-A3B}"
+# Matches whatever model is loaded on node2500:8002. Currently Qwen3.6-27B.
+export MODEL_NAME="${MODEL_NAME:-Qwen/Qwen3.6-27B}"
 export DATA_DIR="/home/dvdai/scratch/dvdai/self_evolving_datasets/mimiciv_rare"
 export EXPERIMENT_NAME="${EXPERIMENT_NAME:-mimiciv_rare_qwen36_27b}"
 export BIOBERT_API_BASE="http://localhost:8003"
