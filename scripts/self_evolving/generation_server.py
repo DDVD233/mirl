@@ -380,7 +380,9 @@ async def _milvus_search(state: ServerState, query_text: str, top_k: int) -> lis
     try:
         embedding = await _embed_text(state, query_text)
     except Exception as e:
-        logger.warning(f"embed failed for '{query_text[:60]}': {e}")
+        logger.warning(
+            f"embed failed for '{query_text[:60]}': {type(e).__name__}: {e!r}"
+        )
         return []
     async with timed(state, "milvus_search"):
         return await asyncio.to_thread(_milvus_search_sync, state, embedding, top_k)
