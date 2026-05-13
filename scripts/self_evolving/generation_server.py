@@ -177,25 +177,41 @@ class ServerState:
     def __init__(self, args, loop: asyncio.AbstractEventLoop):
         self.args = args
         self.loop = loop
-        self.seeds = self._load_seeds(args.seeds_path)
-        for s in self.seeds:
+        self.train_seeds = self._load_seeds(args.seeds_path)
+        for s in self.train_seeds:
             s["_origin"] = "train"
+        self.test_seeds: list[dict] = []
         if args.test_seeds_path:
-            test_seeds = self._load_seeds(args.test_seeds_path)
-            for s in test_seeds:
+            self.test_seeds = self._load_seeds(args.test_seeds_path)
+            for s in self.test_seeds:
                 # Strip the label so the generator can never see it; tag as
                 # test_masked so the worker loop knows not to direct-insert.
                 s.pop("reward_model", None)
                 s["_origin"] = "test_masked"
-            self.seeds.extend(test_seeds)
-            # Interleave train + test so the worker loop sees mixed origins
-            # rather than blocks of one kind.
-            random.shuffle(self.seeds)
-        n_train = sum(1 for s in self.seeds if s["_origin"] == "train")
-        n_test = len(self.seeds) - n_train
+        # Kept for /replay logging compatibility and any consumer that wants a
+        # flat seed list — workers no longer iterate this in order.
+        self.seeds = list(self.train_seeds) + list(self.test_seeds)
         logger.info(
-            f"seeds: {len(self.seeds)} total ({n_train} train, {n_test} test_masked)"
+            f"seeds: {len(self.seeds)} total "
+            f"({len(self.train_seeds)} train, {len(self.test_seeds)} test_masked)"
         )
+
+        # Output-mix targets and running counts. Workers pick the most-deficit
+        # mode each iteration to drive the pool toward these proportions. If
+        # there are no test_seeds, the gen_test target is folded into gen_train.
+        self.mix_targets = {
+            "direct": float(args.direct_target),
+            "gen_train": float(args.gen_train_target),
+            "gen_test": float(args.gen_test_target),
+        }
+        if not self.test_seeds:
+            self.mix_targets["gen_train"] += self.mix_targets["gen_test"]
+            self.mix_targets["gen_test"] = 0.0
+        # Renormalize (in case the user passed values that don't sum to 1).
+        total = sum(self.mix_targets.values()) or 1.0
+        for k in self.mix_targets:
+            self.mix_targets[k] /= total
+        self.mix_counts = {"direct": 0, "gen_train": 0, "gen_test": 0}
 
         self.pool: asyncio.Queue = asyncio.Queue(maxsize=args.max_pool_size)
         # Unbounded buffer drained by /sample BEFORE the regular pool. Used by
@@ -580,6 +596,32 @@ async def agent_validator(state: ServerState, generated: dict) -> tuple[bool, st
         return True, f"validator error: {e}"
 
 
+def _pick_mode(state: ServerState) -> str:
+    """Pick the mode whose current pool share is most below its target.
+
+    Mode counts are number of *entries pushed*, not number of iterations,
+    so a single generate-iteration that yields N entries contributes N to
+    its mode's count. Modes with zero seeds available (e.g. ``gen_test``
+    when ``test_seeds_path`` is unset) are skipped.
+    """
+    counts = state.mix_counts
+    targets = state.mix_targets
+    total = sum(counts.values()) + len(counts)  # +len for Laplace smoothing
+    best_mode = "direct"
+    best_deficit = -float("inf")
+    for mode, target in targets.items():
+        if target <= 0:
+            continue
+        if mode == "gen_test" and not state.test_seeds:
+            continue
+        share = (counts[mode] + 1) / total
+        deficit = target - share
+        if deficit > best_deficit:
+            best_deficit = deficit
+            best_mode = mode
+    return best_mode
+
+
 def _build_raw_entry(target: dict, target_idx: int, cycle: int) -> dict:
     """Pool entry built directly from a train.jsonl seed (no LLM rewriting).
 
@@ -722,7 +764,10 @@ async def worker_loop(state: ServerState, worker_id: int):
             while state.pool.full():
                 await asyncio.sleep(0.5)
 
-            target = state.seeds[state.target_idx]
+            # Pick the most-deficit mode, then sample a seed of the right
+            # origin uniformly at random. target_idx / cycle become loose
+            # iteration counters used only for logging now.
+            mode = _pick_mode(state)
             cur_target_idx = state.target_idx
             cur_cycle = state.cycle
             state.target_idx += 1
@@ -731,12 +776,8 @@ async def worker_loop(state: ServerState, worker_id: int):
                 state.cycle += 1
                 logger.info(f"completed cycle {state.cycle}")
 
-            # Direct-insert branch: a fraction of train seeds are added to the
-            # pool verbatim (ground-truth label is the original ICD answer).
-            # Skips the full LLM pipeline. test_masked seeds never take this
-            # path because their label was stripped at load time.
-            if (target.get("_origin") == "train"
-                    and random.random() < state.args.direct_train_ratio):
+            if mode == "direct":
+                target = random.choice(state.train_seeds)
                 entry = _build_raw_entry(target, cur_target_idx, cur_cycle)
                 async with state.log_lock:
                     with open(state.accepted_log, "a") as f:
@@ -750,9 +791,14 @@ async def worker_loop(state: ServerState, worker_id: int):
                         }) + "\n")
                 state.stats["direct_inserted"] += 1
                 state.stats["total_accepted"] += 1
+                state.mix_counts["direct"] += 1
                 await state.pool.put(entry)
                 continue
 
+            if mode == "gen_test":
+                target = random.choice(state.test_seeds)
+            else:
+                target = random.choice(state.train_seeds)
             target_question = (
                 target.get("extra_info", {}).get("question", "")
                 or _extract_user_text(target)
@@ -808,6 +854,7 @@ async def worker_loop(state: ServerState, worker_id: int):
                         }) + "\n")
                 state.stats["total_accepted"] += 1
                 state.stats["total_generated"] += 1
+                state.mix_counts[mode] += 1
                 await state.pool.put(entry)
 
             for r in rejected_list:
@@ -893,10 +940,14 @@ async def healthz():
 @app.get("/stats")
 async def stats():
     s = STATE
+    total_mix = sum(s.mix_counts.values()) or 1
     return {
         "pool_size": s.pool.qsize(),
         "max_pool_size": s.args.max_pool_size,
         "replay_buffer_size": len(s.replay_buffer),
+        "mix_targets": s.mix_targets,
+        "mix_counts": s.mix_counts,
+        "mix_actual": {k: v / total_mix for k, v in s.mix_counts.items()},
         "accuracy": s.accuracy_stats(),
         "target_idx": s.target_idx,
         "cycle": s.cycle,
@@ -991,10 +1042,20 @@ def main():
                              "reward_model stripped — used to drive question "
                              "generation against test-like distributions, but "
                              "never raw-inserted into the pool.")
-    parser.add_argument("--direct_train_ratio", type=float, default=0.3,
-                        help="Probability that a train seed is inserted into "
-                             "the pool verbatim (skipping the LLM pipeline). "
-                             "Test-masked seeds always go through generation.")
+    parser.add_argument("--direct_target", type=float, default=0.30,
+                        help="Target share of pool entries that are raw "
+                             "train seeds (direct-inserted, real GT). The "
+                             "worker loop picks whichever mode is most below "
+                             "its target each iteration. Values across the "
+                             "three --*_target flags are renormalized.")
+    parser.add_argument("--gen_train_target", type=float, default=0.35,
+                        help="Target share of pool entries that are LLM-"
+                             "generated from train seeds (synthetic GT).")
+    parser.add_argument("--gen_test_target", type=float, default=0.35,
+                        help="Target share of pool entries that are LLM-"
+                             "generated from test_masked seeds. If no test "
+                             "seeds are loaded, this share is added to "
+                             "--gen_train_target automatically.")
     parser.add_argument("--api_base", required=True, help="vLLM chat /v1 base URL")
     parser.add_argument("--api_key", default="EMPTY")
     parser.add_argument("--model_name", required=True)

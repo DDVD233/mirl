@@ -23,7 +23,9 @@ if [ -z "${TEST_SEEDS_PATH+x}" ]; then
         TEST_SEEDS_PATH=""
     fi
 fi
-DIRECT_TRAIN_RATIO="${DIRECT_TRAIN_RATIO:-0.3}"
+DIRECT_TARGET="${DIRECT_TARGET:-0.30}"
+GEN_TRAIN_TARGET="${GEN_TRAIN_TARGET:-0.35}"
+GEN_TEST_TARGET="${GEN_TEST_TARGET:-0.35}"
 LOG_DIR="${LOG_DIR:-/scratch/self_evolving_datasets/logs}"
 
 API_BASE="${API_BASE:-http://localhost:8002/v1}"
@@ -61,7 +63,9 @@ fi
 exec "$PYTHON_BIN" scripts/self_evolving/generation_server.py \
     --seeds_path "$SEEDS_PATH" \
     "${TEST_SEEDS_FLAG[@]}" \
-    --direct_train_ratio "$DIRECT_TRAIN_RATIO" \
+    --direct_target "$DIRECT_TARGET" \
+    --gen_train_target "$GEN_TRAIN_TARGET" \
+    --gen_test_target "$GEN_TEST_TARGET" \
     --api_base "$API_BASE" \
     --api_key "$API_KEY" \
     --model_name "$MODEL_NAME" \
