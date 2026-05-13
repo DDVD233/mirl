@@ -39,7 +39,7 @@ cd /home/dvdai/verl
     data.shuffle=False \
     data.val_batch_size=64 \
     data.image_key=images \
-    data.truncation=right \
+    data.truncation=left \
     +data.self_evolving.gen_server_url="$GEN_SERVER_URL" \
     +data.self_evolving.dataset_length=100000 \
     reward.custom_reward_function.path=verl/utils/reward_score/self_evolving.py \
