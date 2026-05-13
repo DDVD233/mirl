@@ -198,6 +198,11 @@ class ServerState:
         )
 
         self.pool: asyncio.Queue = asyncio.Queue(maxsize=args.max_pool_size)
+        # Unbounded buffer drained by /sample BEFORE the regular pool. Used by
+        # /replay so we don't drop entries when the pool is full; the trainer
+        # pulls these first, then the pool's freshly-generated stream takes
+        # over.
+        self.replay_buffer: deque = deque()
         self.target_idx = 0
         self.cycle = 0
         self.question_counter = 0
@@ -891,6 +896,7 @@ async def stats():
     return {
         "pool_size": s.pool.qsize(),
         "max_pool_size": s.args.max_pool_size,
+        "replay_buffer_size": len(s.replay_buffer),
         "accuracy": s.accuracy_stats(),
         "target_idx": s.target_idx,
         "cycle": s.cycle,
@@ -904,6 +910,12 @@ async def stats():
 @app.get("/sample")
 async def sample():
     s = STATE
+    # Drain the replay buffer first (FIFO). Single-threaded asyncio means
+    # the popleft is safe without a lock.
+    if s.replay_buffer:
+        entry = s.replay_buffer.popleft()
+        s.stats["served"] += 1
+        return entry
     try:
         entry = await asyncio.wait_for(s.pool.get(), timeout=600)
     except asyncio.TimeoutError:
@@ -930,12 +942,11 @@ async def report(payload: ReportPayload):
 
 @app.post("/replay")
 async def replay(payload: ReplayPayload):
-    """Re-push entries from an accepted_log file back into the pool.
+    """Re-push entries from an accepted_log file into the replay buffer.
 
-    Best-effort: drops entries when the pool is full rather than blocking,
-    so the caller gets a fast response and the live workers keep generating.
-    Use ``count`` + ``tail=True`` to replay only the most recent N entries
-    (typical: 200 to match pool capacity).
+    The replay buffer is unbounded and drained by /sample before the regular
+    pool, so nothing is dropped regardless of how many entries are replayed.
+    Live workers keep filling the pool in the background.
     """
     s = STATE
     log_path = payload.log_path or s.accepted_log
@@ -956,22 +967,17 @@ async def replay(payload: ReplayPayload):
     if payload.count is not None:
         entries = entries[-payload.count:] if payload.tail else entries[:payload.count]
 
-    pushed = 0
-    dropped = 0
     for entry in entries:
-        try:
-            s.pool.put_nowait(entry)
-            pushed += 1
-        except asyncio.QueueFull:
-            dropped += 1
+        s.replay_buffer.append(entry)
     logger.info(
-        f"replay: log={log_path} parsed={len(entries)} pushed={pushed} dropped={dropped}"
+        f"replay: log={log_path} parsed={len(entries)} "
+        f"replay_buffer_size={len(s.replay_buffer)}"
     )
     return {
         "log_path": log_path,
         "parsed": len(entries),
-        "pushed": pushed,
-        "dropped": dropped,
+        "pushed": len(entries),
+        "replay_buffer_size": len(s.replay_buffer),
         "pool_size": s.pool.qsize(),
     }
 
