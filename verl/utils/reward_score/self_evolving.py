@@ -200,7 +200,7 @@ async def _call_api(
         "temperature": 0.0,
     }
 
-    timeout = aiohttp.ClientTimeout(total=120)
+    timeout = aiohttp.ClientTimeout(total=600)
     async with aiohttp.ClientSession(timeout=timeout) as session:
         async with session.post(url, json=payload, headers=headers) as resp:
             resp.raise_for_status()
@@ -267,7 +267,7 @@ async def judge_reasoning(
         )
         return _extract_judge_rating(content, default=3.0)
     except Exception as e:
-        logger.warning(f"judge_reasoning failed: {e}")
+        logger.warning(f"judge_reasoning failed: {type(e).__name__}: {e!r}")
         return 3.0
 
 
@@ -294,7 +294,7 @@ async def judge_answer_quality(
         )
         return _extract_judge_rating(content, default=1.0)
     except Exception as e:
-        logger.warning(f"judge_answer_quality failed: {e}")
+        logger.warning(f"judge_answer_quality failed: {type(e).__name__}: {e!r}")
         return 1.0
 
 
@@ -409,7 +409,7 @@ async def _judge_accuracy_with_prompt(
         verdict = _extract_judge_verdict(content)
         return 1.0 if verdict == "correct" else 0.0
     except Exception as e:
-        logger.warning(f"judge_accuracy ({label}) failed: {e}")
+        logger.warning(f"judge_accuracy ({label}) failed: {type(e).__name__}: {e!r}")
         return 0.0
 
 
@@ -463,7 +463,7 @@ async def judge_correctness(
         verdict = _extract_judge_verdict(content)
         return 1.0 if verdict == "correct" else 0.0
     except Exception as e:
-        logger.warning(f"judge_correctness failed: {e}")
+        logger.warning(f"judge_correctness failed: {type(e).__name__}: {e!r}")
         return 0.0
 
 
