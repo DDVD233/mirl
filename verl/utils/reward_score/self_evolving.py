@@ -4,7 +4,7 @@ Reward function for self-evolving medical agent training.
 Combines FOUR components:
 - Accuracy (0.3): Extracted answer matches ground truth (exact/normalized match),
   OR if ground_truth is empty, LLM judge deems it correct.
-- Reasoning quality (0.2): LLM judge rates the <think>...</think> reasoning 1-5.
+- Reasoning quality (0.2): LLM judge rates the model's reasoning 1-5.
 - Answer quality (0.3): LLM judge rates alignment between the EXTRACTED BOXED
   ANSWER ONLY (reasoning stripped) and the ground truth, 1-5. This applies to
   BOTH free-response and MCQ for consistent reward format.
@@ -27,8 +27,8 @@ logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 JUDGE_REASONING_PROMPT = """\
 You are a medical reasoning evaluator. You are given a question, the model's full response \
-(including reasoning inside <think></think>), and the correct answer. Rate the quality \
-of the model's REASONING (not the final answer) on a scale from 1 to 5:
+(including its reasoning), and the correct answer. Rate the quality of the model's \
+REASONING (not the final answer) on a scale from 1 to 5:
 
 1 - No reasoning, or completely irrelevant reasoning
 2 - Minimal reasoning with major logical errors

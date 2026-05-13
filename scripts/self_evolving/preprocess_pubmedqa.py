@@ -15,12 +15,12 @@ PUBMEDQA_URL = "https://raw.githubusercontent.com/pubmedqa/pubmedqa/master/data/
 
 SYSTEM_PROMPT = (
     "You are a biomedical expert. Read the provided context from a PubMed abstract "
-    "and answer the question. You FIRST think about the reasoning process as an "
-    "internal monologue and then provide the final answer. The reasoning process "
-    "MUST BE enclosed within <think> </think> tags. The final answer MUST BE one of: "
-    "yes, no, or maybe, wrapped in \\boxed{}.\n\n"
-    "Example format:\n"
-    "<think>\n[Your reasoning here]\n</think>\n\\boxed{yes}"
+    "and answer the question. Think through the question briefly, then give your "
+    "final answer. Keep your reasoning under 500 words. Commit to your reasoning — "
+    "do not waver, backtrack, or use hedging phrases like \"wait\", \"actually\", "
+    "\"on second thought\", or \"hmm\". Give your best answer directly. The final "
+    "answer MUST BE one of: yes, no, or maybe, wrapped in \\boxed{}. The boxed "
+    "answer is REQUIRED — do not omit it. Example: \\boxed{yes}"
 )
 
 

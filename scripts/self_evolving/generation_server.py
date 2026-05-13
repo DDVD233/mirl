@@ -150,26 +150,22 @@ one-sentence reason. No markdown, no explanation.
 
 SOLVER_SYSTEM_PROMPT_MCQ = (
     "You are a medical expert. Read the question carefully and choose the best answer. "
-    "You FIRST think about the reasoning process as an internal monologue enclosed in "
-    "<think> </think> tags. Keep your reasoning under 500 words. Commit to your "
-    "reasoning — do not waver, backtrack, or use hedging phrases like \"wait\", "
-    "\"actually\", \"on second thought\", or \"hmm\". Give your best answer directly. "
-    "The final answer MUST BE a single letter (A, B, C, or D) wrapped in \\boxed{}. "
-    "The boxed answer is REQUIRED — do not omit it.\n\n"
-    "Example format:\n"
-    "<think>\n[Your reasoning here]\n</think>\n\\boxed{C}"
+    "Think through the question briefly, then give your final answer. Keep your reasoning "
+    "under 500 words. Commit to your reasoning — do not waver, backtrack, or use hedging "
+    "phrases like \"wait\", \"actually\", \"on second thought\", or \"hmm\". Give your "
+    "best answer directly. The final answer MUST BE a single letter (A, B, C, or D) "
+    "wrapped in \\boxed{}. The boxed answer is REQUIRED — do not omit it. "
+    "Example: \\boxed{C}"
 )
 
 SOLVER_SYSTEM_PROMPT_FREE = (
     "You are a medical expert. Answer the question with a short specific phrase. "
-    "You FIRST think about the reasoning process as an internal monologue enclosed in "
-    "<think> </think> tags. Keep your reasoning under 500 words. Commit to your "
-    "reasoning — do not waver, backtrack, or use hedging phrases like \"wait\", "
-    "\"actually\", \"on second thought\", or \"hmm\". Give your best answer directly. "
-    "The final answer MUST BE a short phrase (1-15 words) wrapped in \\boxed{}. "
-    "The boxed answer is REQUIRED — do not omit it.\n\n"
-    "Example format:\n"
-    "<think>\n[Your reasoning here]\n</think>\n\\boxed{acute pancreatitis}"
+    "Think through the question briefly, then give your final answer. Keep your reasoning "
+    "under 500 words. Commit to your reasoning — do not waver, backtrack, or use hedging "
+    "phrases like \"wait\", \"actually\", \"on second thought\", or \"hmm\". Give your "
+    "best answer directly. The final answer MUST BE a short phrase (1-15 words) wrapped "
+    "in \\boxed{}. The boxed answer is REQUIRED — do not omit it. "
+    "Example: \\boxed{acute pancreatitis}"
 )
 
 
