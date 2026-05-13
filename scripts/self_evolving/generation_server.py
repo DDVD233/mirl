@@ -1073,7 +1073,10 @@ def main():
     parser.add_argument("--workers", type=int, default=8,
                         help="Concurrent generation workers (each runs the full "
                              "pipeline; use ~1 per N target seeds for steady throughput)")
-    parser.add_argument("--log_dir", default="/scratch/self_evolving_datasets/logs")
+    parser.add_argument(
+        "--log_dir",
+        default=os.path.expanduser("~/scratch/self_evolving_datasets/logs"),
+    )
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=8004)
     args = parser.parse_args()

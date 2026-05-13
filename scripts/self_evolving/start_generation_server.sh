@@ -10,7 +10,7 @@ set -xeuo pipefail
 
 PYTHON_BIN="${PYTHON_BIN:-/home/dvdai/miniconda3/envs/verl/bin/python}"
 
-DATA_DIR="${DATA_DIR:-/scratch/self_evolving_datasets/mimiciv_rare}"
+DATA_DIR="${DATA_DIR:-$HOME/scratch/self_evolving_datasets/mimiciv_rare}"
 SEEDS_PATH="${SEEDS_PATH:-$DATA_DIR/train.jsonl}"
 # Optional test seeds (labels stripped, used only to drive question generation
 # against test-like distributions; never inserted into the pool verbatim).
@@ -26,7 +26,7 @@ fi
 DIRECT_TARGET="${DIRECT_TARGET:-0.30}"
 GEN_TRAIN_TARGET="${GEN_TRAIN_TARGET:-0.35}"
 GEN_TEST_TARGET="${GEN_TEST_TARGET:-0.35}"
-LOG_DIR="${LOG_DIR:-/scratch/self_evolving_datasets/logs}"
+LOG_DIR="${LOG_DIR:-$HOME/scratch/self_evolving_datasets/logs}"
 
 API_BASE="${API_BASE:-http://localhost:8002/v1}"
 API_KEY="${API_KEY:-EMPTY}"
