@@ -36,7 +36,10 @@ of the model's REASONING (not the final answer) on a scale from 1 to 5:
 4 - Good reasoning that mostly follows from the evidence
 5 - Excellent reasoning that is thorough, evidence-based, and logically sound
 
-Think briefly (less than 200 words) and then output your final rating inside \\boxed{...}. \
+Reason in 500 words or less. Commit to your reasoning — do not waver, backtrack, or use \
+hedging phrases like "wait", "actually", "on second thought", or "hmm". Give your best \
+assessment directly. You MUST include your final rating inside \\boxed{...} at the end \
+of your response. The boxed answer is REQUIRED — do not omit it. \
 Example: \\boxed{4}"""
 
 
@@ -59,7 +62,10 @@ Scale:
 For MCQ: if the letter matches → 5; if different letter but equivalent content → 4; else 1.
 For free response: judge semantic alignment (synonyms, paraphrases count as correct).
 
-Think briefly (less than 200 words) and then output your final rating inside \\boxed{...}. \
+Reason in 500 words or less. Commit to your reasoning — do not waver, backtrack, or use \
+hedging phrases like "wait", "actually", "on second thought", or "hmm". Give your best \
+assessment directly. You MUST include your final rating inside \\boxed{...} at the end \
+of your response. The boxed answer is REQUIRED — do not omit it. \
 Example: \\boxed{5}"""
 
 
@@ -68,8 +74,11 @@ You are a medical expert evaluating whether a model's answer to a medical questi
 correct. Use the provided question/context and your own medical knowledge to determine \
 if the model's extracted answer is correct.
 
-Think briefly (less than 200 words) and then output your verdict inside \\boxed{...} as \
-either \\boxed{correct} or \\boxed{incorrect}."""
+Reason in 500 words or less. Commit to your reasoning — do not waver, backtrack, or use \
+hedging phrases like "wait", "actually", "on second thought", or "hmm". Give your best \
+assessment directly. You MUST include your final verdict inside \\boxed{...} as either \
+\\boxed{correct} or \\boxed{incorrect} at the end of your response. The boxed answer is \
+REQUIRED — do not omit it."""
 
 
 JUDGE_ACCURACY_LENIENT_PROMPT = """\
@@ -95,8 +104,11 @@ REJECT:
 - Generic non-answers ("unknown", "no diagnosis", "see above")
 - Empty or missing answer
 
-Think briefly (less than 200 words) and then output your verdict inside \\boxed{...} as \
-either \\boxed{correct} or \\boxed{incorrect}."""
+Reason in 500 words or less. Commit to your reasoning — do not waver, backtrack, or use \
+hedging phrases like "wait", "actually", "on second thought", or "hmm". Give your best \
+assessment directly. You MUST include your final verdict inside \\boxed{...} as either \
+\\boxed{correct} or \\boxed{incorrect} at the end of your response. The boxed answer is \
+REQUIRED — do not omit it."""
 
 
 JUDGE_ACCURACY_STRICT_PROMPT = """\
@@ -126,8 +138,11 @@ REJECT:
 - Generic non-answers ("unknown", "no diagnosis", "see above")
 - Empty or missing answer
 
-Think briefly (less than 200 words) and then output your verdict inside \\boxed{...} as \
-either \\boxed{correct} or \\boxed{incorrect}."""
+Reason in 500 words or less. Commit to your reasoning — do not waver, backtrack, or use \
+hedging phrases like "wait", "actually", "on second thought", or "hmm". Give your best \
+assessment directly. You MUST include your final verdict inside \\boxed{...} as either \
+\\boxed{correct} or \\boxed{incorrect} at the end of your response. The boxed answer is \
+REQUIRED — do not omit it."""
 
 
 # Reward component weights (sum to 1.0).
