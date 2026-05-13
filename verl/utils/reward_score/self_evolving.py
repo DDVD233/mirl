@@ -14,6 +14,7 @@ If ground truth is empty (no-label mode), answer_quality is derived from
 judge_correctness (5 if judged correct, 1 if incorrect).
 """
 
+import asyncio
 import logging
 import os
 import random
@@ -214,17 +215,31 @@ async def _call_api(
         "chat_template_kwargs": {"enable_thinking": False},
     }
 
-    timeout = aiohttp.ClientTimeout(total=120)
-    async with aiohttp.ClientSession(timeout=timeout) as session:
-        async with session.post(url, json=payload, headers=headers) as resp:
-            resp.raise_for_status()
-            data = await resp.json()
-            msg = data["choices"][0]["message"]
-            # With thinking disabled the answer is in `content`; we still
-            # fall back to `reasoning_content` defensively in case the
-            # server ignored the flag.
-            content = msg.get("content") or msg.get("reasoning_content") or ""
-            return content.strip()
+    # Each attempt gets its own 60s budget. We retry once on transient
+    # timeouts / 5xx — the chat server is shared with gen_server proposer
+    # and policy rollouts, so it occasionally stalls a single request even
+    # though the no-thinking judge call itself should finish in <1s.
+    timeout = aiohttp.ClientTimeout(total=60)
+    last_err: Exception | None = None
+    for attempt in range(3):
+        try:
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.post(url, json=payload, headers=headers) as resp:
+                    resp.raise_for_status()
+                    data = await resp.json()
+                    msg = data["choices"][0]["message"]
+                    # With thinking disabled the answer is in `content`; we
+                    # still fall back to `reasoning_content` defensively in
+                    # case the server ignored the flag.
+                    content = msg.get("content") or msg.get("reasoning_content") or ""
+                    return content.strip()
+        except (asyncio.TimeoutError, aiohttp.ClientError) as e:
+            last_err = e
+            if attempt < 2:
+                await asyncio.sleep(2 ** attempt)
+                continue
+            raise
+    raise RuntimeError(f"unreachable, last_err={last_err}")
 
 
 def _extract_judge_verdict(text: str) -> str:
