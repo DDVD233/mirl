@@ -1075,7 +1075,7 @@ def main():
                              "pipeline; use ~1 per N target seeds for steady throughput)")
     parser.add_argument(
         "--log_dir",
-        default=os.path.expanduser("~/scratch/self_evolving_datasets/logs"),
+        default=os.path.expanduser("~/scratch/dvdai/self_evolving_datasets/logs"),
     )
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=8004)
