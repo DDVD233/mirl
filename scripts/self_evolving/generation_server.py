@@ -12,6 +12,7 @@ GET  /healthz   liveness check
 GET  /stats     pool size, totals, recent accuracy
 GET  /sample    pop one entry from the pool (blocks up to 600s if empty)
 POST /report    {question_id, accuracy} feedback for difficulty calibration
+POST /replay    re-push previously-accepted entries from the log into the pool
 
 Why this exists
 ---------------
@@ -832,6 +833,20 @@ class ReportPayload(BaseModel):
     accuracy: float
 
 
+class ReplayPayload(BaseModel):
+    """Push previously-accepted entries back into the pool.
+
+    Used when restarting the trainer mid-run — gen_server keeps generating
+    in the background, so its log accumulates entries the dead trainer
+    already consumed. Calling /replay re-injects those entries so the new
+    trainer sees the same data instead of starting from scratch.
+    """
+
+    log_path: str | None = None  # default: current accepted_log
+    count: int | None = None     # max entries to push; None = all parsable
+    tail: bool = True            # take last `count` (True) or first (False)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global STATE
@@ -911,6 +926,54 @@ async def report(payload: ReportPayload):
                 "accuracy": float(payload.accuracy),
             }) + "\n")
     return {"ok": True}
+
+
+@app.post("/replay")
+async def replay(payload: ReplayPayload):
+    """Re-push entries from an accepted_log file back into the pool.
+
+    Best-effort: drops entries when the pool is full rather than blocking,
+    so the caller gets a fast response and the live workers keep generating.
+    Use ``count`` + ``tail=True`` to replay only the most recent N entries
+    (typical: 200 to match pool capacity).
+    """
+    s = STATE
+    log_path = payload.log_path or s.accepted_log
+    if not os.path.exists(log_path):
+        raise HTTPException(status_code=404, detail=f"log not found: {log_path}")
+
+    entries: list[dict] = []
+    with open(log_path) as f:
+        for line in f:
+            try:
+                rec = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            entry = rec.get("entry")
+            if isinstance(entry, dict):
+                entries.append(entry)
+
+    if payload.count is not None:
+        entries = entries[-payload.count:] if payload.tail else entries[:payload.count]
+
+    pushed = 0
+    dropped = 0
+    for entry in entries:
+        try:
+            s.pool.put_nowait(entry)
+            pushed += 1
+        except asyncio.QueueFull:
+            dropped += 1
+    logger.info(
+        f"replay: log={log_path} parsed={len(entries)} pushed={pushed} dropped={dropped}"
+    )
+    return {
+        "log_path": log_path,
+        "parsed": len(entries),
+        "pushed": pushed,
+        "dropped": dropped,
+        "pool_size": s.pool.qsize(),
+    }
 
 
 def main():
