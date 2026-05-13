@@ -36,11 +36,8 @@ REASONING (not the final answer) on a scale from 1 to 5:
 4 - Good reasoning that mostly follows from the evidence
 5 - Excellent reasoning that is thorough, evidence-based, and logically sound
 
-Reason in 500 words or less. Commit to your reasoning — do not waver, backtrack, or use \
-hedging phrases like "wait", "actually", "on second thought", or "hmm". Give your best \
-assessment directly. You MUST include your final rating inside \\boxed{...} at the end \
-of your response. The boxed answer is REQUIRED — do not omit it. \
-Example: \\boxed{4}"""
+Directly output your rating inside \\boxed{...}. Do not write any reasoning, explanation, \
+or text outside the boxed answer. Example: \\boxed{4}"""
 
 
 JUDGE_ANSWER_QUALITY_PROMPT = """\
@@ -62,11 +59,8 @@ Scale:
 For MCQ: if the letter matches → 5; if different letter but equivalent content → 4; else 1.
 For free response: judge semantic alignment (synonyms, paraphrases count as correct).
 
-Reason in 500 words or less. Commit to your reasoning — do not waver, backtrack, or use \
-hedging phrases like "wait", "actually", "on second thought", or "hmm". Give your best \
-assessment directly. You MUST include your final rating inside \\boxed{...} at the end \
-of your response. The boxed answer is REQUIRED — do not omit it. \
-Example: \\boxed{5}"""
+Directly output your rating inside \\boxed{...}. Do not write any reasoning, explanation, \
+or text outside the boxed answer. Example: \\boxed{5}"""
 
 
 JUDGE_CORRECTNESS_PROMPT = """\
@@ -74,11 +68,9 @@ You are a medical expert evaluating whether a model's answer to a medical questi
 correct. Use the provided question/context and your own medical knowledge to determine \
 if the model's extracted answer is correct.
 
-Reason in 500 words or less. Commit to your reasoning — do not waver, backtrack, or use \
-hedging phrases like "wait", "actually", "on second thought", or "hmm". Give your best \
-assessment directly. You MUST include your final verdict inside \\boxed{...} as either \
-\\boxed{correct} or \\boxed{incorrect} at the end of your response. The boxed answer is \
-REQUIRED — do not omit it."""
+Directly output your verdict inside \\boxed{...} as either \\boxed{correct} or \
+\\boxed{incorrect}. Do not write any reasoning, explanation, or text outside the boxed \
+answer."""
 
 
 JUDGE_ACCURACY_LENIENT_PROMPT = """\
@@ -104,11 +96,9 @@ REJECT:
 - Generic non-answers ("unknown", "no diagnosis", "see above")
 - Empty or missing answer
 
-Reason in 500 words or less. Commit to your reasoning — do not waver, backtrack, or use \
-hedging phrases like "wait", "actually", "on second thought", or "hmm". Give your best \
-assessment directly. You MUST include your final verdict inside \\boxed{...} as either \
-\\boxed{correct} or \\boxed{incorrect} at the end of your response. The boxed answer is \
-REQUIRED — do not omit it."""
+Directly output your verdict inside \\boxed{...} as either \\boxed{correct} or \
+\\boxed{incorrect}. Do not write any reasoning, explanation, or text outside the boxed \
+answer."""
 
 
 JUDGE_ACCURACY_STRICT_PROMPT = """\
@@ -138,11 +128,9 @@ REJECT:
 - Generic non-answers ("unknown", "no diagnosis", "see above")
 - Empty or missing answer
 
-Reason in 500 words or less. Commit to your reasoning — do not waver, backtrack, or use \
-hedging phrases like "wait", "actually", "on second thought", or "hmm". Give your best \
-assessment directly. You MUST include your final verdict inside \\boxed{...} as either \
-\\boxed{correct} or \\boxed{incorrect} at the end of your response. The boxed answer is \
-REQUIRED — do not omit it."""
+Directly output your verdict inside \\boxed{...} as either \\boxed{correct} or \
+\\boxed{incorrect}. Do not write any reasoning, explanation, or text outside the boxed \
+answer."""
 
 
 # Reward component weights (sum to 1.0).
@@ -198,8 +186,18 @@ async def _call_api(
     model_name: str,
     system_prompt: str,
     user_prompt: str,
-    max_tokens: int = 2048,
+    max_tokens: int = 256,
 ) -> str:
+    """Call the chat API with thinking disabled.
+
+    Judges only need a short verdict (boxed letter / rating / correct vs.
+    incorrect). Letting the model think first burns thousands of tokens
+    per call and serializes the chat server behind the gen_server +
+    rollout traffic — too slow to be practical. We pass
+    ``chat_template_kwargs.enable_thinking=False`` so the Qwen3 chat
+    template skips the reasoning block entirely; the model emits the
+    boxed answer directly.
+    """
     url = f"{api_base}/chat/completions"
     headers = {
         "Content-Type": "application/json",
@@ -213,19 +211,18 @@ async def _call_api(
         ],
         "max_tokens": max_tokens,
         "temperature": 0.0,
+        "chat_template_kwargs": {"enable_thinking": False},
     }
 
-    timeout = aiohttp.ClientTimeout(total=600)
+    timeout = aiohttp.ClientTimeout(total=120)
     async with aiohttp.ClientSession(timeout=timeout) as session:
         async with session.post(url, json=payload, headers=headers) as resp:
             resp.raise_for_status()
             data = await resp.json()
             msg = data["choices"][0]["message"]
-            # With --reasoning-parser qwen3 the final answer is in
-            # `content`; if the model ran out of tokens while thinking,
-            # content is None and the partial thinking is in
-            # `reasoning_content`. Fall back so we can still extract a
-            # boxed verdict from the partial text.
+            # With thinking disabled the answer is in `content`; we still
+            # fall back to `reasoning_content` defensively in case the
+            # server ignored the flag.
             content = msg.get("content") or msg.get("reasoning_content") or ""
             return content.strip()
 
@@ -278,7 +275,7 @@ async def judge_reasoning(
     )
     try:
         content = await _call_api(
-            api_base, api_key, model_name, JUDGE_REASONING_PROMPT, user_prompt, max_tokens=2048
+            api_base, api_key, model_name, JUDGE_REASONING_PROMPT, user_prompt, max_tokens=64
         )
         return _extract_judge_rating(content, default=3.0)
     except Exception as e:
@@ -305,7 +302,7 @@ async def judge_answer_quality(
     )
     try:
         content = await _call_api(
-            api_base, api_key, model_name, JUDGE_ANSWER_QUALITY_PROMPT, user_prompt, max_tokens=2048
+            api_base, api_key, model_name, JUDGE_ANSWER_QUALITY_PROMPT, user_prompt, max_tokens=64
         )
         return _extract_judge_rating(content, default=1.0)
     except Exception as e:
@@ -419,7 +416,7 @@ async def _judge_accuracy_with_prompt(
     )
     try:
         content = await _call_api(
-            api_base, api_key, model_name, system_prompt, user_prompt, max_tokens=2048
+            api_base, api_key, model_name, system_prompt, user_prompt, max_tokens=64
         )
         verdict = _extract_judge_verdict(content)
         return 1.0 if verdict == "correct" else 0.0
@@ -473,7 +470,7 @@ async def judge_correctness(
     )
     try:
         content = await _call_api(
-            api_base, api_key, model_name, JUDGE_CORRECTNESS_PROMPT, user_prompt, max_tokens=2048
+            api_base, api_key, model_name, JUDGE_CORRECTNESS_PROMPT, user_prompt, max_tokens=64
         )
         verdict = _extract_judge_verdict(content)
         return 1.0 if verdict == "correct" else 0.0
