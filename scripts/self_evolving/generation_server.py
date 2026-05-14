@@ -219,6 +219,11 @@ class ServerState:
         # pulls these first, then the pool's freshly-generated stream takes
         # over.
         self.replay_buffer: deque = deque()
+        # Bounded ring of every entry that was ever pushed into the pool.
+        # When the pool is empty and workers can't produce fast enough (e.g.
+        # the chat server is saturated), /sample serves a random entry from
+        # here instead of 503-ing the trainer.
+        self.history: deque = deque(maxlen=args.history_size)
         self.target_idx = 0
         self.cycle = 0
         self.question_counter = 0
@@ -234,6 +239,7 @@ class ServerState:
             "served": 0,
             "reports": 0,
             "direct_inserted": 0,
+            "served_from_history": 0,
             "started_at": datetime.now().isoformat(),
         }
 
@@ -792,6 +798,7 @@ async def worker_loop(state: ServerState, worker_id: int):
                 state.stats["direct_inserted"] += 1
                 state.stats["total_accepted"] += 1
                 state.mix_counts["direct"] += 1
+                state.history.append(entry)
                 await state.pool.put(entry)
                 continue
 
@@ -855,6 +862,7 @@ async def worker_loop(state: ServerState, worker_id: int):
                 state.stats["total_accepted"] += 1
                 state.stats["total_generated"] += 1
                 state.mix_counts[mode] += 1
+                state.history.append(entry)
                 await state.pool.put(entry)
 
             for r in rejected_list:
@@ -945,6 +953,8 @@ async def stats():
         "pool_size": s.pool.qsize(),
         "max_pool_size": s.args.max_pool_size,
         "replay_buffer_size": len(s.replay_buffer),
+        "history_size": len(s.history),
+        "max_history_size": s.history.maxlen,
         "mix_targets": s.mix_targets,
         "mix_counts": s.mix_counts,
         "mix_actual": {k: v / total_mix for k, v in s.mix_counts.items()},
@@ -967,10 +977,20 @@ async def sample():
         entry = s.replay_buffer.popleft()
         s.stats["served"] += 1
         return entry
+    # Try to get a freshly-generated entry from the pool. If the workers
+    # can't keep up (e.g. the chat server is saturated), fall back to a
+    # random previously-accepted entry so the trainer never starves on a
+    # 503. Workers keep generating in the background; once the pool
+    # refills, /sample resumes serving fresh entries.
     try:
-        entry = await asyncio.wait_for(s.pool.get(), timeout=600)
+        entry = await asyncio.wait_for(s.pool.get(), timeout=30)
     except asyncio.TimeoutError:
-        raise HTTPException(status_code=503, detail="pool empty (timeout)")
+        if s.history:
+            entry = random.choice(s.history)
+            s.stats["served"] += 1
+            s.stats["served_from_history"] += 1
+            return entry
+        raise HTTPException(status_code=503, detail="pool empty and history is empty")
     s.stats["served"] += 1
     return entry
 
@@ -1070,6 +1090,11 @@ def main():
     parser.add_argument("--no_label", action="store_true")
     parser.add_argument("--accuracy_window", type=int, default=64)
     parser.add_argument("--max_pool_size", type=int, default=200)
+    parser.add_argument("--history_size", type=int, default=5000,
+                        help="Capacity of the in-memory ring of every "
+                             "accepted pool entry. /sample falls back to "
+                             "a random entry from here when the pool is "
+                             "empty so the trainer never sees a 503.")
     parser.add_argument("--workers", type=int, default=8,
                         help="Concurrent generation workers (each runs the full "
                              "pipeline; use ~1 per N target seeds for steady throughput)")
