@@ -294,10 +294,12 @@ def _build_openai_request(
         messages.append({"role": "system", "content": sys_text})
     messages.append({"role": "user", "content": parts})
 
+    # NOTE: GPT-5+ reasoning models only accept the default temperature (1).
+    # max_completion_tokens still works but reasoning tokens count against it,
+    # so we leave it generous and let the model decide.
     return {
         "model": model_name,
         "messages": messages,
-        "temperature": 0.0,
         "max_completion_tokens": 16384,
     }
 
