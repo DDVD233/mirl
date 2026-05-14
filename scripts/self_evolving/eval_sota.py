@@ -311,7 +311,7 @@ async def _call_gemini(session: aiohttp.ClientSession, model_name: str, api_key:
     async with session.post(url, json=body, timeout=timeout) as resp:
         text = await resp.text()
         if resp.status >= 400:
-            raise RuntimeError(f"Gemini HTTP {resp.status}: {text[:500]}")
+            raise RuntimeError(f"Gemini HTTP {resp.status}: {text[:2000]}")
         data = json.loads(text)
     cands = data.get("candidates") or []
     if not cands:
@@ -335,7 +335,7 @@ async def _call_openai(
     async with session.post(url, json=body, headers=headers, timeout=timeout) as resp:
         text = await resp.text()
         if resp.status >= 400:
-            raise RuntimeError(f"OpenAI HTTP {resp.status}: {text[:500]}")
+            raise RuntimeError(f"OpenAI HTTP {resp.status}: {text[:2000]}")
         data = json.loads(text)
     choices = data.get("choices") or []
     if not choices:
@@ -405,7 +405,9 @@ async def _eval_one(
                 raise RuntimeError(f"unknown provider: {args.provider}")
         except Exception as e:
             response = ""
-            err = str(e)
+            err = f"{type(e).__name__}: {e}"
+            print(f"[ERROR provider={args.provider} model={args.model_name}] {err}",
+                  file=sys.stderr, flush=True)
         else:
             err = None
 
