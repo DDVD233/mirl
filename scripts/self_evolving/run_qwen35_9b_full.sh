@@ -36,9 +36,9 @@ cd /home/dvdai/verl
     data.val_files="$DATA_DIR/test.jsonl" \
     data.custom_cls.path=scripts/self_evolving/self_evolving_dataset.py \
     data.custom_cls.name=SelfEvolvingDataset \
-    data.train_batch_size=32 \
+    data.train_batch_size=64 \
     data.max_prompt_length=8192 \
-    data.max_response_length=8192 \
+    data.max_response_length=2048 \
     data.shuffle=False \
     data.val_batch_size=64 \
     data.image_key=images \
@@ -57,7 +57,7 @@ cd /home/dvdai/verl
     +reward.reward_kwargs.overlong_buffer_cfg.len=512 \
     +reward.reward_kwargs.overlong_buffer_cfg.penalty_factor=1.0 \
     +reward.reward_kwargs.overlong_buffer_cfg.log=False \
-    +reward.reward_kwargs.max_resp_len=8192 \
+    +reward.reward_kwargs.max_resp_len=2048 \
     actor_rollout_ref.model.path=Qwen/Qwen3.5-9B \
     actor_rollout_ref.actor.strategy=fsdp2 \
     actor_rollout_ref.actor.optim.lr=1e-6 \
@@ -68,7 +68,7 @@ cd /home/dvdai/verl
     actor_rollout_ref.rollout.temperature=0.7 \
     actor_rollout_ref.rollout.tensor_model_parallel_size=2 \
     actor_rollout_ref.rollout.gpu_memory_utilization=0.7 \
-    actor_rollout_ref.rollout.max_model_len=16384 \
+    actor_rollout_ref.rollout.max_model_len=32768 \
     actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=2 \
     actor_rollout_ref.rollout.checkpoint_engine.update_weights_bucket_megabytes=4096 \
     critic.enable=False \
@@ -76,9 +76,9 @@ cd /home/dvdai/verl
     trainer.nnodes=1 \
     trainer.total_epochs=1 \
     trainer.total_training_steps=500 \
-    trainer.test_freq=20 \
-    trainer.val_before_train=True \
-    trainer.save_freq=20 \
+    trainer.test_freq=10 \
+    trainer.val_before_train=False \
+    trainer.save_freq=10 \
     +trainer.max_actor_ckpt_to_keep=2 \
     +trainer.validation_data_dir=/home/dvdai/scratch/dvdai/self_evolving_datasets/logs/val_generations/$EXPERIMENT_NAME \
     trainer.project_name=self_evolving_medical \
