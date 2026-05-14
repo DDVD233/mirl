@@ -409,10 +409,20 @@ async def _main_async(args) -> int:
                     elapsed = time.time() - started
                     rate = completed / max(elapsed, 1e-9)
                     eta_min = (total - completed) / max(rate, 1e-9) / 60
-                    acc_so_far = sum(aggregated["acc"]) / max(len(aggregated["acc"]), 1)
+
+                    def _mean(k: str) -> float:
+                        v = aggregated.get(k, [])
+                        return (sum(v) / len(v)) if v else 0.0
+
                     print(
                         f"  [{completed}/{total}]  new_err={error_count}  "
-                        f"acc(all)={acc_so_far:.4f}  rate={rate:.2f}/s  eta={eta_min:.1f} min"
+                        f"acc={_mean('acc'):.4f}  "
+                        f"jL={_mean('judge_acc_lenient'):.4f}  "
+                        f"jS={_mean('judge_acc_strict'):.4f}  "
+                        f"qual={_mean('answer_quality'):.3f}  "
+                        f"bleu={_mean('char_bleu'):.3f}  "
+                        f"bio={_mean('biobert_sim'):.3f}  "
+                        f"rate={rate:.2f}/s  eta={eta_min:.1f} min"
                     )
 
         out_fp.flush()
