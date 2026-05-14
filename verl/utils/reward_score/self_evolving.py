@@ -215,13 +215,16 @@ async def _call_api(
         "chat_template_kwargs": {"enable_thinking": False},
     }
 
-    # Each attempt gets its own 60s budget. We retry once on transient
-    # timeouts / 5xx — the chat server is shared with gen_server proposer
-    # and policy rollouts, so it occasionally stalls a single request even
-    # though the no-thinking judge call itself should finish in <1s.
-    timeout = aiohttp.ClientTimeout(total=60)
+    # Each attempt gets its own 300s budget; up to 4 attempts with
+    # exponential backoff (1s, 2s, 4s) — worst case ~21 min before we
+    # fall back to the 0.0 default. The chat server is shared with the
+    # gen_server proposer/generator/validator (which use thinking and
+    # can run for minutes per request), so individual judge requests
+    # occasionally sit in the queue long past the model's own latency.
+    timeout_total = float(os.environ.get("REWARD_JUDGE_TIMEOUT", "300"))
+    timeout = aiohttp.ClientTimeout(total=timeout_total)
     last_err: Exception | None = None
-    for attempt in range(3):
+    for attempt in range(4):
         try:
             async with aiohttp.ClientSession(timeout=timeout) as session:
                 async with session.post(url, json=payload, headers=headers) as resp:
@@ -235,7 +238,7 @@ async def _call_api(
                     return content.strip()
         except (asyncio.TimeoutError, aiohttp.ClientError) as e:
             last_err = e
-            if attempt < 2:
+            if attempt < 3:
                 await asyncio.sleep(2 ** attempt)
                 continue
             raise
