@@ -337,10 +337,16 @@ async def _api_call(state: ServerState, system_prompt: str, user_prompt: str,
         "temperature": temperature,
     }
     headers = {"Authorization": f"Bearer {state.args.api_key}"}
+    # When the chat server is saturated (e.g. heavy reward-judge traffic + 8
+    # gen workers each issuing proposer/generator/validator calls with thinking
+    # enabled) individual requests can queue for many minutes before they even
+    # start streaming. Override via GEN_CHAT_TIMEOUT env if you keep getting
+    # ReadTimeouts.
+    timeout = float(os.environ.get("GEN_CHAT_TIMEOUT", "1800"))
     async with timed(state, label):
         resp = await state.http_client.post(
             f"{state.args.api_base}/chat/completions",
-            json=payload, headers=headers, timeout=600,
+            json=payload, headers=headers, timeout=timeout,
         )
         resp.raise_for_status()
         msg = resp.json()["choices"][0]["message"]
