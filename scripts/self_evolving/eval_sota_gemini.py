@@ -17,16 +17,17 @@ Pipeline per test entry:
          - score               composite weighted reward
     3. Aggregate (mean, max, min, p50) per metric.
 
-The same Qwen3-VL judge endpoint (api_base) and BioBERT server
+The same Qwen judge endpoint (api_base) and BioBERT server
 (biobert_api_base) used during training MUST be reachable so the LLM-
 judge and embedding components match exactly.
 
 Usage:
     GEMINI_API_KEY=... \
-    API_BASE=http://localhost:8002/v1 \
+    API_BASE=http://node2500:8002/v1 \
+    MODEL_NAME=Qwen/Qwen3.6-27B \
     BIOBERT_API_BASE=http://localhost:8003 \
     python scripts/self_evolving/eval_sota_gemini.py \
-        --val_file /home/dvdai/scratch/dvdai/self_evolving_datasets/mimiciv_rare/test.jsonl \
+        --val_file $HOME/scratch/dvdai/self_evolving_datasets/mimiciv_rare/test.jsonl \
         --model_name gemini-3.1-pro-preview \
         --concurrency 8 \
         --limit 200
@@ -85,7 +86,7 @@ def _read_image_b64(
     """Return (mime_type, base64_data) for the given path, or None if unreadable.
 
     Resizes the image so total pixels <= max_pixels (aspect ratio preserved)
-    to mirror what the training pipeline gives Qwen3-VL via
+    to mirror what the training pipeline gives the trained Qwen actor via
     qwen_vl_utils.fetch_image with max_pixels=65536 (256x256). This keeps
     Gemini and the trained actor on parity for visual input bandwidth.
     """
@@ -145,7 +146,7 @@ def _build_gemini_request(
     Gemini's REST API expects a `contents` list of `parts`, where text and
     image parts are interleaved. We follow the order of `<image>` placeholders
     in the user content so the model sees images in the same positions as the
-    Qwen3-VL actor would.
+    trained Qwen actor would.
 
     To match training input parity:
     - images are resized so total pixels <= max_pixels (default 65536 ≈
@@ -442,8 +443,8 @@ def main() -> None:
     )
     parser.add_argument("--model_name", default=GEMINI_DEFAULT_MODEL)
     parser.add_argument("--gemini_api_key", default=os.environ.get("GEMINI_API_KEY", ""))
-    parser.add_argument("--judge_model_name", default=os.environ.get("MODEL_NAME", "Qwen/Qwen3-VL-8B-Instruct"))
-    parser.add_argument("--api_base", default=os.environ.get("API_BASE", "http://localhost:8002/v1"))
+    parser.add_argument("--judge_model_name", default=os.environ.get("MODEL_NAME", "Qwen/Qwen3.6-27B"))
+    parser.add_argument("--api_base", default=os.environ.get("API_BASE", "http://node2500:8002/v1"))
     parser.add_argument("--judge_api_key", default=os.environ.get("API_KEY", "EMPTY"))
     parser.add_argument("--biobert_api_base", default=os.environ.get("BIOBERT_API_BASE", "http://localhost:8003"))
     parser.add_argument("--concurrency", type=int, default=8)
