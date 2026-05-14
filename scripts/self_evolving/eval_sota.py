@@ -1,12 +1,14 @@
-"""Evaluate a SoTA model (Gemini) on the MIMIC-IV rare-disease test set.
+"""Evaluate a SoTA model on the MIMIC-IV rare-disease test set.
 
-Uses the EXACT same scoring pipeline as training/val
+Supports Gemini (``--provider gemini``) and OpenAI-compatible chat
+endpoints (``--provider openai``, e.g. GPT-5.5). Uses the EXACT same
+scoring pipeline as training/val
 (verl.utils.reward_score.self_evolving.compute_score) so metrics are
 directly comparable to wandb's val-core / val-aux numbers from training.
 
 Pipeline per test entry:
     1. Send the system + user prompt (with chest X-ray + ECG images) to
-       Gemini.
+       the provider.
     2. Pass the raw response through `compute_score` which produces:
          - acc                 exact / normalized match (0/1)
          - answer_quality      Qwen-judge 1-5
@@ -21,14 +23,27 @@ The same Qwen judge endpoint (api_base) and BioBERT server
 (biobert_api_base) used during training MUST be reachable so the LLM-
 judge and embedding components match exactly.
 
-Usage:
+Usage (Gemini):
     GEMINI_API_KEY=... \
     API_BASE=http://node2500:8002/v1 \
     MODEL_NAME=Qwen/Qwen3.6-27B \
     BIOBERT_API_BASE=http://localhost:8003 \
-    python scripts/self_evolving/eval_sota_gemini.py \
+    python scripts/self_evolving/eval_sota.py \
+        --provider gemini \
         --val_file $HOME/scratch/dvdai/self_evolving_datasets/mimiciv_rare/test.jsonl \
         --model_name gemini-3.1-pro-preview \
+        --concurrency 8 \
+        --limit 200
+
+Usage (GPT-5.5):
+    OPENAI_API_KEY=... \
+    API_BASE=http://node2500:8002/v1 \
+    MODEL_NAME=Qwen/Qwen3.6-27B \
+    BIOBERT_API_BASE=http://localhost:8003 \
+    python scripts/self_evolving/eval_sota.py \
+        --provider openai \
+        --model_name gpt-5.5 \
+        --val_file $HOME/scratch/dvdai/self_evolving_datasets/mimiciv_rare/test.jsonl \
         --concurrency 8 \
         --limit 200
 """
@@ -76,6 +91,12 @@ compute_score = _load_compute_score()
 
 
 GEMINI_DEFAULT_MODEL = "gemini-3.1-pro-preview"
+OPENAI_DEFAULT_MODEL = "gpt-5.5"
+OPENAI_DEFAULT_BASE = "https://api.openai.com/v1"
+PROVIDER_DEFAULT_MODEL = {
+    "gemini": GEMINI_DEFAULT_MODEL,
+    "openai": OPENAI_DEFAULT_MODEL,
+}
 
 
 def _read_image_b64(
@@ -135,25 +156,18 @@ def _truncate_middle(text: str, max_chars: int) -> str:
     return text[:head_keep] + marker + text[-tail_keep:]
 
 
-def _build_gemini_request(
-    entry: dict,
-    model_name: str,
-    max_pixels: int = 256 * 256,
-    max_text_chars: int = 9000,
-) -> dict:
-    """Convert a verl-format prompt entry into a Gemini API request body.
+def _extract_prompt_pieces(
+    entry: dict, max_pixels: int, max_text_chars: int,
+) -> tuple[str, list[tuple[str, str]], list[str | None]]:
+    """Parse a verl-format prompt entry.
 
-    Gemini's REST API expects a `contents` list of `parts`, where text and
-    image parts are interleaved. We follow the order of `<image>` placeholders
-    in the user content so the model sees images in the same positions as the
-    trained Qwen actor would.
+    Returns ``(sys_text, image_blobs, text_pieces)`` where ``text_pieces`` is
+    the user text split on ``<image>``, and ``image_blobs`` is a list of
+    ``(mime, b64)`` tuples paired with each placeholder (or ``None`` if the
+    image was unreadable / unavailable). Trailing unmatched images are
+    appended after the last text piece.
 
-    To match training input parity:
-    - images are resized so total pixels <= max_pixels (default 65536 ≈
-      256x256 — same cap as preprocess_mimiciv_rare.py:max_pixels_per_image);
-    - the user text is middle-truncated to <= max_text_chars (default 9000
-      — same as preprocessing). test.jsonl is already capped, so this is
-      a defensive safety net.
+    Same image-resize / text-truncate parity rules as the training preprocess.
     """
     prompt = entry.get("prompt", [])
     images = entry.get("images", []) or []
@@ -179,26 +193,45 @@ def _build_gemini_request(
             user_text = content
 
     user_text = _truncate_middle(user_text, max_text_chars)
+    text_pieces = re.split(r"<image>", user_text)
+
+    # Align images with placeholders, then append the rest after.
+    image_blobs: list[tuple[str, str] | None] = []
+    img_iter = iter(image_paths)
+    for _ in range(max(0, len(text_pieces) - 1)):
+        try:
+            ipath = next(img_iter)
+        except StopIteration:
+            image_blobs.append(None)
+            continue
+        image_blobs.append(_read_image_b64(ipath, max_pixels=max_pixels))
+    trailing: list[tuple[str, str] | None] = []
+    for ipath in img_iter:
+        trailing.append(_read_image_b64(ipath, max_pixels=max_pixels))
+    return sys_text, image_blobs, text_pieces, trailing  # type: ignore[return-value]
+
+
+def _build_gemini_request(
+    entry: dict,
+    model_name: str,
+    max_pixels: int = 256 * 256,
+    max_text_chars: int = 9000,
+) -> dict:
+    """Convert a verl-format prompt entry into a Gemini API request body."""
+    sys_text, image_blobs, text_pieces, trailing = _extract_prompt_pieces(
+        entry, max_pixels=max_pixels, max_text_chars=max_text_chars,
+    )
 
     parts: list[dict] = []
-    img_iter = iter(image_paths)
-    pieces = re.split(r"<image>", user_text)
-    for i, piece in enumerate(pieces):
+    for i, piece in enumerate(text_pieces):
         if piece:
             parts.append({"text": piece})
-        if i < len(pieces) - 1:
-            try:
-                ipath = next(img_iter)
-            except StopIteration:
-                continue
-            blob = _read_image_b64(ipath, max_pixels=max_pixels)
+        if i < len(text_pieces) - 1:
+            blob = image_blobs[i]
             if blob is not None:
                 mime, b64 = blob
                 parts.append({"inline_data": {"mime_type": mime, "data": b64}})
-
-    # Any remaining unmatched image paths get appended after the text.
-    for ipath in img_iter:
-        blob = _read_image_b64(ipath, max_pixels=max_pixels)
+    for blob in trailing:
         if blob is not None:
             mime, b64 = blob
             parts.append({"inline_data": {"mime_type": mime, "data": b64}})
@@ -206,12 +239,9 @@ def _build_gemini_request(
     body: dict = {
         "contents": [{"role": "user", "parts": parts}],
         # Gemini 2.5+ / 3.x preview models are "thinking" models: internal
-        # reasoning tokens count against maxOutputTokens. We need a generous
-        # budget so the visible response (the part we score) isn't truncated
-        # while the model is still thinking. includeThoughts=False keeps the
-        # raw chain-of-thought out of the returned text — we score only the
-        # final answer, matching how the actor's <think>...</think> is treated
-        # by extract_boxed_answer in compute_score.
+        # reasoning tokens count against maxOutputTokens. includeThoughts=False
+        # keeps the raw chain-of-thought out of the returned text — we score
+        # only the final boxed answer via compute_score.
         "generationConfig": {
             "temperature": 0.0,
             "maxOutputTokens": 16384,
@@ -221,6 +251,55 @@ def _build_gemini_request(
     if sys_text:
         body["systemInstruction"] = {"parts": [{"text": sys_text}]}
     return body
+
+
+def _build_openai_request(
+    entry: dict,
+    model_name: str,
+    max_pixels: int = 256 * 256,
+    max_text_chars: int = 9000,
+) -> dict:
+    """Convert a verl-format prompt entry into an OpenAI chat-completions body.
+
+    Images are inlined as ``data:<mime>;base64,...`` URLs in ``image_url``
+    content parts. The system message goes into a separate ``role:system``
+    entry to match how training-time SYSTEM_PROMPT is applied.
+    """
+    sys_text, image_blobs, text_pieces, trailing = _extract_prompt_pieces(
+        entry, max_pixels=max_pixels, max_text_chars=max_text_chars,
+    )
+
+    parts: list[dict] = []
+    for i, piece in enumerate(text_pieces):
+        if piece:
+            parts.append({"type": "text", "text": piece})
+        if i < len(text_pieces) - 1:
+            blob = image_blobs[i]
+            if blob is not None:
+                mime, b64 = blob
+                parts.append({
+                    "type": "image_url",
+                    "image_url": {"url": f"data:{mime};base64,{b64}"},
+                })
+    for blob in trailing:
+        if blob is not None:
+            mime, b64 = blob
+            parts.append({
+                "type": "image_url",
+                "image_url": {"url": f"data:{mime};base64,{b64}"},
+            })
+
+    messages: list[dict] = []
+    if sys_text:
+        messages.append({"role": "system", "content": sys_text})
+    messages.append({"role": "user", "content": parts})
+
+    return {
+        "model": model_name,
+        "messages": messages,
+        "temperature": 0.0,
+        "max_completion_tokens": 16384,
+    }
 
 
 async def _call_gemini(session: aiohttp.ClientSession, model_name: str, api_key: str, body: dict) -> str:
@@ -239,6 +318,34 @@ async def _call_gemini(session: aiohttp.ClientSession, model_name: str, api_key:
         return ""
     parts = cands[0].get("content", {}).get("parts", []) or []
     return "".join(p.get("text", "") for p in parts)
+
+
+async def _call_openai(
+    session: aiohttp.ClientSession,
+    base_url: str,
+    api_key: str,
+    body: dict,
+) -> str:
+    url = f"{base_url.rstrip('/')}/chat/completions"
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {api_key}",
+    }
+    timeout = aiohttp.ClientTimeout(total=180)
+    async with session.post(url, json=body, headers=headers, timeout=timeout) as resp:
+        text = await resp.text()
+        if resp.status >= 400:
+            raise RuntimeError(f"OpenAI HTTP {resp.status}: {text[:500]}")
+        data = json.loads(text)
+    choices = data.get("choices") or []
+    if not choices:
+        return ""
+    msg = choices[0].get("message", {}) or {}
+    content = msg.get("content")
+    if isinstance(content, list):
+        # Reasoning-style models can return content as a list of parts.
+        content = "".join(p.get("text", "") for p in content if isinstance(p, dict))
+    return content or ""
 
 
 async def _score_one(
@@ -271,16 +378,31 @@ async def _eval_one(
     entry: dict,
     args,
 ) -> dict:
-    """Generate with Gemini, then score with the verl pipeline."""
+    """Generate with the chosen provider, then score with the verl pipeline."""
     async with sem:
-        body = _build_gemini_request(
-            entry,
-            args.model_name,
-            max_pixels=args.max_pixels,
-            max_text_chars=args.max_text_chars,
-        )
         try:
-            response = await _call_gemini(session, args.model_name, args.gemini_api_key, body)
+            if args.provider == "gemini":
+                body = _build_gemini_request(
+                    entry,
+                    args.model_name,
+                    max_pixels=args.max_pixels,
+                    max_text_chars=args.max_text_chars,
+                )
+                response = await _call_gemini(
+                    session, args.model_name, args.gemini_api_key, body,
+                )
+            elif args.provider == "openai":
+                body = _build_openai_request(
+                    entry,
+                    args.model_name,
+                    max_pixels=args.max_pixels,
+                    max_text_chars=args.max_text_chars,
+                )
+                response = await _call_openai(
+                    session, args.openai_base_url, args.openai_api_key, body,
+                )
+            else:
+                raise RuntimeError(f"unknown provider: {args.provider}")
         except Exception as e:
             response = ""
             err = str(e)
@@ -325,7 +447,10 @@ async def _main_async(args) -> int:
     if args.limit and args.limit > 0:
         entries = entries[: args.limit]
     print(f"Loaded {len(entries)} entries from {args.val_file}")
-    print(f"Gemini model: {args.model_name}, judge: {args.judge_model_name} @ {args.api_base}")
+    print(
+        f"Provider: {args.provider}, model: {args.model_name}, "
+        f"judge: {args.judge_model_name} @ {args.api_base}"
+    )
     print(f"BioBERT: {args.biobert_api_base or '(disabled)'}")
 
     output_path = Path(args.output_jsonl)
@@ -431,7 +556,7 @@ async def _main_async(args) -> int:
 
     print()
     print("=" * 70)
-    print(f"Gemini evaluation summary  (model={args.model_name})")
+    print(f"SoTA evaluation summary  (provider={args.provider}, model={args.model_name})")
     print(f"  total: {completed}, errors: {error_count}")
     print("=" * 70)
     for key in ("score", "acc", "judge_acc_lenient", "judge_acc_strict",
@@ -451,8 +576,29 @@ def main() -> None:
         "--val_file",
         default="/home/dvdai/scratch/dvdai/self_evolving_datasets/mimiciv_rare/test.jsonl",
     )
-    parser.add_argument("--model_name", default=GEMINI_DEFAULT_MODEL)
+    parser.add_argument(
+        "--provider",
+        choices=("gemini", "openai"),
+        default=os.environ.get("EVAL_PROVIDER", "gemini"),
+        help="Which API to call for the candidate model.",
+    )
+    parser.add_argument(
+        "--model_name",
+        default=None,
+        help="Model ID. Defaults to gemini-3.1-pro-preview for --provider gemini, "
+             "gpt-5.5 for --provider openai.",
+    )
     parser.add_argument("--gemini_api_key", default=os.environ.get("GEMINI_API_KEY", ""))
+    parser.add_argument(
+        "--openai_api_key",
+        default=os.environ.get("OPENAI_API_KEY", ""),
+        help="OpenAI API key (only required when --provider openai).",
+    )
+    parser.add_argument(
+        "--openai_base_url",
+        default=os.environ.get("OPENAI_BASE_URL", OPENAI_DEFAULT_BASE),
+        help="OpenAI-compatible chat-completions base URL (no trailing /chat/completions).",
+    )
     parser.add_argument("--judge_model_name", default=os.environ.get("MODEL_NAME", "Qwen/Qwen3.6-27B"))
     parser.add_argument("--api_base", default=os.environ.get("API_BASE", "http://node2500:8002/v1"))
     parser.add_argument("--judge_api_key", default=os.environ.get("API_KEY", "EMPTY"))
@@ -462,7 +608,7 @@ def main() -> None:
     parser.add_argument(
         "--output_jsonl",
         default="",
-        help="Path to per-sample JSONL. Defaults to ./eval_gemini_<model>.jsonl. "
+        help="Path to per-sample JSONL. Defaults to ./eval_<provider>_<model>.jsonl. "
              "If the file exists, completed entries (matched by hadm_id) are "
              "skipped and we append new ones — so the run is resumable across "
              "interruptions. Pick a stable filename per run; do NOT timestamp "
@@ -493,8 +639,12 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    if not args.gemini_api_key:
-        sys.exit("GEMINI_API_KEY (or --gemini_api_key) is required")
+    if args.model_name is None:
+        args.model_name = PROVIDER_DEFAULT_MODEL[args.provider]
+    if args.provider == "gemini" and not args.gemini_api_key:
+        sys.exit("GEMINI_API_KEY (or --gemini_api_key) is required for --provider gemini")
+    if args.provider == "openai" and not args.openai_api_key:
+        sys.exit("OPENAI_API_KEY (or --openai_api_key) is required for --provider openai")
     if not args.api_base:
         print("WARNING: api_base is empty — Qwen judge metrics will fall back to defaults")
     if not args.biobert_api_base:
@@ -505,7 +655,7 @@ def main() -> None:
         # for the same model. Override with --output_jsonl if you want a fresh
         # file or to keep multiple runs separate.
         safe = re.sub(r"[^A-Za-z0-9._-]+", "_", args.model_name).strip("_")
-        args.output_jsonl = f"eval_gemini_{safe}.jsonl"
+        args.output_jsonl = f"eval_{args.provider}_{safe}.jsonl"
 
     sys.exit(asyncio.run(_main_async(args)))
 
