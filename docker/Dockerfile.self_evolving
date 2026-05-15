@@ -1,0 +1,96 @@
+# Self-evolving medical agent image.
+#
+# Targets:
+#   - amd64 H100/H200 (built on mib for testing)
+#   - arm64 GB200 (separate build, same Dockerfile)
+#
+# Base: vLLM's CUDA-13 image already has torch + vllm + CUDA toolkit + Python 3.12,
+# so we only layer the verl source + a few extra Python deps + flash-attn + flashinfer.
+#
+# Build:
+#   docker build -f docker/Dockerfile.self_evolving \
+#       -t ddvd233/verl-selfevolving:cu130 \
+#       --build-arg MIRL_REF=self_evolving_medical \
+#       .
+#
+# Run (single-GPU smoke):
+#   docker run --gpus '"device=0"' --rm -it --shm-size=8g \
+#       -e HF_TOKEN=$HF_TOKEN \
+#       -v $HOME/.cache/huggingface:/root/.cache/huggingface \
+#       -v $HOME/scratch:/scratch \
+#       ddvd233/verl-selfevolving:cu130 bash
+
+ARG BASE_IMAGE=vllm/vllm-openai:latest-cu130-ubuntu2404
+FROM ${BASE_IMAGE}
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PYTHONUNBUFFERED=1 \
+    CUDA_HOME=/usr/local/cuda \
+    PATH=/usr/local/cuda/bin:${PATH} \
+    LD_LIBRARY_PATH=/usr/local/cuda/lib64:${LD_LIBRARY_PATH:-}
+
+# System deps needed beyond the base (git for the source pull; build-essential for
+# flash-attn compile; libgl1/libglib for opencv/Pillow transitively pulled in by
+# qwen_vl_utils).
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        git \
+        build-essential \
+        ninja-build \
+        libgl1 \
+        libglib2.0-0 \
+        libgomp1 \
+        ca-certificates \
+        curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Pull the self_evolving_medical branch. MIRL_REF can be a branch name or a
+# pinned commit SHA; CACHEBUST is bumped to force a re-clone when the branch
+# moves without changing the ref string.
+WORKDIR /workspace
+ARG MIRL_REPO=https://github.com/DDVD233/mirl
+ARG MIRL_REF=self_evolving_medical
+ARG CACHEBUST=1
+RUN git clone --depth 50 --branch "${MIRL_REF}" "${MIRL_REPO}" verl \
+    && cd verl \
+    && echo "Cloned $(git rev-parse HEAD)"
+
+WORKDIR /workspace/verl
+
+# Core verl deps + self-evolving extras (gen server / reward function / eval).
+# The base image already has torch + vllm; pinning those again would just thrash.
+RUN pip install -r requirements.txt \
+    && pip install \
+        aiohttp \
+        httpx \
+        pymilvus \
+        nltk \
+        Pillow \
+        qwen-vl-utils
+
+# Flash-attention 2 — compiled from source against the base image's torch/cuda.
+# Force a build instead of pulling a prebuilt wheel because the base might be
+# slightly ahead of what's on PyPI for cu130.
+ARG FLASH_ATTN_MAX_JOBS=8
+RUN FLASH_ATTENTION_FORCE_BUILD=TRUE \
+    MAX_JOBS=${FLASH_ATTN_MAX_JOBS} \
+    pip install flash-attn --no-build-isolation --no-binary flash-attn
+
+# FlashInfer (cu130 wheels).
+RUN pip install 'flashinfer-python[cu13]' \
+    && pip install flashinfer-jit-cache --index-url https://flashinfer.ai/whl/cu130
+
+# Verl is consumed as a source checkout (matches the user's preference — no
+# pip install verl). We expose it on PYTHONPATH so the trainer entrypoint
+# `python -m verl.trainer.main_ppo` works without needing to be invoked from
+# inside the repo.
+ENV PYTHONPATH=/workspace/verl:${PYTHONPATH:-}
+
+# NLTK datasets needed by char_bleu's smoothing function — pre-fetch so the
+# first reward call doesn't try to download with the GPU's network restrictions.
+RUN python -c "import nltk; nltk.download('punkt_tab', quiet=True); nltk.download('punkt', quiet=True)" || true
+
+# Default to a shell — the user picks `bash scripts/self_evolving/...` themselves.
+WORKDIR /workspace/verl
+CMD ["bash"]
