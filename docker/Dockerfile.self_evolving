@@ -141,14 +141,17 @@ RUN pip install \
 # Force numpy 2.x LAST. verl/requirements.txt pins numpy<2.0.0, and at
 # least one of megatron-core / Megatron-Bridge / trl pulls numpy back to
 # 1.26.4 if we don't reassert. verl.trainer.main_ppo + pymilvus need 2.x
-# (numpy._core.multiarray was renamed between 1.x and 2.x), so this must
-# come AFTER every other pip install.
+# (numpy._core.multiarray was renamed between 1.x and 2.x).
 #
-# --force-reinstall + --no-deps is critical here: a plain `pip install -U`
-# leaves fragmented dist-info from the intermediate installs and
-# transformers' deps_check sees numpy metadata as "found=None". Force
-# reinstall wipes those and reseats clean metadata.
-RUN pip install --force-reinstall --no-deps "numpy>=2.0"
+# Pip's --force-reinstall leaves the OLD numpy-1.26.4.dist-info alongside
+# the new numpy-2.4.5.dist-info, which makes importlib.metadata.version
+# return None and breaks transformers' version checks. We have to manually
+# remove every numpy artifact then install fresh.
+RUN pip uninstall -y numpy 2>/dev/null || true \
+    && rm -rf /usr/local/lib/python3.12/dist-packages/numpy \
+              /usr/local/lib/python3.12/dist-packages/numpy.libs \
+              /usr/local/lib/python3.12/dist-packages/numpy-*.dist-info \
+    && pip install "numpy>=2.0"
 
 # Pre-fetch NLTK corpora used by the reward function's char_bleu so the
 # first reward call doesn't try to download from inside a GPU container.
