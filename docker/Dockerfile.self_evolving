@@ -152,4 +152,10 @@ RUN git clone --depth 50 --branch "${MIRL_REF}" "${MIRL_REPO}" verl \
 ENV PYTHONPATH=/workspace/verl:${PYTHONPATH:-}
 
 WORKDIR /workspace/verl
+
+# The vllm-openai base sets ENTRYPOINT ["vllm", "serve"]. We use this image
+# for interactive training / dev, not for serving, so clear the entrypoint
+# and default to bash. Users who want to serve can pass the explicit command:
+#   docker run ... ddvd233/verl-selfevolving:cu130 vllm serve <model>
+ENTRYPOINT []
 CMD ["bash"]
