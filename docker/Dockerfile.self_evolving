@@ -58,11 +58,14 @@ RUN wget -qO /tmp/cuda-keyring.deb \
         libcusparse-dev-13-0 \
         libcusolver-dev-13-0 \
         libcufft-dev-13-0 \
+        libcusparselt0 \
+        libcusparselt-dev \
         cuda-nvrtc-dev-13-0 \
         cuda-nvtx-13-0 \
         cuda-cccl-13-0 \
         cuda-cudart-dev-13-0 \
         cuda-driver-dev-13-0 \
+        cuda-profiler-api-13-0 \
     && rm /tmp/cuda-keyring.deb \
     && rm -rf /var/lib/apt/lists/*
 
