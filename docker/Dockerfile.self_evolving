@@ -72,7 +72,7 @@ RUN pip install -r requirements.txt \
 # Flash-attention 2 — compiled from source against the base image's torch/cuda.
 # Force a build instead of pulling a prebuilt wheel because the base might be
 # slightly ahead of what's on PyPI for cu130.
-ARG FLASH_ATTN_MAX_JOBS=8
+ARG FLASH_ATTN_MAX_JOBS=32
 RUN FLASH_ATTENTION_FORCE_BUILD=TRUE \
     MAX_JOBS=${FLASH_ATTN_MAX_JOBS} \
     pip install flash-attn --no-build-isolation --no-binary flash-attn
