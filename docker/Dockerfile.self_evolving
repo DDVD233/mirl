@@ -50,7 +50,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         tmux \
         vim \
     && mkdir -p /run/sshd \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && ln -sf /usr/bin/python3 /usr/local/bin/python
 
 # CUDA dev headers (cusparse, cublas, cusolver, cccl, nvrtc, ...). The
 # vllm-openai base ships CUDA runtime libraries but not the .h headers
@@ -115,10 +116,6 @@ RUN FLASH_ATTENTION_FORCE_BUILD=TRUE \
 # Python package here.
 RUN pip install 'flashinfer-python[cu13]'
 
-# verl/requirements.txt pins numpy<2.0.0 which forces 1.x. Newer torch +
-# vllm + reward-side libs (Gemma-4 pieces) expect numpy 2.x.
-RUN pip install -U numpy
-
 # Latest transformers — base may lag behind Qwen3.5 / Qwen3.6 / Gemma 4.
 RUN pip install -U transformers
 
@@ -140,6 +137,13 @@ RUN pip install \
         mathruler \
         cachetools \
         pytest-asyncio
+
+# Force numpy 2.x LAST. verl/requirements.txt pins numpy<2.0.0, and at
+# least one of megatron-core / Megatron-Bridge / trl pulls numpy back to
+# 1.26.4 if we don't reassert. verl.trainer.main_ppo + pymilvus need 2.x
+# (numpy._core.multiarray was renamed between 1.x and 2.x), so this must
+# come AFTER every other pip install.
+RUN pip install -U "numpy>=2.0"
 
 # Pre-fetch NLTK corpora used by the reward function's char_bleu so the
 # first reward call doesn't try to download from inside a GPU container.
