@@ -1,11 +1,9 @@
-# Self-evolving medical agent image.
+# Self-evolving medical agent image (x86_64).
 #
-# Targets:
-#   - amd64 H100/H200 (built on mib for testing)
-#   - arm64 GB200 (separate build, same Dockerfile)
+# Target: H100/H200 (mib) and B200 (B200 is x86_64, not arm64).
 #
-# Base: vLLM's CUDA-13 image already has torch + vllm + CUDA toolkit + Python 3.12,
-# so we only layer the verl source + a few extra Python deps + flash-attn + flashinfer.
+# Base provides torch, vllm, CUDA 13 toolkit, cuDNN, transformers, and Python 3.12.
+# We only layer the verl source + a few Python deps + flash-attn + flashinfer.
 #
 # Build:
 #   docker build -f docker/Dockerfile.self_evolving \
@@ -20,29 +18,21 @@
 #       -v $HOME/scratch:/scratch \
 #       ddvd233/verl-selfevolving:cu130 bash
 
-ARG BASE_IMAGE=vllm/vllm-openai:latest-cu130-ubuntu2404
+ARG BASE_IMAGE=vllm/vllm-openai:gemma4-0505-x86_64_cu130
 FROM ${BASE_IMAGE}
 
 ENV DEBIAN_FRONTEND=noninteractive \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
-    PYTHONUNBUFFERED=1 \
-    CUDA_HOME=/usr/local/cuda \
-    PATH=/usr/local/cuda/bin:${PATH} \
-    LD_LIBRARY_PATH=/usr/local/cuda/lib64:${LD_LIBRARY_PATH:-}
+    PYTHONUNBUFFERED=1
 
-# System deps needed beyond the base (git for the source pull; build-essential for
-# flash-attn compile; libgl1/libglib for opencv/Pillow transitively pulled in by
-# qwen_vl_utils).
+# Minimal apt additions on top of the vllm base: git for clone, build tools for
+# flash-attn compile. Everything else (CUDA toolkit, cuDNN, Python) is already
+# present.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         git \
         build-essential \
         ninja-build \
-        libgl1 \
-        libglib2.0-0 \
-        libgomp1 \
-        ca-certificates \
-        curl \
     && rm -rf /var/lib/apt/lists/*
 
 # Pull the self_evolving_medical branch. MIRL_REF can be a branch name or a
@@ -58,20 +48,12 @@ RUN git clone --depth 50 --branch "${MIRL_REF}" "${MIRL_REPO}" verl \
 
 WORKDIR /workspace/verl
 
-# Core verl deps + self-evolving extras (gen server / reward function / eval).
-# The base image already has torch + vllm; pinning those again would just thrash.
+# verl deps + self-evolving extras. Torch / vllm / transformers / Pillow are
+# already in the base; pinning them here would just thrash.
 RUN pip install -r requirements.txt \
-    && pip install \
-        aiohttp \
-        httpx \
-        pymilvus \
-        nltk \
-        Pillow \
-        qwen-vl-utils
+    && pip install aiohttp httpx pymilvus nltk qwen-vl-utils
 
-# Flash-attention 2 — compiled from source against the base image's torch/cuda.
-# Force a build instead of pulling a prebuilt wheel because the base might be
-# slightly ahead of what's on PyPI for cu130.
+# Flash-attention 2 — compiled from source against the base image's torch.
 ARG FLASH_ATTN_MAX_JOBS=32
 RUN FLASH_ATTENTION_FORCE_BUILD=TRUE \
     MAX_JOBS=${FLASH_ATTN_MAX_JOBS} \
@@ -81,16 +63,14 @@ RUN FLASH_ATTENTION_FORCE_BUILD=TRUE \
 RUN pip install 'flashinfer-python[cu13]' \
     && pip install flashinfer-jit-cache --index-url https://flashinfer.ai/whl/cu130
 
-# Verl is consumed as a source checkout (matches the user's preference — no
-# pip install verl). We expose it on PYTHONPATH so the trainer entrypoint
-# `python -m verl.trainer.main_ppo` works without needing to be invoked from
-# inside the repo.
+# Verl is consumed as a source checkout (no pip install verl, per project
+# convention). PYTHONPATH lets `python -m verl.trainer.main_ppo` run from any
+# working directory.
 ENV PYTHONPATH=/workspace/verl:${PYTHONPATH:-}
 
-# NLTK datasets needed by char_bleu's smoothing function — pre-fetch so the
-# first reward call doesn't try to download with the GPU's network restrictions.
+# Pre-fetch NLTK corpora used by the reward function's char_bleu so the first
+# reward call doesn't try to download.
 RUN python -c "import nltk; nltk.download('punkt_tab', quiet=True); nltk.download('punkt', quiet=True)" || true
 
-# Default to a shell — the user picks `bash scripts/self_evolving/...` themselves.
 WORKDIR /workspace/verl
 CMD ["bash"]
