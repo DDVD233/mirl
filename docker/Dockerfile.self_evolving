@@ -56,9 +56,7 @@ RUN wget -qO /tmp/cuda-keyring.deb \
     && apt-get update \
     && apt-get install -y --no-install-recommends \
         libcusparse-dev-13-0 \
-        libcublas-dev-13-0 \
         libcusolver-dev-13-0 \
-        libcurand-dev-13-0 \
         libcufft-dev-13-0 \
         cuda-nvrtc-dev-13-0 \
         cuda-nvtx-13-0 \
@@ -107,9 +105,10 @@ RUN FLASH_ATTENTION_FORCE_BUILD=TRUE \
     MAX_JOBS=${FLASH_ATTN_MAX_JOBS} \
     pip install flash-attn --no-build-isolation --no-binary flash-attn
 
-# FlashInfer (cu130 wheels).
-RUN pip install 'flashinfer-python[cu13]' \
-    && pip install flashinfer-jit-cache --index-url https://flashinfer.ai/whl/cu130
+# FlashInfer Python API. The base image already includes flashinfer-jit-cache
+# + the precompiled cubins via `flashinfer download-cubin` — we only need the
+# Python package here.
+RUN pip install 'flashinfer-python[cu13]'
 
 # verl/requirements.txt pins numpy<2.0.0 which forces 1.x. Newer torch +
 # vllm + reward-side libs (Gemma-4 pieces) expect numpy 2.x.
