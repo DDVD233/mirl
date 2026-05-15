@@ -1,15 +1,26 @@
 # Self-evolving medical agent image (x86_64).
 #
-# Target: H100/H200 (mib) and B200 (B200 is x86_64, not arm64).
+# Target: H100/H200 (mib) and B200. B200 is x86_64, no arm64.
 #
-# Base provides torch, vllm, CUDA 13 toolkit, cuDNN, transformers, and Python 3.12.
-# We only layer the verl source + a few Python deps + flash-attn + flashinfer.
+# Base provides torch, vllm, CUDA 13 toolkit, cuDNN, transformers, Python 3.12.
+# We layer:
+#   - apt: git + build essentials for source compiles
+#   - verl runtime deps + self-evolving extras
+#   - NVIDIA apex (fused optimizers / layer norm)
+#   - TransformerEngine (fp8 attention — useful on B200)
+#   - flash-attn (built from source)
+#   - flashinfer (cu130 wheels)
+#   - numpy 2.x, latest transformers
+#   - utility libs: trl, nvtx, matplotlib, mathruler, cachetools
+#   - Megatron-LM core + NVIDIA-NeMo/Megatron-Bridge (Gemma 4 support)
+#   - The verl source from DDVD233/mirl@self_evolving_medical (LAST, so
+#     refreshing the repo doesn't bust the expensive cache).
 #
 # Build:
 #   docker build -f docker/Dockerfile.self_evolving \
 #       -t ddvd233/verl-selfevolving:cu130 \
 #       --build-arg MIRL_REF=self_evolving_medical \
-#       .
+#       --build-arg CACHEBUST=$(date +%s) .
 #
 # Run (single-GPU smoke):
 #   docker run --gpus '"device=0"' --rm -it --shm-size=8g \
@@ -26,32 +37,46 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PYTHONUNBUFFERED=1
 
-# Minimal apt additions on top of the vllm base: git for clone, build tools for
-# flash-attn compile. Everything else (CUDA toolkit, cuDNN, Python) is already
-# present.
+# Minimal apt additions on top of the vllm base.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         git \
         build-essential \
         ninja-build \
+        cmake \
     && rm -rf /var/lib/apt/lists/*
 
-# Pull the self_evolving_medical branch. MIRL_REF can be a branch name or a
-# pinned commit SHA; CACHEBUST is bumped to force a re-clone when the branch
-# moves without changing the ref string.
-WORKDIR /workspace
-ARG MIRL_REPO=https://github.com/DDVD233/mirl
-ARG MIRL_REF=self_evolving_medical
-ARG CACHEBUST=1
-RUN git clone --depth 50 --branch "${MIRL_REF}" "${MIRL_REPO}" verl \
-    && cd verl \
-    && echo "Cloned $(git rev-parse HEAD)"
+# Pin: copy in just the dependency files we need to install before the
+# (expensive) source compiles, so the source repo can be cloned LAST and
+# CACHEBUST doesn't invalidate flash-attn / apex / TE.
+COPY requirements.txt /tmp/requirements.txt
 
-WORKDIR /workspace/verl
+# verl runtime deps + self-evolving extras. Torch / vllm / Pillow are in the
+# base image — re-installing here would just thrash.
+RUN pip install -r /tmp/requirements.txt \
+    && pip install \
+        aiohttp \
+        httpx \
+        pymilvus \
+        nltk \
+        qwen-vl-utils \
+        nvidia-mathdx
 
-# verl deps + self-evolving extras. Torch / vllm / transformers / Pillow are
-# already in the base; pinning them here would just thrash.
-RUN pip install -r requirements.txt \
-    && pip install aiohttp httpx pymilvus nltk qwen-vl-utils
+# NVIDIA apex — fused Adam, fused RMS/LayerNorm. Big train-time speedup.
+# Slow compile (~15 min); cache aggressively by keeping it before flash-attn.
+ARG APEX_MAX_JOBS=32
+RUN MAX_JOBS=${APEX_MAX_JOBS} pip install -v --disable-pip-version-check --no-build-isolation \
+        --config-settings "--build-option=--cpp_ext" \
+        --config-settings "--build-option=--cuda_ext" \
+        git+https://github.com/NVIDIA/apex.git
+
+# TransformerEngine — fp8 attention path. Useful on B200 (native fp8) and
+# required by some Megatron paths.
+ARG TE_MAX_JOBS=32
+ARG TE_BUILD_THREADS_PER_JOB=4
+RUN export NVTE_FRAMEWORK=pytorch \
+    && MAX_JOBS=${TE_MAX_JOBS} NVTE_BUILD_THREADS_PER_JOB=${TE_BUILD_THREADS_PER_JOB} \
+        pip install --resume-retries 999 --no-build-isolation \
+        git+https://github.com/NVIDIA/TransformerEngine.git@release_v2.12
 
 # Flash-attention 2 — compiled from source against the base image's torch.
 ARG FLASH_ATTN_MAX_JOBS=32
@@ -63,30 +88,45 @@ RUN FLASH_ATTENTION_FORCE_BUILD=TRUE \
 RUN pip install 'flashinfer-python[cu13]' \
     && pip install flashinfer-jit-cache --index-url https://flashinfer.ai/whl/cu130
 
-# verl/requirements.txt pins numpy<2.0.0 which forces 1.x. Newer torch + vllm
-# work on numpy 2.x and several reward-side libs (e.g. gemma-4 pieces) expect
-# it. Upgrade after the constrained install so we end up on numpy 2.x.
+# verl/requirements.txt pins numpy<2.0.0 which forces 1.x. Newer torch +
+# vllm + reward-side libs (Gemma-4 pieces) expect numpy 2.x.
 RUN pip install -U numpy
 
-# Latest transformers — the base image's version may lag behind the Qwen3.5
-# / Qwen3.6 / Gemma 4 dense models we're training and judging against.
+# Latest transformers — base may lag behind Qwen3.5 / Qwen3.6 / Gemma 4.
 RUN pip install -U transformers
 
-# Megatron-LM core + Megatron-Bridge (NeMo). Megatron is optional for the
-# self-evolving pipeline (which uses FSDP2), but we bundle it so the same
-# image can run Megatron-strategy training and Gemma 4 conversions via
-# Megatron-Bridge.
+# Megatron-LM core + NVIDIA-NeMo Megatron-Bridge. Optional for FSDP2 training
+# but bundled for Megatron-strategy runs and Gemma 4 conversions.
 RUN pip install --no-deps git+https://github.com/NVIDIA/Megatron-LM.git@core_v0.16.0
 RUN pip install -U git+https://github.com/NVIDIA-NeMo/Megatron-Bridge.git
 
-# Verl is consumed as a source checkout (no pip install verl, per project
-# convention). PYTHONPATH lets `python -m verl.trainer.main_ppo` run from any
-# working directory.
-ENV PYTHONPATH=/workspace/verl:${PYTHONPATH:-}
+# Utility libs used across training / SFT / profiling / plotting.
+RUN pip install \
+        trl \
+        nvtx \
+        matplotlib \
+        mathruler \
+        cachetools \
+        pytest-asyncio
 
-# Pre-fetch NLTK corpora used by the reward function's char_bleu so the first
-# reward call doesn't try to download.
+# Pre-fetch NLTK corpora used by the reward function's char_bleu so the
+# first reward call doesn't try to download from inside a GPU container.
 RUN python -c "import nltk; nltk.download('punkt_tab', quiet=True); nltk.download('punkt', quiet=True)" || true
+
+# Source last — git clone busts on every CACHEBUST change but nothing above
+# depends on the repo contents (we used the COPY'd requirements.txt for deps).
+WORKDIR /workspace
+ARG MIRL_REPO=https://github.com/DDVD233/mirl
+ARG MIRL_REF=self_evolving_medical
+ARG CACHEBUST=1
+RUN git clone --depth 50 --branch "${MIRL_REF}" "${MIRL_REPO}" verl \
+    && cd verl \
+    && echo "Cloned $(git rev-parse HEAD)"
+
+# Verl is consumed as a source checkout (no pip install verl, per project
+# convention). PYTHONPATH lets `python -m verl.trainer.main_ppo` run from
+# any working directory.
+ENV PYTHONPATH=/workspace/verl:${PYTHONPATH:-}
 
 WORKDIR /workspace/verl
 CMD ["bash"]
