@@ -143,7 +143,12 @@ RUN pip install \
 # 1.26.4 if we don't reassert. verl.trainer.main_ppo + pymilvus need 2.x
 # (numpy._core.multiarray was renamed between 1.x and 2.x), so this must
 # come AFTER every other pip install.
-RUN pip install -U "numpy>=2.0"
+#
+# --force-reinstall + --no-deps is critical here: a plain `pip install -U`
+# leaves fragmented dist-info from the intermediate installs and
+# transformers' deps_check sees numpy metadata as "found=None". Force
+# reinstall wipes those and reseats clean metadata.
+RUN pip install --force-reinstall --no-deps "numpy>=2.0"
 
 # Pre-fetch NLTK corpora used by the reward function's char_bleu so the
 # first reward call doesn't try to download from inside a GPU container.
