@@ -40,9 +40,32 @@ ENV DEBIAN_FRONTEND=noninteractive \
 # Minimal apt additions on top of the vllm base.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         git \
+        wget \
         build-essential \
         ninja-build \
         cmake \
+    && rm -rf /var/lib/apt/lists/*
+
+# CUDA dev headers (cusparse, cublas, cusolver, cccl, nvrtc, ...). The
+# vllm-openai base ships CUDA runtime libraries but not the .h headers
+# that apex / TransformerEngine need to compile. Pull them from NVIDIA's
+# Ubuntu 24.04 CUDA repo via cuda-keyring.
+RUN wget -qO /tmp/cuda-keyring.deb \
+        https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb \
+    && dpkg -i /tmp/cuda-keyring.deb \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends \
+        libcusparse-dev-13-0 \
+        libcublas-dev-13-0 \
+        libcusolver-dev-13-0 \
+        libcurand-dev-13-0 \
+        libcufft-dev-13-0 \
+        cuda-nvrtc-dev-13-0 \
+        cuda-nvtx-13-0 \
+        cuda-cccl-13-0 \
+        cuda-cudart-dev-13-0 \
+        cuda-driver-dev-13-0 \
+    && rm /tmp/cuda-keyring.deb \
     && rm -rf /var/lib/apt/lists/*
 
 # Pin: copy in just the dependency files we need to install before the
