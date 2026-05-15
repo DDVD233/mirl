@@ -7,7 +7,6 @@
 #   - apt: git + build essentials for source compiles
 #   - verl runtime deps + self-evolving extras
 #   - NVIDIA apex (fused optimizers / layer norm)
-#   - TransformerEngine (fp8 attention — useful on B200)
 #   - flash-attn (built from source)
 #   - flashinfer (cu130 wheels)
 #   - numpy 2.x, latest transformers
@@ -100,14 +99,10 @@ RUN MAX_JOBS=${APEX_MAX_JOBS} pip install -v --disable-pip-version-check --no-bu
         --config-settings "--build-option=--cuda_ext" \
         git+https://github.com/NVIDIA/apex.git
 
-# TransformerEngine — fp8 attention path. Useful on B200 (native fp8) and
-# required by some Megatron paths.
-ARG TE_MAX_JOBS=32
-ARG TE_BUILD_THREADS_PER_JOB=4
-RUN export NVTE_FRAMEWORK=pytorch \
-    && MAX_JOBS=${TE_MAX_JOBS} NVTE_BUILD_THREADS_PER_JOB=${TE_BUILD_THREADS_PER_JOB} \
-        pip install --resume-retries 999 --no-build-isolation \
-        git+https://github.com/NVIDIA/TransformerEngine.git@release_v2.15
+# TransformerEngine is intentionally skipped — its source build kept failing
+# against this cu130 base, and the self-evolving pipeline (FSDP2 + vllm)
+# doesn't need it. Re-add if/when we wire a Megatron-strategy path that
+# requires the fp8 attention kernels.
 
 # Flash-attention 2 — compiled from source against the base image's torch.
 ARG FLASH_ATTN_MAX_JOBS=32
