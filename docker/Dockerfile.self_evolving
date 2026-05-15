@@ -76,7 +76,7 @@ ARG TE_BUILD_THREADS_PER_JOB=4
 RUN export NVTE_FRAMEWORK=pytorch \
     && MAX_JOBS=${TE_MAX_JOBS} NVTE_BUILD_THREADS_PER_JOB=${TE_BUILD_THREADS_PER_JOB} \
         pip install --resume-retries 999 --no-build-isolation \
-        git+https://github.com/NVIDIA/TransformerEngine.git@release_v2.12
+        git+https://github.com/NVIDIA/TransformerEngine.git@release_v2.15
 
 # Flash-attention 2 — compiled from source against the base image's torch.
 ARG FLASH_ATTN_MAX_JOBS=32
