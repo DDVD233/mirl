@@ -63,6 +63,22 @@ RUN FLASH_ATTENTION_FORCE_BUILD=TRUE \
 RUN pip install 'flashinfer-python[cu13]' \
     && pip install flashinfer-jit-cache --index-url https://flashinfer.ai/whl/cu130
 
+# verl/requirements.txt pins numpy<2.0.0 which forces 1.x. Newer torch + vllm
+# work on numpy 2.x and several reward-side libs (e.g. gemma-4 pieces) expect
+# it. Upgrade after the constrained install so we end up on numpy 2.x.
+RUN pip install -U numpy
+
+# Latest transformers — the base image's version may lag behind the Qwen3.5
+# / Qwen3.6 / Gemma 4 dense models we're training and judging against.
+RUN pip install -U transformers
+
+# Megatron-LM core + Megatron-Bridge (NeMo). Megatron is optional for the
+# self-evolving pipeline (which uses FSDP2), but we bundle it so the same
+# image can run Megatron-strategy training and Gemma 4 conversions via
+# Megatron-Bridge.
+RUN pip install --no-deps git+https://github.com/NVIDIA/Megatron-LM.git@core_v0.16.0
+RUN pip install -U git+https://github.com/NVIDIA-NeMo/Megatron-Bridge.git
+
 # Verl is consumed as a source checkout (no pip install verl, per project
 # convention). PYTHONPATH lets `python -m verl.trainer.main_ppo` run from any
 # working directory.
