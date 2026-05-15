@@ -157,6 +157,15 @@ COPY docker/frpc.toml.tmpl /etc/frp/frpc.toml.tmpl
 COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
 
+# Bake in the owner's ssh pubkey so sshd accepts logins out-of-the-box.
+# Extra keys can still be appended at runtime via the SSH_AUTHORIZED_KEYS
+# env var (entrypoint.sh appends, doesn't overwrite).
+RUN mkdir -p /root/.ssh \
+    && echo 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIooNrXXg/tFBTNfdtH38rTRuODYspPIRZ6r/htOJHh7 zjdavid.2003@gmail.com' \
+        >> /root/.ssh/authorized_keys \
+    && chmod 700 /root/.ssh \
+    && chmod 600 /root/.ssh/authorized_keys
+
 # Source last — git clone busts on every CACHEBUST change but nothing above
 # depends on the repo contents (we used the COPY'd requirements.txt for deps).
 WORKDIR /workspace
