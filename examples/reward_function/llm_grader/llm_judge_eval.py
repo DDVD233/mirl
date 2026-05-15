@@ -233,10 +233,10 @@ async def evaluate_worker(semaphore, question: str, candidate_answer: str, refer
 def load_annotations():
     
     # For MIB Server
-    # annotation_path = Path("/scratch/keane/human_behaviour_data/")
+    annotation_path = Path("/scratch/keane/human_behaviour_data/")
 
     # For Scratch Server
-    annotation_path = Path("/scratch/keane/human_behaviour/human_behaviour_data")
+    # annotation_path = Path("/scratch/keane/human_behaviour/human_behaviour_data")
 
     # Load annotation files
     mimeqa_annotation_path = annotation_path / "mimeqa" / "metadata.csv"
