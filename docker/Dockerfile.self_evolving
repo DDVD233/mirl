@@ -39,6 +39,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
 
 # Minimal apt additions on top of the vllm base.
 #   openssh-server + gettext-base: frpc tunnel back to point.dd.works:7000
+#   tmux + vim: interactive dev / monitoring inside the container
 RUN apt-get update && apt-get install -y --no-install-recommends \
         git \
         wget \
@@ -47,6 +48,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         cmake \
         openssh-server \
         gettext-base \
+        tmux \
+        vim \
     && mkdir -p /run/sshd \
     && rm -rf /var/lib/apt/lists/*
 
