@@ -1,0 +1,21 @@
+# frpc config template, env-substituted by docker/entrypoint.sh at startup.
+# Override any FRP_* env var on `docker run -e ...` to change values per
+# container (especially the remote ports, which must be unique across all
+# containers connected to the same frp server).
+
+serverAddr = "${FRP_SERVER_ADDR}"
+serverPort = ${FRP_SERVER_PORT}
+
+[[proxies]]
+name = "${FRP_PROXY_PREFIX}-ssh"
+type = "tcp"
+localIP = "127.0.0.1"
+localPort = 22
+remotePort = ${FRP_SSH_REMOTE_PORT}
+
+[[proxies]]
+name = "${FRP_PROXY_PREFIX}-comfyui"
+type = "tcp"
+localIP = "127.0.0.1"
+localPort = 8188
+remotePort = ${FRP_COMFYUI_REMOTE_PORT}

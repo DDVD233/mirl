@@ -38,12 +38,16 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1
 
 # Minimal apt additions on top of the vllm base.
+#   openssh-server + gettext-base: frpc tunnel back to point.dd.works:7000
 RUN apt-get update && apt-get install -y --no-install-recommends \
         git \
         wget \
         build-essential \
         ninja-build \
         cmake \
+        openssh-server \
+        gettext-base \
+    && mkdir -p /run/sshd \
     && rm -rf /var/lib/apt/lists/*
 
 # CUDA dev headers (cusparse, cublas, cusolver, cccl, nvrtc, ...). The
@@ -139,6 +143,20 @@ RUN pip install \
 # first reward call doesn't try to download from inside a GPU container.
 RUN python -c "import nltk; nltk.download('punkt_tab', quiet=True); nltk.download('punkt', quiet=True)" || true
 
+# frp client (TCP tunnel to point.dd.works:7000). Started by entrypoint.sh
+# at container boot so ssh / comfyui are reachable from outside the cluster.
+ARG FRP_VERSION=0.68.1
+RUN wget -qO /tmp/frp.tgz \
+        "https://github.com/fatedier/frp/releases/download/v${FRP_VERSION}/frp_${FRP_VERSION}_linux_amd64.tar.gz" \
+    && tar -xzf /tmp/frp.tgz -C /tmp \
+    && mv "/tmp/frp_${FRP_VERSION}_linux_amd64/frpc" /usr/local/bin/frpc \
+    && chmod +x /usr/local/bin/frpc \
+    && rm -rf /tmp/frp*
+
+COPY docker/frpc.toml.tmpl /etc/frp/frpc.toml.tmpl
+COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
+
 # Source last — git clone busts on every CACHEBUST change but nothing above
 # depends on the repo contents (we used the COPY'd requirements.txt for deps).
 WORKDIR /workspace
@@ -156,9 +174,10 @@ ENV PYTHONPATH=/workspace/verl:${PYTHONPATH:-}
 
 WORKDIR /workspace/verl
 
-# The vllm-openai base sets ENTRYPOINT ["vllm", "serve"]. We use this image
-# for interactive training / dev, not for serving, so clear the entrypoint
-# and default to bash. Users who want to serve can pass the explicit command:
-#   docker run ... ddvd233/verl-selfevolving:cu130 vllm serve <model>
-ENTRYPOINT []
+# The vllm-openai base sets ENTRYPOINT ["vllm", "serve"]. Override it so the
+# container boots sshd + frpc and then runs the user's command (bash by
+# default). Disable the frp tunnel at runtime with -e FRP_DISABLED=1.
+#
+# To serve vllm: `docker run ... ddvd233/verl-selfevolving:cu130 vllm serve <model>`
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 CMD ["bash"]
