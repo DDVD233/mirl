@@ -129,9 +129,13 @@ RUN pip install -U megatron-core
 RUN pip install -U --ignore-installed blinker \
         git+https://github.com/NVIDIA-NeMo/Megatron-Bridge.git
 
+# trl pinned to the same version stable.vllm uses. Newer trl (1.x) dropped
+# AutoModelForCausalLMWithValueHead which verl/models/transformers/
+# monkey_patch.py imports. --no-deps avoids cascading version downgrades.
+RUN pip install --no-deps trl==0.27.0
+
 # Utility libs used across training / SFT / profiling / plotting.
 RUN pip install \
-        trl \
         nvtx \
         matplotlib \
         mathruler \
