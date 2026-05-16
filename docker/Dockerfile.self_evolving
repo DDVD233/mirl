@@ -34,7 +34,17 @@ FROM ${BASE_IMAGE}
 ENV DEBIAN_FRONTEND=noninteractive \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_CONSTRAINT=/etc/pip-constraints.txt \
     PYTHONUNBUFFERED=1
+
+# Pin torch / torchvision / torchaudio to match what the base image's
+# vllm._C.abi3.so was compiled against. vllm 0.20.x bakes in
+# torch==2.11.0; if any transitive dep upgrades torch to 2.12+, vllm._C
+# crashes at import with 'undefined symbol getCurrentCUDABlasHandle' (the
+# signature changed from no-arg to bool-arg between 2.11 and 2.12).
+# PIP_CONSTRAINT applies to every pip install in this Dockerfile.
+RUN printf 'torch==2.11.0\ntorchvision==0.26.0\ntorchaudio==2.11.0\n' \
+        > /etc/pip-constraints.txt
 
 # Minimal apt additions on top of the vllm base.
 #   openssh-server + gettext-base: frpc tunnel back to point.dd.works:7000
