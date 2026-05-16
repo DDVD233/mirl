@@ -129,15 +129,16 @@ RUN pip install 'flashinfer-python[cu13]'
 # Latest transformers — base may lag behind Qwen3.5 / Qwen3.6 / Gemma 4.
 RUN pip install -U transformers
 
-# megatron-core (PyPI, unpinned — latest) + NVIDIA-NeMo Megatron-Bridge.
-# Optional for FSDP2 training but bundled for Megatron-strategy runs and
-# Gemma 4 conversions.
+# megatron-core (PyPI, unpinned — latest). Used by Megatron-strategy runs;
+# self-evolving FSDP2 path doesn't need it but it's small (~13 MB) and lets
+# the same image cover both strategies.
+#
+# NVIDIA-NeMo Megatron-Bridge is intentionally NOT installed here: its git
+# install pulls in NeMo + lightning + transformer_engine (~8 GB) AND drags
+# torch from 2.11.0 → 2.12.0, which breaks vllm._C.abi3.so (compiled against
+# the 2.11 `getCurrentCUDABlasHandle` no-arg signature). Re-add only when we
+# wire a Megatron-strategy training path that actually needs the bridge.
 RUN pip install -U megatron-core
-# --ignore-installed blinker: a transitive dep of Megatron-Bridge is a
-# distutils-installed package (apt python3-blinker) that pip refuses to
-# uninstall. Force-install the new copy alongside.
-RUN pip install -U --ignore-installed blinker \
-        git+https://github.com/NVIDIA-NeMo/Megatron-Bridge.git
 
 # trl pinned to the same version stable.vllm uses. Newer trl (1.x) dropped
 # AutoModelForCausalLMWithValueHead which verl/models/transformers/
