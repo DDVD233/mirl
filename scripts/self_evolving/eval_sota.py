@@ -336,22 +336,82 @@ def _build_kimi_request(
     return body
 
 
+# Provider HTTP timeout. Bumped well above the original 180s because Kimi
+# k2.6 with thinking enabled routinely takes 3-5 minutes per call (long
+# medical CoT). Override with EVAL_HTTP_TIMEOUT env if you want a tighter
+# bound. EVAL_HTTP_RETRIES caps attempts on transient failures.
+_HTTP_TIMEOUT_TOTAL = float(os.environ.get("EVAL_HTTP_TIMEOUT", "600"))
+_HTTP_RETRIES = int(os.environ.get("EVAL_HTTP_RETRIES", "4"))
+
+
+# Errors worth retrying:
+#   asyncio.TimeoutError       — the whole-request timeout fired
+#   aiohttp.ClientError        — connection reset, DNS hiccup, 5xx convert,
+#                                ServerDisconnectedError, etc.
+#   RuntimeError "HTTP 5xx"    — provider 5xx wrapped by our callers below
+# We do NOT retry on 4xx (caller's fault — bad model name, bad auth).
+_TRANSIENT_EXCEPTIONS = (asyncio.TimeoutError, aiohttp.ClientError)
+
+
+def _is_retryable_runtime_error(e: BaseException) -> bool:
+    msg = str(e)
+    if "HTTP 5" in msg:
+        return True
+    if "HTTP 429" in msg:  # rate limit
+        return True
+    return False
+
+
+async def _retry_http(label: str, coro_factory):
+    """Run ``await coro_factory()`` with retry/backoff on transient failures.
+
+    ``coro_factory`` is a no-arg callable returning a fresh coroutine each
+    attempt (since coroutines aren't reusable). Backoff: 5s, 15s, 45s,
+    135s (exponential x3 with a 5s base). Total worst-case wait between
+    a successful 4th attempt and the first failure: ~200s.
+    """
+    last_err: BaseException | None = None
+    for attempt in range(_HTTP_RETRIES):
+        try:
+            return await coro_factory()
+        except _TRANSIENT_EXCEPTIONS as e:
+            last_err = e
+        except RuntimeError as e:
+            if not _is_retryable_runtime_error(e):
+                raise
+            last_err = e
+        if attempt < _HTTP_RETRIES - 1:
+            delay = 5 * (3 ** attempt)
+            print(
+                f"[retry {label}] attempt {attempt+1}/{_HTTP_RETRIES} failed: "
+                f"{type(last_err).__name__}: {str(last_err)[:200]} — "
+                f"sleeping {delay}s",
+                file=sys.stderr, flush=True,
+            )
+            await asyncio.sleep(delay)
+    raise last_err  # type: ignore[misc]
+
+
 async def _call_gemini(session: aiohttp.ClientSession, model_name: str, api_key: str, body: dict) -> str:
     url = (
         f"https://generativelanguage.googleapis.com/v1beta/models/"
         f"{model_name}:generateContent?key={api_key}"
     )
-    timeout = aiohttp.ClientTimeout(total=180)
-    async with session.post(url, json=body, timeout=timeout) as resp:
-        text = await resp.text()
-        if resp.status >= 400:
-            raise RuntimeError(f"Gemini HTTP {resp.status}: {text[:2000]}")
-        data = json.loads(text)
-    cands = data.get("candidates") or []
-    if not cands:
-        return ""
-    parts = cands[0].get("content", {}).get("parts", []) or []
-    return "".join(p.get("text", "") for p in parts)
+
+    async def _one_attempt() -> str:
+        timeout = aiohttp.ClientTimeout(total=_HTTP_TIMEOUT_TOTAL)
+        async with session.post(url, json=body, timeout=timeout) as resp:
+            text = await resp.text()
+            if resp.status >= 400:
+                raise RuntimeError(f"Gemini HTTP {resp.status}: {text[:2000]}")
+            data = json.loads(text)
+        cands = data.get("candidates") or []
+        if not cands:
+            return ""
+        parts = cands[0].get("content", {}).get("parts", []) or []
+        return "".join(p.get("text", "") for p in parts)
+
+    return await _retry_http(f"gemini/{model_name}", _one_attempt)
 
 
 async def _call_openai(
@@ -365,21 +425,26 @@ async def _call_openai(
         "Content-Type": "application/json",
         "Authorization": f"Bearer {api_key}",
     }
-    timeout = aiohttp.ClientTimeout(total=180)
-    async with session.post(url, json=body, headers=headers, timeout=timeout) as resp:
-        text = await resp.text()
-        if resp.status >= 400:
-            raise RuntimeError(f"OpenAI HTTP {resp.status}: {text[:2000]}")
-        data = json.loads(text)
-    choices = data.get("choices") or []
-    if not choices:
-        return ""
-    msg = choices[0].get("message", {}) or {}
-    content = msg.get("content")
-    if isinstance(content, list):
-        # Reasoning-style models can return content as a list of parts.
-        content = "".join(p.get("text", "") for p in content if isinstance(p, dict))
-    return content or ""
+
+    async def _one_attempt() -> str:
+        timeout = aiohttp.ClientTimeout(total=_HTTP_TIMEOUT_TOTAL)
+        async with session.post(url, json=body, headers=headers, timeout=timeout) as resp:
+            text = await resp.text()
+            if resp.status >= 400:
+                raise RuntimeError(f"OpenAI HTTP {resp.status}: {text[:2000]}")
+            data = json.loads(text)
+        choices = data.get("choices") or []
+        if not choices:
+            return ""
+        msg = choices[0].get("message", {}) or {}
+        content = msg.get("content")
+        if isinstance(content, list):
+            # Reasoning-style models can return content as a list of parts.
+            content = "".join(p.get("text", "") for p in content if isinstance(p, dict))
+        return content or ""
+
+    label = body.get("model") or os.path.basename(base_url.rstrip("/"))
+    return await _retry_http(f"openai/{label}", _one_attempt)
 
 
 async def _score_one(
