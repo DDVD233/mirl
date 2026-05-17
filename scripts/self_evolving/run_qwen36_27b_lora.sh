@@ -126,7 +126,7 @@ cd /home/dvdai/verl
     trainer.val_before_train=True \
     trainer.save_freq=20 \
     +trainer.max_actor_ckpt_to_keep=2 \
-    +trainer.validation_data_dir="$HOME/scratch/dvdai/self_evolving_datasets/logs/val_generations/$EXPERIMENT_NAME" \
+    +trainer.validation_data_dir="$VALIDATION_DATA_DIR" \
     trainer.project_name=self_evolving_medical \
     trainer.experiment_name="$EXPERIMENT_NAME" \
     'trainer.logger=["console","wandb"]' \
