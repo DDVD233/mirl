@@ -55,7 +55,7 @@ ROLLOUT_TP="${ROLLOUT_TP:-4}"
 ROLLOUT_GPU_MEM_UTIL="${ROLLOUT_GPU_MEM_UTIL:-0.55}"
 ROLLOUT_N="${ROLLOUT_N:-8}"
 
-cd /home/dvdai/verl
+cd "$REPO_ROOT"
 
 "$PYTHON_BIN" -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
