@@ -5,27 +5,35 @@
 
 set -xeuo pipefail
 
-export API_BASE="http://node2500:8002/v1"
-export API_KEY="EMPTY"
-# Judge / chat model — name string used by reward_function for the LLM judges.
-# Matches whatever model is loaded on node2500:8002. Currently Qwen3.6-27B.
+# Chat / judge endpoint. Defaults to mib's internal vllm server; override
+# for K8s deploys that point at an external OpenAI-compatible API (e.g.
+# Kimi: API_BASE=https://api.moonshot.ai/v1 CHAT_PROVIDER=kimi MODEL_NAME=kimi-k2.6).
+export API_BASE="${API_BASE:-http://node2500:8002/v1}"
+export API_KEY="${API_KEY:-EMPTY}"
+export CHAT_PROVIDER="${CHAT_PROVIDER:-vllm}"
 export MODEL_NAME="${MODEL_NAME:-Qwen/Qwen3.6-27B}"
-export DATA_DIR="/home/dvdai/scratch/dvdai/self_evolving_datasets/mimiciv_rare"
+export DATA_DIR="${DATA_DIR:-/home/dvdai/scratch/dvdai/self_evolving_datasets/mimiciv_rare}"
 export EXPERIMENT_NAME="${EXPERIMENT_NAME:-mimiciv_rare_qwen36_27b}"
-export BIOBERT_API_BASE="http://localhost:8003"
-export GEN_SERVER_URL="http://localhost:8004"
-export CUDA_VISIBLE_DEVICES=0,1,2,3
+export BIOBERT_API_BASE="${BIOBERT_API_BASE:-http://localhost:8003}"
+export GEN_SERVER_URL="${GEN_SERVER_URL:-http://localhost:8004}"
+export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0,1,2,3}"
 
-# cu130 flashinfer-cubin needs conda's libstdc++ (GLIBCXX_3.4.26 not in /lib64)
-export LD_LIBRARY_PATH="/home/dvdai/miniconda3/envs/cu130/lib:${LD_LIBRARY_PATH:-}"
+# cu130 flashinfer-cubin on mib needs conda's libstdc++ (GLIBCXX_3.4.26 not
+# in /lib64). Docker image already ships a recent libstdc++, so only set
+# LD_LIBRARY_PATH when the conda env actually exists.
+if [ -d /home/dvdai/miniconda3/envs/cu130/lib ]; then
+    export LD_LIBRARY_PATH="/home/dvdai/miniconda3/envs/cu130/lib:${LD_LIBRARY_PATH:-}"
+fi
 
 # Fresh local Ray cluster (default /tmp/ray; AF_UNIX path stays under the
 # 107-byte limit). Don't auto-attach to anyone else's cluster.
 export RAY_ADDRESS="local"
 
-PYTHON_BIN="/home/dvdai/miniconda3/envs/cu130/bin/python"
+PYTHON_BIN="${PYTHON_BIN:-/home/dvdai/miniconda3/envs/cu130/bin/python}"
+REPO_ROOT="${REPO_ROOT:-/home/dvdai/verl}"
+VALIDATION_DATA_DIR="${VALIDATION_DATA_DIR:-/home/dvdai/scratch/dvdai/self_evolving_datasets/logs/val_generations/$EXPERIMENT_NAME}"
 
-cd /home/dvdai/verl
+cd "$REPO_ROOT"
 
 "$PYTHON_BIN" -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
@@ -77,7 +85,7 @@ cd /home/dvdai/verl
     trainer.val_before_train=True \
     trainer.save_freq=20 \
     +trainer.max_actor_ckpt_to_keep=2 \
-    +trainer.validation_data_dir=/home/dvdai/scratch/dvdai/self_evolving_datasets/logs/val_generations/$EXPERIMENT_NAME \
+    +trainer.validation_data_dir="$VALIDATION_DATA_DIR" \
     trainer.project_name=self_evolving_medical \
     trainer.experiment_name="$EXPERIMENT_NAME" \
     'trainer.logger=["console","wandb"]' \
