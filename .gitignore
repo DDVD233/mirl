@@ -131,3 +131,5 @@ logs
 log
 outputs
 .history
+# Local-only K8s manifests with bot tokens / API keys — never commit
+docker/kub_config/

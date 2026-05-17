@@ -204,16 +204,30 @@ async def _call_api(
         "Content-Type": "application/json",
         "Authorization": f"Bearer {api_key}",
     }
-    payload = {
+    # Provider-specific extensions for disabling thinking. The OpenAI HTTP
+    # shape is identical across providers; only the "skip reasoning" knob
+    # differs:
+    #   vllm  : chat_template_kwargs.enable_thinking=False
+    #   kimi  : thinking={"type": "disabled"} (and you MUST omit temperature
+    #           — Kimi non-thinking mode fixes it to 0.6 and 400s on any
+    #           other value)
+    #   other : drop both; let the provider's own default handle it.
+    provider = os.environ.get("CHAT_PROVIDER", "vllm").lower()
+    payload: dict = {
         "model": model_name,
         "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
         ],
         "max_tokens": max_tokens,
-        "temperature": 0.0,
-        "chat_template_kwargs": {"enable_thinking": False},
     }
+    if provider == "vllm":
+        payload["temperature"] = 0.0
+        payload["chat_template_kwargs"] = {"enable_thinking": False}
+    elif provider == "kimi":
+        payload["thinking"] = {"type": "disabled"}
+    else:  # openai-compatible / generic
+        payload["temperature"] = 0.0
 
     # Each attempt gets its own 300s budget; up to 4 attempts with
     # exponential backoff (1s, 2s, 4s) — worst case ~21 min before we

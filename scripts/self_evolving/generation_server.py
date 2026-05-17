@@ -327,15 +327,31 @@ def _summarize_timings(timings: dict[str, deque[float]]) -> dict:
 async def _api_call(state: ServerState, system_prompt: str, user_prompt: str,
                     max_tokens: int = 2048, temperature: float = 0.8,
                     label: str = "chat") -> str:
-    payload = {
+    # Provider-specific payload shape (see verl/utils/reward_score/
+    # self_evolving.py for the matching judge-side code). The OpenAI HTTP
+    # contract is identical; only the "control thinking" extension differs.
+    # We pick thinking on/off from the caller's `temperature` so existing
+    # call sites stay unchanged: creative calls (proposer/generator at
+    # 0.8/0.9) get thinking enabled; the validator at 0.2 stays fast.
+    provider = os.environ.get("CHAT_PROVIDER", "vllm").lower()
+    want_thinking = temperature >= 0.5
+    payload: dict = {
         "model": state.args.model_name,
         "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
         ],
         "max_tokens": max_tokens,
-        "temperature": temperature,
     }
+    if provider == "vllm":
+        payload["temperature"] = temperature
+        payload["chat_template_kwargs"] = {"enable_thinking": want_thinking}
+    elif provider == "kimi":
+        # Kimi k2.6 hard-fixes temperature (1.0 thinking / 0.6 non-thinking)
+        # and 400s on any explicit value, so we just signal thinking mode.
+        payload["thinking"] = {"type": "enabled" if want_thinking else "disabled"}
+    else:  # openai-compatible / generic
+        payload["temperature"] = temperature
     headers = {"Authorization": f"Bearer {state.args.api_key}"}
     # When the chat server is saturated (e.g. heavy reward-judge traffic + 8
     # gen workers each issuing proposer/generator/validator calls with thinking
