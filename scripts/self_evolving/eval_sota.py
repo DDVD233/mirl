@@ -93,9 +93,12 @@ compute_score = _load_compute_score()
 GEMINI_DEFAULT_MODEL = "gemini-3.1-pro-preview"
 OPENAI_DEFAULT_MODEL = "gpt-5.5"
 OPENAI_DEFAULT_BASE = "https://api.openai.com/v1"
+KIMI_DEFAULT_MODEL = "kimi-k2.6"
+KIMI_DEFAULT_BASE = "https://api.moonshot.ai/v1"
 PROVIDER_DEFAULT_MODEL = {
     "gemini": GEMINI_DEFAULT_MODEL,
     "openai": OPENAI_DEFAULT_MODEL,
+    "kimi": KIMI_DEFAULT_MODEL,
 }
 
 
@@ -304,6 +307,35 @@ def _build_openai_request(
     }
 
 
+def _build_kimi_request(
+    entry: dict,
+    model_name: str,
+    max_pixels: int = 256 * 256,
+    max_text_chars: int = 9000,
+    enable_thinking: bool = True,
+) -> dict:
+    """Kimi k2.6 chat-completions body.
+
+    Same OpenAI HTTP shape as _build_openai_request, but:
+      - Kimi uses ``max_tokens``, not ``max_completion_tokens``.
+      - Reasoning is controlled via ``thinking={"type": "enabled"|"disabled"}``
+        (not by temperature). Default enabled — for diagnosis tasks the
+        long CoT is worth the latency.
+      - Kimi hard-fixes temperature / top_p / etc. and 400s if you pass
+        them explicitly, so we omit those entirely.
+    """
+    # Reuse the openai builder for the messages array (system + multimodal
+    # user content), then rewrite the top-level params for Kimi.
+    body = _build_openai_request(
+        entry, model_name,
+        max_pixels=max_pixels, max_text_chars=max_text_chars,
+    )
+    body.pop("max_completion_tokens", None)
+    body["max_tokens"] = 16384
+    body["thinking"] = {"type": "enabled" if enable_thinking else "disabled"}
+    return body
+
+
 async def _call_gemini(session: aiohttp.ClientSession, model_name: str, api_key: str, body: dict) -> str:
     url = (
         f"https://generativelanguage.googleapis.com/v1beta/models/"
@@ -399,6 +431,17 @@ async def _eval_one(
                     args.model_name,
                     max_pixels=args.max_pixels,
                     max_text_chars=args.max_text_chars,
+                )
+                response = await _call_openai(
+                    session, args.openai_base_url, args.openai_api_key, body,
+                )
+            elif args.provider == "kimi":
+                body = _build_kimi_request(
+                    entry,
+                    args.model_name,
+                    max_pixels=args.max_pixels,
+                    max_text_chars=args.max_text_chars,
+                    enable_thinking=args.kimi_thinking,
                 )
                 response = await _call_openai(
                     session, args.openai_base_url, args.openai_api_key, body,
@@ -582,15 +625,22 @@ def main() -> None:
     )
     parser.add_argument(
         "--provider",
-        choices=("gemini", "openai"),
+        choices=("gemini", "openai", "kimi"),
         default=os.environ.get("EVAL_PROVIDER", "gemini"),
         help="Which API to call for the candidate model.",
     )
     parser.add_argument(
         "--model_name",
         default=None,
-        help="Model ID. Defaults to gemini-3.1-pro-preview for --provider gemini, "
-             "gpt-5.5 for --provider openai.",
+        help="Model ID. Defaults to gemini-3.1-pro-preview / gpt-5.5 / "
+             "kimi-k2.6 for gemini / openai / kimi respectively.",
+    )
+    parser.add_argument(
+        "--kimi_thinking",
+        type=lambda x: str(x).lower() in ("1", "true", "yes", "on"),
+        default=True,
+        help="When --provider kimi, send thinking={type:enabled}; pass False "
+             "to use thinking-disabled mode (faster, fixed temp 0.6).",
     )
     parser.add_argument("--gemini_api_key", default=os.environ.get("GEMINI_API_KEY", ""))
     parser.add_argument(
@@ -645,10 +695,18 @@ def main() -> None:
 
     if args.model_name is None:
         args.model_name = PROVIDER_DEFAULT_MODEL[args.provider]
+    # Auto-flip openai_base_url to the Kimi endpoint when the user picked
+    # --provider kimi but didn't explicitly override the base URL. We keep
+    # the same --openai_api_key arg / OPENAI_API_KEY env (or you can pass
+    # --openai_api_key=$MOONSHOT_API_KEY) — saves adding kimi-* twins.
+    if args.provider == "kimi" and args.openai_base_url == OPENAI_DEFAULT_BASE:
+        args.openai_base_url = KIMI_DEFAULT_BASE
     if args.provider == "gemini" and not args.gemini_api_key:
         sys.exit("GEMINI_API_KEY (or --gemini_api_key) is required for --provider gemini")
     if args.provider == "openai" and not args.openai_api_key:
         sys.exit("OPENAI_API_KEY (or --openai_api_key) is required for --provider openai")
+    if args.provider == "kimi" and not args.openai_api_key:
+        sys.exit("Set MOONSHOT_API_KEY (or pass --openai_api_key) for --provider kimi")
     if not args.api_base:
         print("WARNING: api_base is empty — Qwen judge metrics will fall back to defaults")
     if not args.biobert_api_base:
