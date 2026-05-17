@@ -41,7 +41,7 @@ cd "$REPO_ROOT"
     data.val_files="$DATA_DIR/test.jsonl" \
     data.custom_cls.path=scripts/self_evolving/self_evolving_dataset.py \
     data.custom_cls.name=SelfEvolvingDataset \
-    data.train_batch_size=32 \
+    data.train_batch_size=64 \
     data.max_prompt_length=8192 \
     data.max_response_length=4096 \
     data.shuffle=False \
@@ -68,7 +68,7 @@ cd "$REPO_ROOT"
     actor_rollout_ref.model.enable_gradient_checkpointing=True \
     actor_rollout_ref.actor.strategy=fsdp2 \
     actor_rollout_ref.actor.optim.lr=5e-7 \
-    actor_rollout_ref.actor.ppo_mini_batch_size=16 \
+    actor_rollout_ref.actor.ppo_mini_batch_size=32 \
     actor_rollout_ref.actor.use_dynamic_bsz=True \
     actor_rollout_ref.actor.ppo_max_token_len_per_gpu=24576 \
     actor_rollout_ref.actor.fsdp_config.param_offload=True \
