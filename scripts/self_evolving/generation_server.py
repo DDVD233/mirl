@@ -326,7 +326,7 @@ def _summarize_timings(timings: dict[str, deque[float]]) -> dict:
 # ======================================================================
 async def _api_call(state: ServerState, system_prompt: str, user_prompt: str,
                     max_tokens: int = 2048, temperature: float = 0.8,
-                    label: str = "chat") -> str:
+                    label: str = "chat", want_json: bool = False) -> str:
     # Provider-specific payload shape (see verl/utils/reward_score/
     # self_evolving.py for the matching judge-side code). The OpenAI HTTP
     # contract is identical; only the "control thinking" extension differs.
@@ -352,6 +352,16 @@ async def _api_call(state: ServerState, system_prompt: str, user_prompt: str,
         payload["thinking"] = {"type": "enabled" if want_thinking else "disabled"}
     else:  # openai-compatible / generic
         payload["temperature"] = temperature
+    # JSON Mode (Kimi / OpenAI). When the caller will pass the response
+    # through json.loads, asking the provider to constrain output to a
+    # valid JSON object eliminates the "stripped fenced code block + chat
+    # preamble + trailing comma" failure modes that _parse_json works
+    # around heuristically. Kimi and OpenAI both honor
+    # response_format={"type":"json_object"} but require the prompt itself
+    # to describe the schema (which our agent system prompts already do).
+    # vllm without guided_json doesn't accept this field — skip it there.
+    if want_json and provider in ("kimi", "openai"):
+        payload["response_format"] = {"type": "json_object"}
     headers = {"Authorization": f"Bearer {state.args.api_key}"}
     # When the chat server is saturated (e.g. heavy reward-judge traffic + 8
     # gen workers each issuing proposer/generator/validator calls with thinking
@@ -534,6 +544,10 @@ async def agent_query_proposer(state: ServerState, target: dict) -> list[str]:
         f"Target training question:\n{target_question}\n\n"
         f"Generate {state.args.n_queries} diverse search queries."
     )
+    # Kimi JSON Mode only outputs JSON Objects — not arrays — so we don't
+    # request response_format here. The proposer's prompt already pins the
+    # output to "JSON array of 10 strings" and _parse_json strips fenced
+    # blocks / trailing commas heuristically.
     response = await _api_call(state, QUERY_PROPOSER_SYSTEM_PROMPT, user_prompt,
                                max_tokens=12288, temperature=0.8,
                                label="chat_query_proposer")
@@ -560,7 +574,7 @@ async def agent_question_generator(state: ServerState, target_question: str,
         f"Synthesize one new training question in the required format ({required_format})."
     )
     response = await _api_call(state, sys_prompt, user_prompt, max_tokens=12288,
-                                temperature=0.9, label="chat_generator")
+                                temperature=0.9, label="chat_generator", want_json=True)
     q = _parse_json(response)
     fmt = q.get("format", "").lower()
     question = q.get("question", "").strip()
@@ -612,7 +626,7 @@ async def agent_validator(state: ServerState, generated: dict) -> tuple[bool, st
     try:
         response = await _api_call(state, QUESTION_VALIDATOR_SYSTEM_PROMPT, user_prompt,
                                    max_tokens=12288, temperature=0.2,
-                                   label="chat_validator")
+                                   label="chat_validator", want_json=True)
         result = _parse_json(response)
         verdict = result.get("verdict", "").lower()
         reason = result.get("reason", "")
