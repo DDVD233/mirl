@@ -16,7 +16,9 @@ export CHAT_PROVIDER="${CHAT_PROVIDER:-vllm}"
 export MODEL_NAME="${MODEL_NAME:-Qwen/Qwen3.6-27B}"
 export DATA_DIR="${DATA_DIR:-/home/dvdai/scratch/dvdai/self_evolving_datasets/mimiciv_rare}"
 export EXPERIMENT_NAME="${EXPERIMENT_NAME:-mimiciv_rare_qwen36_27b_opd_external}"
-export BIOBERT_API_BASE="${BIOBERT_API_BASE:-http://localhost:8003}"
+export EMBED_API_BASE="${EMBED_API_BASE:-http://mib.media.mit.edu:18001/v1}"
+export EMBED_API_KEY="${EMBED_API_KEY:-EMPTY}"
+export EMBED_MODEL="${EMBED_MODEL:-Qwen/Qwen3-VL-Embedding-2B}"
 export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0,1,2,3}"
 
 export TEACHER_URL="${TEACHER_URL:-http://node2500:8005/v1}"
@@ -56,7 +58,9 @@ cd "$REPO_ROOT"
     +reward.custom_reward_function.reward_kwargs.api_base="$API_BASE" \
     +reward.custom_reward_function.reward_kwargs.api_key="$API_KEY" \
     +reward.custom_reward_function.reward_kwargs.model_name="$MODEL_NAME" \
-    +reward.custom_reward_function.reward_kwargs.biobert_api_base="$BIOBERT_API_BASE" \
+    +reward.custom_reward_function.reward_kwargs.embed_api_base="$EMBED_API_BASE" \
+    +reward.custom_reward_function.reward_kwargs.embed_api_key="$EMBED_API_KEY" \
+    +reward.custom_reward_function.reward_kwargs.embed_model="$EMBED_MODEL" \
     reward.reward_manager.name=dapo \
     +reward.reward_kwargs.overlong_buffer_cfg.enable=True \
     +reward.reward_kwargs.overlong_buffer_cfg.len=512 \

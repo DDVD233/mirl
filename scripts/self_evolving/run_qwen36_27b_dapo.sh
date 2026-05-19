@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Qwen3.6-27B baseline DAPO on mimiciv_rare — same reward function (kimi
-# judge + biobert + char_bleu) as the self-evolving runs, but with the
+# judge + embed_sim + char_bleu) as the self-evolving runs, but with the
 # fixed train.jsonl as the dataset (no live question generation) and the
 # canonical DAPO actor knobs: asymmetric clip, token-mean loss aggregation,
 # KL loss off. Lets us isolate the self-evolving curriculum vs the
@@ -14,7 +14,9 @@ export CHAT_PROVIDER="${CHAT_PROVIDER:-vllm}"
 export MODEL_NAME="${MODEL_NAME:-Qwen/Qwen3.6-27B}"
 export DATA_DIR="${DATA_DIR:-/home/dvdai/scratch/dvdai/self_evolving_datasets/mimiciv_rare}"
 export EXPERIMENT_NAME="${EXPERIMENT_NAME:-mimiciv_rare_qwen36_27b_dapo}"
-export BIOBERT_API_BASE="${BIOBERT_API_BASE:-http://localhost:8003}"
+export EMBED_API_BASE="${EMBED_API_BASE:-http://mib.media.mit.edu:18001/v1}"
+export EMBED_API_KEY="${EMBED_API_KEY:-EMPTY}"
+export EMBED_MODEL="${EMBED_MODEL:-Qwen/Qwen3-VL-Embedding-2B}"
 export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0,1,2,3}"
 
 # vLLM sampling-time repetition penalty (>1 penalizes already-seen tokens).
@@ -50,7 +52,9 @@ cd "$REPO_ROOT"
     +reward.custom_reward_function.reward_kwargs.api_base="$API_BASE" \
     +reward.custom_reward_function.reward_kwargs.api_key="$API_KEY" \
     +reward.custom_reward_function.reward_kwargs.model_name="$MODEL_NAME" \
-    +reward.custom_reward_function.reward_kwargs.biobert_api_base="$BIOBERT_API_BASE" \
+    +reward.custom_reward_function.reward_kwargs.embed_api_base="$EMBED_API_BASE" \
+    +reward.custom_reward_function.reward_kwargs.embed_api_key="$EMBED_API_KEY" \
+    +reward.custom_reward_function.reward_kwargs.embed_model="$EMBED_MODEL" \
     reward.reward_manager.name=dapo \
     +reward.reward_kwargs.overlong_buffer_cfg.enable=True \
     +reward.reward_kwargs.overlong_buffer_cfg.len=512 \

@@ -1,17 +1,14 @@
 """
 Reward function for self-evolving medical agent training.
 
-Combines FOUR components:
-- Accuracy (0.3): Extracted answer matches ground truth (exact/normalized match),
-  OR if ground_truth is empty, LLM judge deems it correct.
-- Reasoning quality (0.2): LLM judge rates the model's reasoning 1-5.
-- Answer quality (0.3): LLM judge rates alignment between the EXTRACTED BOXED
-  ANSWER ONLY (reasoning stripped) and the ground truth, 1-5. This applies to
-  BOTH free-response and MCQ for consistent reward format.
-- Format (0.2): \\boxed{} format present (binary 0/1).
+Composite weights live in the *_WEIGHT constants below; see `compute_score` for
+the full formula. Smooth surrogates `embed_sim` (cosine similarity from the
+generation server's retrieval embedding endpoint) and `char_bleu` keep the
+gradient above the noise floor when the discrete signals (accuracy / format /
+judge) collapse to 0.
 
-If ground truth is empty (no-label mode), answer_quality is derived from
-judge_correctness (5 if judged correct, 1 if incorrect).
+In no-label mode, `answer_quality` is derived from `judge_correctness` (5 if
+judged correct, 1 if incorrect).
 """
 
 import asyncio
@@ -141,7 +138,7 @@ answer."""
 # Both fire when ground truth is available; the LLM judges give partial credit
 # the strict-string match misses (a real positive on rare ICD codes is still
 # rare with strict match).
-# biobert_sim and char_bleu are smooth surrogates that fire even when the
+# embed_sim and char_bleu are smooth surrogates that fire even when the
 # discrete signals collapse to 0; they keep reward shaping above the noise floor.
 ACCURACY_WEIGHT = 0.10
 JUDGE_ACCURACY_LENIENT_WEIGHT = 0.05
@@ -149,7 +146,7 @@ JUDGE_ACCURACY_STRICT_WEIGHT = 0.05
 REASONING_WEIGHT = 0.15
 ANSWER_QUALITY_WEIGHT = 0.20
 FORMAT_WEIGHT = 0.15
-BIOBERT_SIM_WEIGHT = 0.20
+EMBED_SIM_WEIGHT = 0.20
 CHAR_BLEU_WEIGHT = 0.10
 
 DEBUG_PRINT_PROB = 0.01
@@ -366,27 +363,49 @@ async def _report_to_gen_server(
         logger.warning(f"report to gen server failed: {e}")
 
 
-async def biobert_similarity(
-    biobert_api_base: str, prediction: str, reference: str,
+async def embedding_similarity(
+    embed_api_base: str,
+    embed_api_key: str,
+    embed_model: str,
+    prediction: str,
+    reference: str,
 ) -> float:
-    """Cosine similarity between prediction and reference via BioBERT server.
+    """Cosine similarity between prediction and reference via an OpenAI-compatible
+    embeddings endpoint (the same one used by the generation server's retriever).
 
-    Returns a value in [0, 1] (negative cosines clamped to 0). Returns 0 if
-    either input is empty or the server is unreachable.
+    Both strings are sent in a single ``/embeddings`` call (``input=[pred, ref]``)
+    and the cosine is computed locally. Both inputs are expected to be short
+    (extracted boxed answers + ground truths) — we truncate to 2000 chars to match
+    the gen_server's _embed_text convention. Returns ``[0, 1]``; 0 on failure.
     """
-    if not biobert_api_base or not prediction or not reference:
+    if not embed_api_base or not embed_model or not prediction or not reference:
         return 0.0
-    url = f"{biobert_api_base.rstrip('/')}/v1/similarity"
-    timeout = aiohttp.ClientTimeout(total=15)
+    url = f"{embed_api_base.rstrip('/')}/embeddings"
+    payload = {"model": embed_model, "input": [prediction[:2000], reference[:2000]]}
+    headers = {"Authorization": f"Bearer {embed_api_key or 'EMPTY'}"}
+    timeout = aiohttp.ClientTimeout(total=30)
     try:
         async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.post(url, json={"text1": prediction, "text2": reference}) as resp:
+            async with session.post(url, json=payload, headers=headers) as resp:
                 resp.raise_for_status()
                 data = await resp.json()
-                sim = float(data.get("similarity", 0.0))
-                return max(0.0, min(1.0, sim))
+        a = data["data"][0]["embedding"]
+        b = data["data"][1]["embedding"]
+        # Pure-Python cosine; embeddings are ~2k dims, this is fast enough and
+        # avoids forcing numpy on every reward worker.
+        dot = 0.0
+        na = 0.0
+        nb = 0.0
+        for x, y in zip(a, b, strict=True):
+            dot += x * y
+            na += x * x
+            nb += y * y
+        if na == 0.0 or nb == 0.0:
+            return 0.0
+        sim = dot / ((na**0.5) * (nb**0.5))
+        return max(0.0, min(1.0, sim))
     except Exception as e:
-        logger.warning(f"biobert_similarity failed: {e}")
+        logger.warning(f"embedding_similarity failed: {type(e).__name__}: {e}")
         return 0.0
 
 
@@ -519,7 +538,9 @@ async def compute_score(
     api_base: str = "",
     api_key: str = "EMPTY",
     model_name: str = "",
-    biobert_api_base: str = "",
+    embed_api_base: str = "",
+    embed_api_key: str = "EMPTY",
+    embed_model: str = "",
     gen_server_url: str = "",
     **kwargs,
 ) -> dict:
@@ -531,13 +552,15 @@ async def compute_score(
       with ground truth. For no-label mode, derived from judge_correctness (5 or 1).
     - reasoning_quality (1-5 → normalized to 0-1): LLM-judged reasoning quality.
     - format_ok (0-1): \\boxed{} format present.
-    - biobert_sim (0-1): cosine similarity between extracted answer and ground truth
-      under a BioBERT sentence-transformer (smooth signal; 0 if server unreachable).
+    - embed_sim (0-1): cosine similarity between the extracted boxed answer and the
+      ground truth via an OpenAI-compatible embeddings endpoint (the same retriever
+      used by the generation server). Smooth signal; 0 if server unreachable.
     - char_bleu (0-1): character-level BLEU-4 with smoothing between extracted answer
       and ground truth (smooth signal that fires when accuracy collapses to 0).
 
-    composite = 0.20*acc + 0.20*(answer_q/5) + 0.15*(reasoning/5) + 0.15*format
-              + 0.20*biobert_sim + 0.10*char_bleu
+    composite = 0.10*acc + 0.05*judge_lenient + 0.05*judge_strict
+              + 0.20*(answer_q/5) + 0.15*(reasoning/5) + 0.15*format
+              + 0.20*embed_sim + 0.10*char_bleu
     """
     extra_info = extra_info or {}
     question = extra_info.get("question", "")
@@ -609,11 +632,13 @@ async def compute_score(
             response=solution_str, ground_truth=ground_truth,
         )
 
-    # 5. BioBERT semantic similarity (smooth signal)
-    bio_sim = 0.0
-    if biobert_api_base and ground_truth and extracted_answer:
-        bio_sim = await biobert_similarity(
-            biobert_api_base, extracted_answer, ground_truth
+    # 5. Embedding semantic similarity (smooth signal). Embed only the extracted
+    # boxed answer and the ground truth (no reasoning trace), batched into one
+    # /embeddings call.
+    embed_sim = 0.0
+    if embed_api_base and embed_model and ground_truth and extracted_answer:
+        embed_sim = await embedding_similarity(
+            embed_api_base, embed_api_key, embed_model, extracted_answer, ground_truth
         )
 
     # 6. Character-level BLEU (smooth signal, in-process)
@@ -629,7 +654,7 @@ async def compute_score(
         + ANSWER_QUALITY_WEIGHT * (answer_quality / 5.0)
         + REASONING_WEIGHT * (reasoning_score / 5.0)
         + FORMAT_WEIGHT * format_ok
-        + BIOBERT_SIM_WEIGHT * bio_sim
+        + EMBED_SIM_WEIGHT * embed_sim
         + CHAR_BLEU_WEIGHT * char_bleu_score
     )
 
@@ -643,7 +668,7 @@ async def compute_score(
         print(f"  accuracy={accuracy:.1f}  judge_lenient={judge_acc_lenient:.1f}  "
               f"judge_strict={judge_acc_strict:.1f}  "
               f"answer_q={answer_quality:.1f}  reasoning={reasoning_score:.1f}  "
-              f"format={format_ok:.1f}  bio_sim={bio_sim:.2f}  "
+              f"format={format_ok:.1f}  embed_sim={embed_sim:.2f}  "
               f"char_bleu={char_bleu_score:.2f}")
         print(f"  total_score={score:.3f}")
         print(f"  response: {solution_str}")
@@ -666,7 +691,7 @@ async def compute_score(
         "answer_quality": answer_quality,
         "reasoning_quality": reasoning_score,
         "format_ok": format_ok,
-        "biobert_sim": bio_sim,
+        "embed_sim": embed_sim,
         "char_bleu": char_bleu_score,
         "extracted_answer": extracted_answer or "",
     }
