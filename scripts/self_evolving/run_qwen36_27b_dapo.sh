@@ -75,7 +75,7 @@ cd "$REPO_ROOT"
     actor_rollout_ref.rollout.name=vllm \
     actor_rollout_ref.rollout.n=8 \
     actor_rollout_ref.rollout.temperature=1.0 \
-    actor_rollout_ref.rollout.repetition_penalty="$REPETITION_PENALTY" \
+    +actor_rollout_ref.rollout.repetition_penalty="$REPETITION_PENALTY" \
     actor_rollout_ref.rollout.tensor_model_parallel_size=4 \
     actor_rollout_ref.rollout.gpu_memory_utilization=0.55 \
     actor_rollout_ref.rollout.max_model_len=16384 \
