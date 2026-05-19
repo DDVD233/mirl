@@ -84,6 +84,12 @@ teacher_models:
     key: null
     model_path: null
     num_replicas: 0
+    # External-teacher options. When external_url is set we skip launching a vLLM
+    # inside the Ray cluster and POST to this OpenAI-compatible endpoint instead.
+    # The endpoint must support vLLM's prompt_logprobs extension on /v1/completions.
+    external_url: null
+    external_api_key: null
+    external_model_name: null
     inference:
       _target_: verl.workers.config.RolloutConfig
       name: ${oc.select:actor_rollout_ref.rollout.name}

@@ -152,25 +152,32 @@ class TeacherModelManager:
 
 
 class MultiTeacherModelManager:
-    """Manages one inner `TeacherModelManager` per teacher model, keyed by each teacher's `key`."""
+    """Manages one inner `TeacherModelManager` per teacher model, keyed by each teacher's `key`.
+
+    When a teacher has `external_url` set its sub-pool size is 0, so it does not consume
+    any Ray bundles. In that case we skip booting an in-cluster vLLM and route requests
+    through an `ExternalLLMServerClient` instead.
+    """
 
     def __init__(
         self,
         config: DictConfig,
-        resource_pool: RayResourcePool,
+        resource_pool: RayResourcePool | None,
     ):
         """
         Initialize the multi-teacher model manager.
 
         Args:
             config (DictConfig): Full configuration.
-            resource_pool (RayResourcePool): Combined resource pool for all teachers.
+            resource_pool (RayResourcePool | None): Combined resource pool for in-cluster
+                teachers. Pass None when every teacher is external.
         """
         self.config = config
         self.distillation_config: DistillationConfig = omega_conf_to_dataclass(config.distillation)
 
         self.resource_pool = resource_pool
         self.teacher_model_managers: dict[str, TeacherModelManager] = {}
+        self.external_teacher_configs: dict[str, DistillationTeacherModelConfig] = {}
         self.server_addresses: dict[str, list[str]] = {}
         self.server_handles: dict[str, list] = {}
         self.load_balancer_handle: dict[str, object] = {}
@@ -179,10 +186,30 @@ class MultiTeacherModelManager:
 
     def _initialize_teacher_model_managers(self):
         teacher_models = self.distillation_config.teacher_models
-        split_sizes = [teacher.world_size for teacher in teacher_models.values()]
+
+        # External teachers don't consume Ray bundles; split_resource_pool is only called over
+        # the in-cluster subset.
+        internal_items = [(k, t) for k, t in teacher_models.items() if not t.is_external]
+        external_items = [(k, t) for k, t in teacher_models.items() if t.is_external]
+
+        for key, teacher_model_config in external_items:
+            self.external_teacher_configs[key] = teacher_model_config
+            self.server_addresses[key] = []
+            self.server_handles[key] = []
+            self.load_balancer_handle[key] = None
+
+        if not internal_items:
+            return
+
+        if self.resource_pool is None:
+            raise ValueError(
+                "MultiTeacherModelManager got resource_pool=None but at least one teacher is "
+                "in-cluster. Pass a teacher resource pool from the trainer."
+            )
+        split_sizes = [t.world_size for _, t in internal_items]
         split_pools = split_resource_pool(self.resource_pool, split_size=split_sizes)
 
-        for (key, teacher_model_config), teacher_pool in zip(teacher_models.items(), split_pools, strict=True):
+        for (key, teacher_model_config), teacher_pool in zip(internal_items, split_pools, strict=True):
             manager = TeacherModelManager(
                 distillation_config=self.distillation_config,
                 teacher_model_config=teacher_model_config,
@@ -194,11 +221,20 @@ class MultiTeacherModelManager:
             self.load_balancer_handle[key] = manager.load_balancer_handle
 
     def get_client(self) -> dict[str, LLMServerClient]:
-        """Get the LLMServerClient for each teacher model."""
-        teacher_clients = {}
+        """Get the LLMServerClient for each teacher model.
+
+        External teachers get an `ExternalLLMServerClient` that POSTs to a remote
+        OpenAI-compatible endpoint; internal teachers get the Ray-actor-backed
+        `LLMServerClient` as before.
+        """
+        from .external_client import ExternalLLMServerClient
+
+        teacher_clients: dict[str, LLMServerClient] = {}
         for key, manager in self.teacher_model_managers.items():
             servers = dict(zip(manager.server_addresses, manager.server_handles, strict=True))
             teacher_clients[key] = LLMServerClient(
                 config=self.config, servers=servers, load_balancer_handle=manager.load_balancer_handle
             )
+        for key, teacher_config in self.external_teacher_configs.items():
+            teacher_clients[key] = ExternalLLMServerClient(teacher_config)
         return teacher_clients

@@ -448,7 +448,11 @@ class FullyAsyncRollouter(SeparateRayPPOTrainer):
         if is_distillation_enabled(self.config.get("distillation")):
             from verl.experimental.teacher_loop import MultiTeacherModelManager
 
-            teacher_resource_pool = self.resource_pool_manager.get_resource_pool(Role.TeacherModel)
+            teacher_resource_pool = (
+                None
+                if Role.TeacherModel not in self.resource_pool_manager.mapping
+                else self.resource_pool_manager.get_resource_pool(Role.TeacherModel)
+            )
             loop = asyncio.get_running_loop()
             self.teacher_model_manager = await loop.run_in_executor(
                 None,

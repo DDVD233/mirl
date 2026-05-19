@@ -25,6 +25,32 @@ from omegaconf import OmegaConf
 from verl.experimental.reward_loop import migrate_legacy_reward_impl
 from verl.trainer.constants_ppo import get_ppo_ray_runtime_env
 from verl.trainer.distillation import is_distillation_enabled
+
+
+def _all_teachers_external(distillation_config) -> bool:
+    """Return True when every configured teacher has an `external_url` set.
+
+    Works against either an OmegaConf DictConfig (pre-cast) or the resolved
+    `DistillationConfig` dataclass.
+    """
+    if distillation_config is None:
+        return False
+    teacher_models = getattr(distillation_config, "teacher_models", None)
+    if teacher_models is None:
+        try:
+            teacher_models = distillation_config["teacher_models"]
+        except (KeyError, TypeError):
+            return False
+    if not teacher_models:
+        return False
+    values = teacher_models.values() if hasattr(teacher_models, "values") else teacher_models
+    for teacher in values:
+        url = getattr(teacher, "external_url", None)
+        if url is None and hasattr(teacher, "get"):
+            url = teacher.get("external_url")
+        if not url:
+            return False
+    return True
 from verl.trainer.ppo.ray_trainer import RayPPOTrainer
 from verl.trainer.ppo.utils import need_critic, need_reference_policy
 from verl.utils.config import validate_config
@@ -173,13 +199,17 @@ class TaskRunner:
 
         distillation_config = config.get("distillation")
         if is_distillation_enabled(distillation_config):
-            if distillation_config.n_gpus_per_node <= 0:
-                raise ValueError("config.distillation.n_gpus_per_node must be greater than 0")
-            if distillation_config.nnodes <= 0:
-                raise ValueError("config.distillation.nnodes must be greater than 0")
+            if _all_teachers_external(distillation_config):
+                # External teachers run outside the Ray cluster — no GPU pool needed.
+                pass
+            else:
+                if distillation_config.n_gpus_per_node <= 0:
+                    raise ValueError("config.distillation.n_gpus_per_node must be greater than 0")
+                if distillation_config.nnodes <= 0:
+                    raise ValueError("config.distillation.nnodes must be greater than 0")
 
-            teacher_pool = [distillation_config.n_gpus_per_node] * distillation_config.nnodes
-            resource_pool_spec["teacher_pool"] = teacher_pool
+                teacher_pool = [distillation_config.n_gpus_per_node] * distillation_config.nnodes
+                resource_pool_spec["teacher_pool"] = teacher_pool
 
         from verl.trainer.ppo.ray_trainer import ResourcePoolManager
 
@@ -203,6 +233,9 @@ class TaskRunner:
         from verl.trainer.ppo.ray_trainer import Role
 
         if is_distillation_enabled(config.get("distillation")):
+            if _all_teachers_external(config.get("distillation")):
+                # External teacher: no Ray pool to map.
+                return
             # we do not use teacher model workers, so we only register teacher model in resource pool
             # without registering a teacher model worker in role-worker mapping
             self.mapping[Role.TeacherModel] = "teacher_pool"

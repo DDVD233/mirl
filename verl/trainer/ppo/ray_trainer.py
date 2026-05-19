@@ -829,7 +829,13 @@ class RayPPOTrainer:
         if self.use_teacher_policy:
             from verl.experimental.teacher_loop import MultiTeacherModelManager
 
-            teacher_resource_pool = self.resource_pool_manager.get_resource_pool(Role.TeacherModel)
+            # External teachers don't reserve a Ray pool; pass None so the manager
+            # only routes via HTTP.
+            teacher_resource_pool = (
+                None
+                if Role.TeacherModel not in self.resource_pool_manager.mapping
+                else self.resource_pool_manager.get_resource_pool(Role.TeacherModel)
+            )
             self.teacher_model_manager = MultiTeacherModelManager(
                 config=self.config,
                 resource_pool=teacher_resource_pool,

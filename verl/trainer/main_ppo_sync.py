@@ -671,7 +671,11 @@ class PPOTrainer:
 
         # 8. initialize teacher loop manager
         if self.use_teacher_policy:
-            teacher_resource_pool = self.resource_pool_manager.get_resource_pool(Role.TeacherModel)
+            teacher_resource_pool = (
+                None
+                if Role.TeacherModel not in self.resource_pool_manager.mapping
+                else self.resource_pool_manager.get_resource_pool(Role.TeacherModel)
+            )
             self.teacher_model_manager = MultiTeacherModelManager(
                 config=self.config,
                 resource_pool=teacher_resource_pool,
@@ -1676,14 +1680,19 @@ class TaskRunner:
 
         distillation_config = config.get("distillation")
         if is_distillation_enabled(distillation_config):
-            if distillation_config.n_gpus_per_node <= 0:
-                raise ValueError("config.distillation.n_gpus_per_node must be greater than 0")
-            if distillation_config.nnodes <= 0:
-                raise ValueError("config.distillation.nnodes must be greater than 0")
+            from verl.trainer.main_ppo import _all_teachers_external
 
-            teacher_pool = [distillation_config.n_gpus_per_node] * distillation_config.nnodes
-            resource_pool_spec["teacher_pool"] = teacher_pool
-            self.mapping[Role.TeacherModel] = "teacher_pool"
+            if _all_teachers_external(distillation_config):
+                pass  # External teachers don't reserve a Ray pool.
+            else:
+                if distillation_config.n_gpus_per_node <= 0:
+                    raise ValueError("config.distillation.n_gpus_per_node must be greater than 0")
+                if distillation_config.nnodes <= 0:
+                    raise ValueError("config.distillation.nnodes must be greater than 0")
+
+                teacher_pool = [distillation_config.n_gpus_per_node] * distillation_config.nnodes
+                resource_pool_spec["teacher_pool"] = teacher_pool
+                self.mapping[Role.TeacherModel] = "teacher_pool"
 
         self.resource_pool_manager = ResourcePoolManager(resource_pool_spec=resource_pool_spec, mapping=self.mapping)
 

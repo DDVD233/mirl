@@ -119,15 +119,29 @@ class DistillationTeacherModelConfig(BaseConfig):
     key (str, optional):
         Identifier to route examples to the teacher model in multi-teacher setting.
     model_path (str, optional):
-        Model path for the teacher model. Can be a local path or a Hugging Face model
+        Model path for the teacher model. Can be a local path or a Hugging Face model.
+        When `external_url` is set, this is the value sent as the `model` field in the
+        request and should match the served-model-name of the remote vLLM (unless
+        `external_model_name` is also set).
     inference (RolloutConfig):
         Rollout configuration for the teacher model inference during distillation.
+        Ignored when `external_url` is set, except for `temperature` (must be 1.0).
     num_replicas (int):
         Number of inference replicas of this teacher to launch. Each replica occupies
         `per_replica_world_size` GPUs (= inference.data_parallel_size *
         inference.tensor_model_parallel_size * inference.pipeline_model_parallel_size),
         so the teacher's total GPU footprint is
-        `num_replicas * per_replica_world_size`.
+        `num_replicas * per_replica_world_size`. Forced to 0 when `external_url` is set.
+    external_url (str, optional):
+        If set, skip launching a vLLM teacher inside the Ray cluster and instead
+        POST to this OpenAI-compatible base URL (e.g. ``http://node2500:8002/v1``).
+        The endpoint must support vLLM's ``prompt_logprobs`` extension on
+        ``/v1/completions``.
+    external_api_key (str, optional):
+        Bearer token for the external endpoint. Defaults to ``EMPTY``.
+    external_model_name (str, optional):
+        Override the ``model`` field sent in the completion request. Defaults to
+        ``model_path``.
     """
 
     _mutable_fields = BaseConfig._mutable_fields | {"num_replicas", "key"}
@@ -136,9 +150,18 @@ class DistillationTeacherModelConfig(BaseConfig):
     model_path: Optional[str] = None
     inference: RolloutConfig = field(default_factory=RolloutConfig)
     num_replicas: Optional[int] = 0
+    external_url: Optional[str] = None
+    external_api_key: Optional[str] = None
+    external_model_name: Optional[str] = None
+
+    @property
+    def is_external(self) -> bool:
+        return self.external_url is not None and self.external_url != ""
 
     @property
     def per_replica_world_size(self) -> int:
+        if self.is_external:
+            return 0
         return (
             self.inference.tensor_model_parallel_size
             * self.inference.data_parallel_size
@@ -147,6 +170,8 @@ class DistillationTeacherModelConfig(BaseConfig):
 
     @property
     def world_size(self) -> int:
+        if self.is_external:
+            return 0
         return self.num_replicas * self.per_replica_world_size
 
     def check_configured(self):
@@ -158,6 +183,12 @@ class DistillationTeacherModelConfig(BaseConfig):
             raise ValueError("num_replicas must be specified for distillation teacher model config.")
 
     def validate_and_prepare_for_distillation(self, use_topk: bool, topk: Optional[int]) -> None:
+        if self.is_external:
+            if self.inference.temperature != 1.0:
+                raise NotImplementedError(
+                    "External distillation teacher requires temperature=1.0 (prompt_logprobs requirement)."
+                )
+            return
         # Prompt + Response from student are fed into teacher as context
         max_model_len = self.inference.max_model_len
         student_prompt_length = self.inference.prompt_length
@@ -271,28 +302,48 @@ class DistillationConfig(BaseConfig):
             raise ValueError(
                 f"Sum of teacher (num_replicas * per_replica_world_size) ({teacher_world_size_sum}) must match "
                 f"the distillation resource pool size "
-                f"({self.n_gpus_per_node=} * {self.nnodes=} = {total_pool_size})."
+                f"({self.n_gpus_per_node=} * {self.nnodes=} = {total_pool_size}). "
+                f"External teachers contribute 0 to the sum and should be paired with "
+                f"n_gpus_per_node=0/nnodes=0 (when *all* teachers are external)."
             )
+
+    @property
+    def all_teachers_external(self) -> bool:
+        if not self.teacher_models:
+            return False
+        return all(t.is_external for t in self.teacher_models.values())
 
     def _resolve_teacher_models(self) -> dict[str, DistillationTeacherModelConfig]:
         assert "teacher_model" in self.teacher_models
         if len(self.teacher_models) == 1:
             # Single teacher occupies the entire teacher resource pool.
             teacher_model = self.teacher_models["teacher_model"]
-            inference = teacher_model.inference
-            per_replica = (
-                inference.tensor_model_parallel_size
-                * inference.data_parallel_size
-                * inference.pipeline_model_parallel_size
-            )
-            pool_size = self.n_gpus_per_node * self.nnodes
-            if pool_size % per_replica != 0:
-                raise ValueError(
-                    f"Single teacher's per_replica_world_size ({per_replica}) must divide the distillation "
-                    f"resource pool size ({self.n_gpus_per_node=} * {self.nnodes=} = {pool_size})."
+            # External teachers don't consume any Ray pool — num_replicas stays 0.
+            # Be permissive: teacher_model may still be a DictConfig here.
+            try:
+                external_url = teacher_model.get("external_url") if hasattr(teacher_model, "get") else None
+            except Exception:
+                external_url = None
+            if external_url is None:
+                external_url = getattr(teacher_model, "external_url", None)
+            if external_url:
+                teacher_model.num_replicas = 0
+                teacher_model.key = "default"
+            else:
+                inference = teacher_model.inference
+                per_replica = (
+                    inference.tensor_model_parallel_size
+                    * inference.data_parallel_size
+                    * inference.pipeline_model_parallel_size
                 )
-            teacher_model.num_replicas = pool_size // per_replica
-            teacher_model.key = "default"
+                pool_size = self.n_gpus_per_node * self.nnodes
+                if pool_size % per_replica != 0:
+                    raise ValueError(
+                        f"Single teacher's per_replica_world_size ({per_replica}) must divide the distillation "
+                        f"resource pool size ({self.n_gpus_per_node=} * {self.nnodes=} = {pool_size})."
+                    )
+                teacher_model.num_replicas = pool_size // per_replica
+                teacher_model.key = "default"
         else:
             # Multiple teachers: remove default single teacher config
             self.teacher_models.pop("teacher_model")
