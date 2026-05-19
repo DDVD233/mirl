@@ -17,6 +17,11 @@ export EXPERIMENT_NAME="${EXPERIMENT_NAME:-mimiciv_rare_qwen36_27b_dapo}"
 export BIOBERT_API_BASE="${BIOBERT_API_BASE:-http://localhost:8003}"
 export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0,1,2,3}"
 
+# vLLM sampling-time repetition penalty (>1 penalizes already-seen tokens).
+# 1.0 = off. Bumped after the model collapsed into degenerate
+# "I will output \boxed{...}" loops repeated until max_response_length.
+REPETITION_PENALTY="${REPETITION_PENALTY:-1.1}"
+
 if [ -d /home/dvdai/miniconda3/envs/cu130/lib ]; then
     export LD_LIBRARY_PATH="/home/dvdai/miniconda3/envs/cu130/lib:${LD_LIBRARY_PATH:-}"
 fi
@@ -56,13 +61,13 @@ cd "$REPO_ROOT"
     actor_rollout_ref.model.use_remove_padding=True \
     actor_rollout_ref.model.enable_gradient_checkpointing=True \
     actor_rollout_ref.actor.strategy=fsdp2 \
-    actor_rollout_ref.actor.optim.lr=5e-7 \
+    actor_rollout_ref.actor.optim.lr=2e-7 \
     actor_rollout_ref.actor.ppo_mini_batch_size=32 \
     actor_rollout_ref.actor.use_dynamic_bsz=True \
     actor_rollout_ref.actor.ppo_max_token_len_per_gpu=24576 \
     actor_rollout_ref.actor.use_kl_loss=False \
     actor_rollout_ref.actor.clip_ratio_low=0.2 \
-    actor_rollout_ref.actor.clip_ratio_high=0.28 \
+    actor_rollout_ref.actor.clip_ratio_high=0.24 \
     actor_rollout_ref.actor.clip_ratio_c=10.0 \
     actor_rollout_ref.actor.loss_agg_mode=token-mean \
     actor_rollout_ref.actor.fsdp_config.param_offload=True \
@@ -70,6 +75,7 @@ cd "$REPO_ROOT"
     actor_rollout_ref.rollout.name=vllm \
     actor_rollout_ref.rollout.n=8 \
     actor_rollout_ref.rollout.temperature=1.0 \
+    actor_rollout_ref.rollout.repetition_penalty="$REPETITION_PENALTY" \
     actor_rollout_ref.rollout.tensor_model_parallel_size=4 \
     actor_rollout_ref.rollout.gpu_memory_utilization=0.55 \
     actor_rollout_ref.rollout.max_model_len=16384 \
