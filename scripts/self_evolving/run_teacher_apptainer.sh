@@ -13,7 +13,8 @@ set -e
 SIF="${SIF:-${HOME}/scratch/dvd/sif/vllm-openai-v0.20.0-cu130.sif}"
 MODEL="${MODEL:-Qwen/Qwen3.5-397B-A17B-FP8}"
 PORT="${PORT:-8005}"
-DP="${DP:-4}"
+DP="${DP:-2}"
+TP="${TP:-2}"
 HF_CACHE="${HF_CACHE:-/home/dvdai/.cache/huggingface}"
 # Resolve symlinks before binding: on vps3, ~/.cache/huggingface is a symlink
 # into /orcd/compute/ppliang/001/dvdai/huggingface. Binding the symlink source
@@ -28,7 +29,7 @@ module load apptainer/1.4.2
 
 echo "=== launching vllm via apptainer run at $(date) ==="
 echo "    SIF=$SIF"
-echo "    MODEL=$MODEL  PORT=$PORT  DP=$DP"
+echo "    MODEL=$MODEL  PORT=$PORT  DP=$DP TP=$TP"
 echo "    HF_CACHE=$HF_CACHE  (resolved → $HF_CACHE_REAL)  LOG_FILE=$LOG_FILE"
 
 # Image's runscript is `vllm serve`, so args after the SIF are appended to
@@ -51,6 +52,7 @@ exec apptainer run --nv --writable-tmpfs --cleanenv \
   "$SIF" \
   --model "$MODEL" \
   -dp "$DP" \
+  -tp "$TP" \
   --enable-expert-parallel \
   --language-model-only \
   --reasoning-parser qwen3 \
