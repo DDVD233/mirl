@@ -16,6 +16,7 @@ Trainer reports accuracy via the reward function (see
 """
 
 import logging
+import os
 import time
 from typing import Optional
 
@@ -92,16 +93,30 @@ class SelfEvolvingDataset(RLHFDataset):
     def _fetch_one(self) -> dict:
         url = f"{self.gen_server_url}/sample"
         last_err = None
-        for attempt in range(3):
+        # Cold-start patience: gen server can take 5-10 min to fill its pool
+        # when the proposer is a slow remote (e.g. Qwen3.5-397B at ~270s/call).
+        # Retry hard on 503/408/429/network errors; fail fast on other 4xx.
+        max_attempts = int(os.environ.get("SELF_EVOLVING_SAMPLE_RETRIES", "120"))
+        for attempt in range(max_attempts):
             try:
                 r = requests.get(url, timeout=self.fetch_timeout)
                 r.raise_for_status()
                 return r.json()
+            except requests.HTTPError as e:
+                last_err = e
+                status = getattr(e.response, "status_code", None)
+                if status is not None and 400 <= status < 500 and status not in (408, 429, 503):
+                    raise
+                logger.warning(
+                    f"/sample attempt {attempt + 1}/{max_attempts} failed (status={status}): {e}"
+                )
             except Exception as e:
                 last_err = e
-                logger.warning(f"/sample attempt {attempt + 1}/3 failed: {e}")
-                time.sleep(min(2 ** attempt, 10))
-        raise RuntimeError(f"failed to fetch sample from {url}: {last_err}")
+                logger.warning(f"/sample attempt {attempt + 1}/{max_attempts} failed: {e}")
+            time.sleep(min(2 ** min(attempt, 4), 10))
+        raise RuntimeError(
+            f"failed to fetch sample from {url} after {max_attempts} attempts: {last_err}"
+        )
 
     # --------------------------------------------------------------
     # Dataset protocol
