@@ -240,6 +240,7 @@ class ServerState:
             "reports": 0,
             "direct_inserted": 0,
             "served_from_history": 0,
+            "served_from_seeds": 0,
             "started_at": datetime.now().isoformat(),
         }
 
@@ -1026,7 +1027,19 @@ async def sample():
             s.stats["served"] += 1
             s.stats["served_from_history"] += 1
             return entry
-        raise HTTPException(status_code=503, detail="pool empty and history is empty")
+        # Cold-start fallback: serve a random labeled training seed so the
+        # trainer never blocks waiting for the generator pipeline to spin up.
+        # Workers keep generating in the background; once the pool is fed,
+        # /sample resumes serving fresh entries.
+        if s.train_seeds:
+            entry = dict(random.choice(s.train_seeds))
+            extra = dict(entry.get("extra_info") or {})
+            extra.setdefault("question_id", f"seed_{id(entry):x}")
+            entry["extra_info"] = extra
+            s.stats["served"] += 1
+            s.stats["served_from_seeds"] += 1
+            return entry
+        raise HTTPException(status_code=503, detail="pool, history, and train_seeds all empty")
     s.stats["served"] += 1
     return entry
 
