@@ -35,11 +35,19 @@ echo "    HF_CACHE=$HF_CACHE  (resolved → $HF_CACHE_REAL)  LOG_FILE=$LOG_FILE"
 # that (no need to specify `vllm serve` ourselves). --writable-tmpfs gives
 # the container a writable /tmp without persisting changes. --nv exposes
 # host GPUs via the NVIDIA Container Toolkit shim apptainer ships.
-exec apptainer run --nv --writable-tmpfs \
+# --cleanenv: strip the host's env so things like CC/CXX/CUDA_HOME pointing at
+# host module-loaded paths (e.g. /orcd/software/core/001/spack/...) don't leak
+# into the container. DeepGEMM's JIT does string-based path existence checks
+# on those variables, so each leaked var means a separate boot failure.
+# Re-set what we actually need; HF_HOME has to be the host's symlink target
+# (see `readlink -f` above), the toolchain ones point at the image's gcc/nvcc.
+exec apptainer run --nv --writable-tmpfs --cleanenv \
   --bind "${HF_CACHE_REAL}":"${HF_CACHE_REAL}" \
   --env HF_HOME="${HF_CACHE_REAL}" \
   --env CUDA_HOME=/usr/local/cuda \
   --env PATH=/usr/local/cuda/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin \
+  --env CC=/usr/bin/gcc \
+  --env CXX=/usr/bin/g++ \
   "$SIF" \
   --model "$MODEL" \
   -tp "$TP" \
