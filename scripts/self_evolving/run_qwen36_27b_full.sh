@@ -8,15 +8,21 @@ set -xeuo pipefail
 # Chat / judge endpoint. Defaults to mib's internal vllm server; override
 # for K8s deploys that point at an external OpenAI-compatible API (e.g.
 # Kimi: API_BASE=https://api.moonshot.ai/v1 CHAT_PROVIDER=kimi MODEL_NAME=kimi-k2.6).
-export API_BASE="${API_BASE:-http://node2500:8002/v1}"
+export API_BASE="${API_BASE:-http://vps3.dd.works:18005/v1}"
 export API_KEY="${API_KEY:-EMPTY}"
 export CHAT_PROVIDER="${CHAT_PROVIDER:-vllm}"
-export MODEL_NAME="${MODEL_NAME:-Qwen/Qwen3.6-27B}"
+export MODEL_NAME="${MODEL_NAME:-Qwen/Qwen3.5-397B-A17B-FP8}"
 export DATA_DIR="${DATA_DIR:-/home/dvdai/scratch/dvdai/self_evolving_datasets/mimiciv_rare}"
-export EXPERIMENT_NAME="${EXPERIMENT_NAME:-mimiciv_rare_qwen36_27b}"
-export BIOBERT_API_BASE="${BIOBERT_API_BASE:-http://localhost:8003}"
+export EXPERIMENT_NAME="${EXPERIMENT_NAME:-mimiciv_rare_qwen36_27b_full_qwen397b}"
+export EMBED_API_BASE="${EMBED_API_BASE:-http://mib.media.mit.edu:18001/v1}"
+export EMBED_API_KEY="${EMBED_API_KEY:-EMPTY}"
+export EMBED_MODEL="${EMBED_MODEL:-Qwen/Qwen3-VL-Embedding-2B}"
 export GEN_SERVER_URL="${GEN_SERVER_URL:-http://localhost:8004}"
 export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0,1,2,3}"
+
+# vLLM sampling-time repetition penalty (defends against the
+# "I will output \boxed{X}" loop collapse we hit on the DAPO run).
+REPETITION_PENALTY="${REPETITION_PENALTY:-1.1}"
 
 # cu130 flashinfer-cubin on mib needs conda's libstdc++ (GLIBCXX_3.4.26 not
 # in /lib64). Docker image already ships a recent libstdc++, so only set
@@ -55,7 +61,9 @@ cd "$REPO_ROOT"
     +reward.custom_reward_function.reward_kwargs.api_base="$API_BASE" \
     +reward.custom_reward_function.reward_kwargs.api_key="$API_KEY" \
     +reward.custom_reward_function.reward_kwargs.model_name="$MODEL_NAME" \
-    +reward.custom_reward_function.reward_kwargs.biobert_api_base="$BIOBERT_API_BASE" \
+    +reward.custom_reward_function.reward_kwargs.embed_api_base="$EMBED_API_BASE" \
+    +reward.custom_reward_function.reward_kwargs.embed_api_key="$EMBED_API_KEY" \
+    +reward.custom_reward_function.reward_kwargs.embed_model="$EMBED_MODEL" \
     +reward.custom_reward_function.reward_kwargs.gen_server_url="$GEN_SERVER_URL" \
     reward.reward_manager.name=dapo \
     +reward.reward_kwargs.overlong_buffer_cfg.enable=True \
@@ -67,15 +75,21 @@ cd "$REPO_ROOT"
     actor_rollout_ref.model.use_remove_padding=True \
     actor_rollout_ref.model.enable_gradient_checkpointing=True \
     actor_rollout_ref.actor.strategy=fsdp2 \
-    actor_rollout_ref.actor.optim.lr=5e-7 \
+    actor_rollout_ref.actor.optim.lr=2e-7 \
     actor_rollout_ref.actor.ppo_mini_batch_size=32 \
     actor_rollout_ref.actor.use_dynamic_bsz=True \
     actor_rollout_ref.actor.ppo_max_token_len_per_gpu=24576 \
+    actor_rollout_ref.actor.use_kl_loss=False \
+    actor_rollout_ref.actor.clip_ratio_low=0.2 \
+    actor_rollout_ref.actor.clip_ratio_high=0.24 \
+    actor_rollout_ref.actor.clip_ratio_c=10.0 \
+    actor_rollout_ref.actor.loss_agg_mode=token-mean \
     actor_rollout_ref.actor.fsdp_config.param_offload=True \
     actor_rollout_ref.actor.fsdp_config.optimizer_offload=True \
     actor_rollout_ref.rollout.name=vllm \
     actor_rollout_ref.rollout.n=8 \
     actor_rollout_ref.rollout.temperature=1.0 \
+    +actor_rollout_ref.rollout.repetition_penalty="$REPETITION_PENALTY" \
     actor_rollout_ref.rollout.tensor_model_parallel_size=4 \
     actor_rollout_ref.rollout.gpu_memory_utilization=0.55 \
     actor_rollout_ref.rollout.max_model_len=16384 \
