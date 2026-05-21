@@ -178,16 +178,12 @@ class ServerState:
         self.args = args
         self.loop = loop
         self.train_seeds = self._load_seeds(args.seeds_path)
-        for s in self.train_seeds:
-            s["_origin"] = "train"
         self.test_seeds: list[dict] = []
         if args.test_seeds_path:
             self.test_seeds = self._load_seeds(args.test_seeds_path)
             for s in self.test_seeds:
-                # Strip the label so the generator can never see it; tag as
-                # test_masked so the worker loop knows not to direct-insert.
+                # Strip the label so the generator can never see it.
                 s.pop("reward_model", None)
-                s["_origin"] = "test_masked"
         # Kept for /replay logging compatibility and any consumer that wants a
         # flat seed list — workers no longer iterate this in order.
         self.seeds = list(self.train_seeds) + list(self.test_seeds)
