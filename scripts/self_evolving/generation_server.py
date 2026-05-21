@@ -837,6 +837,11 @@ async def worker_loop(state: ServerState, worker_id: int):
                 state.mix_counts["direct"] += 1
                 state.history.append(entry)
                 await state.pool.put(entry)
+                logger.info(
+                    f"+ direct qid={entry['extra_info']['question_id']} "
+                    f"pool=({state.pool.qsize()}/{state.args.max_pool_size}) "
+                    f"accepted={state.stats['total_accepted']}"
+                )
                 continue
 
             if mode == "gen_test":
@@ -901,6 +906,11 @@ async def worker_loop(state: ServerState, worker_id: int):
                 state.mix_counts[mode] += 1
                 state.history.append(entry)
                 await state.pool.put(entry)
+                logger.info(
+                    f"+ gen[{mode}] qid={entry['extra_info']['question_id']} "
+                    f"pool=({state.pool.qsize()}/{state.args.max_pool_size}) "
+                    f"generated={state.stats['total_generated']}"
+                )
 
             for r in rejected_list:
                 async with state.log_lock:
@@ -1005,6 +1015,15 @@ async def stats():
     }
 
 
+def _log_served(s, entry: dict, source: str) -> None:
+    qid = (entry.get("extra_info") or {}).get("question_id", "?")
+    logger.info(
+        f"- served qid={qid} from={source} "
+        f"pool=({s.pool.qsize()}/{s.args.max_pool_size}) "
+        f"served={s.stats['served']}"
+    )
+
+
 @app.get("/sample")
 async def sample():
     s = STATE
@@ -1013,6 +1032,7 @@ async def sample():
     if s.replay_buffer:
         entry = s.replay_buffer.popleft()
         s.stats["served"] += 1
+        _log_served(s, entry, "replay")
         return entry
     # Try to get a freshly-generated entry from the pool. If the workers
     # can't keep up (e.g. the chat server is saturated), fall back to a
@@ -1026,6 +1046,7 @@ async def sample():
             entry = random.choice(s.history)
             s.stats["served"] += 1
             s.stats["served_from_history"] += 1
+            _log_served(s, entry, "history")
             return entry
         # Cold-start fallback: serve a random labeled training seed so the
         # trainer never blocks waiting for the generator pipeline to spin up.
@@ -1038,24 +1059,32 @@ async def sample():
             entry["extra_info"] = extra
             s.stats["served"] += 1
             s.stats["served_from_seeds"] += 1
+            _log_served(s, entry, "seeds")
             return entry
         raise HTTPException(status_code=503, detail="pool, history, and train_seeds all empty")
     s.stats["served"] += 1
+    _log_served(s, entry, "pool")
     return entry
 
 
 @app.post("/report")
 async def report(payload: ReportPayload):
     s = STATE
-    s.accuracy_by_id[payload.question_id] = float(payload.accuracy)
-    s.accuracy_history.append(float(payload.accuracy))
+    acc = float(payload.accuracy)
+    s.accuracy_by_id[payload.question_id] = acc
+    s.accuracy_history.append(acc)
     s.stats["reports"] += 1
+    recent_mean = sum(s.accuracy_history) / len(s.accuracy_history)
+    logger.info(
+        f"! feedback qid={payload.question_id} acc={acc:.2f} "
+        f"reports={s.stats['reports']} recent_mean={recent_mean:.2f}"
+    )
     async with s.log_lock:
         with open(s.report_log, "a") as f:
             f.write(json.dumps({
                 "ts": datetime.now().isoformat(),
                 "question_id": payload.question_id,
-                "accuracy": float(payload.accuracy),
+                "accuracy": acc,
             }) + "\n")
     return {"ok": True}
 
