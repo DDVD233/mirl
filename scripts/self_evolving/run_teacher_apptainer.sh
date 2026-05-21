@@ -29,8 +29,13 @@ echo "    HF_CACHE=$HF_CACHE  LOG_FILE=$LOG_FILE"
 # that (no need to specify `vllm serve` ourselves). --writable-tmpfs gives
 # the container a writable /tmp without persisting changes. --nv exposes
 # host GPUs via the NVIDIA Container Toolkit shim apptainer ships.
+#
+# Bind the HF cache to its *same* path inside the container: apptainer
+# preserves the host's $HOME (=/home/dvdai) so HuggingFace's default lookup
+# is $HOME/.cache/huggingface/hub — pointing the bind at /root/... would
+# leave that default unhappy.
 exec apptainer run --nv --writable-tmpfs \
-  --bind "${HF_CACHE}":/root/.cache/huggingface \
+  --bind "${HF_CACHE}":"${HF_CACHE}" \
   "$SIF" \
   --model "$MODEL" \
   -tp "$TP" \
