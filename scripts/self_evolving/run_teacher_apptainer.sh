@@ -10,7 +10,7 @@
 
 set -e
 
-SIF="${SIF:-/scratch/dvdai/vllm-openai-v0.20.0-cu130.sif}"
+SIF="${SIF:-${HOME}/scratch/dvd/sif/vllm-openai-v0.20.0-cu130.sif}"
 MODEL="${MODEL:-Qwen/Qwen3.5-397B-A17B-FP8}"
 PORT="${PORT:-8005}"
 TP="${TP:-4}"
