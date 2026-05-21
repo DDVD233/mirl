@@ -81,11 +81,19 @@ class ExternalLLMServerClient:
         **kwargs: Any,
     ) -> TokenOutput:
         if image_data or video_data:
-            # vLLM's OpenAI completions API doesn't accept image/video data; teacher must be
-            # a text-only path. Multimodal external teachers would need /v1/chat/completions
-            # and a more elaborate request format.
-            raise NotImplementedError(
-                "ExternalLLMServerClient does not support multimodal teacher inputs yet."
+            # vLLM's OpenAI /v1/completions accepts only text/token-ids. Our teacher is
+            # served with --language-model-only so it couldn't use the visual embeddings
+            # anyway. Drop the media here and let the teacher score the response tokens
+            # against the text-only prefix (image placeholder tokens stay in the prompt
+            # but are treated as regular text). The distillation signal for samples with
+            # actual images is therefore approximate; warn once per request so we can
+            # see how often it fires.
+            logger.warning(
+                "ExternalLLMServerClient dropping multimodal data for teacher logprobs "
+                "(text-only teacher); req=%s images=%d videos=%d",
+                request_id,
+                len(image_data) if image_data else 0,
+                len(video_data) if video_data else 0,
             )
         num_prompt_logprobs = int(sampling_params.get("prompt_logprobs", 0) or 0)
         payload = {
