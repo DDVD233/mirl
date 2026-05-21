@@ -38,6 +38,8 @@ echo "    HF_CACHE=$HF_CACHE  (resolved → $HF_CACHE_REAL)  LOG_FILE=$LOG_FILE"
 exec apptainer run --nv --writable-tmpfs \
   --bind "${HF_CACHE_REAL}":"${HF_CACHE_REAL}" \
   --env HF_HOME="${HF_CACHE_REAL}" \
+  --env CUDA_HOME=/usr/local/cuda \
+  --env PATH=/usr/local/cuda/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin \
   "$SIF" \
   --model "$MODEL" \
   -tp "$TP" \
