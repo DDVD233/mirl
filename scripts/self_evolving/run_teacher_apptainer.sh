@@ -57,7 +57,7 @@ exec apptainer run --nv --writable-tmpfs --cleanenv \
   --host 0.0.0.0 \
   --port "$PORT" \
   --served-model-name "$MODEL" \
-  --max-model-len "${MAX_MODEL_LEN:-16384}" \
+  --max-model-len "${MAX_MODEL_LEN:-32768}" \
   --max-num-seqs "${MAX_NUM_SEQS:-16}" \
   --gpu-memory-utilization "${GPU_MEM_UTIL:-0.85}" \
   --trust-remote-code 2>&1 | tee "$LOG_FILE"
