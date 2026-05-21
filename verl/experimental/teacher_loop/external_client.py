@@ -36,7 +36,11 @@ logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 
 _DEFAULT_TIMEOUT_S = float(os.environ.get("VERL_EXTERNAL_TEACHER_TIMEOUT", "600"))
-_DEFAULT_RETRIES = int(os.environ.get("VERL_EXTERNAL_TEACHER_RETRIES", "4"))
+_DEFAULT_RETRIES = int(os.environ.get("VERL_EXTERNAL_TEACHER_RETRIES", "8"))
+# Per-request connection limit at the client side. Trainer fires ~batch_size*n
+# (e.g. 512) teacher calls in parallel after every step; cap how many we send
+# at once so we don't immediately overwhelm the vLLM server.
+_DEFAULT_CONN_LIMIT = int(os.environ.get("VERL_EXTERNAL_TEACHER_CONN_LIMIT", "32"))
 
 
 class ExternalLLMServerClient:
@@ -67,7 +71,19 @@ class ExternalLLMServerClient:
     async def _get_session(self) -> aiohttp.ClientSession:
         if self._session is None or self._session.closed:
             timeout = aiohttp.ClientTimeout(total=_DEFAULT_TIMEOUT_S)
-            self._session = aiohttp.ClientSession(timeout=timeout)
+            # force_close: don't reuse pooled connections. vLLM tends to drop
+            # idle/keepalive sockets under bursty load, and a stale-but-pooled
+            # connection raises ServerDisconnectedError on its very first byte
+            # of the next request, which we'd then need to retry anyway.
+            # limit: cap concurrent in-flight teacher calls so the burst at
+            # the end of a training step (batch_size * n_rollouts, e.g. 512)
+            # doesn't synflood the remote.
+            connector = aiohttp.TCPConnector(
+                limit=_DEFAULT_CONN_LIMIT,
+                force_close=True,
+                enable_cleanup_closed=True,
+            )
+            self._session = aiohttp.ClientSession(timeout=timeout, connector=connector)
         return self._session
 
     async def generate(
