@@ -15,6 +15,12 @@ MODEL="${MODEL:-Qwen/Qwen3.5-397B-A17B-FP8}"
 PORT="${PORT:-8005}"
 TP="${TP:-4}"
 HF_CACHE="${HF_CACHE:-/home/dvdai/.cache/huggingface}"
+# Resolve symlinks before binding: on vps3, ~/.cache/huggingface is a symlink
+# into /orcd/compute/ppliang/001/dvdai/huggingface. Binding the symlink source
+# doesn't help the container — apptainer doesn't auto-mount the symlink target,
+# so the symlink dangles inside the container. Bind the real path instead and
+# point HF_HOME at it so HuggingFace skips the symlink entirely.
+HF_CACHE_REAL="$(readlink -f "$HF_CACHE")"
 LOG_FILE="${LOG_FILE:-/tmp/teacher_vllm.log}"
 
 source /usr/share/lmod/lmod/init/bash
@@ -23,19 +29,15 @@ module load apptainer/1.4.2
 echo "=== launching vllm via apptainer run at $(date) ==="
 echo "    SIF=$SIF"
 echo "    MODEL=$MODEL  PORT=$PORT  TP=$TP"
-echo "    HF_CACHE=$HF_CACHE  LOG_FILE=$LOG_FILE"
+echo "    HF_CACHE=$HF_CACHE  (resolved → $HF_CACHE_REAL)  LOG_FILE=$LOG_FILE"
 
 # Image's runscript is `vllm serve`, so args after the SIF are appended to
 # that (no need to specify `vllm serve` ourselves). --writable-tmpfs gives
 # the container a writable /tmp without persisting changes. --nv exposes
 # host GPUs via the NVIDIA Container Toolkit shim apptainer ships.
-#
-# Bind the HF cache to its *same* path inside the container: apptainer
-# preserves the host's $HOME (=/home/dvdai) so HuggingFace's default lookup
-# is $HOME/.cache/huggingface/hub — pointing the bind at /root/... would
-# leave that default unhappy.
 exec apptainer run --nv --writable-tmpfs \
-  --bind "${HF_CACHE}":"${HF_CACHE}" \
+  --bind "${HF_CACHE_REAL}":"${HF_CACHE_REAL}" \
+  --env HF_HOME="${HF_CACHE_REAL}" \
   "$SIF" \
   --model "$MODEL" \
   -tp "$TP" \
