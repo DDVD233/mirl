@@ -56,11 +56,17 @@ logger = logging.getLogger("gen_server")
 # ======================================================================
 
 QUERY_PROPOSER_SYSTEM_PROMPT = """\
-You are a medical information retrieval expert. Given a training question, propose 10 \
-diverse search queries for retrieving medical knowledge from a multimodal database \
-(PubMedQA abstracts, MIRAGE MCQs, MedRAG textbooks, PubMed, Wikipedia, PMC-VQA, CLIMB \
-clinical QA across chest X-ray, derm, CT, ECG, fundus, MRI, mammography, ultrasound, \
-pathology).
+You are a medical information retrieval expert. Given a training question (and optionally \
+a list of previously-proposed similar questions with the solver's running accuracy on \
+each), propose 10 diverse search queries for retrieving medical knowledge from a \
+multimodal database (PubMedQA abstracts, MIRAGE MCQs, MedRAG textbooks, PubMed, Wikipedia, \
+PMC-VQA, CLIMB clinical QA across chest X-ray, derm, CT, ECG, fundus, MRI, mammography, \
+ultrasound, pathology).
+
+If a list of previously-proposed similar questions is provided, FIRST briefly assess \
+(internally, in your reasoning) what the solver appears to already do well (high accuracy) \
+and where it struggles (low accuracy or untested), then bias your 10 queries toward the \
+gaps. DO NOT generate queries whose answers would duplicate those past questions.
 
 Output EXACTLY 10 queries, one per angle below (IN ORDER). Each query is a complete \
 sentence (not keywords), specific enough to retrieve focused results, and should retrieve \
@@ -227,6 +233,13 @@ class ServerState:
 
         self.accuracy_history: deque = deque(maxlen=args.accuracy_window)
         self.accuracy_by_id: dict[str, float] = {}
+        # Per-question performance counters mirrored into the Milvus history
+        # collection. Keep the in-memory copy authoritative so we don't lose a
+        # /report racing an in-flight insert; Milvus is the cross-restart store.
+        self.history_counters: dict[str, dict] = {}
+        # Lock so concurrent /report calls for the same qid don't double-count
+        # before the upsert lands.
+        self.history_counter_lock = asyncio.Lock()
         self.stats = {
             "total_queries": 0,
             "total_generated": 0,
@@ -467,6 +480,225 @@ async def _milvus_search(state: ServerState, query_text: str, top_k: int) -> lis
         return await asyncio.to_thread(_milvus_search_sync, state, embedding, top_k)
 
 
+# ======================================================================
+# Milvus history collection: every proposed question + running solver acc.
+#
+# The history collection is separate from the read-only `medical_knowledge`
+# RAG collection. We own write access here: insert at validator-accept time,
+# upsert num_reports/num_correct counters as the trainer streams feedback.
+# At propose time the worker queries top-K neighbors to (a) avoid repeating
+# very similar questions and (b) surface what the solver is good at / bad at.
+# ======================================================================
+
+def _history_ensure_collection_sync(state) -> None:
+    """Create the history collection if missing. Idempotent — safe to call
+    on every server start."""
+    from pymilvus import DataType, MilvusClient
+
+    coll = state.args.milvus_history_collection
+    client = MilvusClient(uri=state.args.milvus_uri, token=state.args.milvus_token)
+    try:
+        if client.has_collection(coll):
+            return
+        schema = client.create_schema(auto_id=False, enable_dynamic_field=True)
+        schema.add_field("entry_id", DataType.VARCHAR, is_primary=True, max_length=128)
+        schema.add_field("embedding", DataType.FLOAT_VECTOR,
+                         dim=state.args.milvus_embedding_dim)
+        schema.add_field("question_text", DataType.VARCHAR, max_length=8192)
+        schema.add_field("answer_text", DataType.VARCHAR, max_length=2048)
+        schema.add_field("question_format", DataType.VARCHAR, max_length=16)
+        schema.add_field("mode", DataType.VARCHAR, max_length=16)
+        schema.add_field("num_reports", DataType.INT64)
+        schema.add_field("num_correct", DataType.INT64)
+        schema.add_field("created_at", DataType.INT64)
+        index_params = client.prepare_index_params()
+        index_params.add_index(field_name="embedding", metric_type="COSINE",
+                               index_type="AUTOINDEX")
+        client.create_collection(coll, schema=schema, index_params=index_params)
+        logger.info(f"created milvus history collection '{coll}'")
+    finally:
+        try:
+            client.close()
+        except Exception:
+            pass
+
+
+def _history_insert_sync(state, entry_id: str, embedding: list[float],
+                         question_text: str, answer_text: str,
+                         question_format: str, mode: str) -> None:
+    from pymilvus import MilvusClient
+
+    client = MilvusClient(uri=state.args.milvus_uri, token=state.args.milvus_token)
+    try:
+        client.insert(
+            collection_name=state.args.milvus_history_collection,
+            data=[{
+                "entry_id": entry_id,
+                "embedding": embedding,
+                "question_text": question_text[:8192],
+                "answer_text": (answer_text or "")[:2048],
+                "question_format": (question_format or "")[:16],
+                "mode": (mode or "")[:16],
+                "num_reports": 0,
+                "num_correct": 0,
+                "created_at": int(time.time()),
+            }],
+        )
+    finally:
+        try:
+            client.close()
+        except Exception:
+            pass
+
+
+async def history_insert(state, entry: dict, mode: str) -> None:
+    """Embed the question text and insert this entry into the history
+    collection. Fire-and-forget: failures are logged but don't block the
+    worker — Milvus being down should never wedge the pool."""
+    extra = entry.get("extra_info") or {}
+    entry_id = extra.get("question_id")
+    question_text = (extra.get("question") or "").strip() or _extract_user_text(entry)
+    if not entry_id or not question_text:
+        return
+    try:
+        embedding = await _embed_text(state, question_text)
+    except Exception as e:
+        logger.warning(f"history embed failed for {entry_id}: {type(e).__name__}: {e}")
+        return
+    # Track in-memory counters so we never miss a /report that arrives before
+    # the Milvus insert lands.
+    state.history_counters.setdefault(entry_id, {"num_reports": 0, "num_correct": 0})
+    answer_text = ""
+    if entry.get("reward_model") and isinstance(entry["reward_model"], dict):
+        answer_text = str(entry["reward_model"].get("ground_truth", ""))
+    question_format = extra.get("format", "")
+    try:
+        await asyncio.to_thread(
+            _history_insert_sync, state, entry_id, embedding,
+            question_text, answer_text, question_format, mode,
+        )
+    except Exception as e:
+        logger.warning(f"history insert failed for {entry_id}: {type(e).__name__}: {e}")
+
+
+def _history_upsert_perf_sync(state, entry_id: str, num_reports: int,
+                              num_correct: int) -> bool:
+    """Read existing row, bump counters, upsert. Returns True if the row
+    existed (we found and updated it), False if it was missing (race with
+    insert — caller may retry later)."""
+    from pymilvus import MilvusClient
+
+    client = MilvusClient(uri=state.args.milvus_uri, token=state.args.milvus_token)
+    try:
+        rows = client.get(
+            collection_name=state.args.milvus_history_collection,
+            ids=[entry_id],
+        )
+        if not rows:
+            return False
+        row = rows[0]
+        client.upsert(
+            collection_name=state.args.milvus_history_collection,
+            data=[{
+                "entry_id": entry_id,
+                "embedding": row["embedding"],
+                "question_text": row.get("question_text", ""),
+                "answer_text": row.get("answer_text", ""),
+                "question_format": row.get("question_format", ""),
+                "mode": row.get("mode", ""),
+                "num_reports": int(num_reports),
+                "num_correct": int(num_correct),
+                "created_at": row.get("created_at", int(time.time())),
+            }],
+        )
+        return True
+    finally:
+        try:
+            client.close()
+        except Exception:
+            pass
+
+
+def _history_search_sync(state, embedding: list[float], top_k: int) -> list[dict]:
+    from pymilvus import MilvusClient
+
+    client = MilvusClient(uri=state.args.milvus_uri, token=state.args.milvus_token)
+    try:
+        results = client.search(
+            collection_name=state.args.milvus_history_collection,
+            data=[embedding],
+            limit=top_k,
+            output_fields=["question_text", "answer_text", "question_format",
+                           "num_reports", "num_correct"],
+        )
+        hits: list[dict] = []
+        for hit_list in results:
+            for hit in hit_list:
+                e = hit["entity"]
+                hits.append({
+                    "question": e.get("question_text", ""),
+                    "answer": e.get("answer_text", ""),
+                    "format": e.get("question_format", ""),
+                    "num_reports": int(e.get("num_reports", 0) or 0),
+                    "num_correct": int(e.get("num_correct", 0) or 0),
+                    "score": hit.get("distance"),
+                })
+        return hits
+    finally:
+        try:
+            client.close()
+        except Exception:
+            pass
+
+
+async def history_search(state, query_text: str, top_k: Optional[int] = None) -> list[dict]:
+    """Find the top-k most-similar previously-proposed questions."""
+    if top_k is None:
+        top_k = state.args.history_retrieve_top_k
+    try:
+        embedding = await _embed_text(state, query_text)
+    except Exception as e:
+        logger.warning(
+            f"history search embed failed for '{query_text[:60]}': "
+            f"{type(e).__name__}: {e!r}"
+        )
+        return []
+    try:
+        return await asyncio.to_thread(_history_search_sync, state, embedding, top_k)
+    except Exception as e:
+        logger.warning(f"history search failed: {type(e).__name__}: {e}")
+        return []
+
+
+def format_history_context(hits: list[dict]) -> str:
+    """Render top-k neighbor entries as a compact context block for the
+    proposer prompt. Each entry shows the question, format, and observed
+    solver accuracy (correct/reports) so the proposer can reason about gaps."""
+    if not hits:
+        return ""
+    lines = ["Recently proposed similar questions and the solver's running accuracy:"]
+    for i, h in enumerate(hits, 1):
+        n_rep = h.get("num_reports", 0) or 0
+        n_cor = h.get("num_correct", 0) or 0
+        if n_rep:
+            perf = f"{n_cor}/{n_rep} correct ({n_cor / n_rep:.0%})"
+        else:
+            perf = "not yet scored"
+        fmt = h.get("format") or ""
+        q = (h.get("question") or "").replace("\n", " ").strip()
+        if len(q) > 400:
+            q = q[:400] + "…"
+        lines.append(f"{i}. [{fmt}] {q}  [{perf}]")
+    lines.append("")
+    lines.append(
+        "Use these to (a) NOT repeat or near-paraphrase any of the above, "
+        "(b) infer what topics/skills the solver is consistently RIGHT about and "
+        "should NOT be drilled further, and (c) target the gaps where the solver is "
+        "getting answers wrong or has not been tested."
+    )
+    return "\n".join(lines)
+
+
 def _parse_json(s: str, expect_array: bool = False):
     """Extract JSON from a possibly-noisy model response.
 
@@ -532,15 +764,17 @@ def _extract_user_text(target: dict) -> str:
 # ======================================================================
 # Agents
 # ======================================================================
-async def agent_query_proposer(state: ServerState, target: dict) -> list[str]:
+async def agent_query_proposer(state: ServerState, target: dict,
+                               history_context: str = "") -> list[str]:
     target_question = (
         target.get("extra_info", {}).get("question", "")
         or _extract_user_text(target)
     )
-    user_prompt = (
-        f"Target training question:\n{target_question}\n\n"
-        f"Generate {state.args.n_queries} diverse search queries."
-    )
+    parts = [f"Target training question:\n{target_question}"]
+    if history_context:
+        parts.append(history_context)
+    parts.append(f"Generate {state.args.n_queries} diverse search queries.")
+    user_prompt = "\n\n".join(parts)
     # Kimi JSON Mode only outputs JSON Objects — not arrays — so we don't
     # request response_format here. The proposer's prompt already pins the
     # output to "JSON array of 10 strings" and _parse_json strips fenced
@@ -833,6 +1067,11 @@ async def worker_loop(state: ServerState, worker_id: int):
                 state.mix_counts["direct"] += 1
                 state.history.append(entry)
                 await state.pool.put(entry)
+                # Mirror into the Milvus history collection so /report can
+                # update perf counters and future propose cycles can retrieve
+                # neighbors. Fire-and-forget — failures must not block the
+                # pool.
+                asyncio.create_task(history_insert(state, entry, "direct"))
                 logger.info(
                     f"+ direct qid={entry['extra_info']['question_id']} "
                     f"pool=({state.pool.qsize()}/{state.args.max_pool_size}) "
@@ -849,10 +1088,19 @@ async def worker_loop(state: ServerState, worker_id: int):
                 or _extract_user_text(target)
             )
 
+            # Retrieve nearest neighbors from the running gen_history collection
+            # so the proposer can avoid repeating questions and target gaps in
+            # the solver's coverage. Best-effort: if Milvus is down we just
+            # skip the context and the proposer runs unconditioned.
+            history_hits = await history_search(state, target_question)
+            history_context = format_history_context(history_hits)
+
             queries: list[str] = []
             for attempt in range(3):
                 try:
-                    queries = await agent_query_proposer(state, target)
+                    queries = await agent_query_proposer(
+                        state, target, history_context=history_context,
+                    )
                     break
                 except Exception as e:
                     logger.warning(
@@ -902,6 +1150,7 @@ async def worker_loop(state: ServerState, worker_id: int):
                 state.mix_counts[mode] += 1
                 state.history.append(entry)
                 await state.pool.put(entry)
+                asyncio.create_task(history_insert(state, entry, mode))
                 logger.info(
                     f"+ gen[{mode}] qid={entry['extra_info']['question_id']} "
                     f"pool=({state.pool.qsize()}/{state.args.max_pool_size}) "
@@ -966,6 +1215,18 @@ async def lifespan(app: FastAPI):
             keepalive_expiry=120.0,
         ),
     )
+
+    # Ensure the Milvus history collection exists before any worker tries
+    # to insert into it. Idempotent — does nothing if the collection is
+    # already there. Failures here aren't fatal; insert/search will retry
+    # later and just log warnings if Milvus is unavailable.
+    try:
+        await asyncio.to_thread(_history_ensure_collection_sync, STATE)
+    except Exception as e:
+        logger.warning(
+            f"history collection init failed (will retry per-insert): "
+            f"{type(e).__name__}: {e}"
+        )
 
     workers = [
         asyncio.create_task(worker_loop(STATE, i)) for i in range(args.workers)
@@ -1082,6 +1343,42 @@ async def report(payload: ReportPayload):
                 "question_id": payload.question_id,
                 "accuracy": acc,
             }) + "\n")
+
+    # Update the Milvus history collection counters. Aggregation: each report
+    # is binary accuracy (we treat acc >= 0.5 as correct). The Milvus row
+    # stores running num_reports + num_correct; running rate = num_correct /
+    # num_reports. Use an in-memory cache to merge concurrent reports for the
+    # same qid without race-clobbering the Milvus upsert.
+    correct_delta = 1 if acc >= 0.5 else 0
+    async with s.history_counter_lock:
+        cur = s.history_counters.setdefault(
+            payload.question_id, {"num_reports": 0, "num_correct": 0}
+        )
+        cur["num_reports"] += 1
+        cur["num_correct"] += correct_delta
+        snapshot = dict(cur)
+
+    async def _upsert():
+        try:
+            ok = await asyncio.to_thread(
+                _history_upsert_perf_sync,
+                s,
+                payload.question_id,
+                snapshot["num_reports"],
+                snapshot["num_correct"],
+            )
+            if not ok:
+                logger.debug(
+                    f"history upsert: qid {payload.question_id} not yet in "
+                    f"Milvus (insert race) — counters cached in memory"
+                )
+        except Exception as e:
+            logger.warning(
+                f"history upsert failed for {payload.question_id}: "
+                f"{type(e).__name__}: {e}"
+            )
+    asyncio.create_task(_upsert())
+
     return {"ok": True}
 
 
@@ -1158,6 +1455,25 @@ def main():
     parser.add_argument("--milvus_uri", required=True)
     parser.add_argument("--milvus_token", default="root:Milvus")
     parser.add_argument("--milvus_collection", default="medical_knowledge")
+    parser.add_argument(
+        "--milvus_history_collection",
+        default="gen_history",
+        help="Milvus collection used to remember every proposed/accepted question + "
+             "running solver accuracy. Auto-created on startup if missing.",
+    )
+    parser.add_argument(
+        "--milvus_embedding_dim",
+        type=int,
+        default=2048,
+        help="Embedding dim for the history collection (must match --embed_model).",
+    )
+    parser.add_argument(
+        "--history_retrieve_top_k",
+        type=int,
+        default=10,
+        help="How many neighbor questions to retrieve from history when seeding the "
+             "proposer.",
+    )
     parser.add_argument("--milvus_top_k", type=int, default=16)
     parser.add_argument("--n_queries", type=int, default=10)
     parser.add_argument("--questions_per_query", type=int, default=1)
