@@ -491,6 +491,35 @@ async def _milvus_search(state: ServerState, query_text: str, top_k: int) -> lis
 # ======================================================================
 
 
+def _maybe_log_sample(entry: dict, mode: str, prob: float = 0.01) -> None:
+    """Print full question + answer to the log with probability `prob` so we
+    can spot-check what the proposer is generating without flooding the log
+    (each step has ~64 inserts, so 1% ≈ a sample every step or two)."""
+    if random.random() >= prob:
+        return
+    extra = entry.get("extra_info") or {}
+    qid = extra.get("question_id", "?")
+    question = (extra.get("question") or "").strip()
+    options = extra.get("options") if isinstance(extra.get("options"), dict) else None
+    answer = ""
+    rm = entry.get("reward_model")
+    if isinstance(rm, dict):
+        answer = str(rm.get("ground_truth", "")).strip()
+    fmt = extra.get("format", "?")
+    lines = [
+        "",
+        "================ gen sample (1%) ================",
+        f"qid={qid}  mode={mode}  format={fmt}",
+        f"Q: {question}",
+    ]
+    if options:
+        for k, v in options.items():
+            lines.append(f"   {k}. {v}")
+    lines.append(f"A: {answer}")
+    lines.append("=================================================")
+    logger.info("\n".join(lines))
+
+
 def _truncate_right_bytes(s: str, max_chars: int, max_bytes: int) -> str:
     """Trim `s` so it fits within both `max_chars` and `max_bytes` (UTF-8),
     keeping the RIGHT side. mimiciv_rare prompts put the actual question at
@@ -1095,6 +1124,7 @@ async def worker_loop(state: ServerState, worker_id: int):
                 # neighbors. Fire-and-forget — failures must not block the
                 # pool.
                 asyncio.create_task(history_insert(state, entry, "direct"))
+                _maybe_log_sample(entry, "direct")
                 logger.info(
                     f"+ direct qid={entry['extra_info']['question_id']} "
                     f"pool=({state.pool.qsize()}/{state.args.max_pool_size}) "
@@ -1174,6 +1204,7 @@ async def worker_loop(state: ServerState, worker_id: int):
                 state.history.append(entry)
                 await state.pool.put(entry)
                 asyncio.create_task(history_insert(state, entry, mode))
+                _maybe_log_sample(entry, mode)
                 logger.info(
                     f"+ gen[{mode}] qid={entry['extra_info']['question_id']} "
                     f"pool=({state.pool.qsize()}/{state.args.max_pool_size}) "
