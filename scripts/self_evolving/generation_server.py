@@ -490,6 +490,25 @@ async def _milvus_search(state: ServerState, query_text: str, top_k: int) -> lis
 # very similar questions and (b) surface what the solver is good at / bad at.
 # ======================================================================
 
+
+def _truncate_right_bytes(s: str, max_chars: int, max_bytes: int) -> str:
+    """Trim `s` so it fits within both `max_chars` and `max_bytes` (UTF-8),
+    keeping the RIGHT side. mimiciv_rare prompts put the actual question at
+    the end after a long demographics/labs preamble, so the suffix is the
+    semantically important part to retain. Milvus varchar fields are sized
+    in bytes, so we also have to clamp the encoded byte length."""
+    if not s:
+        return ""
+    if len(s) > max_chars:
+        s = s[-max_chars:]
+    b = s.encode("utf-8")
+    if len(b) <= max_bytes:
+        return s
+    # Drop bytes from the left until we fit, then decode permissively in case
+    # we sliced mid-character.
+    b = b[-max_bytes:]
+    return b.decode("utf-8", errors="ignore")
+
 def _history_ensure_collection_sync(state) -> None:
     """Create the history collection if missing. Idempotent — safe to call
     on every server start."""
@@ -535,8 +554,8 @@ def _history_insert_sync(state, entry_id: str, embedding: list[float],
             data=[{
                 "entry_id": entry_id,
                 "embedding": embedding,
-                "question_text": question_text[:8192],
-                "answer_text": (answer_text or "")[:2048],
+                "question_text": _truncate_right_bytes(question_text, 4096, 8000),
+                "answer_text": _truncate_right_bytes(answer_text or "", 1024, 2000),
                 "question_format": (question_format or "")[:16],
                 "mode": (mode or "")[:16],
                 "num_reports": 0,
@@ -602,10 +621,14 @@ def _history_upsert_perf_sync(state, entry_id: str, num_reports: int,
             data=[{
                 "entry_id": entry_id,
                 "embedding": row["embedding"],
-                "question_text": row.get("question_text", ""),
-                "answer_text": row.get("answer_text", ""),
-                "question_format": row.get("question_format", ""),
-                "mode": row.get("mode", ""),
+                "question_text": _truncate_right_bytes(
+                    row.get("question_text", "") or "", 4096, 8000
+                ),
+                "answer_text": _truncate_right_bytes(
+                    row.get("answer_text", "") or "", 1024, 2000
+                ),
+                "question_format": (row.get("question_format") or "")[:16],
+                "mode": (row.get("mode") or "")[:16],
                 "num_reports": int(num_reports),
                 "num_correct": int(num_correct),
                 "created_at": row.get("created_at", int(time.time())),
