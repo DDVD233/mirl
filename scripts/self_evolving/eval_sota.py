@@ -1,10 +1,12 @@
 """Evaluate a SoTA model on the MIMIC-IV rare-disease test set.
 
-Supports Gemini (``--provider gemini``) and OpenAI-compatible chat
-endpoints (``--provider openai``, e.g. GPT-5.5). Uses the EXACT same
-scoring pipeline as training/val
-(verl.utils.reward_score.self_evolving.compute_score) so metrics are
-directly comparable to wandb's val-core / val-aux numbers from training.
+Supports Gemini (``--provider gemini``), OpenAI-compatible chat endpoints
+(``--provider openai``, e.g. GPT-5.5), Moonshot Kimi (``--provider kimi``),
+and our own vLLM-hosted Qwen3 servers (``--provider vllm``, e.g. the
+Qwen3.5-397B-A17B-FP8 teacher on vps3). Uses the EXACT same scoring
+pipeline as training/val (verl.utils.reward_score.self_evolving.compute_score)
+so metrics are directly comparable to wandb's val-core / val-aux numbers
+from training.
 
 Pipeline per test entry:
     1. Send the system + user prompt (with chest X-ray + ECG images) to
@@ -13,21 +15,20 @@ Pipeline per test entry:
          - acc                 exact / normalized match (0/1)
          - answer_quality      Qwen-judge 1-5
          - reasoning_quality   Qwen-judge 1-5
-         - biobert_sim         cosine [0,1] via biobert server
+         - embed_sim           cosine [0,1] via embedding server
          - char_bleu           NLTK char-level BLEU-4
          - format_ok           \\boxed{} present
          - score               composite weighted reward
     3. Aggregate (mean, max, min, p50) per metric.
 
-The same Qwen judge endpoint (api_base) and BioBERT server
-(biobert_api_base) used during training MUST be reachable so the LLM-
-judge and embedding components match exactly.
+The Qwen judge endpoint (api_base) and embedding server
+(embed_api_base) used during training MUST be reachable so the LLM-judge
+and embedding components match exactly.
 
 Usage (Gemini):
     GEMINI_API_KEY=... \
     API_BASE=http://node2500:8002/v1 \
     MODEL_NAME=Qwen/Qwen3.6-27B \
-    BIOBERT_API_BASE=http://localhost:8003 \
     python scripts/self_evolving/eval_sota.py \
         --provider gemini \
         --val_file $HOME/scratch/dvdai/self_evolving_datasets/mimiciv_rare/test.jsonl \
@@ -39,13 +40,22 @@ Usage (GPT-5.5):
     OPENAI_API_KEY=... \
     API_BASE=http://node2500:8002/v1 \
     MODEL_NAME=Qwen/Qwen3.6-27B \
-    BIOBERT_API_BASE=http://localhost:8003 \
     python scripts/self_evolving/eval_sota.py \
         --provider openai \
         --model_name gpt-5.5 \
         --val_file $HOME/scratch/dvdai/self_evolving_datasets/mimiciv_rare/test.jsonl \
         --concurrency 8 \
         --limit 200
+
+Usage (our vLLM teacher — Qwen3.5-397B-A17B-FP8 on vps3):
+    API_BASE=http://vps3.dd.works:18005/v1 \
+    MODEL_NAME=Qwen/Qwen3.5-397B-A17B-FP8 \
+    python scripts/self_evolving/eval_sota.py \
+        --provider vllm \
+        --val_file $HOME/scratch/dvdai/self_evolving_datasets/mimiciv_rare/test.jsonl \
+        --concurrency 8 \
+        --limit 200
+    # --vllm_thinking False for a fast no-CoT eval pass.
 """
 
 from __future__ import annotations
@@ -95,10 +105,13 @@ OPENAI_DEFAULT_MODEL = "gpt-5.5"
 OPENAI_DEFAULT_BASE = "https://api.openai.com/v1"
 KIMI_DEFAULT_MODEL = "kimi-k2.6"
 KIMI_DEFAULT_BASE = "https://api.moonshot.ai/v1"
+VLLM_DEFAULT_MODEL = "Qwen/Qwen3.5-397B-A17B-FP8"
+VLLM_DEFAULT_BASE = "http://vps3.dd.works:18005/v1"
 PROVIDER_DEFAULT_MODEL = {
     "gemini": GEMINI_DEFAULT_MODEL,
     "openai": OPENAI_DEFAULT_MODEL,
     "kimi": KIMI_DEFAULT_MODEL,
+    "vllm": VLLM_DEFAULT_MODEL,
 }
 
 
@@ -307,6 +320,39 @@ def _build_openai_request(
     }
 
 
+def _build_vllm_request(
+    entry: dict,
+    model_name: str,
+    max_pixels: int = 256 * 256,
+    max_text_chars: int = 9000,
+    enable_thinking: bool = True,
+    max_tokens: int = 16384,
+) -> dict:
+    """vLLM chat-completions body for a Qwen3-family server.
+
+    Same shape as _build_openai_request, but vLLM exposes Qwen3's thinking
+    toggle through `chat_template_kwargs={"enable_thinking": …}` (the same
+    knob HuggingFace's apply_chat_template uses). With reasoning enabled
+    and `--reasoning-parser qwen3` on the server, the visible answer lands
+    in `message.content` and the trace in `message.reasoning_content`;
+    `_call_openai` falls back to the latter so an empty content (e.g.
+    truncated by `max_tokens` mid-thought) still produces something
+    scorable.
+
+    Uses `max_tokens` (works for vLLM regardless of OpenAI's reasoning
+    rename) and temperature 0 for deterministic eval.
+    """
+    body = _build_openai_request(
+        entry, model_name,
+        max_pixels=max_pixels, max_text_chars=max_text_chars,
+    )
+    body.pop("max_completion_tokens", None)
+    body["max_tokens"] = max_tokens
+    body["temperature"] = 0.0
+    body["chat_template_kwargs"] = {"enable_thinking": bool(enable_thinking)}
+    return body
+
+
 def _build_kimi_request(
     entry: dict,
     model_name: str,
@@ -441,6 +487,17 @@ async def _call_openai(
         if isinstance(content, list):
             # Reasoning-style models can return content as a list of parts.
             content = "".join(p.get("text", "") for p in content if isinstance(p, dict))
+        # vLLM with `--reasoning-parser qwen3` (and Kimi/DeepSeek reasoning
+        # models) put the thinking trace in `reasoning_content` and the final
+        # answer in `content`. If `content` is empty (model was cut off
+        # mid-thinking) fall back to whatever reasoning we got so the judge
+        # can still score it instead of seeing an empty response.
+        if not content:
+            content = msg.get("reasoning_content") or msg.get("reasoning") or ""
+            if isinstance(content, list):
+                content = "".join(
+                    p.get("text", "") for p in content if isinstance(p, dict)
+                )
         return content or ""
 
     label = body.get("model") or os.path.basename(base_url.rstrip("/"))
@@ -452,7 +509,9 @@ async def _score_one(
     api_base: str,
     api_key: str,
     judge_model: str,
-    biobert_api_base: str,
+    embed_api_base: str,
+    embed_api_key: str,
+    embed_model: str,
 ) -> dict:
     """Run compute_score on the entry's response, mirroring the reward path."""
     extra_info = entry.get("extra_info", {}) or {}
@@ -467,7 +526,9 @@ async def _score_one(
         api_base=api_base,
         api_key=api_key,
         model_name=judge_model,
-        biobert_api_base=biobert_api_base,
+        embed_api_base=embed_api_base,
+        embed_api_key=embed_api_key,
+        embed_model=embed_model,
     )
 
 
@@ -511,6 +572,18 @@ async def _eval_one(
                 response = await _call_openai(
                     session, args.openai_base_url, args.openai_api_key, body,
                 )
+            elif args.provider == "vllm":
+                body = _build_vllm_request(
+                    entry,
+                    args.model_name,
+                    max_pixels=args.max_pixels,
+                    max_text_chars=args.max_text_chars,
+                    enable_thinking=args.vllm_thinking,
+                    max_tokens=args.vllm_max_tokens,
+                )
+                response = await _call_openai(
+                    session, args.openai_base_url, args.openai_api_key, body,
+                )
             else:
                 raise RuntimeError(f"unknown provider: {args.provider}")
         except Exception as e:
@@ -529,7 +602,9 @@ async def _eval_one(
         api_base=args.api_base,
         api_key=args.judge_api_key,
         judge_model=args.judge_model_name,
-        biobert_api_base=args.biobert_api_base,
+        embed_api_base=args.embed_api_base,
+        embed_api_key=args.embed_api_key,
+        embed_model=args.embed_model,
     )
     score = dict(score)
     score["error"] = err is not None
@@ -563,7 +638,7 @@ async def _main_async(args) -> int:
         f"Provider: {args.provider}, model: {args.model_name}, "
         f"judge: {args.judge_model_name} @ {args.api_base}"
     )
-    print(f"BioBERT: {args.biobert_api_base or '(disabled)'}")
+    print(f"Embedding: {args.embed_model} @ {args.embed_api_base or '(disabled)'}")
 
     output_path = Path(args.output_jsonl)
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -595,7 +670,8 @@ async def _main_async(args) -> int:
                     pass  # still counted in done_ids; skip on retry
                 for k in ("acc", "judge_acc_lenient", "judge_acc_strict",
                           "answer_quality", "reasoning_quality",
-                          "biobert_sim", "char_bleu", "format_ok", "score"):
+                          "embed_sim", "biobert_sim", "char_bleu",
+                          "format_ok", "score"):
                     if k in rec and isinstance(rec[k], (int, float)):
                         aggregated[k].append(float(rec[k]))
         if resumed:
@@ -635,7 +711,8 @@ async def _main_async(args) -> int:
                     error_count += 1
                 for k in ("acc", "judge_acc_lenient", "judge_acc_strict",
                           "answer_quality", "reasoning_quality",
-                          "biobert_sim", "char_bleu", "format_ok", "score"):
+                          "embed_sim", "biobert_sim", "char_bleu",
+                          "format_ok", "score"):
                     if k in score and isinstance(score[k], (int, float)):
                         aggregated[k].append(float(score[k]))
                 out_fp.write(json.dumps(score) + "\n")
@@ -658,7 +735,7 @@ async def _main_async(args) -> int:
                         f"jS={_mean('judge_acc_strict'):.4f}  "
                         f"qual={_mean('answer_quality'):.3f}  "
                         f"bleu={_mean('char_bleu'):.3f}  "
-                        f"bio={_mean('biobert_sim'):.3f}  "
+                        f"emb={_mean('embed_sim'):.3f}  "
                         f"rate={rate:.2f}/s  eta={eta_min:.1f} min"
                     )
 
@@ -673,7 +750,7 @@ async def _main_async(args) -> int:
     print("=" * 70)
     for key in ("score", "acc", "judge_acc_lenient", "judge_acc_strict",
                 "answer_quality", "reasoning_quality",
-                "biobert_sim", "char_bleu", "format_ok"):
+                "embed_sim", "char_bleu", "format_ok"):
         a = _agg(aggregated.get(key, []))
         print(
             f"  {key:>20s}  mean={a['mean']:.4f}  median={a['median']:.4f}  "
@@ -690,15 +767,19 @@ def main() -> None:
     )
     parser.add_argument(
         "--provider",
-        choices=("gemini", "openai", "kimi"),
+        choices=("gemini", "openai", "kimi", "vllm"),
         default=os.environ.get("EVAL_PROVIDER", "gemini"),
-        help="Which API to call for the candidate model.",
+        help="Which API to call for the candidate model. `vllm` is for our "
+             "own vLLM-hosted Qwen3 servers (e.g. the 397B teacher on vps3); "
+             "it adds chat_template_kwargs={enable_thinking:…} and pulls the "
+             "answer from `reasoning_content` if the model was truncated.",
     )
     parser.add_argument(
         "--model_name",
         default=None,
         help="Model ID. Defaults to gemini-3.1-pro-preview / gpt-5.5 / "
-             "kimi-k2.6 for gemini / openai / kimi respectively.",
+             "kimi-k2.6 / Qwen/Qwen3.5-397B-A17B-FP8 for "
+             "gemini / openai / kimi / vllm respectively.",
     )
     parser.add_argument(
         "--kimi_thinking",
@@ -706,6 +787,20 @@ def main() -> None:
         default=True,
         help="When --provider kimi, send thinking={type:enabled}; pass False "
              "to use thinking-disabled mode (faster, fixed temp 0.6).",
+    )
+    parser.add_argument(
+        "--vllm_thinking",
+        type=lambda x: str(x).lower() in ("1", "true", "yes", "on"),
+        default=True,
+        help="When --provider vllm, send chat_template_kwargs.enable_thinking "
+             "= True. Pass False for a fast no-CoT pass.",
+    )
+    parser.add_argument(
+        "--vllm_max_tokens",
+        type=int,
+        default=16384,
+        help="When --provider vllm, max_tokens per call. Bump if thinking is "
+             "on and you see truncated responses.",
     )
     parser.add_argument("--gemini_api_key", default=os.environ.get("GEMINI_API_KEY", ""))
     parser.add_argument(
@@ -721,7 +816,25 @@ def main() -> None:
     parser.add_argument("--judge_model_name", default=os.environ.get("MODEL_NAME", "Qwen/Qwen3.6-27B"))
     parser.add_argument("--api_base", default=os.environ.get("API_BASE", "http://node2500:8002/v1"))
     parser.add_argument("--judge_api_key", default=os.environ.get("API_KEY", "EMPTY"))
-    parser.add_argument("--biobert_api_base", default=os.environ.get("BIOBERT_API_BASE", "http://localhost:8003"))
+    parser.add_argument("--biobert_api_base", default=os.environ.get("BIOBERT_API_BASE", ""),
+                        help="Deprecated. The reward function no longer uses BioBERT — "
+                             "use --embed_api_base/--embed_model instead. Accepted "
+                             "for backwards compatibility with old launchers; ignored.")
+    parser.add_argument(
+        "--embed_api_base",
+        default=os.environ.get("EMBED_API_BASE", "http://mib.media.mit.edu:18001/v1"),
+        help="OpenAI-compatible embedding endpoint used for the embed_sim "
+             "component of the score. Must match what training uses for "
+             "reward/embed_sim to be comparable.",
+    )
+    parser.add_argument(
+        "--embed_api_key",
+        default=os.environ.get("EMBED_API_KEY", "EMPTY"),
+    )
+    parser.add_argument(
+        "--embed_model",
+        default=os.environ.get("EMBED_MODEL", "Qwen/Qwen3-VL-Embedding-2B"),
+    )
     parser.add_argument("--concurrency", type=int, default=8)
     parser.add_argument("--limit", type=int, default=0, help="0 means evaluate all entries")
     parser.add_argument(
@@ -760,12 +873,17 @@ def main() -> None:
 
     if args.model_name is None:
         args.model_name = PROVIDER_DEFAULT_MODEL[args.provider]
-    # Auto-flip openai_base_url to the Kimi endpoint when the user picked
-    # --provider kimi but didn't explicitly override the base URL. We keep
-    # the same --openai_api_key arg / OPENAI_API_KEY env (or you can pass
-    # --openai_api_key=$MOONSHOT_API_KEY) — saves adding kimi-* twins.
+    # Auto-flip openai_base_url to the provider-specific default when the
+    # user picked --provider kimi/vllm but didn't explicitly override.
+    # For vllm/kimi we keep using --openai_api_key/OPENAI_API_KEY (or set
+    # it to "EMPTY" for our own servers) — saves adding provider-specific
+    # twins.
     if args.provider == "kimi" and args.openai_base_url == OPENAI_DEFAULT_BASE:
         args.openai_base_url = KIMI_DEFAULT_BASE
+    if args.provider == "vllm" and args.openai_base_url == OPENAI_DEFAULT_BASE:
+        args.openai_base_url = VLLM_DEFAULT_BASE
+    if args.provider == "vllm" and not args.openai_api_key:
+        args.openai_api_key = "EMPTY"
     if args.provider == "gemini" and not args.gemini_api_key:
         sys.exit("GEMINI_API_KEY (or --gemini_api_key) is required for --provider gemini")
     if args.provider == "openai" and not args.openai_api_key:
@@ -774,8 +892,8 @@ def main() -> None:
         sys.exit("Set MOONSHOT_API_KEY (or pass --openai_api_key) for --provider kimi")
     if not args.api_base:
         print("WARNING: api_base is empty — Qwen judge metrics will fall back to defaults")
-    if not args.biobert_api_base:
-        print("WARNING: biobert_api_base is empty — biobert_sim will be 0.0 for every sample")
+    if not args.embed_api_base:
+        print("WARNING: embed_api_base is empty — embed_sim will be 0.0 for every sample")
 
     if not args.output_jsonl:
         # Stable default — no timestamp — so re-running resumes the prior run
