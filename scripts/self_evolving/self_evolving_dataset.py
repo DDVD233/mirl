@@ -6,10 +6,18 @@ Fetches pre-generated training samples from the generation server (see
 Milvus logic lives in the server; this class is a thin HTTP client that
 inherits from RLHFDataset for tokenizer / processor / message-building.
 
-Each `__getitem__(item)` either returns a previously fetched entry at
-that index or pulls the next one from `GET /sample`. Entries arrive
-already shaped for RLHFDataset (prompt + reward_model + extra_info, with
-`extra_info.question_id` so the reward function can POST accuracy back).
+The gen server is treated as an infinite queue of fresh samples. The
+first time `__getitem__(item)` sees a given `item` index it pulls the
+next entry from `GET /sample` and binds it to that index in an in-memory
+dict; subsequent calls with the same index hit the cache. Indices do
+NOT need to be consecutive — this matters on checkpoint resume, where
+verl walks the dataloader past already-trained batches: we just hand out
+fresh samples for those skipped indices rather than re-fetching N
+samples sequentially to reach the resume point.
+
+Entries arrive already shaped for RLHFDataset (prompt + reward_model +
+extra_info, with `extra_info.question_id` so the reward function can
+POST accuracy back).
 
 Trainer reports accuracy via the reward function (see
 `verl.utils.reward_score.self_evolving._report_to_gen_server`).
@@ -62,8 +70,10 @@ class SelfEvolvingDataset(RLHFDataset):
 
         self._wait_for_server()
 
-        # Replace parent's seed dataframe with our growing list of fetched entries.
-        self._fetched: list[dict] = []
+        # Replace parent's seed dataframe with our index → entry cache.
+        # Dict (not list) so the trainer can request arbitrary indices
+        # (e.g. on resume) without us walking 0..N sequentially.
+        self._fetched: dict[int, dict] = {}
         self.dataframe = self._fetched
 
         print(f"SelfEvolvingDataset: connected to {self.gen_server_url} "
@@ -125,6 +135,6 @@ class SelfEvolvingDataset(RLHFDataset):
         return self.dataset_length
 
     def __getitem__(self, item: int) -> dict:
-        while len(self._fetched) <= item:
-            self._fetched.append(self._fetch_one())
+        if item not in self._fetched:
+            self._fetched[item] = self._fetch_one()
         return super().__getitem__(item)
