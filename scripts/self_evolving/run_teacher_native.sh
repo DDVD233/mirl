@@ -23,7 +23,14 @@ PORT="${PORT:-8188}"
 DP="${DP:-2}"
 TP="${TP:-2}"
 MAX_NUM_SEQS="${MAX_NUM_SEQS:-128}"
-GPU_MEM_UTIL="${GPU_MEM_UTIL:-0.6}"
+GPU_MEM_UTIL="${GPU_MEM_UTIL:-0.65}"
+# The model's config says max_position_embeddings=262144 (256K context),
+# which makes vLLM size KV cache per request for a 256K sequence. Capping
+# to 16384 here lets the same KV budget serve far more concurrent
+# requests, since OPD only ever sends prompt 8192 + response 4096 = 12288
+# tokens. 0.65 also gives ~9 GiB/GPU more than 0.6 — enough for prefill
+# activations on `prompt_logprobs` requests.
+MAX_MODEL_LEN="${MAX_MODEL_LEN:-16384}"
 # Persist the model in the shared PVC so a teacher restart on either pod
 # reuses the same 400GB FP8 weights.
 export HF_HOME="${HF_HOME:-/scratch/sheng/self_evolving/hf_cache}"
@@ -52,5 +59,6 @@ exec vllm serve "$MODEL" \
   --port "$PORT" \
   --served-model-name "$MODEL" \
   --max-num-seqs "$MAX_NUM_SEQS" \
+  --max-model-len "$MAX_MODEL_LEN" \
   --gpu-memory-utilization "$GPU_MEM_UTIL" \
   --trust-remote-code 2>&1 | tee "$LOG_FILE"
