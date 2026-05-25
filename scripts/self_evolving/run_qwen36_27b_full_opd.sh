@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Self-evolving (gen-server-driven) Qwen3.6-27B training + on-policy
 # distillation from an external Qwen3.5-397B-A17B-FP8 teacher served via
-# vLLM (default: http://vps3.dd.works:18005/v1). Composed of:
+# vLLM (default: http://point.dd.works:18187/v1, the sheng-evolving2 pod).
+# Composed of:
 #   - run_qwen36_27b_full.sh  : SelfEvolvingDataset + gen_server reward hook
 #   - run_qwen36_27b_opd_external.sh : distillation.* knobs (k1 + policy gradient)
 #
@@ -12,7 +13,7 @@ set -xeuo pipefail
 
 # Chat/judge endpoint (used by reward.compute_score). Same 397B teacher by
 # default; CHAT_PROVIDER=vllm matches the served-model contract.
-export API_BASE="${API_BASE:-http://vps3.dd.works:18005/v1}"
+export API_BASE="${API_BASE:-http://point.dd.works:18187/v1}"
 export API_KEY="${API_KEY:-EMPTY}"
 export CHAT_PROVIDER="${CHAT_PROVIDER:-vllm}"
 export MODEL_NAME="${MODEL_NAME:-Qwen/Qwen3.5-397B-A17B-FP8}"
@@ -26,7 +27,7 @@ export GEN_SERVER_URL="${GEN_SERVER_URL:-http://localhost:8004}"
 export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0,1,2,3}"
 
 # External OPD teacher (same 397B endpoint by default).
-export TEACHER_URL="${TEACHER_URL:-http://vps3.dd.works:18005/v1}"
+export TEACHER_URL="${TEACHER_URL:-http://point.dd.works:18187/v1}"
 export TEACHER_API_KEY="${TEACHER_API_KEY:-EMPTY}"
 export TEACHER_MODEL="${TEACHER_MODEL:-Qwen/Qwen3.5-397B-A17B-FP8}"
 export DISTILL_LOSS_MODE="${DISTILL_LOSS_MODE:-k1}"
