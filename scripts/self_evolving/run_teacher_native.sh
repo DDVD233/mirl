@@ -23,14 +23,17 @@ PORT="${PORT:-8188}"
 DP="${DP:-2}"
 TP="${TP:-2}"
 MAX_NUM_SEQS="${MAX_NUM_SEQS:-128}"
-GPU_MEM_UTIL="${GPU_MEM_UTIL:-0.65}"
+GPU_MEM_UTIL="${GPU_MEM_UTIL:-0.7}"
 # The model's config says max_position_embeddings=262144 (256K context),
-# which makes vLLM size KV cache per request for a 256K sequence. Capping
-# to 16384 here lets the same KV budget serve far more concurrent
-# requests, since OPD only ever sends prompt 8192 + response 4096 = 12288
-# tokens. 0.65 also gives ~9 GiB/GPU more than 0.6 — enough for prefill
-# activations on `prompt_logprobs` requests.
-MAX_MODEL_LEN="${MAX_MODEL_LEN:-16384}"
+# which makes vLLM size KV cache per request for a 256K sequence. Cap
+# here to the largest window we actually use:
+#   - OPD client: prompt 8192 + response 4096 = 12288 tokens
+#   - gen-server proposer/judge: chat-completion with max_tokens=12288
+#     and a long system+context prompt, so we need ~12288 + ~16K of
+#     prompt budget = ~28K. 32768 leaves margin.
+# 0.70 util keeps enough KV for one full-window request at 32K and still
+# leaves prefill activation headroom for `prompt_logprobs` bursts.
+MAX_MODEL_LEN="${MAX_MODEL_LEN:-32768}"
 # Persist the model in the shared PVC so a teacher restart on either pod
 # reuses the same 400GB FP8 weights.
 export HF_HOME="${HF_HOME:-/scratch/sheng/self_evolving/hf_cache}"
