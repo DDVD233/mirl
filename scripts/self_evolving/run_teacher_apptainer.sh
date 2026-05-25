@@ -60,5 +60,10 @@ exec apptainer run --nv --writable-tmpfs --cleanenv \
   --port "$PORT" \
   --served-model-name "$MODEL" \
   --max-num-seqs "${MAX_NUM_SEQS:-128}" \
-  --gpu-memory-utilization "${GPU_MEM_UTIL:-0.95}" \
+  --gpu-memory-utilization "${GPU_MEM_UTIL:-0.6}" \
   --trust-remote-code 2>&1 | tee "$LOG_FILE"
+# gpu_memory_utilization default lowered to 0.6 (was 0.95) so that requests
+# with `prompt_logprobs` (used by on-policy distillation) have headroom for
+# the extra LM-head activations during prefill. At 0.95 the engine OOM'd
+# inside dump_input.py mid-step when the trainer fired its end-of-step
+# burst of teacher logprob calls on top of the gen+judge traffic.
