@@ -91,6 +91,21 @@ RETRY_STATUSES = {429, 500, 502, 503, 504}
 # rate. Sized for Kimi-K2.6 (~1000 RPM, shared by both training runs).
 RATE_PER_SEC = float(os.environ.get("TRAPI_RATE_PER_SEC", "14"))
 RATE_BURST = float(os.environ.get("TRAPI_RATE_BURST", "28"))
+# Per-model rate overrides (deployments have very different limits — e.g. Kimi
+# ~1000 RPM vs gpt-5.5 ~12.8K RPM). Format: "model=rate_per_sec,model2=rate2".
+def _parse_rate_overrides(s: str) -> dict[str, float]:
+    out: dict[str, float] = {}
+    for part in s.split(","):
+        part = part.strip()
+        if "=" in part:
+            k, v = part.rsplit("=", 1)
+            try:
+                out[k.strip()] = float(v)
+            except ValueError:
+                pass
+    return out
+
+RATE_OVERRIDES = _parse_rate_overrides(os.environ.get("TRAPI_RATE_OVERRIDES", ""))
 
 # Hop-by-hop headers must not be forwarded (RFC 7230 §6.1). We also drop host
 # (set by httpx), authorization (we inject our own), and content-length /
@@ -214,9 +229,10 @@ async def lifespan(app: FastAPI):
             async with app.state.rate_lock:
                 b = app.state.rate_buckets.get(model)
                 if b is None:
-                    b = RateLimiter(RATE_PER_SEC, RATE_BURST)
+                    rate = RATE_OVERRIDES.get(model, RATE_PER_SEC)
+                    b = RateLimiter(rate, max(RATE_BURST, rate * 2))
                     app.state.rate_buckets[model] = b
-                    logger.info("created rate bucket for model=%s (%.1f/s)", model, RATE_PER_SEC)
+                    logger.info("created rate bucket for model=%s (%.1f/s)", model, rate)
         return b
 
     app.state.bucket_for = _bucket_for
