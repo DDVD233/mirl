@@ -223,6 +223,10 @@ async def _call_api(
         payload["chat_template_kwargs"] = {"enable_thinking": False}
     elif provider == "kimi":
         payload["thinking"] = {"type": "disabled"}
+    elif provider == "trapi":
+        # TRAPI (Azure-OpenAI-served Kimi): no temperature; the judge wants no
+        # reasoning, so disable it via reasoning_effort.
+        payload["reasoning_effort"] = "none"
     else:  # openai-compatible / generic
         payload["temperature"] = 0.0
 

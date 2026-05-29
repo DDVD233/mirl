@@ -360,6 +360,14 @@ async def _api_call(state: ServerState, system_prompt: str, user_prompt: str,
         # Kimi k2.6 hard-fixes temperature (1.0 thinking / 0.6 non-thinking)
         # and 400s on any explicit value, so we just signal thinking mode.
         payload["thinking"] = {"type": "enabled" if want_thinking else "disabled"}
+    elif provider == "trapi":
+        # TRAPI (Azure-OpenAI-served Kimi) rejects temperature, repetition
+        # penalty, chat_template_kwargs and the Moonshot `thinking` field. The
+        # reasoning on/off switch is reasoning_effort: omit it for reasoning,
+        # send "none" to disable it. No temperature is sent (Kimi fixes it
+        # internally per reasoning mode).
+        if not want_thinking:
+            payload["reasoning_effort"] = "none"
     else:  # openai-compatible / generic
         payload["temperature"] = temperature
     # JSON Mode (Kimi / OpenAI). When the caller will pass the response
@@ -370,7 +378,7 @@ async def _api_call(state: ServerState, system_prompt: str, user_prompt: str,
     # response_format={"type":"json_object"} but require the prompt itself
     # to describe the schema (which our agent system prompts already do).
     # vllm without guided_json doesn't accept this field — skip it there.
-    if want_json and provider in ("kimi", "openai"):
+    if want_json and provider in ("kimi", "openai", "trapi"):
         payload["response_format"] = {"type": "json_object"}
     headers = {"Authorization": f"Bearer {state.args.api_key}"}
     # When the chat server is saturated (e.g. heavy reward-judge traffic + 8
