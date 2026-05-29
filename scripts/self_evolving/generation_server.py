@@ -361,11 +361,13 @@ async def _api_call(state: ServerState, system_prompt: str, user_prompt: str,
         # and 400s on any explicit value, so we just signal thinking mode.
         payload["thinking"] = {"type": "enabled" if want_thinking else "disabled"}
     elif provider == "trapi":
-        # TRAPI (Azure-OpenAI-served Kimi) rejects temperature, repetition
-        # penalty, chat_template_kwargs and the Moonshot `thinking` field. The
-        # reasoning on/off switch is reasoning_effort: omit it for reasoning,
-        # send "none" to disable it. No temperature is sent (Kimi fixes it
-        # internally per reasoning mode).
+        # TRAPI Azure-OpenAI models (Kimi-K2.6, gpt-5.5, ...) reject temperature,
+        # repetition penalty, chat_template_kwargs and the Moonshot `thinking`
+        # field. They also want `max_completion_tokens` (gpt-5.x/o-series 400 on
+        # `max_tokens`; Kimi accepts either). Reasoning on/off switch is
+        # reasoning_effort: omit for reasoning, "none" to disable.
+        payload.pop("max_tokens", None)
+        payload["max_completion_tokens"] = max_tokens
         if not want_thinking:
             payload["reasoning_effort"] = "none"
     else:  # openai-compatible / generic

@@ -224,8 +224,11 @@ async def _call_api(
     elif provider == "kimi":
         payload["thinking"] = {"type": "disabled"}
     elif provider == "trapi":
-        # TRAPI (Azure-OpenAI-served Kimi): no temperature; the judge wants no
-        # reasoning, so disable it via reasoning_effort.
+        # TRAPI Azure-OpenAI models (Kimi, gpt-5.5, ...): no temperature; want
+        # `max_completion_tokens` (gpt-5.x 400 on `max_tokens`); judge disables
+        # reasoning via reasoning_effort.
+        payload.pop("max_tokens", None)
+        payload["max_completion_tokens"] = max_tokens
         payload["reasoning_effort"] = "none"
     else:  # openai-compatible / generic
         payload["temperature"] = 0.0

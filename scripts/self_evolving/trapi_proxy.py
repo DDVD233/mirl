@@ -44,6 +44,7 @@ from __future__ import annotations
 
 import asyncio
 import hmac
+import json
 import logging
 import os
 import random
@@ -201,7 +202,24 @@ async def lifespan(app: FastAPI):
         limits=httpx.Limits(max_connections=256, max_keepalive_connections=64),
     )
     app.state.sem = asyncio.Semaphore(MAX_CONCURRENCY)
-    app.state.rate = RateLimiter(RATE_PER_SEC, RATE_BURST)
+    # Per-model token buckets: each upstream deployment has its own TRAPI rate
+    # limit, so models must not share one bucket (otherwise two runs on
+    # different models still throttle each other). Created lazily per model.
+    app.state.rate_buckets = {}
+    app.state.rate_lock = asyncio.Lock()
+
+    async def _bucket_for(model: str) -> RateLimiter:
+        b = app.state.rate_buckets.get(model)
+        if b is None:
+            async with app.state.rate_lock:
+                b = app.state.rate_buckets.get(model)
+                if b is None:
+                    b = RateLimiter(RATE_PER_SEC, RATE_BURST)
+                    app.state.rate_buckets[model] = b
+                    logger.info("created rate bucket for model=%s (%.1f/s)", model, RATE_PER_SEC)
+        return b
+
+    app.state.bucket_for = _bucket_for
     # Fail fast & warm the cache so the first proxied request isn't slow.
     try:
         await app.state.tokens.token()
@@ -280,6 +298,16 @@ async def proxy(full_path: str, request: Request) -> Response:
     client: httpx.AsyncClient = request.app.state.client
     sem: asyncio.Semaphore = request.app.state.sem
 
+    # Each model is a distinct TRAPI deployment with its own rate limit, so pace
+    # per-model (two runs on different models must not throttle each other).
+    model = "_default"
+    if body:
+        try:
+            model = json.loads(body).get("model", "_default")
+        except (ValueError, AttributeError):
+            pass
+    bucket = await request.app.state.bucket_for(model)
+
     # Stream the upstream response so SSE (stream=true chat) passes through and
     # large prompt_logprobs bodies don't have to be buffered whole. We inspect
     # the status line before reading the body, so retrying on 429/5xx is safe
@@ -297,7 +325,7 @@ async def proxy(full_path: str, request: Request) -> Response:
             content=body,
         )
         try:
-            await request.app.state.rate.acquire()  # pace to upstream's sustainable rate
+            await bucket.acquire()  # pace this model to its sustainable rate
             async with sem:
                 upstream = await client.send(req, stream=True)
             last_err = None
