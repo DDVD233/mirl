@@ -46,9 +46,11 @@ export VALIDATION_DATA_DIR="${VALIDATION_DATA_DIR:-$LOG_DIR/val_generations/$EXP
 # it (gemma-4: Gemma4TextDecoderLayer).
 EXTRA_ARGS=()
 if [ -n "${FSDP_WRAP_CLS:-}" ]; then
+    # Must be a list — verl's FSDP1 wrap policy iterates the value, so a bare
+    # string would be iterated character-by-character. [Cls] keeps it a list.
     EXTRA_ARGS+=(
-        "+actor_rollout_ref.actor.fsdp_config.wrap_policy.transformer_layer_cls_to_wrap=$FSDP_WRAP_CLS"
-        "+actor_rollout_ref.ref.fsdp_config.wrap_policy.transformer_layer_cls_to_wrap=$FSDP_WRAP_CLS"
+        "+actor_rollout_ref.actor.fsdp_config.wrap_policy.transformer_layer_cls_to_wrap=[$FSDP_WRAP_CLS]"
+        "+actor_rollout_ref.ref.fsdp_config.wrap_policy.transformer_layer_cls_to_wrap=[$FSDP_WRAP_CLS]"
     )
 fi
 
