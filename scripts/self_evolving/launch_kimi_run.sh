@@ -39,21 +39,6 @@ export REPO_ROOT="${REPO_ROOT:-/scratch/sheng/self_evolving/verl}"
 LOG_DIR="${LOG_DIR:-/scratch/sheng/self_evolving/logs}"
 export VALIDATION_DATA_DIR="${VALIDATION_DATA_DIR:-$LOG_DIR/val_generations/$EXPERIMENT_NAME}"
 
-# Some multimodal models (e.g. gemma-4) don't expose `_no_split_modules` on the
-# outer *ForConditionalGeneration wrapper, so verl's FSDP auto-wrap can't find
-# the decoder layer class and aborts with "Could not find the transformer layer
-# class to wrap". Set FSDP_WRAP_CLS to the decoder layer class name to override
-# it (gemma-4: Gemma4TextDecoderLayer).
-EXTRA_ARGS=()
-if [ -n "${FSDP_WRAP_CLS:-}" ]; then
-    # Must be a list — verl's FSDP1 wrap policy iterates the value, so a bare
-    # string would be iterated character-by-character. [Cls] keeps it a list.
-    EXTRA_ARGS+=(
-        "+actor_rollout_ref.actor.fsdp_config.wrap_policy.transformer_layer_cls_to_wrap=[$FSDP_WRAP_CLS]"
-        "+actor_rollout_ref.ref.fsdp_config.wrap_policy.transformer_layer_cls_to_wrap=[$FSDP_WRAP_CLS]"
-    )
-fi
-
 cd "$REPO_ROOT"
 bash scripts/self_evolving/run_qwen36_27b_full.sh \
     actor_rollout_ref.model.path="$ACTOR_MODEL_PATH" \
@@ -63,5 +48,4 @@ bash scripts/self_evolving/run_qwen36_27b_full.sh \
     actor_rollout_ref.actor.clip_ratio_high=0.28 \
     trainer.test_freq=5 \
     trainer.save_freq=5 \
-    "${EXTRA_ARGS[@]}" \
     "$@" 2>&1 | tee "$LOG_DIR/train_${EXPERIMENT_NAME}.log"
