@@ -84,6 +84,12 @@ RETRY_BUDGET_S = float(os.environ.get("TRAPI_RETRY_BUDGET_S", "240"))
 RETRY_BASE_S = float(os.environ.get("TRAPI_RETRY_BASE_S", "1.0"))
 RETRY_CAP_S = float(os.environ.get("TRAPI_RETRY_CAP_S", "20"))
 RETRY_STATUSES = {429, 500, 502, 503, 504}
+# Global send-rate cap (token bucket). This is the PRIMARY 429 defense: retry
+# alone just amplifies load into a storm against a rate-limited upstream, so we
+# pace every upstream send (including retries) to the deployment's sustainable
+# rate. Sized for Kimi-K2.6 (~1000 RPM, shared by both training runs).
+RATE_PER_SEC = float(os.environ.get("TRAPI_RATE_PER_SEC", "14"))
+RATE_BURST = float(os.environ.get("TRAPI_RATE_BURST", "28"))
 
 # Hop-by-hop headers must not be forwarded (RFC 7230 §6.1). We also drop host
 # (set by httpx), authorization (we inject our own), and content-length /
@@ -158,6 +164,34 @@ class TokenCache:
             return self._token.token
 
 
+class RateLimiter:
+    """Async token bucket: refills at `rate` tokens/sec, capped at `capacity`.
+
+    Every upstream send (initial + retries) calls `acquire()`, so the proxy's
+    aggregate request rate to TRAPI can never exceed `rate` — which is what
+    keeps retries from snowballing into a 429 storm.
+    """
+
+    def __init__(self, rate: float, capacity: float):
+        self._rate = rate
+        self._capacity = capacity
+        self._tokens = capacity
+        self._last = time.monotonic()
+        self._lock = asyncio.Lock()
+
+    async def acquire(self) -> None:
+        while True:
+            async with self._lock:
+                now = time.monotonic()
+                self._tokens = min(self._capacity, self._tokens + (now - self._last) * self._rate)
+                self._last = now
+                if self._tokens >= 1.0:
+                    self._tokens -= 1.0
+                    return
+                wait = (1.0 - self._tokens) / self._rate
+            await asyncio.sleep(wait)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     app.state.tokens = TokenCache(SCOPE)
@@ -167,6 +201,7 @@ async def lifespan(app: FastAPI):
         limits=httpx.Limits(max_connections=256, max_keepalive_connections=64),
     )
     app.state.sem = asyncio.Semaphore(MAX_CONCURRENCY)
+    app.state.rate = RateLimiter(RATE_PER_SEC, RATE_BURST)
     # Fail fast & warm the cache so the first proxied request isn't slow.
     try:
         await app.state.tokens.token()
@@ -262,6 +297,7 @@ async def proxy(full_path: str, request: Request) -> Response:
             content=body,
         )
         try:
+            await request.app.state.rate.acquire()  # pace to upstream's sustainable rate
             async with sem:
                 upstream = await client.send(req, stream=True)
             last_err = None
