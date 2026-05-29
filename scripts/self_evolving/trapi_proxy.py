@@ -46,6 +46,7 @@ import asyncio
 import hmac
 import logging
 import os
+import random
 import time
 from contextlib import asynccontextmanager
 
@@ -71,12 +72,17 @@ REFRESH_SKEW_S = int(os.environ.get("TRAPI_REFRESH_SKEW_S", "300"))
 UPSTREAM_TIMEOUT_S = float(os.environ.get("TRAPI_UPSTREAM_TIMEOUT", "600"))
 # Cap concurrent in-flight upstream requests so a per-step reward burst
 # (batch*n judge calls) doesn't slam TRAPI's APIM gateway all at once.
-MAX_CONCURRENCY = int(os.environ.get("TRAPI_MAX_CONCURRENCY", "96"))
-# Retry 429/5xx upstream responses with backoff so clients never see them.
-# We decide to retry from the status line *before* streaming any body, so this
-# is safe for both streamed (SSE) and buffered responses.
-MAX_RETRIES = int(os.environ.get("TRAPI_MAX_RETRIES", "6"))
+MAX_CONCURRENCY = int(os.environ.get("TRAPI_MAX_CONCURRENCY", "64"))
+# Retry 429/5xx upstream responses so clients never see them. We decide to
+# retry from the status line *before* streaming any body, so this is safe for
+# both streamed (SSE) and buffered responses. Rather than a fixed attempt count
+# we keep retrying within a wall-clock budget (TRAPI's rate-limit window clears
+# on its own), with *jittered* backoff so many concurrent 429'd requests don't
+# retry in lockstep and re-trigger the limit. The budget stays under the
+# clients' own request timeouts (reward judge 300s, gen 1800s).
+RETRY_BUDGET_S = float(os.environ.get("TRAPI_RETRY_BUDGET_S", "240"))
 RETRY_BASE_S = float(os.environ.get("TRAPI_RETRY_BASE_S", "1.0"))
+RETRY_CAP_S = float(os.environ.get("TRAPI_RETRY_CAP_S", "20"))
 RETRY_STATUSES = {429, 500, 502, 503, 504}
 
 # Hop-by-hop headers must not be forwarded (RFC 7230 §6.1). We also drop host
@@ -244,8 +250,10 @@ async def proxy(full_path: str, request: Request) -> Response:
     # the status line before reading the body, so retrying on 429/5xx is safe
     # for streamed responses too. A semaphore caps concurrent upstream calls.
     upstream = None
-    backoff = RETRY_BASE_S
-    for attempt in range(MAX_RETRIES + 1):
+    deadline = time.monotonic() + RETRY_BUDGET_S
+    attempt = 0
+    last_err = None
+    while True:
         req = client.build_request(
             request.method,
             upstream_url,
@@ -256,24 +264,35 @@ async def proxy(full_path: str, request: Request) -> Response:
         try:
             async with sem:
                 upstream = await client.send(req, stream=True)
+            last_err = None
         except httpx.HTTPError as e:
-            if attempt < MAX_RETRIES:
-                await asyncio.sleep(backoff)
-                backoff = min(backoff * 2, 30.0)
-                continue
-            return JSONResponse(
-                {"error": {"message": f"upstream request failed: {type(e).__name__}: {e}",
-                           "type": "proxy_upstream_error"}},
-                status_code=502,
-            )
-        if upstream.status_code in RETRY_STATUSES and attempt < MAX_RETRIES:
-            retry_after = upstream.headers.get("retry-after")
-            delay = float(retry_after) if retry_after and retry_after.isdigit() else backoff
-            await upstream.aclose()
+            upstream, last_err = None, e
+
+        # Retriable = transient upstream status, or a network error.
+        retriable = last_err is not None or upstream.status_code in RETRY_STATUSES
+        if retriable and time.monotonic() < deadline:
+            # Prefer the server's Retry-After; else exponential backoff capped.
+            ra = upstream.headers.get("retry-after") if upstream is not None else None
+            base = float(ra) if (ra and ra.isdigit()) else min(RETRY_CAP_S, RETRY_BASE_S * (2 ** attempt))
+            # Full jitter so concurrent 429'd requests don't retry in lockstep.
+            delay = base * random.uniform(0.5, 1.5)
+            if upstream is not None:
+                await upstream.aclose()
             await asyncio.sleep(delay)
-            backoff = min(backoff * 2, 30.0)
+            attempt += 1
             continue
         break
+
+    if upstream is None:
+        return JSONResponse(
+            {"error": {"message": f"upstream request failed after {attempt} retries: "
+                                  f"{type(last_err).__name__}: {last_err}",
+                       "type": "proxy_upstream_error"}},
+            status_code=502,
+        )
+    if upstream.status_code in RETRY_STATUSES:
+        logger.warning("giving up after %d retries (%.0fs budget); upstream still %d on %s",
+                       attempt, RETRY_BUDGET_S, upstream.status_code, path)
 
     resp_headers = {
         k: v for k, v in upstream.headers.items()
