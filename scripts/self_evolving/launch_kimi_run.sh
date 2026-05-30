@@ -45,7 +45,7 @@ bash scripts/self_evolving/run_qwen36_27b_full.sh \
     data.train_batch_size=256 \
     actor_rollout_ref.actor.ppo_mini_batch_size=128 \
     actor_rollout_ref.actor.optim.lr=5e-7 \
-    actor_rollout_ref.actor.clip_ratio_high=0.28 \
+    actor_rollout_ref.actor.clip_ratio_high=0.32 \
     trainer.test_freq=5 \
     trainer.save_freq=5 \
     "$@" 2>&1 | tee "$LOG_DIR/train_${EXPERIMENT_NAME}.log"

@@ -81,9 +81,12 @@ cd "$REPO_ROOT"
     actor_rollout_ref.actor.ppo_max_token_len_per_gpu=24576 \
     actor_rollout_ref.actor.use_kl_loss=False \
     actor_rollout_ref.actor.clip_ratio_low=0.2 \
-    actor_rollout_ref.actor.clip_ratio_high=0.24 \
+    actor_rollout_ref.actor.clip_ratio_high=0.32 \
     actor_rollout_ref.actor.clip_ratio_c=10.0 \
     actor_rollout_ref.actor.loss_agg_mode=token-mean \
+    actor_rollout_ref.actor.policy_loss.loss_mode=kl_cov \
+    actor_rollout_ref.actor.policy_loss.kl_cov_ratio=0.001 \
+    actor_rollout_ref.actor.policy_loss.ppo_kl_coef=1.0 \
     actor_rollout_ref.actor.fsdp_config.param_offload=True \
     actor_rollout_ref.actor.fsdp_config.optimizer_offload=True \
     actor_rollout_ref.rollout.name=vllm \
