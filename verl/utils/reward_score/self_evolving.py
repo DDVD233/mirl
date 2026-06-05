@@ -140,14 +140,19 @@ answer."""
 # rare with strict match).
 # embed_sim and char_bleu are smooth surrogates that fire even when the
 # discrete signals collapse to 0; they keep reward shaping above the noise floor.
-ACCURACY_WEIGHT = 0.10
-JUDGE_ACCURACY_LENIENT_WEIGHT = 0.05
-JUDGE_ACCURACY_STRICT_WEIGHT = 0.05
-REASONING_WEIGHT = 0.15
-ANSWER_QUALITY_WEIGHT = 0.20
-FORMAT_WEIGHT = 0.15
-EMBED_SIM_WEIGHT = 0.20
-CHAR_BLEU_WEIGHT = 0.10
+# Re-weighted 2026-06 toward correctness: the prior split put only 0.20 on
+# correctness (acc+judges) and 0.80 on presentation/surface, so RL optimized
+# format/embedding-overlap and left diagnostic accuracy flat. Correctness now
+# dominates (0.70); surface surrogates (embed_sim/char_bleu) are minimized as
+# they reward echoing GT wording rather than getting the diagnosis right.
+ACCURACY_WEIGHT = 0.30
+JUDGE_ACCURACY_LENIENT_WEIGHT = 0.15
+JUDGE_ACCURACY_STRICT_WEIGHT = 0.25
+REASONING_WEIGHT = 0.05
+ANSWER_QUALITY_WEIGHT = 0.10
+FORMAT_WEIGHT = 0.10
+EMBED_SIM_WEIGHT = 0.05
+CHAR_BLEU_WEIGHT = 0.00
 
 DEBUG_PRINT_PROB = 0.01
 
@@ -164,8 +169,25 @@ def check_format(text: str) -> bool:
     return bool(re.search(r"\\boxed\{[^}]*\}", text))
 
 
+# ICD-10 code, e.g. "C22.0", "G20", "G40.A0": a letter, two digits (3rd may be
+# A/B), and an optional dotted subcode. Used so that the *code* drives the match
+# instead of the free-text description — "C22.0: Liver cell carcinoma" and
+# "C22.0: Hepatocellular carcinoma" are the same diagnosis and must score equal.
+ICD_CODE_RE = re.compile(r"([A-Z][0-9][0-9AB](?:\.[0-9A-Z]{1,4})?)", re.IGNORECASE)
+
+
+def _icd_code(text: str) -> str | None:
+    m = ICD_CODE_RE.search(text or "")
+    return m.group(1).upper() if m else None
+
+
 def check_accuracy(solution_str: str, ground_truth: str) -> tuple[bool, str | None]:
-    """Normalized string match between extracted boxed answer and ground_truth."""
+    """Match the extracted boxed answer to ground_truth.
+
+    For ICD-coded answers (this dataset) compare on the *code*, not the
+    free-text description, since one code has many synonymous names. Falls back
+    to normalized exact string match when neither side carries a code.
+    """
     extracted = extract_boxed_answer(solution_str)
     if extracted is None:
         return False, None
@@ -175,6 +197,10 @@ def check_accuracy(solution_str: str, ground_truth: str) -> tuple[bool, str | No
     if len(gt) == 1 and gt in "abcd":
         pred_letter = re.sub(r"[^a-d]", "", pred)[:1]
         return pred_letter == gt, extracted
+    gt_code = _icd_code(ground_truth)
+    pred_code = _icd_code(extracted)
+    if gt_code is not None and pred_code is not None:
+        return gt_code == pred_code, extracted
     return pred == gt, extracted
 
 
