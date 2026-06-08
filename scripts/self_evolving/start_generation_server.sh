@@ -53,6 +53,15 @@ if [ "${NO_LABEL:-0}" = "1" ] || [ "${NO_LABEL:-false}" = "true" ]; then
     NO_LABEL_FLAG="--no_label"
 fi
 
+# SFT-distillation mode: attach a verified teacher reasoning trace to every
+# accepted entry (set GEN_MODE=sft). Off by default (RL pipeline).
+SFT_MODE_FLAG=""
+if [ "${GEN_MODE:-}" = "sft" ]; then
+    SFT_MODE_FLAG="--sft_mode"
+fi
+TEACHER_RETRIES="${TEACHER_RETRIES:-2}"
+TEACHER_MAX_TOKENS="${TEACHER_MAX_TOKENS:-4096}"
+
 cd "$(dirname "$0")/../.."
 
 TEST_SEEDS_FLAG=()
@@ -83,5 +92,8 @@ exec "$PYTHON_BIN" scripts/self_evolving/generation_server.py \
     --log_dir "$LOG_DIR" \
     --host "$GEN_SERVER_HOST" \
     --port "$GEN_SERVER_PORT" \
+    --teacher_retries "$TEACHER_RETRIES" \
+    --teacher_max_tokens "$TEACHER_MAX_TOKENS" \
     $NO_LABEL_FLAG \
+    $SFT_MODE_FLAG \
     "$@"

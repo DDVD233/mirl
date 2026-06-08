@@ -176,6 +176,25 @@ SOLVER_SYSTEM_PROMPT_FREE = (
 )
 
 
+# Teacher prompt used in SFT mode to elicit a VISIBLE reasoning trace for
+# distillation. Reasoning models (e.g. TRAPI gpt-5.x) keep their chain-of-thought
+# in a hidden channel that the API does not return — so we must explicitly demand
+# the reasoning as visible prose in the content, otherwise we only get the final
+# boxed answer (and an empty <think> block). The student is trained to imitate
+# THIS trace under its own (SOLVER) system prompt; this prompt is teacher-only.
+SFT_TEACHER_SYSTEM_PROMPT = (
+    "You are a medical expert solving a question in order to TEACH a student. "
+    "You MUST write out your full step-by-step clinical reasoning as visible prose: "
+    "interpret the key findings, weigh the plausible differentials, and justify why the "
+    "correct answer is right and the others are wrong. Write several sentences of reasoning "
+    "— do NOT respond with only the final answer. Commit to your reasoning; do not hedge or "
+    "backtrack. After the reasoning, on its own line, output the final answer wrapped in "
+    "\\boxed{} — a single letter (A, B, C, or D) for a multiple-choice question, otherwise a "
+    "short specific phrase (1-15 words). The boxed answer is REQUIRED. "
+    "Example ending: \\boxed{C}"
+)
+
+
 # ======================================================================
 # Server state
 # ======================================================================
@@ -250,6 +269,7 @@ class ServerState:
             "direct_inserted": 0,
             "served_from_history": 0,
             "served_from_seeds": 0,
+            "sft_traces_skipped": 0,
             "started_at": datetime.now().isoformat(),
         }
 
@@ -509,23 +529,33 @@ def _maybe_log_sample(entry: dict, mode: str, prob: float = 0.01) -> None:
         return
     extra = entry.get("extra_info") or {}
     qid = extra.get("question_id", "?")
-    question = (extra.get("question") or "").strip()
-    options = extra.get("options") if isinstance(extra.get("options"), dict) else None
-    answer = ""
-    rm = entry.get("reward_model")
-    if isinstance(rm, dict):
-        answer = str(rm.get("ground_truth", "")).strip()
     fmt = extra.get("format", "?")
+    rm = entry.get("reward_model") if isinstance(entry.get("reward_model"), dict) else {}
+    gt = str(rm.get("ground_truth", "")).strip()
+    ref = entry.get("reference_response")
     lines = [
         "",
         "================ gen sample (1%) ================",
         f"qid={qid}  mode={mode}  format={fmt}",
-        f"Q: {question}",
     ]
-    if options:
-        for k, v in options.items():
-            lines.append(f"   {k}. {v}")
-    lines.append(f"A: {answer}")
+    if ref:
+        # SFT mode: print the full 2-turn conversation actually used for
+        # training — the user turn and the assistant turn (reasoning + answer).
+        user_text = ""
+        for m in entry.get("prompt", []):
+            if m.get("role") == "user":
+                user_text = _text_from_content(m.get("content"))
+        lines.append(f"USER:\n{user_text.strip()}")
+        lines.append(f"ASSISTANT:\n{ref.strip()}")
+        lines.append(f"(ground_truth={gt}  teacher_answer={extra.get('teacher_answer', '')})")
+    else:
+        question = (extra.get("question") or "").strip()
+        options = extra.get("options") if isinstance(extra.get("options"), dict) else None
+        lines.append(f"Q: {question}")
+        if options:
+            for k, v in options.items():
+                lines.append(f"   {k}. {v}")
+        lines.append(f"A: {gt}")
     lines.append("=================================================")
     logger.info("\n".join(lines))
 
@@ -1036,6 +1066,206 @@ def _build_entry(state: ServerState, generated: dict, target: dict,
 
 
 # ======================================================================
+# SFT teacher-trace generation
+# ----------------------------------------------------------------------
+# In SFT-distillation mode the server, for each accepted entry, additionally
+# asks the (current chat provider = teacher) to SOLVE the question and emit a
+# full reasoning trace ending in \boxed{answer}. We verify the teacher's boxed
+# answer against the ground truth and, on success, attach the trace as
+# `entry["reference_response"]` in the canonical
+#     <think>\n{reasoning}\n</think>\n\n\boxed{answer}
+# shape the student is trained to imitate. Entries whose teacher trace is wrong
+# (or unparseable) after a few retries are dropped, keeping the distillation
+# data clean. This path is a no-op unless --sft_mode is set, so the RL pipeline
+# is unaffected.
+# ======================================================================
+
+_BOXED_RE = re.compile(r"\\boxed\{([^}]*)\}")
+# ICD-10 code (mirror of verl/utils/reward_score/self_evolving.py): a letter,
+# two digits (3rd may be A/B), optional dotted subcode. Lets the *code* drive
+# the match so synonymous descriptions of one diagnosis count as equal.
+_ICD_CODE_RE = re.compile(r"([A-Z][0-9][0-9AB](?:\.[0-9A-Z]{1,4})?)", re.IGNORECASE)
+
+# A well-formed assistant turn is exactly: a non-empty <think>...</think>
+# reasoning block followed by a single \boxed{...} final answer (nothing after).
+_MIN_REASONING_CHARS = 40
+_TRACE_FORMAT_RE = re.compile(
+    r"\s*<think>\s*(?P<reasoning>.+?)\s*</think>\s*\\boxed\{[^{}]*\}\s*\Z",
+    re.DOTALL,
+)
+
+
+def _valid_trace_format(ref: str) -> bool:
+    """Strict 2-turn target check: the assistant turn must be a non-empty
+    <think> reasoning </think> followed by exactly one trailing \\boxed{...}.
+
+    Rejects empty/whitespace-only reasoning (e.g. a teacher that hides its
+    chain-of-thought), a missing/misplaced box, or trailing junk after the box.
+    """
+    m = _TRACE_FORMAT_RE.fullmatch(ref or "")
+    if not m:
+        return False
+    reasoning = m.group("reasoning").strip()
+    if len(reasoning) < _MIN_REASONING_CHARS:
+        return False
+    # No stray second <think>/box inside the reasoning that would break parsing.
+    if "<think>" in reasoning or "</think>" in reasoning:
+        return False
+    return True
+
+
+def _extract_boxed(text: str) -> Optional[str]:
+    matches = _BOXED_RE.findall(text or "")
+    if not matches:
+        # Fallback for nested braces like \boxed{\text{...}}: grab to last brace.
+        m = re.search(r"\\boxed\{(.+)\}", text or "", re.DOTALL)
+        if not m:
+            return None
+        ans = m.group(1)
+    else:
+        ans = matches[-1]
+    ans = ans.strip()
+    # Strip a \text{...} / \mathrm{...} LaTeX wrapper if present.
+    tm = re.match(r"\\(?:text|mathrm|mathbf)\{(.*)\}$", ans)
+    if tm:
+        ans = tm.group(1).strip()
+    return ans
+
+
+def _icd_code(text: str) -> Optional[str]:
+    m = _ICD_CODE_RE.search(text or "")
+    return m.group(1).upper() if m else None
+
+
+def _answer_matches(pred: str, gt: str, fmt: str) -> bool:
+    """Teacher-trace correctness gate; mirrors the reward's check_accuracy but
+    a touch more lenient for free-form (substring) since the teacher may phrase
+    the same diagnosis differently than the label."""
+    gtl = (gt or "").strip().lower()
+    predl = (pred or "").strip().lower()
+    if not gtl:
+        return False
+    if fmt == "mcq" or (len(gtl) == 1 and gtl in "abcd"):
+        pl = re.sub(r"[^a-d]", "", predl)[:1]
+        return bool(pl) and pl == gtl
+    gc, pc = _icd_code(gt), _icd_code(pred)
+    if gc is not None and pc is not None:
+        return gc == pc
+    return predl == gtl or gtl in predl or predl in gtl
+
+
+def _compose_trace(raw: str, boxed: str) -> str:
+    """Normalize any teacher output into <think>...</think>\n\n\boxed{ans}."""
+    body = re.sub(r"</?think>", "", raw or "").strip()
+    idx = body.rfind("\\boxed")
+    reasoning = (body[:idx].strip() if idx != -1 else body).strip()
+    return f"<think>\n{reasoning}\n</think>\n\n\\boxed{{{boxed}}}"
+
+
+def _text_from_content(content) -> str:
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return " ".join(c.get("text", "") for c in content if c.get("type") == "text")
+    return ""
+
+
+async def _teacher_solve_call(state: ServerState, system_prompt: str,
+                              user_prompt: str, max_tokens: int) -> str:
+    """Like _api_call but returns the FULL visible reasoning trace.
+
+    The provider's hidden reasoning channel (TRAPI/Azure gpt-5.x) is not
+    returned over the API, so we disable it and rely on the solver system
+    prompt to elicit a visible chain-of-thought in `content`. For vLLM/Kimi we
+    keep thinking on and stitch `reasoning_content` back in front of `content`.
+    """
+    provider = os.environ.get("CHAT_PROVIDER", "vllm").lower()
+    payload: dict = {
+        "model": state.args.model_name,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+    }
+    if provider == "vllm":
+        payload["max_tokens"] = max_tokens
+        payload["temperature"] = 0.6
+        payload["chat_template_kwargs"] = {"enable_thinking": True}
+    elif provider == "kimi":
+        payload["max_tokens"] = max_tokens
+        payload["thinking"] = {"type": "enabled"}
+    elif provider == "trapi":
+        # Leave reasoning at its default: the hidden channel isn't returned, so
+        # the visible chain-of-thought is elicited by SFT_TEACHER_SYSTEM_PROMPT.
+        payload["max_completion_tokens"] = max_tokens
+    else:
+        payload["max_tokens"] = max_tokens
+        payload["temperature"] = 0.6
+    headers = {"Authorization": f"Bearer {state.args.api_key}"}
+    timeout = float(os.environ.get("GEN_CHAT_TIMEOUT", "1800"))
+    async with timed(state, "chat_teacher"):
+        resp = await state.http_client.post(
+            f"{state.args.api_base}/chat/completions",
+            json=payload, headers=headers, timeout=timeout,
+        )
+        resp.raise_for_status()
+        msg = resp.json()["choices"][0]["message"]
+    content = (msg.get("content") or "").strip()
+    reasoning = (msg.get("reasoning_content") or msg.get("reasoning") or "").strip()
+    if reasoning and "<think>" not in content:
+        return f"<think>\n{reasoning}\n</think>\n\n{content}"
+    return content
+
+
+async def attach_teacher_trace(state: ServerState, entry: dict) -> bool:
+    """Solve the entry's question with the teacher and attach a verified trace.
+
+    Returns True and sets entry["reference_response"] on success; False if no
+    correct, parseable trace was obtained (caller should drop the entry).
+    """
+    gt = entry.get("reward_model", {}).get("ground_truth", "")
+    if not gt:
+        return False  # SFT distillation needs a label to verify the trace
+    style = entry.get("reward_model", {}).get("style", "")
+    fmt = entry.get("extra_info", {}).get("format") or ("mcq" if style == "rule_mcq" else "free")
+
+    user_text = None
+    for m in entry.get("prompt", []):
+        if m.get("role") == "user":
+            user_text = _text_from_content(m.get("content"))
+    if not user_text:
+        return False
+    # Teacher uses the visible-reasoning prompt (NOT the student's SOLVER prompt),
+    # so the distillation trace contains an actual chain-of-thought.
+    sys_prompt = SFT_TEACHER_SYSTEM_PROMPT
+
+    for _ in range(state.args.teacher_retries + 1):
+        try:
+            raw = await _teacher_solve_call(
+                state, sys_prompt, user_text, state.args.teacher_max_tokens,
+            )
+        except Exception as e:
+            logger.warning(f"teacher solve failed: {type(e).__name__}: {e!r}")
+            continue
+        boxed = _extract_boxed(raw)
+        if boxed is None:
+            continue
+        if not _answer_matches(boxed, gt, fmt):
+            continue
+        trace = _compose_trace(raw, boxed)
+        # Reject unless the assistant turn is a clean
+        # <think> reasoning </think> \boxed{answer} (e.g. drop empty-reasoning
+        # traces from a teacher that hides its chain-of-thought).
+        if not _valid_trace_format(trace):
+            logger.debug("teacher trace rejected: bad format (reasoning len/box)")
+            continue
+        entry["reference_response"] = trace
+        entry["extra_info"]["teacher_answer"] = boxed
+        return True
+    return False
+
+
+# ======================================================================
 # Worker loop
 # ======================================================================
 async def _process_query_inner(state: ServerState, query: str, required_format: str,
@@ -1114,6 +1344,9 @@ async def worker_loop(state: ServerState, worker_id: int):
             if mode == "direct":
                 target = random.choice(state.train_seeds)
                 entry = _build_raw_entry(target, cur_target_idx, cur_cycle)
+                if state.args.sft_mode and not await attach_teacher_trace(state, entry):
+                    state.stats["sft_traces_skipped"] += 1
+                    continue
                 async with state.log_lock:
                     with open(state.accepted_log, "a") as f:
                         f.write(json.dumps({
@@ -1198,6 +1431,9 @@ async def worker_loop(state: ServerState, worker_id: int):
             for gen, passage, query in accepted_pairs:
                 entry = _build_entry(state, gen, target, passage, query,
                                      cur_target_idx, cur_cycle)
+                if state.args.sft_mode and not await attach_teacher_trace(state, entry):
+                    state.stats["sft_traces_skipped"] += 1
+                    continue
                 async with state.log_lock:
                     with open(state.accepted_log, "a") as f:
                         f.write(json.dumps({
@@ -1542,6 +1778,17 @@ def main():
     parser.add_argument("--n_queries", type=int, default=10)
     parser.add_argument("--questions_per_query", type=int, default=1)
     parser.add_argument("--no_label", action="store_true")
+    parser.add_argument(
+        "--sft_mode", action="store_true",
+        help="SFT-distillation mode: for each accepted entry, solve it with the "
+             "teacher (current chat provider) and attach a verified reasoning "
+             "trace as entry['reference_response']. Entries whose teacher answer "
+             "is wrong are dropped. No-op for the RL pipeline.")
+    parser.add_argument("--teacher_retries", type=int, default=2,
+                        help="Extra teacher attempts when the boxed answer is "
+                             "wrong/unparseable before dropping the entry.")
+    parser.add_argument("--teacher_max_tokens", type=int, default=4096,
+                        help="max_tokens for the teacher solve call (SFT mode).")
     parser.add_argument("--accuracy_window", type=int, default=64)
     parser.add_argument("--max_pool_size", type=int, default=200)
     parser.add_argument("--history_size", type=int, default=5000,
