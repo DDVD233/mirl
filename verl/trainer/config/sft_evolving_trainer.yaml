@@ -1,0 +1,44 @@
+# Self-evolving SFT-distillation trainer config.
+#
+# Inherits the full PPO config and flips off the RL-specific machinery (critic,
+# reference policy, in-reward KL) so only the actor (trained with sft_loss),
+# colocated vLLM rollout, weight-sync, reward loop and validation remain. Most
+# run-specific values are passed as overrides by
+# scripts/self_evolving/run_qwen35_9b_sft.sh.
+
+defaults:
+
+  - ppo_trainer
+
+  - _self_
+
+# No advantage / critic / reference policy: the gradient is teacher-forced SFT.
+algorithm:
+
+  # grpo avoids instantiating a critic (need_critic is False for non-GAE).
+  adv_estimator: grpo
+
+  # No KL-in-reward, so no reference policy is built.
+  use_kl_in_reward: false
+
+actor_rollout_ref:
+
+  actor:
+
+    # No KL loss → no reference policy.
+    use_kl_loss: false
+
+  rollout:
+
+    # One sample per prompt at eval; training does not roll out.
+    n: 1
+
+data:
+
+  # SFT samples are full sequences (prompt + teacher trace); pad to max_length
+  # so they collate into fixed-width batches.
+  pad_mode: right
+
+  # Used by SelfEvolvingSFTDataset (MultiTurnSFTDataset machinery) as the SFT
+  # max sequence length.
+  max_length: 4096
