@@ -45,9 +45,11 @@ from tqdm import tqdm
 from verl.protocol import DataProto
 from verl.trainer.ppo.ray_trainer import RayPPOTrainer
 from verl.trainer.ppo.reward import extract_reward
+from verl.utils import tensordict_utils as tu
 from verl.utils.metric import reduce_metrics
 from verl.utils.tracking import Tracking
 from verl.workers.utils.losses import sft_loss
+from verl.workers.utils.padding import left_right_2_no_padding
 
 
 def _pad_and_generate(trainer, gen_batch):
@@ -223,14 +225,60 @@ class SelfEvolvingSFTTrainer(RayPPOTrainer):
     # ------------------------------------------------------------------
     # SFT training step
     # ------------------------------------------------------------------
+    def _sft_update_actor(self, batch: DataProto) -> DataProto:
+        """SFT variant of RayPPOTrainer._update_actor.
+
+        Converts the padded SFT batch to the engine's no-padding (nested) format
+        and runs the actor with sft_loss. The wrinkle vs _update_actor:
+        left_right_2_no_padding nests input_ids/position_ids but leaves
+        `loss_mask` as a *strided* alias of response_mask, while sft_loss's
+        NO_PADDING branch calls `loss_mask.values()` (a nested-tensor op). So we
+        re-nest the loss_mask with the same per-row offsets as input_ids before
+        dispatch.
+        """
+        # Capture the padded assistant mask + attention mask before conversion.
+        pad_loss = batch.batch["loss_mask"].clone()
+        attn = batch.batch["attention_mask"].bool()
+
+        batch.meta_info["temperature"] = self.config.actor_rollout_ref.rollout.temperature
+        batch_td = batch.to_tensordict()
+        batch_td = left_right_2_no_padding(batch_td)  # nests input_ids/position_ids
+
+        # Re-nest loss_mask to match input_ids' jagged offsets. Right-padding +
+        # row-order concat of valid tokens matches unpad_input's ordering.
+        offsets = batch_td["input_ids"].offsets()
+        flat = torch.cat([pad_loss[i][attn[i]] for i in range(pad_loss.shape[0])]).contiguous()
+        batch_td["loss_mask"] = torch.nested.nested_tensor_from_jagged(flat, offsets=offsets)
+
+        ppo_mini_batch_size = (
+            self.config.actor_rollout_ref.actor.ppo_mini_batch_size * self.config.actor_rollout_ref.rollout.n
+        )
+        tu.assign_non_tensor(
+            batch_td,
+            global_batch_size=ppo_mini_batch_size,
+            mini_batch_size=ppo_mini_batch_size,
+            epochs=self.config.actor_rollout_ref.actor.ppo_epochs,
+            seed=self.config.actor_rollout_ref.actor.data_loader_seed,
+            dataloader_kwargs={"shuffle": self.config.actor_rollout_ref.actor.shuffle},
+            compute_loss=True,
+        )
+        actor_output = self.actor_rollout_wg.update_actor(batch_td)
+        actor_output = tu.get(actor_output, "metrics")
+        from verl.utils.py_functional import rename_dict
+
+        actor_output = rename_dict(actor_output, "actor/")
+        if "actor/mfu" in actor_output:
+            actor_output["perf/mfu/actor"] = actor_output.pop("actor/mfu")
+        return DataProto.from_single_dict(data={}, meta_info={"metrics": actor_output})
+
     def _sft_train_step(self, batch_dict) -> dict:
         batch = DataProto.from_single_dict(batch_dict)
-        # left_right_2_no_padding (inside _update_actor) requires "response_mask"
-        # and sets the nested loss_mask = response_mask, which sft_loss reads.
+        # left_right_2_no_padding requires "response_mask"; our assistant
+        # loss_mask plays that role.
         if "response_mask" not in batch.batch.keys():
             assert "loss_mask" in batch.batch.keys(), "SFT batch must carry loss_mask"
             batch.batch["response_mask"] = batch.batch["loss_mask"]
-        actor_output = self._update_actor(batch)
+        actor_output = self._sft_update_actor(batch)
         metrics = reduce_metrics(actor_output.meta_info["metrics"])
         if "actor/loss" in metrics:
             metrics["train/loss"] = metrics["actor/loss"]
