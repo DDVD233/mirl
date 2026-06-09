@@ -45,6 +45,7 @@ SFT_MAX_LENGTH="${SFT_MAX_LENGTH:-8192}"
     data.val_batch_size="${VAL_BATCH_SIZE:-32}" \
     data.max_prompt_length="${MAX_PROMPT_LENGTH:-8192}" \
     data.max_response_length="${MAX_RESPONSE_LENGTH:-4096}" \
+    ++data.val_max_samples="${VAL_MAX_SAMPLES:--1}" \
     data.max_length="$SFT_MAX_LENGTH" \
     data.pad_mode=right \
     data.truncation=left \

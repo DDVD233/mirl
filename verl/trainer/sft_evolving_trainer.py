@@ -35,6 +35,7 @@ What changes vs. RL:
     and put back to sleep for training — generation is not on the gradient path.
 """
 
+import time
 from functools import partial
 from pprint import pprint
 
@@ -271,6 +272,31 @@ class SelfEvolvingSFTTrainer(RayPPOTrainer):
             actor_output["perf/mfu/actor"] = actor_output.pop("actor/mfu")
         return DataProto.from_single_dict(data={}, meta_info={"metrics": actor_output})
 
+    @staticmethod
+    def _gpu_mem_metrics() -> dict:
+        """Node GPU memory (MiB) sampled right after a training step (vLLM is
+        asleep then, so this reflects the FSDP train footprint — use it to size
+        batches). Cheap nvidia-smi query; best-effort."""
+        try:
+            import subprocess
+
+            out = subprocess.check_output(
+                ["nvidia-smi", "--query-gpu=memory.used,memory.total",
+                 "--format=csv,noheader,nounits"],
+                timeout=5,
+            ).decode()
+            rows = [r.split(",") for r in out.strip().splitlines() if r.strip()]
+            used = [int(r[0]) for r in rows]
+            total = int(rows[0][1])
+            return {
+                "gpu_mem/used_max_mib": float(max(used)),
+                "gpu_mem/used_mean_mib": float(sum(used) / len(used)),
+                "gpu_mem/total_mib": float(total),
+                "gpu_mem/used_frac_max": max(used) / total if total else 0.0,
+            }
+        except Exception:
+            return {}
+
     def _sft_train_step(self, batch_dict) -> dict:
         batch = DataProto.from_single_dict(batch_dict)
         # left_right_2_no_padding requires "response_mask"; our assistant
@@ -313,6 +339,7 @@ class SelfEvolvingSFTTrainer(RayPPOTrainer):
         self.global_steps += 1
         last_val_metrics = None
         current_epoch = self.global_steps // len(self.train_dataloader)
+        train_time_since_eval = 0.0  # accumulates train-step wall time between evals
 
         for epoch in range(current_epoch, self.config.trainer.total_epochs):
             for batch_dict in self.train_dataloader:
@@ -320,13 +347,20 @@ class SelfEvolvingSFTTrainer(RayPPOTrainer):
                 is_last_step = self.global_steps >= self.total_training_steps
 
                 # --- SFT learning step (vLLM asleep; teacher-forced) ---------
+                t_step = time.perf_counter()
                 metrics.update(self._sft_train_step(batch_dict))
+                step_dt = time.perf_counter() - t_step
+                train_time_since_eval += step_dt
+                metrics["timing/train_step_s"] = step_dt
+                # Peak GPU memory during training (vLLM asleep) to size batches.
+                metrics.update(self._gpu_mem_metrics())
 
                 is_eval_step = self.config.trainer.test_freq > 0 and (
                     is_last_step or self.global_steps % self.config.trainer.test_freq == 0
                 )
                 # --- evaluation: sync weights → generate → reward/wandb ------
                 if is_eval_step:
+                    t_eval = time.perf_counter()
                     self.checkpoint_manager.update_weights(self.global_steps)
                     val_metrics = self._validate()
                     metrics.update(val_metrics)
@@ -334,6 +368,15 @@ class SelfEvolvingSFTTrainer(RayPPOTrainer):
                         last_val_metrics = val_metrics
                     metrics.update(self._feedback_eval())
                     self.checkpoint_manager.sleep_replicas()
+                    eval_dt = time.perf_counter() - t_eval
+                    # Balance gauge: train time accumulated since the last eval vs
+                    # this eval's time. Target ~5x (training should dominate).
+                    metrics["timing/eval_s"] = eval_dt
+                    metrics["timing/train_since_eval_s"] = train_time_since_eval
+                    metrics["timing/train_to_eval_ratio"] = (
+                        train_time_since_eval / eval_dt if eval_dt > 0 else 0.0
+                    )
+                    train_time_since_eval = 0.0
 
                 if self.config.trainer.save_freq > 0 and (
                     is_last_step or self.global_steps % self.config.trainer.save_freq == 0
