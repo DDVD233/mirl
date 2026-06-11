@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Serve the OPD teacher (Qwen3.5-397B-A17B-FP8) on a K8s pod whose image
-# already includes vLLM (zjdavid/verl-selfevolving:cu130). No apptainer —
+# already includes vLLM (zjdavid/verl-selfevolving:cu130-vllm0.22.1). No apptainer —
 # just `vllm serve` in the host environment.
 #
 # Defaults match the new sheng-evolving2 pod: frpc maps the container's

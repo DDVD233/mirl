@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Smoke test for the zjdavid/verl-selfevolving:cu130 image:
+# Smoke test for the zjdavid/verl-selfevolving:cu130-vllm0.22.1 image:
 # Qwen3.5-2B GRPO on geo3k (text+image), 1 GPU, 3 training steps.
 #
 # Expects to run INSIDE the container with /root/data/geo3k populated:
 #   docker run --gpus '"device=6"' --rm -it --shm-size=8g \
 #       -v /home/dvd/docker_data:/root/data \
-#       zjdavid/verl-selfevolving:cu130 \
+#       zjdavid/verl-selfevolving:cu130-vllm0.22.1 \
 #       bash scripts/docker/smoke_geo3k_qwen35_2b.sh
 
 set -xeuo pipefail

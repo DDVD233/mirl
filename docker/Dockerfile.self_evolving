@@ -2,22 +2,24 @@
 #
 # Target: H100/H200 (mib) and B200. B200 is x86_64, no arm64.
 #
-# Base provides torch, vllm, CUDA 13 toolkit, cuDNN, transformers, Python 3.12.
+# Base provides torch, vllm 0.22.1, CUDA 13 toolkit, cuDNN, transformers,
+# Python 3.12 — from the rolling `gemma-x86_64-cu130` tag (improved Gemma
+# support over the older gemma4-0505 build).
 # We layer:
-#   - apt: git + build essentials for source compiles
+#   - apt: git + git-lfs + build essentials + cluster tools (rsync/htop/nano)
 #   - verl runtime deps + self-evolving extras
 #   - NVIDIA apex (fused optimizers / layer norm)
 #   - flash-attn (built from source)
 #   - flashinfer (cu130 wheels)
 #   - numpy 2.x, latest transformers
-#   - utility libs: trl, nvtx, matplotlib, mathruler, cachetools
+#   - utility libs: trl, nvtx, matplotlib, mathruler, cachetools, sentence-transformers
 #   - Megatron-LM core + NVIDIA-NeMo/Megatron-Bridge (Gemma 4 support)
 #   - The verl source from DDVD233/mirl@self_evolving_medical (LAST, so
 #     refreshing the repo doesn't bust the expensive cache).
 #
 # Build:
 #   docker build -f docker/Dockerfile.self_evolving \
-#       -t ddvd233/verl-selfevolving:cu130 \
+#       -t zjdavid/verl-selfevolving:cu130-vllm0.22.1 \
 #       --build-arg MIRL_REF=self_evolving_medical \
 #       --build-arg CACHEBUST=$(date +%s) .
 #
@@ -26,31 +28,24 @@
 #       -e HF_TOKEN=$HF_TOKEN \
 #       -v $HOME/.cache/huggingface:/root/.cache/huggingface \
 #       -v $HOME/scratch:/scratch \
-#       ddvd233/verl-selfevolving:cu130 bash
+#       zjdavid/verl-selfevolving:cu130-vllm0.22.1 bash
 
-ARG BASE_IMAGE=vllm/vllm-openai:gemma4-0505-x86_64_cu130
+ARG BASE_IMAGE=vllm/vllm-openai:gemma-x86_64-cu130
 FROM ${BASE_IMAGE}
 
 ENV DEBIAN_FRONTEND=noninteractive \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
-    PIP_CONSTRAINT=/etc/pip-constraints.txt \
     PYTHONUNBUFFERED=1
-
-# Pin torch / torchvision / torchaudio to match what the base image's
-# vllm._C.abi3.so was compiled against. vllm 0.20.x bakes in
-# torch==2.11.0; if any transitive dep upgrades torch to 2.12+, vllm._C
-# crashes at import with 'undefined symbol getCurrentCUDABlasHandle' (the
-# signature changed from no-arg to bool-arg between 2.11 and 2.12).
-# PIP_CONSTRAINT applies to every pip install in this Dockerfile.
-RUN printf 'torch==2.11.0\ntorchvision==0.26.0\ntorchaudio==2.11.0\n' \
-        > /etc/pip-constraints.txt
 
 # Minimal apt additions on top of the vllm base.
 #   openssh-server + gettext-base: frpc tunnel back to point.dd.works:7000
-#   tmux + vim: interactive dev / monitoring inside the container
+#   tmux + vim + nano: interactive dev / monitoring inside the container
+#   git-lfs: pull HF model/dataset LFS objects (was installed per-pod before)
+#   rsync + htop: data sync + live resource monitoring (was installed per-pod)
 RUN apt-get update && apt-get install -y --no-install-recommends \
         git \
+        git-lfs \
         wget \
         build-essential \
         ninja-build \
@@ -59,6 +54,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         gettext-base \
         tmux \
         vim \
+        nano \
+        rsync \
+        htop \
+    && git lfs install --system \
     && mkdir -p /run/sshd \
     && rm -rf /var/lib/apt/lists/* \
     && ln -sf /usr/bin/python3 /usr/local/bin/python
@@ -153,6 +152,12 @@ RUN pip install \
         cachetools \
         pytest-asyncio
 
+# sentence-transformers — embedding model used by the self-evolving pipeline
+# (was `pip install`ed in every pod's startup args; baked in here instead).
+# Installed BEFORE the numpy 2.x reassertion below so any numpy<2 it drags in
+# via scikit-learn / scipy gets overridden.
+RUN pip install sentence-transformers
+
 # Force numpy 2.x LAST. verl/requirements.txt pins numpy<2.0.0, and at
 # least one of megatron-core / Megatron-Bridge / trl pulls numpy back to
 # 1.26.4 if we don't reassert. verl.trainer.main_ppo + pymilvus need 2.x
@@ -216,6 +221,6 @@ WORKDIR /workspace/verl
 # container boots sshd + frpc and then runs the user's command (bash by
 # default). Disable the frp tunnel at runtime with -e FRP_DISABLED=1.
 #
-# To serve vllm: `docker run ... ddvd233/verl-selfevolving:cu130 vllm serve <model>`
+# To serve vllm: `docker run ... zjdavid/verl-selfevolving:cu130-vllm0.22.1 vllm serve <model>`
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 CMD ["bash"]
