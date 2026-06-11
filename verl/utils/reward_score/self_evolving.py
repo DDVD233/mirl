@@ -140,14 +140,16 @@ answer."""
 # rare with strict match).
 # embed_sim and char_bleu are smooth surrogates that fire even when the
 # discrete signals collapse to 0; they keep reward shaping above the noise floor.
-# Re-weighted 2026-06 toward correctness: the prior split put only 0.20 on
-# correctness (acc+judges) and 0.80 on presentation/surface, so RL optimized
-# format/embedding-overlap and left diagnostic accuracy flat. Correctness now
-# dominates (0.70); surface surrogates (embed_sim/char_bleu) are minimized as
-# they reward echoing GT wording rather than getting the diagnosis right.
-ACCURACY_WEIGHT = 0.30
-JUDGE_ACCURACY_LENIENT_WEIGHT = 0.15
-JUDGE_ACCURACY_STRICT_WEIGHT = 0.25
+# Re-weighted 2026-06-10: the LLM-judge disease match (lenient/strict) is now the
+# primary correctness signal, NOT the brittle exact ICD-code string match. Error
+# analysis on the val dumps showed the exact-code match (`accuracy`) undercounts
+# correct diagnoses ~3x — e.g. GT "G70.00" vs model "G70.0" (same disease) scores
+# 0 on exact match but 1 on the judge. So judges dominate (0.60); exact match is
+# kept at a small weight (0.10) as a reference signal; surface surrogates stay
+# minimized.
+ACCURACY_WEIGHT = 0.10
+JUDGE_ACCURACY_LENIENT_WEIGHT = 0.25
+JUDGE_ACCURACY_STRICT_WEIGHT = 0.35
 REASONING_WEIGHT = 0.05
 ANSWER_QUALITY_WEIGHT = 0.10
 FORMAT_WEIGHT = 0.10
@@ -711,16 +713,25 @@ async def compute_score(
     # sliding-window difficulty calibration and per-id log up to date.
     # gen_server_url comes from reward_kwargs in the run script; falls back
     # to env var so ad-hoc evals can opt in / out without re-launching.
+    # Primary correctness = the judge's lenient disease match (right diagnosis,
+    # allowing synonyms / subtype precision), reported as the headline `acc` so
+    # val-core tracks it instead of the brittle exact ICD-code match. The exact
+    # match is preserved as `exact_acc` for reference. Difficulty calibration
+    # (/report) also uses this judge signal so the gen server targets ~50%
+    # diagnostic correctness rather than ~50% exact-code match.
+    primary_acc = float(judge_acc_lenient)
+
     server_url = gen_server_url or os.environ.get("GEN_SERVER_URL", "")
     question_id = (extra_info or {}).get("question_id", "")
     if server_url and question_id:
-        await _report_to_gen_server(server_url, question_id, accuracy)
+        await _report_to_gen_server(server_url, question_id, primary_acc)
 
     return {
         "score": score,
-        "acc": accuracy,
+        "acc": primary_acc,
         "judge_acc_lenient": judge_acc_lenient,
         "judge_acc_strict": judge_acc_strict,
+        "exact_acc": accuracy,
         "answer_quality": answer_quality,
         "reasoning_quality": reasoning_score,
         "format_ok": format_ok,
