@@ -82,6 +82,7 @@ verl is fast with:
    algo/rollout_corr_math.md
    algo/otb.md
    algo/dppo.md
+   algo/opd.md
 
 .. toctree::
    :maxdepth: 1
@@ -101,7 +102,7 @@ verl is fast with:
    perf/dpsk.md
    perf/best_practices
    perf/perf_tuning
-   perf/perf_tuning_on_ascend.rst
+   perf/rollout_kv_offload.md
    README_vllm0.8.md
    perf/device_tuning
    perf/verl_profiler_system.md
@@ -143,7 +144,7 @@ verl is fast with:
    advance/dpo_extension
    examples/sandbox_fusion_example
    advance/rollout_trace.rst
-   advance/rollout_skip.rst
+   advance/skip_manager.rst
    advance/agent_loop
    advance/reward_loop
    data/transfer_queue.md
@@ -151,27 +152,12 @@ verl is fast with:
    advance/mtp.md
 
 .. toctree::
-   :maxdepth: 2
+   :maxdepth: 1
    :caption: Hardware Support
 
-   amd_tutorial/amd_build_dockerfile_page.rst
-   amd_tutorial/amd_vllm_page.rst
-   ascend_tutorial/contribution_guide/ascend_ci_guide_zh.rst
-   ascend_tutorial/quick_start/ascend_quick_start.rst
-   ascend_tutorial/quick_start/dockerfile_build_guidance.rst
-   ascend_tutorial/quick_start/ascend_sglang_quick_start.rst
-   ascend_tutorial/features/ascend_consistency.rst
-   ascend_tutorial/features/ascend_backend_features.md
-   ascend_tutorial/profiling/ascend_profiling_zh.rst
-   ascend_tutorial/profiling/ascend_profiling_en.rst
-   ascend_tutorial/profiling/precision_debugger.md
-   ascend_tutorial/examples/gspo_optimization_practice.md
-   ascend_tutorial/examples/ascend_performance_analysis_guide.md
-   ascend_tutorial/examples/dapo_multi_model_optimization_practice.md
-   ascend_tutorial/examples/ascend_sglang_best_practices.rst
-   ascend_tutorial/examples/ascend_retool_best_pratice.rst
-   ascend_tutorial/examples/run_qwen3_32B_megatron_1k_256k_npu.md
-   ascend_tutorial/faq/faq.rst
+   hardware/multi_chip_support
+   amd_tutorial/index.rst
+   ascend_tutorial/index.rst 
 
 .. toctree::
    :maxdepth: 1

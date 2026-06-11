@@ -105,7 +105,6 @@ from .model_initializer import (
     MixtralModel,
     Qwen2MoEModel,
     Qwen3MoEModel,
-    Qwen25VLModel,
 )
 from .weight_converter import (
     McoreToHFWeightConverterDense,
@@ -162,7 +161,6 @@ MODEL_INITIALIZER_REGISTRY: dict[SupportedModel, type[BaseModelInitializer]] = {
     SupportedModel.QWEN2_MOE: Qwen2MoEModel,
     SupportedModel.MIXTRAL: MixtralModel,
     SupportedModel.DEEPSEEK_V3: DeepseekV3Model,
-    SupportedModel.QWEN2_5_VL: Qwen25VLModel,
     SupportedModel.QWEN3_VL: DenseModel,
     SupportedModel.QWEN3_MOE_VL: DenseModel,
     SupportedModel.LLAMA4: DenseModel,

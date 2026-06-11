@@ -272,11 +272,8 @@ class VeOmniEngineConfig(EngineConfig):
     The inheritance from BaseConfig provides omegaconf.DictConfig-like interface for a dataclass config.
 
     Args:
-        wrap_policy (Dict[str, Any]): Configuration for FSDP wrap policy.
         param_offload (bool): Whether to offload parameters to CPU, default False
         optimizer_offload (bool): Whether to offload optimizer states to CPU, default False
-        offload_policy (bool): Whether to offload policy model parameters, default False
-        reshard_after_forward (bool): Whether to reshard parameters after forward pass, default True
         fsdp_size (int): FSDP group size. -1 means use all available GPUs, default -1
         ulysses_parallel_size (int): Ulysses sequence parallel size, default 1
         expert_parallel_size (int): Expert parallel size, default 1
@@ -324,22 +321,33 @@ class VeOmniEngineConfig(EngineConfig):
         basic_modules (list[str]): List of basic modules to use, default None
         forward_prefetch (bool): Whether to prefetch parameters for next forward pass, default False
         model_dtype (str): Model data type used to initialize the transformers model. default "fp32"
-        use_orig_params (bool): Whether to use original parameters when initialize FSDP1, default False
         seed (int): Random seed for reproducibility.
         full_determinism (bool): If true, enable_full_determinism is called to ensure reproducible results
             in distributed training. Important: this will negatively impact performance, so only use it for
             debugging.
         mixed_precision (Optional[dict[str, Any]]): Mixed precision configuration for FSDP, default None
+        rms_norm_gated_implementation (str): Gated RMSNorm implementation (Qwen3.5 GatedDeltaNet
+            ``self.norm``). ``"fla"`` uses fla.modules.FusedRMSNormGated (requires flash-linear-attention,
+            GPU). ``"eager"`` (default) uses the HuggingFace Qwen3_5RMSNormGated. Qwen3.5 has no NPU
+            backend today — selecting any non-eager value on NPU raises at OpSlot bind time.
+        causal_conv1d_implementation (str): Varlen depthwise causal conv1d implementation (Qwen3.5
+            GatedDeltaNet pre-mixer). ``"fla"`` uses fla.modules.convolution.causal_conv1d (requires
+            flash-linear-attention, GPU). ``"eager"`` (default) leaves causal_conv1d_fn unset; the varlen
+            training path then raises because no torch fallback handles cu_seqlens. Qwen3.5 has no NPU
+            backend today — selecting any non-eager value on NPU raises at OpSlot bind time.
+        chunk_gated_delta_rule_implementation (str): Chunk gated delta-rule kernel for Qwen3.5 linear
+            attention. ``"fla"`` uses fla.ops.gated_delta_rule.chunk_gated_delta_rule (requires
+            flash-linear-attention, GPU). ``"flash_qla"`` uses QwenLM FlashQLA (requires the optional
+            flash-qla extra, Hopper SM90 only — no Ampere/Ada below or Blackwell above; SM10x wheels are
+            WIP upstream). ``"eager"`` (default) uses transformers' torch_chunk_gated_delta_rule, which
+            does NOT support cu_seqlens; varlen training therefore raises at runtime. Qwen3.5 has no NPU
+            backend today — selecting any non-eager value on NPU raises at OpSlot bind time.
 
     """
 
     _mutable_fields = EngineConfig._mutable_fields | {"attn_implementation"}
 
-    wrap_policy: dict[str, Any] = field(default_factory=dict)
-    offload_policy: bool = False
-    reshard_after_forward: bool = True
     forward_prefetch: bool = False
-    use_orig_params: bool = False
     entropy_from_logits_with_chunking: bool = False
     use_torch_compile: bool = True
     entropy_checkpointing: bool = False
@@ -367,9 +375,18 @@ class VeOmniEngineConfig(EngineConfig):
     swiglu_mlp_implementation: str = "eager"
     rotary_pos_emb_implementation: str = "eager"
     load_balancing_loss_implementation: str = "eager"
+    rms_norm_gated_implementation: str = "eager"
+    causal_conv1d_implementation: str = "eager"
+    chunk_gated_delta_rule_implementation: str = "eager"
     force_use_huggingface: bool = False
     activation_gpu_limit: float = 0.0
     basic_modules: Optional[list[str]] = field(default_factory=list)
+    # MoE expert-load monitor: when > 0, attach VeOmni's MoERouterMonitor.
+    # Scalar violation metrics flow through the engine's metrics dict (all
+    # Tracking backends); heatmap images are logged directly to wandb on
+    # rank 0. Rollout/log-prob forwards are excluded. Counts are all-reduced
+    # across DP/SP groups. Disabled (0) by default; no-op on non-MoE models.
+    moe_load_balance_monitor_interval: int = 0
 
     def __post_init__(self):
         super().__post_init__()
@@ -574,17 +591,17 @@ class MindSpeedEngineConfig(McoreEngineConfig):
     The inheritance from BaseConfig provides omegaconf.DictConfig-like interface for a dataclass config.
 
     Args:
-        llm_kwargs (str): mindspeed_llm engine kwargs.
-        mm_kwargs (str): mindspeed_mm engine kwargs.
+        mcore_kwargs dict[str, Any]: mindspeed_megatron engine kwargs.
+        fsdp_kwargs dict[str, Any]: mindspeed_fsdp engine kwargs.
     """
 
-    strategy: str = "mindspeed_llm"
-    llm_kwargs: dict[str, Any] = field(default_factory=dict)
-    mm_kwargs: dict[str, Any] = field(default_factory=dict)
+    strategy: str = "mindspeed_megatron"
+    mcore_kwargs: dict[str, Any] = field(default_factory=dict)
+    fsdp_kwargs: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         """config validation logics go here"""
-        assert self.strategy in ["mindspeed_llm", "mindspeed_mm"], f"strategy {self.strategy} not supported"
+        assert self.strategy in ["mindspeed_megatron", "mindspeed_fsdp"], f"strategy {self.strategy} not supported"
         assert self.dtype in ["bfloat16", "float16"], f"dtype {self.dtype} not supported"
         if self.tensor_model_parallel_size == 1:
             warnings.warn("set sequence parallel to false as TP size is 1", stacklevel=2)
@@ -603,3 +620,4 @@ class TrainingWorkerConfig(BaseConfig):
     # This function takes model config and the device name as parameter.
     # Users can pass in a higher-order function to take more parameters
     auto_select_engine_optim_fn: Callable[["HFModelConfig", str], tuple["EngineConfig", "OptimizerConfig"]] = None
+    extra_context: dict = field(default_factory=dict)

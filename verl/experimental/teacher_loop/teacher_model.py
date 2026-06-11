@@ -231,9 +231,9 @@ class MultiTeacherModelManager:
 
         teacher_clients: dict[str, LLMServerClient] = {}
         for key, manager in self.teacher_model_managers.items():
-            servers = dict(zip(manager.server_addresses, manager.server_handles, strict=True))
             teacher_clients[key] = LLMServerClient(
-                config=self.config, servers=servers, load_balancer_handle=manager.load_balancer_handle
+                config=self.config,
+                load_balancer_handle=manager.load_balancer_handle,
             )
         for key, teacher_config in self.external_teacher_configs.items():
             teacher_clients[key] = ExternalLLMServerClient(teacher_config)
