@@ -392,6 +392,16 @@ async def _api_call(state: ServerState, system_prompt: str, user_prompt: str,
         payload["max_completion_tokens"] = max_tokens
         if not want_thinking:
             payload["reasoning_effort"] = "none"
+    elif provider == "deepseek":
+        # DeepSeek-V4-Pro thinking knob differs from Qwen's enable_thinking:
+        # chat_template_kwargs {"thinking": bool, "reasoning_effort": ...}.
+        # Creative calls (proposer/generator, temp>=0.5) reason at the configured
+        # effort; the validator (temp 0.2) stays fast with thinking off.
+        payload["temperature"] = temperature
+        payload["chat_template_kwargs"] = {"thinking": want_thinking}
+        if want_thinking:
+            payload["chat_template_kwargs"]["reasoning_effort"] = os.environ.get(
+                "DEEPSEEK_REASONING_EFFORT", "high")
     else:  # openai-compatible / generic
         payload["temperature"] = temperature
     # JSON Mode (Kimi / OpenAI). When the caller will pass the response

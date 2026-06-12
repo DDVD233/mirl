@@ -268,6 +268,11 @@ async def _call_api(
         payload.pop("max_tokens", None)
         payload["max_completion_tokens"] = max_tokens
         payload["reasoning_effort"] = "none"
+    elif provider == "deepseek":
+        # DeepSeek-V4-Pro: thinking via chat_template_kwargs {"thinking", "reasoning_effort"},
+        # NOT Qwen's enable_thinking. Judges want a fast boxed verdict -> thinking OFF.
+        payload["temperature"] = 0.0
+        payload["chat_template_kwargs"] = {"thinking": False}
     else:  # openai-compatible / generic
         payload["temperature"] = 0.0
 
