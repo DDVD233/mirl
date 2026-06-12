@@ -418,39 +418,77 @@ class MultiTurnSFTDataset(Dataset):
 
         return input_ids, loss_mask, attention_mask, multi_modal_inputs
 
+    def _assistant_turn_end_id(self):
+        """Token id that terminates an assistant turn, derived from the chat
+        template rather than hardcoded.
+
+        ChatML/Qwen use ``<|im_end|>``, but Gemma-3/4 use ``<turn|>`` and other
+        templates differ again. Hardcoding ``<|im_end|>`` makes the loss mask
+        all-zero for those templates, which yields a NaN SFT loss (0/0). We probe
+        the template once: render an assistant turn with a sentinel content and
+        take the first token of whatever text follows it. Cached after first use.
+        """
+        cached = getattr(self, "_assistant_end_id", "UNSET")
+        if cached != "UNSET":
+            return cached
+        end_id = None
+        sentinel = "§ZQZ_ASSISTANT_END_PROBE_ZQZ§"
+        try:
+            rendered = self.tokenizer.apply_chat_template(
+                [{"role": "user", "content": "x"}, {"role": "assistant", "content": sentinel}],
+                tokenize=False,
+                add_generation_prompt=False,
+            )
+            if sentinel in rendered:
+                tail = rendered.split(sentinel, 1)[1]
+                tail_ids = self.tokenizer.encode(tail, add_special_tokens=False)
+                if tail_ids:
+                    end_id = tail_ids[0]
+        except Exception:
+            end_id = None
+        if end_id is None:
+            end_id = self.tokenizer.eos_token_id
+        self._assistant_end_id = end_id
+        return end_id
+
     def _compute_loss_mask_from_ids(self, input_ids: torch.Tensor) -> torch.Tensor:
         """Compute loss_mask directly from input_ids by finding assistant turn boundaries.
 
-        Identifies assistant responses by the pattern:
-          <|im_start|> assistant \\n {content} <|im_end|>
-        and sets loss_mask=1 for {content} tokens only.
+        Sets loss_mask=1 on each assistant turn's content: the tokens after the
+        generation prompt up to (and excluding) the turn terminator. Both the turn
+        start (``self.generation_prompt``) and the terminator
+        (``_assistant_turn_end_id``) are derived from the tokenizer's chat
+        template, so this is template-agnostic (ChatML/Qwen, Gemma-3/4, ...)
+        instead of hardcoded to ``<|im_start|>`` / ``<|im_end|>`` (which produced
+        an all-zero mask -> NaN SFT loss for non-ChatML models like Gemma).
         """
         loss_mask = torch.zeros_like(input_ids)
         ids_list = input_ids.tolist()
 
-        im_start_id = self.tokenizer.convert_tokens_to_ids("<|im_start|>")
-        im_end_id = self.tokenizer.convert_tokens_to_ids("<|im_end|>")
-
-        # generation_prompt is the token sequence for "<|im_start|>assistant\n"
-        gen_prompt_len = len(self.generation_prompt)
+        gen_prompt = list(self.generation_prompt or [])
+        gen_prompt_len = len(gen_prompt)
+        if gen_prompt_len == 0:
+            return loss_mask
+        end_id = self._assistant_turn_end_id()
+        n = len(ids_list)
 
         i = 0
-        while i < len(ids_list):
-            if ids_list[i] == im_start_id:
-                # Check if this is an assistant turn by matching the generation_prompt
+        while i <= n - gen_prompt_len:
+            # Match the generation prompt directly (do not gate on a hardcoded
+            # turn-start token id, which is unk for non-ChatML templates).
+            if ids_list[i : i + gen_prompt_len] == gen_prompt:
                 gen_end = i + gen_prompt_len
-                if gen_end <= len(ids_list) and ids_list[i:gen_end] == list(self.generation_prompt):
-                    # Find the <|im_end|> for this assistant turn
-                    end_pos = None
-                    for j in range(gen_end, len(ids_list)):
-                        if ids_list[j] == im_end_id:
+                # Assistant content runs until the turn terminator; if none is
+                # found (e.g. a truncated final turn) mask to the end of sequence.
+                end_pos = n
+                if end_id is not None:
+                    for j in range(gen_end, n):
+                        if ids_list[j] == end_id:
                             end_pos = j
                             break
-                    if end_pos is not None:
-                        # Set loss_mask=1 for the assistant content (after generation prompt, before im_end)
-                        loss_mask[gen_end:end_pos] = 1
-                        i = end_pos + 1
-                        continue
+                loss_mask[gen_end:end_pos] = 1
+                i = end_pos + 1
+                continue
             i += 1
 
         return loss_mask

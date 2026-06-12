@@ -799,6 +799,25 @@ class AgentLoopWorker:
             extra_fields=output.extra_fields,
         )
 
+    def _build_mm_placeholder_text(self, *, n_images: int, n_videos: int, n_audios: int) -> str:
+        """Minimal text carrying one placeholder token per multimodal item.
+
+        HF processors expect one image/video/audio placeholder per item in the
+        text (which they then expand). Rebuilding it explicitly keeps the
+        text/item counts consistent for strict processors (e.g. Gemma-3/4, whose
+        ``validate_inputs`` raises on a mismatch) while being a no-op for
+        permissive ones (Qwen-VL). Returns "" when the processor exposes no such
+        tokens, so the caller can fall back to the decoded prompt text.
+        """
+        parts = []
+        for name, count in (("image", n_images), ("video", n_videos), ("audio", n_audios)):
+            if count <= 0:
+                continue
+            token = getattr(self.processor, f"{name}_token", None)
+            if token:
+                parts.append(" ".join([token] * count))
+        return " ".join(parts)
+
     def _compute_multi_modal_inputs(self, output, input_ids) -> dict[str, torch.Tensor]:
         """Compute multi-modal inputs with image, video and audio."""
         multi_modal_inputs = {}
@@ -809,7 +828,21 @@ class AgentLoopWorker:
         images = multi_modal_data.get("images")
         videos = multi_modal_data.get("videos")
         audios = multi_modal_data.get("audios")
-        current_text = self.tokenizer.decode(input_ids.squeeze(0), skip_special_tokens=True)
+
+        # Build the processor `text` with one placeholder per multimodal item
+        # rather than decoding `input_ids`: decoding with skip_special_tokens=True
+        # drops the image/video/audio placeholder tokens (0 tokens), and strict
+        # processors (e.g. Gemma-3/4) then reject the text/image count mismatch
+        # ("Found [0] <|image|> tokens and [N] images"). The processor's returned
+        # input_ids/attention_mask are discarded below, so only the per-modality
+        # placeholder COUNT matters here, not the surrounding prompt text. Falls
+        # back to the decoded text when the processor has no placeholder tokens.
+        placeholder_text = self._build_mm_placeholder_text(
+            n_images=len(images) if images else 0,
+            n_videos=len(videos) if videos else 0,
+            n_audios=len(audios) if audios else 0,
+        )
+        current_text = placeholder_text or self.tokenizer.decode(input_ids.squeeze(0), skip_special_tokens=True)
 
         multi_modal_inputs = build_multimodal_processor_inputs(
             self.processor,
@@ -841,7 +874,13 @@ class AgentLoopWorker:
         mm_processor_kwargs: Optional[dict[str, Any]] = None,
     ) -> torch.Tensor:
         """Compute position ids for multi-modal inputs."""
-        if self.processor is None:
+        # Processors without a bound get_rope_index use standard sequential 1D
+        # position ids. verl's tokenizer binding (utils/tokenizer.py) only binds
+        # get_rope_index for Qwen-style mrope models (Qwen-VL, GLM-4V) and
+        # intentionally skips it for Gemma-3/4 (1D RoPE) and Mllama. Without this
+        # guard, `self.processor.get_rope_index(...)` below raises AttributeError
+        # for those models.
+        if self.processor is None or not hasattr(self.processor, "get_rope_index"):
             return compute_position_id_with_mask(attention_mask)  # (1, seq_len)
 
         multi_modal_kwargs = {
