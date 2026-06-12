@@ -38,7 +38,7 @@ export EMBED_MODEL="${EMBED_MODEL:-Qwen/Qwen3-VL-Embedding-2B}"
 export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-2,3}"
 export RAY_ADDRESS="${RAY_ADDRESS:-local}"
 export HF_HOME="${HF_HOME:-/scratch/sheng/self_evolving/hf_cache}"
-export WANDB_MODE="${WANDB_MODE:-disabled}"
+export WANDB_MODE="${WANDB_MODE:-online}"
 
 REPETITION_PENALTY="${REPETITION_PENALTY:-1.1}"
 PYTHON_BIN="${PYTHON_BIN:-/usr/local/bin/python}"
@@ -109,6 +109,6 @@ cd "$REPO_ROOT"
     +trainer.validation_data_dir="${VALIDATION_DATA_DIR:-/scratch/sheng/self_evolving/logs_selfimprove/val_generations/$EXPERIMENT_NAME}" \
     trainer.project_name=self_evolving_medical \
     trainer.experiment_name="$EXPERIMENT_NAME" \
-    'trainer.logger=["console"]' \
+    'trainer.logger=["console","wandb"]' \
     "+ray_init.address=local" \
     "$@"

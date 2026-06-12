@@ -31,7 +31,7 @@ export EMBED_MODEL="${EMBED_MODEL:-Qwen/Qwen3-VL-Embedding-2B}"
 export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0,1,2,3}"
 export RAY_ADDRESS="${RAY_ADDRESS:-local}"
 export HF_HOME="${HF_HOME:-/scratch/sheng/self_evolving/hf_cache}"
-export WANDB_MODE="${WANDB_MODE:-disabled}"
+export WANDB_MODE="${WANDB_MODE:-online}"
 
 PYTHON_BIN="${PYTHON_BIN:-/usr/local/bin/python}"
 REPO_ROOT="${REPO_ROOT:-/scratch/sheng/self_evolving/verl}"
@@ -100,6 +100,6 @@ SFT_MAX_LENGTH="${SFT_MAX_LENGTH:-8192}"
     +trainer.validation_data_dir="${VALIDATION_DATA_DIR:-$DATA_DIR/../logs/val_generations/$EXPERIMENT_NAME}" \
     trainer.project_name=self_evolving_medical \
     trainer.experiment_name="$EXPERIMENT_NAME" \
-    'trainer.logger=["console"]' \
+    'trainer.logger=["console","wandb"]' \
     "+ray_init.address=local" \
     "$@"

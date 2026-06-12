@@ -27,7 +27,7 @@ import datasets
 import numpy as np
 import torch
 from omegaconf import DictConfig, ListConfig
-from PIL import Image
+from PIL import Image, ImageFile
 from torch.utils.data import Dataset
 from transformers import PreTrainedTokenizer, ProcessorMixin
 
@@ -35,6 +35,13 @@ from verl.utils.import_utils import load_extern_object
 from verl.utils.tokenizer import build_multimodal_processor_inputs, normalize_token_ids
 
 logger = logging.getLogger(__name__)
+
+# Medical-imaging JPEGs in the corpus are occasionally truncated. Let PIL decode
+# the partial data instead of raising OSError("broken data stream when reading
+# image file") so a single truncated file cannot crash dataset loading or the
+# rollout's vision pipeline. Genuinely-unreadable files still fall back to a
+# black placeholder via RLHFDataset._sanitize_image_messages.
+ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 
 def collate_fn(data_list: list[dict]) -> dict:
@@ -555,6 +562,11 @@ class RLHFDataset(Dataset):
         if has_visual:
             from qwen_vl_utils import process_vision_info
 
+            # Replace any unreadable image with a black placeholder before
+            # qwen_vl_utils decodes it, so one corrupt file can't crash the
+            # rollout's vision pipeline (the sibling process_vision_info() does
+            # the same; this is the path the agent-loop rollout actually calls).
+            cls._sanitize_image_messages(messages)
             images, videos = process_vision_info(
                 messages, image_patch_size=image_patch_size, return_video_metadata=True
             )
