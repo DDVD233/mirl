@@ -270,6 +270,8 @@ class ServerState:
             "served_from_history": 0,
             "served_from_seeds": 0,
             "sft_traces_skipped": 0,
+            "served_incomplete_skipped": 0,
+            "served_repaired_inline": 0,
             "started_at": datetime.now().isoformat(),
         }
 
@@ -1581,47 +1583,126 @@ def _log_served(s, entry: dict, source: str) -> None:
     )
 
 
+# Keys every served entry must carry so the trainer's DataProto batch stays
+# homogeneous. A key present on only *some* rows of a batch trips DataProto's
+# "key <k> length N is not equal to batch size M" assertion (this is exactly
+# how a trace-less cold-start seed served alongside fully-generated SFT entries
+# crashed the feedback eval). In SFT mode the verified teacher trace is also
+# mandatory, since it is the supervised target.
+_BASE_REQUIRED_FIELDS = ("prompt", "reward_model", "extra_info")
+
+
+def _required_fields(s) -> tuple:
+    if getattr(s.args, "sft_mode", False):
+        return _BASE_REQUIRED_FIELDS + ("reference_response",)
+    return _BASE_REQUIRED_FIELDS
+
+
+def _missing_fields(s, entry: dict) -> list:
+    """Names of required keys that are absent or empty on `entry`."""
+    missing = []
+    for k in _required_fields(s):
+        v = entry.get(k)
+        if v is None or (isinstance(v, (str, list, dict, tuple)) and len(v) == 0):
+            missing.append(k)
+    if not (entry.get("extra_info") or {}).get("question_id"):
+        missing.append("extra_info.question_id")
+    return missing
+
+
+async def _finalize_served(s, entry: dict, source: str):
+    """Completeness gate for /sample: never emit a partial entry.
+
+    Returns `entry` if it carries every required field, else None (the caller
+    must skip it and try the next source). In SFT mode an entry whose *only*
+    gap is the teacher trace (e.g. a raw cold-start seed or a replayed non-SFT
+    log line) is repaired in place by solving it synchronously; if the teacher
+    cannot produce a verified trace the entry is rejected rather than served
+    incomplete.
+    """
+    missing = _missing_fields(s, entry)
+    if missing == ["reference_response"] and getattr(s.args, "sft_mode", False):
+        try:
+            if await attach_teacher_trace(s, entry):
+                s.stats["served_repaired_inline"] += 1
+        except Exception as e:
+            logger.warning(
+                f"/sample inline trace attach failed: {type(e).__name__}: {e!r}"
+            )
+        missing = _missing_fields(s, entry)
+    if missing:
+        s.stats["served_incomplete_skipped"] += 1
+        qid = (entry.get("extra_info") or {}).get("question_id", "?")
+        logger.warning(
+            f"/sample dropping incomplete entry from={source} "
+            f"missing={missing} qid={qid}"
+        )
+        return None
+    s.stats["served"] += 1
+    _log_served(s, entry, source)
+    return entry
+
+
 @app.get("/sample")
 async def sample():
     s = STATE
-    # Drain the replay buffer first (FIFO). Single-threaded asyncio means
-    # the popleft is safe without a lock.
-    if s.replay_buffer:
-        entry = s.replay_buffer.popleft()
-        s.stats["served"] += 1
-        _log_served(s, entry, "replay")
-        return entry
-    # Try to get a freshly-generated entry from the pool. If the workers
-    # can't keep up (e.g. the chat server is saturated), fall back to a
-    # random previously-accepted entry so the trainer never starves on a
-    # 503. Workers keep generating in the background; once the pool
-    # refills, /sample resumes serving fresh entries.
-    try:
-        entry = await asyncio.wait_for(s.pool.get(), timeout=30)
-    except asyncio.TimeoutError:
-        if s.history:
-            entry = random.choice(s.history)
-            s.stats["served"] += 1
-            s.stats["served_from_history"] += 1
-            _log_served(s, entry, "history")
-            return entry
-        # Cold-start fallback: serve a random labeled training seed so the
-        # trainer never blocks waiting for the generator pipeline to spin up.
-        # Workers keep generating in the background; once the pool is fed,
-        # /sample resumes serving fresh entries.
-        if s.train_seeds:
-            entry = dict(random.choice(s.train_seeds))
+    # Every candidate below is routed through `_finalize_served`, which drops
+    # (or, in SFT mode, repairs) any entry missing a required field so the
+    # trainer never receives a partial entry that would break its batch.
+
+    # 1) Replay buffer (FIFO). Skip any replayed line that fails the gate
+    #    (e.g. a non-SFT log replayed into an SFT run).
+    while s.replay_buffer:
+        out = await _finalize_served(s, s.replay_buffer.popleft(), "replay")
+        if out is not None:
+            return out
+
+    # 2) Freshly-generated pool entries, pulled within a bounded total wait.
+    #    If the workers can't keep up (e.g. the chat server is saturated), fall
+    #    through to the history / seed fallbacks so the trainer never starves
+    #    on a 503; workers keep filling the pool in the background.
+    pool_deadline = time.monotonic() + 30
+    while True:
+        timeout = pool_deadline - time.monotonic()
+        if timeout <= 0:
+            break
+        try:
+            entry = await asyncio.wait_for(s.pool.get(), timeout=timeout)
+        except asyncio.TimeoutError:
+            break
+        out = await _finalize_served(s, entry, "pool")
+        if out is not None:
+            return out
+
+    # 3) History fallback: a random previously-accepted entry. These carry a
+    #    trace in SFT mode (history.append runs only after attach), but gate
+    #    anyway. Try a handful so one stale/partial entry can't wedge us.
+    if s.history:
+        for entry in random.sample(s.history, k=min(len(s.history), 16)):
+            out = await _finalize_served(s, entry, "history")
+            if out is not None:
+                s.stats["served_from_history"] += 1
+                return out
+
+    # 4) Cold-start seed fallback: a raw labeled training seed so the trainer
+    #    never blocks waiting for the generator to spin up. In SFT mode raw
+    #    seeds lack a trace, so `_finalize_served` solves them inline; if the
+    #    teacher can't verify a trace we skip to the next seed.
+    if s.train_seeds:
+        for seed in random.sample(s.train_seeds, k=min(len(s.train_seeds), 6)):
+            entry = dict(seed)
             extra = dict(entry.get("extra_info") or {})
-            extra.setdefault("question_id", f"seed_{id(entry):x}")
+            extra.setdefault("question_id", f"seed_{id(seed):x}")
             entry["extra_info"] = extra
-            s.stats["served"] += 1
-            s.stats["served_from_seeds"] += 1
-            _log_served(s, entry, "seeds")
-            return entry
-        raise HTTPException(status_code=503, detail="pool, history, and train_seeds all empty")
-    s.stats["served"] += 1
-    _log_served(s, entry, "pool")
-    return entry
+            out = await _finalize_served(s, entry, "seeds")
+            if out is not None:
+                s.stats["served_from_seeds"] += 1
+                return out
+
+    raise HTTPException(
+        status_code=503,
+        detail="no complete entry available (pool/history/seeds empty or all incomplete)",
+    )
 
 
 @app.post("/report")

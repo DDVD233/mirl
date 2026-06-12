@@ -136,5 +136,14 @@ class SelfEvolvingDataset(RLHFDataset):
 
     def __getitem__(self, item: int) -> dict:
         if item not in self._fetched:
-            self._fetched[item] = self._fetch_one()
+            entry = self._fetch_one()
+            # `reference_response` is the SFT-only verified teacher trace. The
+            # gen server's /sample now guarantees every served entry carries all
+            # required fields (incl. this one in SFT mode), so it is present
+            # consistently across the batch — but the RL / feedback-eval path
+            # has no use for the supervised target, and RLHFDataset surfaces
+            # every row key as a non-tensor batch column. Drop it here to keep
+            # the feedback batch lean (a heavy unused string per row otherwise).
+            entry.pop("reference_response", None)
+            self._fetched[item] = entry
         return super().__getitem__(item)

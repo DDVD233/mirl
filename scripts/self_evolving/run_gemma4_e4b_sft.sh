@@ -11,7 +11,8 @@
 #     and verl has no gemma remove-padding monkey-patch, so use the padded SDPA
 #     path for the training/actor forward.
 #   - wandb disabled + console logger (no W&B key on the cluster pods)
-#   - small val / few steps for a quick smoke
+#   - batch sizes / freqs mirror run_qwen35_9b_sft.sh; runs effectively forever
+#     (huge total_training_steps/epochs) with full-dataset eval (val_max_samples=-1)
 #
 # Requires the SFT-mode gen server up first (launch_gen_server_sft.sh, :8004).
 # Invoke:  HF_TOKEN=<tok> API_KEY=<trapi> bash scripts/self_evolving/run_gemma4_e4b_sft.sh
@@ -20,7 +21,7 @@ set -euo pipefail
 export CHAT_PROVIDER=trapi
 export API_BASE="${API_BASE:-http://point.dd.works:18890/v1}"
 export API_KEY="${API_KEY:-$(cat /scratch/sheng/self_evolving/.trapi_key 2>/dev/null || true)}"
-export MODEL_NAME="${MODEL_NAME:-gpt-5.5_2026-04-24}"
+export MODEL_NAME="${MODEL_NAME:-gpt-5.1-chat_2025-11-13}"
 export DATA_DIR="${DATA_DIR:-/scratch/sheng/self_evolving/mimiciv_rare}"
 export EXPERIMENT_NAME="${EXPERIMENT_NAME:-mimiciv_rare_gemma4_e4b_sft}"
 export GEN_SERVER_URL="${GEN_SERVER_URL:-http://localhost:8004}"
@@ -44,11 +45,11 @@ SFT_MAX_LENGTH="${SFT_MAX_LENGTH:-8192}"
     data.val_files="$DATA_DIR/test.jsonl" \
     data.custom_cls.path=scripts/self_evolving/self_evolving_sft_dataset.py \
     data.custom_cls.name=SelfEvolvingSFTDataset \
-    data.train_batch_size="${TRAIN_BATCH_SIZE:-16}" \
-    data.val_batch_size="${VAL_BATCH_SIZE:-16}" \
+    data.train_batch_size="${TRAIN_BATCH_SIZE:-32}" \
+    data.val_batch_size="${VAL_BATCH_SIZE:-32}" \
     data.max_prompt_length="${MAX_PROMPT_LENGTH:-8192}" \
     data.max_response_length="${MAX_RESPONSE_LENGTH:-4096}" \
-    ++data.val_max_samples="${VAL_MAX_SAMPLES:-16}" \
+    ++data.val_max_samples="${VAL_MAX_SAMPLES:--1}" \
     data.max_length="$SFT_MAX_LENGTH" \
     data.pad_mode=right \
     data.truncation=left \
@@ -57,7 +58,7 @@ SFT_MAX_LENGTH="${SFT_MAX_LENGTH:-8192}"
     +data.self_evolving.gen_server_url="$GEN_SERVER_URL" \
     +data.self_evolving.dataset_length=100000 \
     +data.feedback.enable=true \
-    +data.feedback.batch_size="${FEEDBACK_BATCH_SIZE:-16}" \
+    +data.feedback.batch_size="${FEEDBACK_BATCH_SIZE:-32}" \
     +data.feedback.custom_cls.path=scripts/self_evolving/self_evolving_dataset.py \
     +data.feedback.custom_cls.name=SelfEvolvingDataset \
     reward.custom_reward_function.path=verl/utils/reward_score/self_evolving.py \
@@ -77,7 +78,7 @@ SFT_MAX_LENGTH="${SFT_MAX_LENGTH:-8192}"
     actor_rollout_ref.rollout.name=vllm \
     actor_rollout_ref.rollout.n=1 \
     actor_rollout_ref.rollout.temperature=0.7 \
-    actor_rollout_ref.rollout.val_kwargs.do_sample=True \
+    actor_rollout_ref.rollout.val_kwargs.do_sample=False \
     +actor_rollout_ref.rollout.repetition_penalty="$REPETITION_PENALTY" \
     actor_rollout_ref.rollout.tensor_model_parallel_size="${ROLLOUT_TP:-1}" \
     actor_rollout_ref.rollout.gpu_memory_utilization="${ROLLOUT_GPU_MEM:-0.6}" \
@@ -90,11 +91,11 @@ SFT_MAX_LENGTH="${SFT_MAX_LENGTH:-8192}"
     critic.enable=False \
     trainer.n_gpus_per_node="${N_GPUS:-4}" \
     trainer.nnodes=1 \
-    trainer.total_epochs=1 \
-    trainer.total_training_steps="${TOTAL_STEPS:-4}" \
-    trainer.test_freq="${TEST_FREQ:-2}" \
+    trainer.total_epochs="${TOTAL_EPOCHS:-1000000}" \
+    trainer.total_training_steps="${TOTAL_STEPS:-1000000000}" \
+    trainer.test_freq="${TEST_FREQ:-50}" \
     trainer.val_before_train="${VAL_BEFORE_TRAIN:-True}" \
-    trainer.save_freq="${SAVE_FREQ:-1000}" \
+    trainer.save_freq="${SAVE_FREQ:-50}" \
     +trainer.max_actor_ckpt_to_keep=2 \
     +trainer.validation_data_dir="${VALIDATION_DATA_DIR:-$DATA_DIR/../logs/val_generations/$EXPERIMENT_NAME}" \
     trainer.project_name=self_evolving_medical \
