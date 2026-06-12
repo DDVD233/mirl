@@ -159,6 +159,16 @@ CHAR_BLEU_WEIGHT = 0.00
 DEBUG_PRINT_PROB = 0.01
 
 
+def _crop(s, head: int = 100, tail: int = 100) -> str:
+    """For trainer-side debug prints: keep only the first `head` and last `tail`
+    characters of a long string and mark how many were elided, so the reward log
+    stays readable instead of dumping full questions / responses."""
+    s = "" if s is None else str(s)
+    if len(s) <= head + tail:
+        return s
+    return f"{s[:head]} …[{len(s) - head - tail} chars omitted]… {s[-tail:]}"
+
+
 def extract_boxed_answer(text: str) -> str | None:
     """Extract the answer from \\boxed{...} (last occurrence)."""
     matches = re.findall(r"\\boxed\{([^}]*)\}", text)
@@ -697,7 +707,7 @@ async def compute_score(
         mode = "label" if has_label else "no-label"
         print(f"\n{'=' * 60}")
         print(f"[REWARD DEBUG] mode={mode}  format={extra_info.get('format', '?')}")
-        print(f"  question: {question}")
+        print(f"  question: {_crop(question)}")
         print(f"  ground_truth: {ground_truth!r}")
         print(f"  extracted: {extracted_answer!r}")
         print(f"  accuracy={accuracy:.1f}  judge_lenient={judge_acc_lenient:.1f}  "
@@ -706,7 +716,7 @@ async def compute_score(
               f"format={format_ok:.1f}  embed_sim={embed_sim:.2f}  "
               f"char_bleu={char_bleu_score:.2f}")
         print(f"  total_score={score:.3f}")
-        print(f"  response: {solution_str}")
+        print(f"  response: {_crop(solution_str)}")
         print(f"{'=' * 60}\n")
 
     # Feed accuracy back to the generation server so it can keep its
