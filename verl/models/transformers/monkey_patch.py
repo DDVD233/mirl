@@ -314,6 +314,16 @@ def apply_monkey_patch(
         tiled_mlp_shards: Number of shards for TiledMLP (higher = lower memory, slightly slower).
     """
 
+    # Gemma4: make vision tower run uniformly across ranks for mixed multimodal/text
+    # batches (else FSDP/DeepSpeed backward desyncs). ms-swift#9180 adapted.
+    try:
+        _mt = str(getattr(getattr(model, "config", None), "model_type", "")).lower()
+        if "gemma4" in _mt or "Gemma4" in type(model).__name__:
+            from verl.models.transformers.gemma4 import apply_gemma4_mixed_data_patch
+            if apply_gemma4_mixed_data_patch(model):
+                print("[verl] applied Gemma4 mixed-data forward patch", flush=True)
+    except Exception as _e:
+        print(f"[verl] Gemma4 mixed-data patch skipped: {_e}", flush=True)
     # Apply TiledMLP monkey patch for memory-efficient MLP computation
     if use_tiled_mlp:
         from verl.models.transformers.tiled_mlp import apply_tiled_mlp_monkey_patch
