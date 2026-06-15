@@ -133,3 +133,6 @@ outputs
 .history
 # Local-only K8s manifests with bot tokens / API keys — never commit
 docker/kub_config/
+
+# TRAPI rate-limit probe output (generated data, not source)
+scripts/self_evolving/trapi_limits_out/
