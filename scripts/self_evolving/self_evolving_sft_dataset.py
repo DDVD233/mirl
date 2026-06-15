@@ -150,16 +150,26 @@ class SelfEvolvingSFTDataset(MultiTurnSFTDataset):
 
     def __getitem__(self, item):
         res = super().__getitem__(item)
-        # We force the processor (multimodal) tokenization path for text so the
-        # whole conversation is templated at once. For image-free samples the
-        # processor still emits byproducts (e.g. mm_token_type_ids) into
-        # multi_modal_inputs; these are per-sample-variable and break the
-        # engine's cross-microbatch torch.cat. The parent's *text* branch drops
-        # them, but the multimodal branch keeps them — so strip them here when
-        # the sample has no images. (Real image samples keep their inputs.)
-        row = self._get_row(item)
-        if not row.get(self.image_key):
-            res.pop("multi_modal_inputs", None)
+        # Keep the batch HOMOGENEOUS so a mix of text and image rows survives
+        # collation. We force the multimodal tokenization path for every row
+        # (see _has_vision_content), so even text rows get a `multi_modal_inputs`
+        # dict — but the parent only attaches the key when non-empty, and image
+        # rows get a populated dict. collate_fn builds one length-batch_size
+        # object array per non-tensor key, and DataProto.check_consistency
+        # rejects `multi_modal_inputs` if it is present on only the image rows
+        # (this is exactly what crashed a mixed text+image SFT batch). So we
+        # ALWAYS emit the key: an empty {} for text rows (extract_multi_modal_inputs
+        # treats it as a pure-text sample) and the real inputs for image rows.
+        # `mm_token_type_ids` is per-token / variable-length and cannot be
+        # torch.cat'd across varlen microbatches, so drop it on every row
+        # (mirrors verl/utils/model.py::extract_multi_modal_inputs in the RL path);
+        # for text rows the forced multimodal path emits ONLY this key, so the
+        # dict becomes empty after the pop.
+        mmi = res.get("multi_modal_inputs")
+        if not isinstance(mmi, dict):
+            mmi = {}
+        mmi.pop("mm_token_type_ids", None)
+        res["multi_modal_inputs"] = mmi
         return res
 
     def _has_vision_content(self, messages):
