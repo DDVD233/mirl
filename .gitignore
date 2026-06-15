@@ -136,3 +136,5 @@ docker/kub_config/
 
 # TRAPI rate-limit probe output (generated data, not source)
 scripts/self_evolving/trapi_limits_out/
+
+.claude

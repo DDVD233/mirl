@@ -9,7 +9,7 @@
 # Usage::
 #
 #     CUDA_VISIBLE_DEVICES=3 BIOBERT_PORT=8003 \
-#         bash scripts/self_evolving/start_biobert_server.sh
+#         bash scripts/self_evolving/serve/start_biobert_server.sh
 #
 # Defaults: model=pritamdeka/BioBERT-mnli-snli-scinli-scitail-mednli-stsb,
 # port=8003, device=cuda if available.

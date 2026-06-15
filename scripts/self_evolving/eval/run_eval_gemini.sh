@@ -32,7 +32,7 @@ if [ -z "$GEMINI_API_KEY" ]; then
     exit 1
 fi
 
-cd "$(dirname "$0")/../.."
+cd "$(dirname "$0")/../../.."
 # Unbuffered stdout so progress lines show up under `tee` / piped capture.
 export PYTHONUNBUFFERED=1
 exec "$PYTHON_BIN" scripts/self_evolving/eval_sota_gemini.py \

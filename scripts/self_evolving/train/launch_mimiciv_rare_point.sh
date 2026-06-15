@@ -27,6 +27,6 @@ cd /home/dvdai/verl
 echo "python3 -> $(which python3)" >&2
 python3 -c "import tensordict, sys; sys.stderr.write(f'tensordict OK {tensordict.__version__}\n')"
 
-bash scripts/self_evolving/run_multi_agent_mimiciv_rare.sh \
+bash scripts/self_evolving/train/run_multi_agent_mimiciv_rare.sh \
     ++data.self_evolving.log_dir="$LOG_DIR" \
     "$@"

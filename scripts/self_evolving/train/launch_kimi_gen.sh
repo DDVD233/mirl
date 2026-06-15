@@ -5,7 +5,7 @@
 # Parameterized by env so multiple hosts share one git-tracked script. The
 # sensitive proxy key is NOT stored here — pass it at launch:
 #
-#   API_KEY="$(cat /root/.trapi_proxy_key)" bash scripts/self_evolving/launch_kimi_gen.sh
+#   API_KEY="$(cat /root/.trapi_proxy_key)" bash scripts/self_evolving/train/launch_kimi_gen.sh
 #
 # Per-host overrides (defaults match the sheng /scratch layout):
 #   DATA_DIR, GEN_SERVER_PORT, GEN_WORKERS, MAX_POOL_SIZE, REPO_ROOT, PYTHON_BIN
@@ -30,4 +30,4 @@ export PYTHON_BIN="${PYTHON_BIN:-/usr/local/bin/python}"
 export REPO_ROOT="${REPO_ROOT:-/scratch/sheng/self_evolving/verl}"
 
 cd "$REPO_ROOT"
-exec bash scripts/self_evolving/start_generation_server.sh "$@"
+exec bash scripts/self_evolving/serve/start_generation_server.sh "$@"

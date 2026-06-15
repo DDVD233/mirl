@@ -8,7 +8,7 @@
 #   API_KEY="$(cat /root/.trapi_proxy_key)" \
 #   ACTOR_MODEL_PATH=Qwen/Qwen3.6-27B \
 #   EXPERIMENT_NAME=mimiciv_rare_qwen36_27b_full_kimi \
-#   bash scripts/self_evolving/launch_kimi_run.sh
+#   bash scripts/self_evolving/train/launch_kimi_run.sh
 #
 # Hyperparameters (clip_ratio_high=0.28, train_batch_size=256,
 # ppo_mini_batch_size=128, lr=5e-7, test/save_freq=5) are applied here as
@@ -40,7 +40,7 @@ LOG_DIR="${LOG_DIR:-/scratch/sheng/self_evolving/logs}"
 export VALIDATION_DATA_DIR="${VALIDATION_DATA_DIR:-$LOG_DIR/val_generations/$EXPERIMENT_NAME}"
 
 cd "$REPO_ROOT"
-bash scripts/self_evolving/run_qwen36_27b_full.sh \
+bash scripts/self_evolving/train/run_qwen36_27b_full.sh \
     actor_rollout_ref.model.path="$ACTOR_MODEL_PATH" \
     data.train_batch_size=256 \
     actor_rollout_ref.actor.ppo_mini_batch_size=128 \

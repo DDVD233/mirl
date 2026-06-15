@@ -62,7 +62,7 @@ fi
 TEACHER_RETRIES="${TEACHER_RETRIES:-2}"
 TEACHER_MAX_TOKENS="${TEACHER_MAX_TOKENS:-4096}"
 
-cd "$(dirname "$0")/../.."
+cd "$(dirname "$0")/../../.."
 
 TEST_SEEDS_FLAG=()
 if [ -n "$TEST_SEEDS_PATH" ]; then

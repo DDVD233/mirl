@@ -15,7 +15,7 @@
 #     (huge total_training_steps/epochs) with full-dataset eval (val_max_samples=-1)
 #
 # Requires the SFT-mode gen server up first (launch_gen_server_sft.sh, :8004).
-# Invoke:  HF_TOKEN=<tok> API_KEY=<trapi> bash scripts/self_evolving/run_gemma4_e4b_sft.sh
+# Invoke:  HF_TOKEN=<tok> API_KEY=<trapi> bash scripts/self_evolving/train/run_gemma4_e4b_sft.sh
 set -euo pipefail
 
 export CHAT_PROVIDER=trapi

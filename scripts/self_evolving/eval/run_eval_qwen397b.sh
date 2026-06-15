@@ -30,7 +30,7 @@ VLLM_THINKING="${VLLM_THINKING:-True}"
 VLLM_MAX_TOKENS="${VLLM_MAX_TOKENS:-16384}"
 OUTPUT_JSONL="${OUTPUT_JSONL:-/scratch/sheng/self_evolving/logs/eval_vllm_${TEACHER_MODEL//\//_}.jsonl}"
 
-cd "$(dirname "$0")/../.."
+cd "$(dirname "$0")/../../.."
 export PYTHONUNBUFFERED=1
 exec "$PYTHON_BIN" scripts/self_evolving/eval_sota.py \
     --provider vllm \

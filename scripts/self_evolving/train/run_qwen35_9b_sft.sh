@@ -29,7 +29,7 @@ export RAY_ADDRESS="${RAY_ADDRESS:-local}"
 REPETITION_PENALTY="${REPETITION_PENALTY:-1.1}"
 
 PYTHON_BIN="${PYTHON_BIN:-/usr/local/bin/python}"
-REPO_ROOT="${REPO_ROOT:-$(cd "$(dirname "$0")/../.." && pwd)}"
+REPO_ROOT="${REPO_ROOT:-$(cd "$(dirname "$0")/../../.." && pwd)}"
 cd "$REPO_ROOT"
 
 # SFT max sequence length (prompt + teacher trace). Training questions are

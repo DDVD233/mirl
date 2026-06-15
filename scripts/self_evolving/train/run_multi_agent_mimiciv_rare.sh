@@ -37,7 +37,7 @@ fi
 # when the operator forgot to launch start_generation_server.sh.
 if ! curl -fsS --max-time 5 "$GEN_SERVER_URL/healthz" >/dev/null 2>&1; then
     echo "ERROR: generation server not reachable at $GEN_SERVER_URL/healthz" >&2
-    echo "       Start it first with scripts/self_evolving/start_generation_server.sh" >&2
+    echo "       Start it first with scripts/self_evolving/serve/start_generation_server.sh" >&2
     exit 1
 fi
 

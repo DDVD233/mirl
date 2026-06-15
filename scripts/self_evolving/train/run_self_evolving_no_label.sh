@@ -4,7 +4,7 @@
 # The reward function uses an LLM judge to determine correctness.
 #
 # Prerequisites:
-#   1. Start vLLM server: bash scripts/self_evolving/start_vllm_server.sh
+#   1. Start vLLM server: bash scripts/self_evolving/serve/start_vllm_server.sh
 #   2. Preprocess data:   python scripts/self_evolving/preprocess_pubmedqa.py
 #
 # Environment variables:
