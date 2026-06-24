@@ -38,6 +38,58 @@ from multiprocessing import Pool
 
 ICD10_RE = re.compile(r"^[A-Z][0-9][A-Z0-9]")
 
+# data_source prefix shared by every MIMIC-IV rare-disease row. Kept as a
+# "mimic" prefix so the reward router (verl/utils/reward_score/__init__.py:
+# `data_source.startswith("mimic")`) and self_evolving.compute_score keep
+# dispatching to the medical-text scorer. The "<prefix>/<category>" shape lets
+# verl's per-data_source validation metrics report one accuracy per ICD-10
+# chapter group (val-core/mimic_rare/<category>/acc/...) instead of a single
+# global number, and groups them under one "mimic_rare/" section in wandb.
+DATA_SOURCE_PREFIX = "mimic_rare"
+
+
+def icd10_category(code: str) -> str:
+    """Map a primary ICD-10(-CM) code to a coarse top-level chapter group.
+
+    We collapse the 18+ ICD-10 chapters present in the data into 8 buckets so
+    each has enough samples per split for stable set-wise validation metrics.
+    The four dominant chapters (neoplasms, endocrine/metabolic, nervous system,
+    blood/immune) and the next three notable ones (circulatory, infectious,
+    digestive) are kept distinct; the long tail of small chapters (mental, skin,
+    musculoskeletal, congenital, respiratory, genitourinary, etc.) is merged
+    into "other".
+
+    Note the chapter-II/III split inside the "D" letter: D00-D49 are neoplasms
+    (ICD-10-CM chapter II is C00-D49), D50-D89 are blood/immune (chapter III).
+    """
+    c = (code or "").upper()
+    if not c:
+        return f"{DATA_SOURCE_PREFIX}/other"
+    letter = c[0]
+    m = re.match(r"^[A-Z]([0-9]{2})", c)
+    num = int(m.group(1)) if m else 0
+
+    if letter == "C" or (letter == "D" and num <= 49):
+        cat = "neoplasms"
+    elif letter == "D":  # D50-D89
+        cat = "blood_immune"
+    elif letter == "E":
+        cat = "endocrine_metabolic"
+    elif letter == "G":
+        cat = "nervous_system"
+    elif letter == "I":
+        cat = "circulatory"
+    elif letter in ("A", "B"):
+        cat = "infectious"
+    elif letter == "K":
+        cat = "digestive"
+    else:
+        # F (mental), H (eye/ear), J (respiratory), L (skin), M (musculoskeletal),
+        # N (genitourinary), O (pregnancy), P (perinatal), Q (congenital),
+        # R (symptoms), S/T (injury/poisoning), and anything unexpected.
+        cat = "other"
+    return f"{DATA_SOURCE_PREFIX}/{cat}"
+
 SYSTEM_PROMPT = (
     "You are a senior physician reviewing a hospital admission for a patient "
     "who has a rare disease. Examine the demographics, vital signs, lab "
@@ -604,7 +656,7 @@ def process_one(fp: str) -> dict | None:
     answer = f"{pretty_code}: {desc}"
 
     return {
-        "data_source": "mimiciv_rare_dx",
+        "data_source": icd10_category(code),
         "prompt": [
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": user_content},
@@ -622,6 +674,7 @@ def process_one(fp: str) -> dict | None:
             "primary_icd10": code,
             "primary_icd10_pretty": pretty_code,
             "primary_description": desc,
+            "icd_category": icd10_category(code),
             "orphanet_e_match": matched,
             "n_xrays": n_xrays_actual,
             "n_ecgs": n_ecgs_actual,

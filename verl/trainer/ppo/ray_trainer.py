@@ -608,7 +608,12 @@ class RayPPOTrainer:
         sample_turns = []
         sample_uids = []
 
-        for test_data in self.val_dataloader:
+        val_pbar = tqdm(
+            self.val_dataloader,
+            total=len(self.val_dataloader),
+            desc=f"Validation (step {self.global_steps}, {len(self.val_dataloader.dataset)} prompts)",
+        )
+        for test_data in val_pbar:
             test_batch = DataProto.from_single_dict(test_data)
 
             if "uid" not in test_batch.non_tensor_batch:
@@ -635,7 +640,6 @@ class RayPPOTrainer:
                 "validate": True,
                 "global_steps": self.global_steps,
             }
-            print(f"test_gen_batch meta info: {test_gen_batch.meta_info}")
 
             # pad to be divisible by dp_size
             size_divisor = self.config.actor_rollout_ref.rollout.agent.num_workers
@@ -654,8 +658,6 @@ class RayPPOTrainer:
 
             # unpad
             test_output_gen_batch = unpad_dataproto(test_output_gen_batch_padded, pad_size=pad_size)
-
-            print("validation generation end")
 
             # Store generated outputs
             output_ids = test_output_gen_batch.batch["responses"]
@@ -707,6 +709,13 @@ class RayPPOTrainer:
                 dump_path=val_data_dir,
             )
 
+        # Carry ground truths alongside the reward extras so the CLIMB metric
+        # reducer (per-modality class-macro F1) can run inside
+        # _val_metrics_update for both the merged and non-merged paths. It is a
+        # string column, so process_validation_metrics ignores it for means.
+        if sample_gts and len(sample_gts) == len(sample_scores):
+            reward_extra_infos_dict["climb_gt"] = list(sample_gts)
+
         for key_info, lst in reward_extra_infos_dict.items():
             assert len(lst) == 0 or len(lst) == len(sample_scores), f"{key_info}: {len(lst)=}, {len(sample_scores)=}"
 
@@ -745,6 +754,21 @@ class RayPPOTrainer:
             metric_dict["val-aux/num_turns/min"] = sample_turns.min()
             metric_dict["val-aux/num_turns/max"] = sample_turns.max()
             metric_dict["val-aux/num_turns/mean"] = sample_turns.mean()
+
+        # CLIMB: per-modality class-macro F1 + macro-average across modalities.
+        # verl's per-data_source mean already yields per-modality accuracy
+        # (acc/mean@N); this adds the F1 the mean-based path cannot compute.
+        preds = reward_extra_infos_dict.get("extracted_answer", [])
+        gts = reward_extra_infos_dict.get("climb_gt", [])
+        if preds and gts:
+            try:
+                from verl.trainer.ppo.climb_metrics import compute_climb_modality_metrics
+
+                metric_dict.update(
+                    compute_climb_modality_metrics(list(data_sources), list(preds), list(gts))
+                )
+            except Exception as e:  # never let metric add-ons break validation
+                print(f"[climb] modality metric computation failed: {type(e).__name__}: {e}")
 
         return metric_dict
 

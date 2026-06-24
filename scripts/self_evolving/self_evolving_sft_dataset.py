@@ -136,6 +136,13 @@ class SelfEvolvingSFTDataset(MultiTurnSFTDataset):
         self.fetch_timeout = float(se.get("fetch_timeout", 600))
         self.connect_wait = float(se.get("connect_wait", 600))
 
+        # CLIMB media: resolve climb:// handles + flatten <video> -> <image>
+        # frames so the SFT student trains on the same image-only format as the
+        # RL path. None for non-CLIMB SFT runs (then _to_row is unchanged).
+        from verl.utils.climb import ClimbMediaConfig
+
+        self._climb_media_cfg = ClimbMediaConfig.from_data_config(config)
+
         self._rows: dict[int, dict] = {}
         self._wait_for_server()
         self.dataframe = _FetchFrame(self)
@@ -267,6 +274,16 @@ class SelfEvolvingSFTDataset(MultiTurnSFTDataset):
         messages = [dict(m) for m in entry.get("prompt", [])]
         messages.append({"role": "assistant", "content": ref})
         row = {self.messages_key: messages, "extra_info": entry.get("extra_info", {})}
-        if "images" in entry:
-            row[self.image_key] = entry["images"]
+
+        images = entry.get("images") or []
+        videos = entry.get("videos") or []
+        # Resolve climb:// media + flatten any <video> into <image> frames (in
+        # the user-turn message content) so the supervised target sees the same
+        # image-only multimodal input the teacher was shown. No-op for non-CLIMB.
+        if self._climb_media_cfg is not None and (images or videos):
+            from verl.utils.climb import resolve_and_flatten_media
+
+            images, videos = resolve_and_flatten_media(messages, images, videos, self._climb_media_cfg)
+        if images:
+            row[self.image_key] = images
         return row

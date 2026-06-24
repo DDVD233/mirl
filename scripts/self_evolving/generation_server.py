@@ -135,6 +135,38 @@ For free response (required_format="free"):
 {{"format": "free", "question": "...", "answer": "short expected answer"}}"""
 
 
+QUESTION_GENERATOR_MM_SYSTEM_PROMPT = """\
+You are a medical educator creating MULTIMODAL training questions for a medical vision-language AI. \
+You are given several retrieved clinical media items, each labeled [MEDIA k] with its clinical \
+modality, the original question it came from, and its answer/label. The actual image(s) (or sampled \
+video frames) are attached in order.
+
+Create ONE NEW question that USES one or more of these media items and is answerable from them. Be \
+DIVERSE across calls — pick the most fitting of these styles (vary it):
+  - reuse / rephrase the original question for a single media item;
+  - LOCALIZE a finding ("in <<k>>, which region / lobe / quadrant shows the abnormality?");
+  - relate to KNOWLEDGE implied by the label (mechanism, next diagnostic step, complication);
+  - go BROADER (the parent category of the label) or FINER (a more specific subtype);
+  - COMPARE two media items ("how does the finding in <<1>> differ from <<2>>?").
+
+Reference each media item you use with the token <<k>> (e.g. <<1>>, <<2>>) placed exactly where the \
+reader must look at it; you may reference an item more than once. Every <<k>> must be a valid index, \
+and you MUST reference at least one item.
+
+REQUIRED FORMAT: {required_format}
+DIFFICULTY: solver recent accuracy {accuracy:.0%} over {accuracy_count} items; target ~50%.
+
+ANSWER RULES:
+  - The answer must be unambiguously determinable from the referenced media (+ standard medical knowledge).
+  - MCQ: exactly 4 options; distractors must be defensible (adjacent finding, wrong region, wrong subtype) \
+    — never obvious nonsense; exactly one option is correct.
+  - Free: a short specific phrase (1-8 words: a finding, region, diagnosis, threshold, or mechanism).
+
+Keep internal reasoning UNDER 400 WORDS, then output ONLY a JSON object. No markdown, no explanation.
+For MCQ: {{"format":"mcq","question":"... <<1>> ...","options":{{"A":"..","B":"..","C":"..","D":".."}},"answer":"A"}}
+For free: {{"format":"free","question":"... <<1>> ...","answer":"short answer"}}"""
+
+
 QUESTION_VALIDATOR_SYSTEM_PROMPT = """\
 You are a medical fact-checker. You are given:
 (1) A candidate training question + its proposed answer (+ options if MCQ).
@@ -219,30 +251,42 @@ class ServerState:
             for s in self.test_seeds:
                 # Strip the label so the generator can never see it.
                 s.pop("reward_model", None)
+        # CLIMB multimodal seeds (real train image/video rows in verl shape with
+        # "climb://" media handles). Drive the gen_mm mode and direct multimodal
+        # inserts; labels are KEPT (used as the generation answer + reward GT).
+        self.climb_seeds: list[dict] = []
+        if getattr(args, "climb_seeds_path", ""):
+            self.climb_seeds = self._load_seeds(args.climb_seeds_path)
         # Kept for /replay logging compatibility and any consumer that wants a
         # flat seed list — workers no longer iterate this in order.
         self.seeds = list(self.train_seeds) + list(self.test_seeds)
         logger.info(
             f"seeds: {len(self.seeds)} total "
-            f"({len(self.train_seeds)} train, {len(self.test_seeds)} test_masked)"
+            f"({len(self.train_seeds)} train, {len(self.test_seeds)} test_masked, "
+            f"{len(self.climb_seeds)} climb_mm)"
         )
 
         # Output-mix targets and running counts. Workers pick the most-deficit
         # mode each iteration to drive the pool toward these proportions. If
-        # there are no test_seeds, the gen_test target is folded into gen_train.
+        # there are no test_seeds, the gen_test target is folded into gen_train;
+        # likewise gen_mm folds into gen_train when no climb seeds are loaded.
         self.mix_targets = {
             "direct": float(args.direct_target),
             "gen_train": float(args.gen_train_target),
             "gen_test": float(args.gen_test_target),
+            "gen_mm": float(getattr(args, "gen_mm_target", 0.0)),
         }
         if not self.test_seeds:
             self.mix_targets["gen_train"] += self.mix_targets["gen_test"]
             self.mix_targets["gen_test"] = 0.0
+        if not self.climb_seeds:
+            self.mix_targets["gen_train"] += self.mix_targets["gen_mm"]
+            self.mix_targets["gen_mm"] = 0.0
         # Renormalize (in case the user passed values that don't sum to 1).
         total = sum(self.mix_targets.values()) or 1.0
         for k in self.mix_targets:
             self.mix_targets[k] /= total
-        self.mix_counts = {"direct": 0, "gen_train": 0, "gen_test": 0}
+        self.mix_counts = {"direct": 0, "gen_train": 0, "gen_test": 0, "gen_mm": 0}
 
         self.pool: asyncio.Queue = asyncio.Queue(maxsize=args.max_pool_size)
         # Unbounded buffer drained by /sample BEFORE the regular pool. Used by
@@ -460,10 +504,15 @@ async def _embed_text(state: ServerState, text: str) -> list[float]:
         return resp.json()["data"][0]["embedding"]
 
 
-def _milvus_search_sync(state: ServerState, embedding: list[float], top_k: int) -> list[dict]:
+def _milvus_search_sync(state: ServerState, embedding: list[float], top_k: int,
+                        filter_expr: str = "") -> list[dict]:
     """Sync Milvus call. Each thread keeps its own MilvusClient (gRPC channels
     are not safe to share across threads, and a closed channel poisons the
-    cached client). Reconnect once on closed-channel errors before giving up."""
+    cached client). Reconnect once on closed-channel errors before giving up.
+
+    `filter_expr` is an optional Milvus boolean expression (e.g. restricting to
+    CLIMB train rows). `image_path` + `entry_id` are also returned so multimodal
+    callers can resolve the media file and tell train/valid rows apart."""
     from pymilvus import MilvusClient
 
     def _new_client():
@@ -477,15 +526,19 @@ def _milvus_search_sync(state: ServerState, embedding: list[float], top_k: int) 
     last_err = None
     for attempt in range(2):
         try:
-            results = client.search(
+            search_kwargs = dict(
                 collection_name=state.args.milvus_collection,
                 data=[embedding],
                 limit=top_k,
                 output_fields=[
                     "source_dataset", "modality", "content_type",
                     "text_content", "question", "answer",
+                    "image_path", "entry_id",
                 ],
             )
+            if filter_expr:
+                search_kwargs["filter"] = filter_expr
+            results = client.search(**search_kwargs)
             hits: list[dict] = []
             for hit_list in results:
                 for hit in hit_list:
@@ -497,6 +550,8 @@ def _milvus_search_sync(state: ServerState, embedding: list[float], top_k: int) 
                         "text": e.get("text_content", ""),
                         "question": e.get("question", ""),
                         "answer": e.get("answer", ""),
+                        "image_path": e.get("image_path", ""),
+                        "entry_id": e.get("entry_id", ""),
                         "score": hit["distance"],
                     })
             return hits
@@ -521,7 +576,8 @@ def _milvus_search_sync(state: ServerState, embedding: list[float], top_k: int) 
     return []
 
 
-async def _milvus_search(state: ServerState, query_text: str, top_k: int) -> list[dict]:
+async def _milvus_search(state: ServerState, query_text: str, top_k: int,
+                         filter_expr: str = "") -> list[dict]:
     try:
         embedding = await _embed_text(state, query_text)
     except Exception as e:
@@ -530,7 +586,24 @@ async def _milvus_search(state: ServerState, query_text: str, top_k: int) -> lis
         )
         return []
     async with timed(state, "milvus_search"):
-        return await asyncio.to_thread(_milvus_search_sync, state, embedding, top_k)
+        return await asyncio.to_thread(_milvus_search_sync, state, embedding, top_k, filter_expr)
+
+
+# Milvus boolean filter selecting CLIMB train-split multimodal rows only. The
+# build_medical_knowledge_v2 indexer keys CLIMB rows as "climb_<split>_<line>",
+# so the train split is exactly entry_id LIKE "climb_train_%".
+CLIMB_TRAIN_FILTER = 'source_dataset == "climb" and entry_id like "climb_train_%"'
+
+
+async def _milvus_search_climb(state: ServerState, query_text: str, top_k: int,
+                               images_only: bool = False) -> list[dict]:
+    """Retrieve CLIMB train-split multimodal neighbors for a query. Restricts to
+    image modality when `images_only` (video frame extraction is best-effort)."""
+    expr = CLIMB_TRAIN_FILTER
+    if images_only:
+        expr += ' and modality == "image"'
+    hits = await _milvus_search(state, query_text, top_k, filter_expr=expr)
+    return [h for h in hits if h.get("image_path")]
 
 
 # ======================================================================
@@ -1002,6 +1075,8 @@ def _pick_mode(state: ServerState) -> str:
             continue
         if mode == "gen_test" and not state.test_seeds:
             continue
+        if mode == "gen_mm" and not state.climb_seeds:
+            continue
         share = (counts[mode] + 1) / total
         deficit = target - share
         if deficit > best_deficit:
@@ -1086,6 +1161,194 @@ def _build_entry(state: ServerState, generated: dict, target: dict,
             "retrieval_query": query,
         },
     }
+
+
+# ======================================================================
+# Multimodal (CLIMB) generation
+# ----------------------------------------------------------------------
+# A climb seed (real train image/video + question + label) is combined with a
+# few retrieved CLIMB train-split neighbors. The teacher SEES the images and
+# synthesizes a NEW question that references them with <<k>> tokens; we map
+# those back to <image>/<video> placeholders and ship the entry with portable
+# "climb://<relpath>" media handles the trainer resolves from the file server.
+# ======================================================================
+def _climb_media_item_from_seed(seed: dict) -> Optional[dict]:
+    """Turn a climb seed entry into a media item for the generation prompt."""
+    rel = None
+    media_modality = "image"
+    for vid in (seed.get("videos") or []):
+        r = _climb_relpath(vid)
+        if r:
+            rel, media_modality = r, "video"
+            break
+    if rel is None:
+        for im in (seed.get("images") or []):
+            r = _climb_relpath(im)
+            if r:
+                rel, media_modality = r, "image"
+                break
+    if rel is None:
+        return None
+    extra = seed.get("extra_info") or {}
+    return {
+        "rel": rel,
+        "modality": media_modality,
+        "clinical_modality": extra.get("modality") or "unknown",
+        "question": extra.get("question") or _extract_user_text(seed),
+        "answer": str((seed.get("reward_model") or {}).get("ground_truth", "")),
+    }
+
+
+def _climb_media_item_from_hit(hit: dict) -> Optional[dict]:
+    """Turn a Milvus CLIMB hit into a media item. image_path is
+    high_modality-relative (build_medical_knowledge_v2). Kept dependency-free
+    (this server runs as a script, so `verl` is not importable)."""
+    raw = (hit.get("image_path") or "").lstrip("/")
+    rel = raw[len("high_modality/"):] if raw.startswith("high_modality/") else raw
+    if not rel:
+        return None
+    clinical = rel.split("/")[0] or "unknown"
+    return {
+        "rel": rel,
+        "modality": hit.get("modality") or "image",
+        "clinical_modality": clinical,
+        "question": hit.get("question") or "",
+        "answer": hit.get("answer") or "",
+    }
+
+
+async def agent_question_generator_mm(state: ServerState, media_items: list,
+                                      accuracy_stats: dict, required_format: str) -> dict:
+    """Synthesize one multimodal question over `media_items` (the teacher sees
+    the attached images / sampled video frames). Returns the validated generator
+    dict ({format, question with <<k>> refs, options?, answer})."""
+    sys_prompt = QUESTION_GENERATOR_MM_SYSTEM_PROMPT.format(
+        required_format=required_format,
+        accuracy=accuracy_stats["mean"],
+        accuracy_count=accuracy_stats["count"],
+    )
+    n_frames = int(getattr(state.args, "mm_video_frames", 2))
+    max_pixels = int(getattr(state.args, "mm_max_pixels", 1048576))
+    content: list = []
+    for i, item in enumerate(media_items, 1):
+        content.append({"type": "text", "text": (
+            f"[MEDIA {i}] clinical_modality={item['clinical_modality']} type={item['modality']}\n"
+            f"original question: {(item.get('question') or '')[:600]}\n"
+            f"answer/label: {(item.get('answer') or '')[:300]}"
+        )})
+        if item["modality"] == "video":
+            uris = await asyncio.to_thread(_climb_video_frame_uris, item["rel"], n_frames)
+            for uri in uris:
+                content.append({"type": "image_url", "image_url": {"url": uri}})
+        else:
+            uri = await asyncio.to_thread(
+                _image_to_data_uri, {"image": f"climb://{item['rel']}", "max_pixels": max_pixels}
+            )
+            if uri:
+                content.append({"type": "image_url", "image_url": {"url": uri}})
+    content.append({"type": "text", "text": (
+        f"Synthesize ONE new {required_format} question per the rules, referencing media "
+        f"with <<k>> tokens (k in 1..{len(media_items)})."
+    )})
+
+    response = await _api_call(state, sys_prompt, content, max_tokens=4096,
+                               temperature=0.9, label="chat_generator_mm", want_json=True)
+    q = _parse_json(response)
+    fmt = (q.get("format") or "").lower()
+    question = (q.get("question") or "").strip()
+    answer = str(q.get("answer") or "").strip()
+    if not question or not answer:
+        raise ValueError(f"mm missing question/answer: {q}")
+    if "<<" not in question:
+        raise ValueError("mm question references no media (<<k>>)")
+    if fmt != required_format:
+        raise ValueError(f"mm format mismatch: got {fmt}, want {required_format}")
+    if fmt == "mcq":
+        options = q.get("options", {})
+        if not isinstance(options, dict) or len(options) < 2:
+            raise ValueError(f"mm mcq missing options: {q}")
+        ans_letter = answer.upper()[:1]
+        if ans_letter not in options:
+            raise ValueError(f"mm mcq answer {answer} not in options {list(options)}")
+        q["format"], q["answer"], q["options"] = "mcq", ans_letter, options
+    else:
+        q["format"], q["answer"] = "free", answer
+    return q
+
+
+def _build_mm_entry(state: ServerState, generated: dict, media_items: list,
+                    target_idx: int, cycle: int) -> Optional[dict]:
+    """Build a trainer entry from a multimodal generated question. Maps each
+    <<k>> reference to an <image>/<video> placeholder and an aligned
+    "climb://<rel>" media handle (one media entry per placeholder occurrence)."""
+    state.question_counter += 1
+    images_seq: list = []
+    videos_seq: list = []
+
+    def _repl(m):
+        k = int(m.group(1))
+        if k < 1 or k > len(media_items):
+            return ""  # drop dangling reference
+        item = media_items[k - 1]
+        ref = f"climb://{item['rel']}"
+        if item["modality"] == "video":
+            videos_seq.append(ref)
+            return "<video>"
+        images_seq.append(ref)
+        return "<image>"
+
+    question_text = re.sub(r"<<\s*(\d+)\s*>>", _repl, generated["question"]).strip()
+    if not images_seq and not videos_seq:
+        # Teacher placed no usable reference — anchor on the first media item.
+        item = media_items[0]
+        ref = f"climb://{item['rel']}"
+        if item["modality"] == "video":
+            videos_seq.append(ref)
+            question_text = "<video>\n" + question_text
+        else:
+            images_seq.append(ref)
+            question_text = "<image>\n" + question_text
+
+    if generated["format"] == "mcq":
+        options = generated["options"]
+        options_text = "\n".join(f"{k}. {v}" for k, v in sorted(options.items()))
+        user_content = (
+            f"{question_text}\n\nOptions:\n{options_text}\n\n"
+            "Choose the single best answer (A, B, C, or D)."
+        )
+        sys_prompt, style = SOLVER_SYSTEM_PROMPT_MCQ, "rule_mcq"
+    else:
+        user_content = question_text
+        sys_prompt, style = SOLVER_SYSTEM_PROMPT_FREE, "rule_free"
+
+    gt = "" if state.args.no_label else generated["answer"]
+    entry = {
+        "data_source": "climb_gen",
+        "prompt": [
+            {"role": "system", "content": sys_prompt},
+            {"role": "user", "content": user_content},
+        ],
+        "reward_model": {"style": style, "ground_truth": gt},
+        "extra_info": {
+            "question_id": uuid.uuid4().hex,
+            "index": state.question_counter,
+            "split": "train",
+            "source": "climb_mm_gen",
+            "cycle": cycle,
+            "target_idx": target_idx,
+            "format": generated["format"],
+            "question": question_text,
+            "answer": generated["answer"],
+            "options": generated.get("options", {}) if generated["format"] == "mcq" else {},
+            "modality": media_items[0]["clinical_modality"],
+            "media": [{"rel": it["rel"], "modality": it["modality"]} for it in media_items],
+        },
+    }
+    if images_seq:
+        entry["images"] = images_seq
+    if videos_seq:
+        entry["videos"] = videos_seq
+    return entry
 
 
 # ======================================================================
@@ -1272,29 +1535,132 @@ async def _gather_teacher_context(state: ServerState, entry: dict,
     return knowledge[:4000]
 
 
+# ======================================================================
+# CLIMB remote media. The trainer and this server run on GPU nodes that cannot
+# see /scratch/high_modality on disk, so CLIMB images/videos are referenced as
+# "climb://<relpath>" handles and fetched over authenticated HTTP from the local
+# file server. _CLIMB_FILE_BASE is set from --climb_file_base at startup; the
+# token is read from the CLIMB_FILE_TOKEN env on every call (never captured at
+# import time).
+# ======================================================================
+_CLIMB_FILE_BASE = ""
+
+
+def _climb_relpath(ref) -> Optional[str]:
+    """high_modality-relative path for a CLIMB media reference, else None.
+
+    Accepts a "climb://<rel>" string, or a dict carrying that string under
+    `image`/`video`, or a dict with a bare `climb_path`. Plain local paths
+    return None (they are not CLIMB handles)."""
+    cand = None
+    if isinstance(ref, str):
+        cand = ref
+    elif isinstance(ref, dict):
+        cand = ref.get("climb_path") or ref.get("image") or ref.get("video")
+    if not isinstance(cand, str):
+        return None
+    if cand.startswith("climb://"):
+        cand = cand[len("climb://"):]
+    elif not (isinstance(ref, dict) and ref.get("climb_path")):
+        return None
+    return cand[len("high_modality/"):] if cand.startswith("high_modality/") else cand
+
+
+def _climb_fetch_bytes_sync(rel: str, max_pixels: Optional[int] = None) -> Optional[bytes]:
+    """Fetch one CLIMB media file from the local file server (sync; call via
+    to_thread). Optional server-side image downscale via `max_pixels`."""
+    if not _CLIMB_FILE_BASE:
+        logger.warning("climb media requested but --climb_file_base is unset")
+        return None
+    url = f"{_CLIMB_FILE_BASE.rstrip('/')}/file/{rel}"
+    params = {"max_pixels": int(max_pixels)} if max_pixels else None
+    headers = {"Authorization": f"Bearer {os.environ.get('CLIMB_FILE_TOKEN', '')}"}
+    try:
+        resp = httpx.get(url, params=params, headers=headers, timeout=120.0)
+        resp.raise_for_status()
+        return resp.content
+    except Exception as e:
+        logger.warning(f"climb media fetch failed for {rel}: {type(e).__name__}: {e}")
+        return None
+
+
+def _climb_video_frame_uris(rel: str, n_frames: int) -> list:
+    """Best-effort: fetch a CLIMB video and return up to `n_frames` evenly
+    spaced frames as PNG data URIs so the teacher can SEE the clip. Returns []
+    if video decoding is unavailable or fails (teacher then uses the text Q/A)."""
+    data = _climb_fetch_bytes_sync(rel)
+    if not data:
+        return []
+    try:
+        import tempfile
+
+        import cv2  # type: ignore
+
+        suffix = os.path.splitext(rel)[1] or ".mp4"
+        with tempfile.NamedTemporaryFile(suffix=suffix) as tf:
+            tf.write(data)
+            tf.flush()
+            cap = cv2.VideoCapture(tf.name)
+            total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) or 0
+            if total <= 0:
+                cap.release()
+                return []
+            n = max(1, n_frames)
+            idxs = [min(int(total * (k + 0.5) / n), total - 1) for k in range(n)]
+            uris = []
+            for fi in idxs:
+                cap.set(cv2.CAP_PROP_POS_FRAMES, fi)
+                ok, frame = cap.read()
+                if not ok:
+                    continue
+                ok2, buf = cv2.imencode(".png", frame)
+                if ok2:
+                    uris.append("data:image/png;base64," + base64.b64encode(buf.tobytes()).decode("ascii"))
+            cap.release()
+            return uris
+    except Exception as e:
+        logger.warning(f"climb video frame extraction failed for {rel}: {type(e).__name__}: {e}")
+        return []
+
+
 def _entry_images_present(entry: dict) -> bool:
-    """True if the entry has no images, or every referenced image file exists
-    on disk. SFT serves image rows through the multimodal tokenizer, which
-    opens each file — a missing file (e.g. the ecg_images set that is absent on
-    this pod) would crash the trainer's __getitem__, so such entries must not be
-    served and the teacher should not waste a solve on them."""
-    for im in (entry.get("images") or []):
-        p = im.get("image") if isinstance(im, dict) else im
+    """True if every LOCAL media file the entry references exists on disk.
+
+    Remote CLIMB handles ("climb://...") are assumed present — they are served
+    by the file server, not on this node's disk — and pass the gate. SFT serves
+    media rows through the multimodal tokenizer, which opens each local file, so
+    a missing local file would crash the trainer's __getitem__."""
+    for media in list(entry.get("images") or []) + list(entry.get("videos") or []):
+        if _climb_relpath(media) is not None:
+            continue  # remote: trust the file server
+        p = media.get("image") if isinstance(media, dict) else media
+        if isinstance(media, dict) and not isinstance(p, str):
+            p = media.get("video")
         if not isinstance(p, str) or not os.path.isfile(p):
             return False
     return True
 
 
 def _image_to_data_uri(img) -> Optional[str]:
-    """Encode one entry image (dict {"image": path, "max_pixels": N} or a path
-    string) into a data: URI for the OpenAI/vLLM chat image_url field.
+    """Encode one entry image into a data: URI for the OpenAI/vLLM chat
+    image_url field. Accepts a local path (dict {"image": path, "max_pixels": N}
+    or a path string) OR a remote CLIMB handle ("climb://rel" / {"image":
+    "climb://rel"}), which is fetched from the file server.
 
-    Best-effort downscale to the seed's `max_pixels` so the teacher sees the
-    SAME resolution the student's multimodal SFT row will (the dataset resizes
-    to max_pixels), keeping image-grounded reasoning reproducible. Returns None
-    if the file is unreadable. Sync (blocking I/O + PIL) — call via to_thread."""
-    path = img.get("image") if isinstance(img, dict) else img
+    Best-effort downscale to `max_pixels` so the teacher sees the SAME
+    resolution the student's multimodal row will. Returns None if unreadable.
+    Sync (blocking I/O + PIL) — call via to_thread."""
+    rel = _climb_relpath(img)
     max_pixels = img.get("max_pixels") if isinstance(img, dict) else None
+    if rel is not None:
+        # File server already downscaled when max_pixels is passed.
+        data = _climb_fetch_bytes_sync(rel, max_pixels)
+        if data is None:
+            return None
+        mime = "image/png" if max_pixels else (mimetypes.guess_type(rel)[0] or "image/png")
+        return f"data:{mime};base64," + base64.b64encode(data).decode("ascii")
+
+    path = img.get("image") if isinstance(img, dict) else img
     if not isinstance(path, str) or not path:
         return None
     try:
@@ -1338,14 +1704,20 @@ async def _build_teacher_content(entry: dict, user_text: str, knowledge: str):
             "Question to solve and teach:\n"
         )
     images = entry.get("images") or []
-    if not images:
+    videos = entry.get("videos") or []
+    if not images and not videos:
         return prefix + user_text
 
+    # Show video clips to the teacher as N evenly-spaced frames (image_url
+    # parts) — the SAME image-only treatment the student gets (the dataset
+    # flattens <video> into video_frames <image>s), so teacher and student see
+    # consistent inputs. Frame count matches the dataset default.
+    n_vf = int(os.environ.get("GEN_SFT_VIDEO_FRAMES", "6"))
     content: list = []
     if prefix:
         content.append({"type": "text", "text": prefix})
-    parts = re.split(r"(<image>)", user_text)
-    img_idx = 0
+    parts = re.split(r"(<image>|<video>)", user_text)
+    img_idx = vid_idx = 0
     for p in parts:
         if p == "<image>":
             uri = (
@@ -1357,6 +1729,18 @@ async def _build_teacher_content(entry: dict, user_text: str, knowledge: str):
                 else {"type": "text", "text": "<image>"}
             )
             img_idx += 1
+        elif p == "<video>":
+            rel = _climb_relpath(videos[vid_idx]) if vid_idx < len(videos) else None
+            uris = (
+                await asyncio.to_thread(_climb_video_frame_uris, rel, n_vf)
+                if rel else []
+            )
+            if uris:
+                for u in uris:
+                    content.append({"type": "image_url", "image_url": {"url": u}})
+            else:
+                content.append({"type": "text", "text": "<video>"})
+            vid_idx += 1
         elif p:
             content.append({"type": "text", "text": p})
     # Trailing images without a matching placeholder.
@@ -1539,6 +1923,93 @@ async def worker_loop(state: ServerState, worker_id: int):
                     f"pool=({state.pool.qsize()}/{state.args.max_pool_size}) "
                     f"accepted={state.stats['total_accepted']}"
                 )
+                continue
+
+            if mode == "gen_mm":
+                seed = random.choice(state.climb_seeds)
+                entries: list[dict] = []
+                # A fraction of CLIMB output is the REAL seed row served as-is
+                # (grounded multimodal training data); the rest are newly
+                # synthesized multimodal questions over retrieved neighbors.
+                if random.random() < float(getattr(state.args, "mm_direct_prob", 0.3)):
+                    entry = {
+                        "data_source": "climb_gen",
+                        "prompt": list(seed.get("prompt", [])),
+                        "reward_model": dict(seed.get("reward_model", {})),
+                        "extra_info": dict(seed.get("extra_info", {})),
+                    }
+                    for k in ("images", "videos"):
+                        if seed.get(k):
+                            entry[k] = list(seed[k])
+                    entry["extra_info"]["question_id"] = uuid.uuid4().hex
+                    entry["extra_info"]["split"] = "train"
+                    entry["extra_info"]["source"] = "climb_direct"
+                    entries.append(entry)
+                else:
+                    seed_item = _climb_media_item_from_seed(seed)
+                    if seed_item is None:
+                        continue
+                    n_media = max(1, int(getattr(state.args, "mm_images_per_query", 3)))
+                    hits = []
+                    try:
+                        hits = await _milvus_search_climb(
+                            state, seed_item["question"], top_k=n_media + 4,
+                            images_only=not bool(getattr(state.args, "mm_include_videos", True)),
+                        )
+                    except Exception as e:
+                        logger.warning(f"climb retrieval failed: {type(e).__name__}: {e}")
+                    media_items = [seed_item]
+                    seen = {seed_item["rel"]}
+                    for h in hits:
+                        it = _climb_media_item_from_hit(h)
+                        if it and it["rel"] not in seen:
+                            media_items.append(it)
+                            seen.add(it["rel"])
+                        if len(media_items) >= n_media:
+                            break
+                    fmt = "mcq" if state.format_counter % 2 == 0 else "free"
+                    state.format_counter += 1
+                    try:
+                        gen = await agent_question_generator_mm(
+                            state, media_items, state.accuracy_stats(), fmt)
+                    except Exception as e:
+                        logger.warning(f"mm generator failed ({fmt}): {type(e).__name__}: {e!r}")
+                        continue
+                    entry = _build_mm_entry(state, gen, media_items, cur_target_idx, cur_cycle)
+                    if entry is None:
+                        continue
+                    entries.append(entry)
+
+                for entry in entries:
+                    if state.args.sft_mode and not _entry_images_present(entry):
+                        state.stats["served_missing_image_skipped"] += 1
+                        continue
+                    if state.args.sft_mode and not await attach_teacher_trace(state, entry):
+                        state.stats["sft_traces_skipped"] += 1
+                        continue
+                    async with state.log_lock:
+                        with open(state.accepted_log, "a") as f:
+                            f.write(json.dumps({
+                                "ts": datetime.now().isoformat(),
+                                "question_id": entry["extra_info"]["question_id"],
+                                "target_idx": cur_target_idx,
+                                "cycle": cur_cycle,
+                                "gen_mm": True,
+                                "entry": entry,
+                            }) + "\n")
+                    state.stats["total_accepted"] += 1
+                    state.stats["total_generated"] += 1
+                    state.mix_counts["gen_mm"] += 1
+                    state.history.append(entry)
+                    await state.pool.put(entry)
+                    asyncio.create_task(history_insert(state, entry, "gen_mm"))
+                    _maybe_log_sample(entry, "gen_mm")
+                    logger.info(
+                        f"+ gen_mm[{entry['extra_info'].get('source')}] "
+                        f"qid={entry['extra_info']['question_id']} "
+                        f"pool=({state.pool.qsize()}/{state.args.max_pool_size}) "
+                        f"generated={state.stats['total_generated']}"
+                    )
                 continue
 
             if mode == "gen_test":
@@ -2054,9 +2525,41 @@ def main():
         "--log_dir",
         default=os.path.expanduser("~/scratch/dvdai/self_evolving_datasets/logs"),
     )
+    # --- CLIMB multimodal generation -----------------------------------
+    parser.add_argument("--climb_seeds_path", default="",
+                        help="JSONL of CLIMB train seeds (verl shape, "
+                             "climb:// media handles) for multimodal generation.")
+    parser.add_argument("--climb_file_base", default="",
+                        help="Base URL of the CLIMB media file server "
+                             "(e.g. http://mib.media.mit.edu:18080). Token read "
+                             "from the CLIMB_FILE_TOKEN env, never hardcoded.")
+    parser.add_argument("--gen_mm_target", type=float, default=0.0,
+                        help="Target pool share of multimodal CLIMB entries. "
+                             "Folded into gen_train when no climb seeds are loaded.")
+    parser.add_argument("--mm_images_per_query", type=int, default=3,
+                        help="Number of media items (seed + retrieved neighbors) "
+                             "shown to the teacher per multimodal generation.")
+    parser.add_argument("--mm_video_frames", type=int, default=2,
+                        help="Frames sampled from each video media item for the "
+                             "teacher's view (best-effort, requires opencv).")
+    parser.add_argument("--mm_max_pixels", type=int, default=1048576,
+                        help="max_pixels for images shown to the teacher / stored "
+                             "on generated entries.")
+    parser.add_argument("--mm_direct_prob", type=float, default=0.3,
+                        help="Probability a gen_mm iteration serves the real seed "
+                             "row directly instead of synthesizing a new question.")
+    parser.add_argument("--mm_include_videos", action="store_true", default=True,
+                        help="Allow video-modality CLIMB neighbors in retrieval.")
+    parser.add_argument("--mm_images_only", dest="mm_include_videos",
+                        action="store_false",
+                        help="Restrict CLIMB retrieval/generation to images.")
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=8004)
     args = parser.parse_args()
+
+    # Make the file-server base available to the sync media helpers.
+    global _CLIMB_FILE_BASE
+    _CLIMB_FILE_BASE = args.climb_file_base
 
     logging.basicConfig(
         level=logging.INFO,

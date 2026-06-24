@@ -1,0 +1,67 @@
+\documentclass[10pt]{article}
+\usepackage[landscape,margin=1.5cm]{geometry}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\begin{document}
+\section*{MIMIC-IV rare-disease diagnosis: per-ICD-category evaluation}
+All 15 training runs (best checkpoint per run) plus a frontier baseline, evaluated on the 2452-case MIMIC-IV rare-disease test set (greedy, $\le$8192 tokens), scored with the verl reward pipeline. \textbf{Accuracy is the lenient LLM-judge disease match} (judge: gpt-5.3-chat\_2026-03-03): a prediction is correct if the judge rules the diagnosed disease matches the ground truth, even if the exact ICD-10 code or phrasing differs (strict exact-match is lower). Embedding similarity is cosine between the predicted and ground-truth diagnosis (Qwen3-VL-Embedding-2B). $^\dagger$ frontier baseline. Best per column in \textbf{bold}.
+\\[4pt]
+\footnotesize Categories: Neopl=neoplasms (n=695), Endo=endocrine/metabolic (494), Nerv=nervous system (388), Blood=blood/immune (223), Circ=circulatory (141), Infec=infectious (102), Diges=digestive (88), Other (321).
+\normalsize
+\begin{table}[htbp]
+\centering
+\small
+\setlength{\tabcolsep}{4pt}
+\caption{Per-category accuracy (lenient LLM-judge disease match, gpt-5.3-chat).}
+\label{tab:acc}
+\begin{tabular}{lccccccccc}
+\toprule
+Run / model & Overall & Neopl & Endo & Nerv & Blood & Circ & Infec & Diges & Other \\
+\midrule
+\texttt{qwen36\_27b\_full\_opd\_qwen397b\_v2} & \textbf{0.250} & \textbf{0.459} & 0.105 & \textbf{0.309} & 0.188 & 0.121 & 0.098 & \textbf{0.330} & 0.072 \\
+\texttt{qwen36\_27b\_selfimprove} & 0.242 & 0.434 & \textbf{0.132} & 0.278 & 0.166 & 0.121 & \textbf{0.137} & 0.261 & 0.084 \\
+\texttt{qwen36\_27b\_full\_gpt55} & 0.236 & 0.422 & 0.128 & 0.296 & 0.157 & 0.099 & 0.118 & 0.250 & 0.081 \\
+\texttt{gemma4\_31b\_selfimprove\_split} & 0.234 & 0.413 & 0.083 & \textbf{0.309} & \textbf{0.233} & 0.128 & 0.098 & 0.261 & 0.075 \\
+\texttt{qwen36\_27b\_deepseekv4pro} & 0.233 & 0.426 & 0.109 & 0.286 & 0.152 & 0.106 & 0.108 & 0.239 & \textbf{0.087} \\
+\texttt{gemma4\_31b\_rl\_gpt51judge} & 0.226 & 0.399 & 0.067 & 0.286 & \textbf{0.233} & \textbf{0.142} & 0.098 & 0.273 & 0.084 \\
+\texttt{qwen36\_27b\_selfimprove\_sft} & 0.212 & 0.380 & 0.126 & 0.247 & 0.143 & 0.064 & 0.098 & 0.261 & 0.078 \\
+\texttt{qwen36\_27b\_sft\_long} & 0.197 & 0.335 & 0.109 & 0.250 & 0.166 & 0.099 & 0.059 & 0.193 & 0.081 \\
+\texttt{qwen36\_27b\_full\_kimi} & 0.197 & 0.361 & 0.105 & 0.240 & 0.126 & 0.085 & 0.088 & 0.216 & 0.059 \\
+\texttt{qwen35\_9b\_selfimprove} & 0.153 & 0.271 & \textbf{0.132} & 0.222 & 0.027 & 0.050 & 0.010 & 0.114 & 0.041 \\
+\texttt{qwen35\_9b\_sft\_long} & 0.121 & 0.186 & 0.091 & 0.149 & 0.135 & 0.050 & 0.098 & 0.114 & 0.028 \\
+\texttt{qwen35\_9b\_full\_gpt55} & 0.099 & 0.166 & 0.030 & 0.193 & 0.063 & 0.078 & 0.010 & 0.023 & 0.028 \\
+\texttt{gemma4\_e4b\_rl\_gpt51judge} & 0.082 & 0.207 & 0.002 & 0.095 & 0.022 & 0.014 & 0.000 & 0.057 & 0.022 \\
+\texttt{gemma4\_e4b\_sft.gpt51\_archived} & 0.080 & 0.178 & 0.002 & 0.119 & 0.022 & 0.043 & 0.020 & 0.000 & 0.034 \\
+\texttt{gemma4\_e4b\_sft} & 0.072 & 0.112 & 0.036 & 0.124 & 0.045 & 0.043 & 0.000 & 0.114 & 0.022 \\
+\bottomrule
+\end{tabular}
+\end{table}
+\begin{table}[htbp]
+\centering
+\small
+\setlength{\tabcolsep}{4pt}
+\caption{Per-category embedding similarity to ground-truth diagnosis.}
+\label{tab:embed}
+\begin{tabular}{lccccccccc}
+\toprule
+Run / model & Overall & Neopl & Endo & Nerv & Blood & Circ & Infec & Diges & Other \\
+\midrule
+\texttt{qwen36\_27b\_selfimprove} & \textbf{0.707} & 0.776 & \textbf{0.678} & 0.706 & 0.720 & \textbf{0.639} & \textbf{0.690} & 0.685 & \textbf{0.636} \\
+\texttt{qwen36\_27b\_deepseekv4pro} & 0.706 & 0.777 & 0.672 & \textbf{0.714} & 0.718 & 0.627 & 0.684 & 0.675 & 0.633 \\
+\texttt{qwen36\_27b\_full\_gpt55} & 0.705 & 0.780 & 0.666 & 0.712 & 0.716 & 0.630 & 0.679 & 0.672 & 0.634 \\
+\texttt{qwen36\_27b\_full\_opd\_qwen397b\_v2} & 0.700 & \textbf{0.787} & 0.661 & 0.702 & 0.709 & 0.617 & 0.682 & \textbf{0.685} & 0.614 \\
+\texttt{gemma4\_31b\_rl\_gpt51judge} & 0.688 & 0.773 & 0.609 & 0.698 & \textbf{0.737} & 0.633 & 0.647 & 0.663 & 0.624 \\
+\texttt{gemma4\_31b\_selfimprove\_split} & 0.672 & 0.763 & 0.598 & 0.689 & 0.711 & 0.595 & 0.643 & 0.625 & 0.594 \\
+\texttt{qwen36\_27b\_selfimprove\_sft} & 0.668 & 0.743 & 0.617 & 0.662 & 0.690 & 0.616 & 0.654 & 0.642 & 0.611 \\
+\texttt{qwen35\_9b\_sft\_long} & 0.648 & 0.700 & 0.638 & 0.621 & 0.686 & 0.607 & 0.621 & 0.639 & 0.584 \\
+\texttt{gemma4\_e4b\_rl\_gpt51judge} & 0.636 & 0.700 & 0.604 & 0.606 & 0.678 & 0.587 & 0.607 & 0.634 & 0.587 \\
+\texttt{qwen36\_27b\_full\_kimi} & 0.527 & 0.584 & 0.509 & 0.551 & 0.537 & 0.473 & 0.521 & 0.529 & 0.424 \\
+\texttt{qwen36\_27b\_sft\_long} & 0.479 & 0.528 & 0.474 & 0.477 & 0.496 & 0.447 & 0.465 & 0.401 & 0.410 \\
+\texttt{qwen35\_9b\_full\_gpt55} & 0.442 & 0.475 & 0.426 & 0.444 & 0.472 & 0.426 & 0.448 & 0.376 & 0.393 \\
+\texttt{gemma4\_e4b\_sft.gpt51\_archived} & 0.409 & 0.437 & 0.387 & 0.417 & 0.421 & 0.403 & 0.376 & 0.406 & 0.375 \\
+\texttt{gemma4\_e4b\_sft} & 0.391 & 0.414 & 0.427 & 0.342 & 0.394 & 0.341 & 0.411 & 0.342 & 0.371 \\
+\texttt{qwen35\_9b\_selfimprove} & 0.357 & 0.383 & 0.398 & 0.360 & 0.304 & 0.296 & 0.326 & 0.307 & 0.320 \\
+\bottomrule
+\end{tabular}
+\end{table}
+\end{document}

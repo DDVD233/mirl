@@ -1,0 +1,5964 @@
+{
+  "benchmark": "healthbench_professional",
+  "grader": "gpt-5.3-chat_2026-03-03",
+  "note": "official paper aggregations recomputed from per-example grades; length_adjusted = paper primary metric; raw = unadjusted rubric fraction",
+  "slices": [
+    "good_faith__typical",
+    "good_faith__difficult",
+    "red_teaming__difficult"
+  ],
+  "runs": [
+    {
+      "label": "Qwen3.5-9B",
+      "kind": "base",
+      "n": 525,
+      "overall": {
+        "n": 525,
+        "raw": 0.28116310563238445,
+        "length_adjusted": 0.21372448963238444
+      },
+      "by_use_case": {
+        "consult": {
+          "n": 236,
+          "raw": 0.2984819365533737,
+          "length_adjusted": 0.2279539526550686
+        },
+        "research": {
+          "n": 147,
+          "raw": 0.4525855945133821,
+          "length_adjusted": 0.3645767945133821
+        },
+        "writing": {
+          "n": 142,
+          "raw": 0.07492120448548219,
+          "length_adjusted": 0.033911517161538535
+        }
+      },
+      "by_slice": {
+        "good_faith__typical": {
+          "n": 256,
+          "raw": 0.5248913931025857,
+          "length_adjusted": 0.4416002743525857
+        },
+        "good_faith__difficult": {
+          "n": 78,
+          "raw": 0.22097357836521922,
+          "length_adjusted": 0.14202854759598849
+        },
+        "red_teaming__difficult": {
+          "n": 191,
+          "raw": 0.0,
+          "length_adjusted": 0.0
+        }
+      },
+      "by_specialty": {
+        "ent": {
+          "n": 7,
+          "raw": 0.4507936507936508,
+          "length_adjusted": 0.4080502507936508
+        },
+        "gi": {
+          "n": 19,
+          "raw": 0.0,
+          "length_adjusted": 0.0
+        },
+        "id": {
+          "n": 20,
+          "raw": 0.2560770308123249,
+          "length_adjusted": 0.19633182081232495
+        },
+        "allergy": {
+          "n": 2,
+          "raw": 0.0,
+          "length_adjusted": 0.0
+        },
+        "anesthesia": {
+          "n": 22,
+          "raw": 0.40628154783293124,
+          "length_adjusted": 0.3200072478329312
+        },
+        "cards": {
+          "n": 43,
+          "raw": 0.3698608679648252,
+          "length_adjusted": 0.28932264470901126
+        },
+        "derm": {
+          "n": 25,
+          "raw": 0.20973202614379083,
+          "length_adjusted": 0.14441110614379085
+        },
+        "emergency": {
+          "n": 16,
+          "raw": 0.19138621794871796,
+          "length_adjusted": 0.11941501794871795
+        },
+        "endo": {
+          "n": 20,
+          "raw": 0.3735738979802447,
+          "length_adjusted": 0.30162180798024474
+        },
+        "genetics": {
+          "n": 4,
+          "raw": 0.5,
+          "length_adjusted": 0.43829674999999996
+        },
+        "heme/onc": {
+          "n": 27,
+          "raw": 0.24063345877071368,
+          "length_adjusted": 0.17431903654849143
+        },
+        "medicine": {
+          "n": 17,
+          "raw": 0.05366498826251148,
+          "length_adjusted": 0.001929635321335014
+        },
+        "nephro": {
+          "n": 22,
+          "raw": 0.3245244807079195,
+          "length_adjusted": 0.2478679897988286
+        },
+        "neuro": {
+          "n": 43,
+          "raw": 0.37453598375833896,
+          "length_adjusted": 0.30142638840950176
+        },
+        "neurosurg": {
+          "n": 11,
+          "raw": 0.5025974025974026,
+          "length_adjusted": 0.4275605844155844
+        },
+        "obgyn": {
+          "n": 40,
+          "raw": 0.2871829210072917,
+          "length_adjusted": 0.2280198310072917
+        },
+        "ophtho": {
+          "n": 18,
+          "raw": 0.3463888888888889,
+          "length_adjusted": 0.2603105888888889
+        },
+        "ortho": {
+          "n": 24,
+          "raw": 0.3900462962962963,
+          "length_adjusted": 0.2975465462962963
+        },
+        "other": {
+          "n": 20,
+          "raw": 0.1806547619047619,
+          "length_adjusted": 0.12042886190476194
+        },
+        "path": {
+          "n": 3,
+          "raw": 0.19047619047619047,
+          "length_adjusted": 0.09678819047619049
+        },
+        "peds": {
+          "n": 28,
+          "raw": 0.34955473098330236,
+          "length_adjusted": 0.29197378098330246
+        },
+        "primary": {
+          "n": 7,
+          "raw": 0.3540456182472989,
+          "length_adjusted": 0.3343224182472989
+        },
+        "psychiatry": {
+          "n": 29,
+          "raw": 0.11864263946458144,
+          "length_adjusted": 0.051592391188719354
+        },
+        "pulm": {
+          "n": 12,
+          "raw": 0.22090517241379312,
+          "length_adjusted": 0.1313209224137931
+        },
+        "rads": {
+          "n": 8,
+          "raw": 0.24215686274509804,
+          "length_adjusted": 0.16354493774509804
+        },
+        "rheum": {
+          "n": 8,
+          "raw": 0.04166666666666666,
+          "length_adjusted": 0.0
+        },
+        "surgery": {
+          "n": 17,
+          "raw": 0.4215686274509804,
+          "length_adjusted": 0.36155630980392156
+        },
+        "uro": {
+          "n": 13,
+          "raw": 0.30710023139690656,
+          "length_adjusted": 0.25452624678152197
+        }
+      }
+    },
+    {
+      "label": "Qwen3.6-27B",
+      "kind": "base",
+      "n": 525,
+      "overall": {
+        "n": 525,
+        "raw": 0.3893182371308893,
+        "length_adjusted": 0.3158114051308893
+      },
+      "by_use_case": {
+        "consult": {
+          "n": 236,
+          "raw": 0.39018740017874903,
+          "length_adjusted": 0.31628763492451173
+        },
+        "research": {
+          "n": 147,
+          "raw": 0.5380922651223359,
+          "length_adjusted": 0.43791106512233596
+        },
+        "writing": {
+          "n": 142,
+          "raw": 0.2338611625249911,
+          "length_adjusted": 0.18862098083485024
+        }
+      },
+      "by_slice": {
+        "good_faith__typical": {
+          "n": 256,
+          "raw": 0.613508889797585,
+          "length_adjusted": 0.522423555422585
+        },
+        "good_faith__difficult": {
+          "n": 78,
+          "raw": 0.28576744462967374,
+          "length_adjusted": 0.19929902924505835
+        },
+        "red_teaming__difficult": {
+          "n": 191,
+          "raw": 0.13112009436869407,
+          "length_adjusted": 0.08646718965665219
+        }
+      },
+      "by_specialty": {
+        "ent": {
+          "n": 7,
+          "raw": 0.3996031746031746,
+          "length_adjusted": 0.3699049746031746
+        },
+        "gi": {
+          "n": 19,
+          "raw": 0.016387972192925756,
+          "length_adjusted": 0.0
+        },
+        "id": {
+          "n": 20,
+          "raw": 0.29438095238095235,
+          "length_adjusted": 0.21972700238095239
+        },
+        "allergy": {
+          "n": 2,
+          "raw": 0.5,
+          "length_adjusted": 0.4693946
+        },
+        "anesthesia": {
+          "n": 22,
+          "raw": 0.5495621802439984,
+          "length_adjusted": 0.4646215711530894
+        },
+        "cards": {
+          "n": 43,
+          "raw": 0.4508149974746463,
+          "length_adjusted": 0.3599115649165067
+        },
+        "derm": {
+          "n": 25,
+          "raw": 0.45884313725490194,
+          "length_adjusted": 0.374686225254902
+        },
+        "emergency": {
+          "n": 16,
+          "raw": 0.19138621794871796,
+          "length_adjusted": 0.11067954294871793
+        },
+        "endo": {
+          "n": 20,
+          "raw": 0.48332389798024467,
+          "length_adjusted": 0.39391996798024476
+        },
+        "genetics": {
+          "n": 4,
+          "raw": 0.75,
+          "length_adjusted": 0.6055578
+        },
+        "heme/onc": {
+          "n": 27,
+          "raw": 0.25503675095178363,
+          "length_adjusted": 0.18428619539622806
+        },
+        "medicine": {
+          "n": 17,
+          "raw": 0.2165663026344141,
+          "length_adjusted": 0.1514522202814729
+        },
+        "nephro": {
+          "n": 22,
+          "raw": 0.5386232607157905,
+          "length_adjusted": 0.4569420425339723
+        },
+        "neuro": {
+          "n": 43,
+          "raw": 0.4857140602323447,
+          "length_adjusted": 0.41202877186025166
+        },
+        "neurosurg": {
+          "n": 11,
+          "raw": 0.4510822510822511,
+          "length_adjusted": 0.37401683290043286
+        },
+        "obgyn": {
+          "n": 40,
+          "raw": 0.4200405385359619,
+          "length_adjusted": 0.3477988585359619
+        },
+        "ophtho": {
+          "n": 18,
+          "raw": 0.3660185185185185,
+          "length_adjusted": 0.27548121851851853
+        },
+        "ortho": {
+          "n": 24,
+          "raw": 0.4719907407407407,
+          "length_adjusted": 0.38573726574074074
+        },
+        "other": {
+          "n": 20,
+          "raw": 0.40200892857142856,
+          "length_adjusted": 0.3371392985714286
+        },
+        "path": {
+          "n": 3,
+          "raw": 0.19047619047619047,
+          "length_adjusted": 0.0872723904761905
+        },
+        "peds": {
+          "n": 28,
+          "raw": 0.38273667042574605,
+          "length_adjusted": 0.31598082042574605
+        },
+        "primary": {
+          "n": 7,
+          "raw": 0.6938775510204082,
+          "length_adjusted": 0.6697485510204082
+        },
+        "psychiatry": {
+          "n": 29,
+          "raw": 0.3895720143493316,
+          "length_adjusted": 0.3225511660734695
+        },
+        "pulm": {
+          "n": 12,
+          "raw": 0.23282200811359025,
+          "length_adjusted": 0.15920440811359027
+        },
+        "rads": {
+          "n": 8,
+          "raw": 0.5625,
+          "length_adjusted": 0.4844724
+        },
+        "rheum": {
+          "n": 8,
+          "raw": 0.04166666666666666,
+          "length_adjusted": 0.010227041666666645
+        },
+        "surgery": {
+          "n": 17,
+          "raw": 0.4359861591695502,
+          "length_adjusted": 0.375576076816609
+        },
+        "uro": {
+          "n": 13,
+          "raw": 0.17047019476686995,
+          "length_adjusted": 0.11446093322840842
+        }
+      }
+    },
+    {
+      "label": "gemma-4-31B-it",
+      "kind": "base",
+      "n": 525,
+      "overall": {
+        "n": 525,
+        "raw": 0.33392939911262604,
+        "length_adjusted": 0.30065151111262606
+      },
+      "by_use_case": {
+        "consult": {
+          "n": 236,
+          "raw": 0.3204783482537555,
+          "length_adjusted": 0.2895843050334165
+        },
+        "research": {
+          "n": 147,
+          "raw": 0.4657466398731179,
+          "length_adjusted": 0.4155090398731179
+        },
+        "writing": {
+          "n": 142,
+          "raw": 0.21982597383728203,
+          "length_adjusted": 0.20014308792178906
+        }
+      },
+      "by_slice": {
+        "good_faith__typical": {
+          "n": 256,
+          "raw": 0.5577286627377008,
+          "length_adjusted": 0.5113106564877008
+        },
+        "good_faith__difficult": {
+          "n": 78,
+          "raw": 0.22493285438331875,
+          "length_adjusted": 0.1924281389987034
+        },
+        "red_teaming__difficult": {
+          "n": 191,
+          "raw": 0.07847976037370882,
+          "length_adjusted": 0.06249801272972977
+        }
+      },
+      "by_specialty": {
+        "ent": {
+          "n": 7,
+          "raw": 0.6853174603174603,
+          "length_adjusted": 0.6643258603174603
+        },
+        "gi": {
+          "n": 19,
+          "raw": 0.08183283434831423,
+          "length_adjusted": 0.05998399224305107
+        },
+        "id": {
+          "n": 20,
+          "raw": 0.3207600732600733,
+          "length_adjusted": 0.29923927326007327
+        },
+        "allergy": {
+          "n": 2,
+          "raw": 0.05,
+          "length_adjusted": 0.041297600000000004
+        },
+        "anesthesia": {
+          "n": 22,
+          "raw": 0.46117834186016005,
+          "length_adjusted": 0.42145626913288736
+        },
+        "cards": {
+          "n": 43,
+          "raw": 0.3343829616582055,
+          "length_adjusted": 0.2931826221233218
+        },
+        "derm": {
+          "n": 25,
+          "raw": 0.26449830966869503,
+          "length_adjusted": 0.23875449366869506
+        },
+        "emergency": {
+          "n": 16,
+          "raw": 0.3731770833333333,
+          "length_adjusted": 0.3432239958333333
+        },
+        "endo": {
+          "n": 20,
+          "raw": 0.3379072313135781,
+          "length_adjusted": 0.2972382113135781
+        },
+        "genetics": {
+          "n": 4,
+          "raw": 0.75,
+          "length_adjusted": 0.6835413
+        },
+        "heme/onc": {
+          "n": 27,
+          "raw": 0.2815581555834967,
+          "length_adjusted": 0.24575440002794113
+        },
+        "medicine": {
+          "n": 17,
+          "raw": 0.1873646219621452,
+          "length_adjusted": 0.1568283984327334
+        },
+        "nephro": {
+          "n": 22,
+          "raw": 0.48860850274648704,
+          "length_adjusted": 0.44834653911012334
+        },
+        "neuro": {
+          "n": 43,
+          "raw": 0.3781650543110469,
+          "length_adjusted": 0.3361873240784887
+        },
+        "neurosurg": {
+          "n": 11,
+          "raw": 0.5484848484848485,
+          "length_adjusted": 0.5086585393939393
+        },
+        "obgyn": {
+          "n": 40,
+          "raw": 0.4088469295134055,
+          "length_adjusted": 0.3802598395134055
+        },
+        "ophtho": {
+          "n": 18,
+          "raw": 0.3541666666666667,
+          "length_adjusted": 0.3138854
+        },
+        "ortho": {
+          "n": 24,
+          "raw": 0.3295138888888889,
+          "length_adjusted": 0.2933886388888889
+        },
+        "other": {
+          "n": 20,
+          "raw": 0.33541666666666664,
+          "length_adjusted": 0.3077453866666667
+        },
+        "path": {
+          "n": 3,
+          "raw": 0.0,
+          "length_adjusted": 0.0
+        },
+        "peds": {
+          "n": 28,
+          "raw": 0.3512800120048019,
+          "length_adjusted": 0.3210757120048019
+        },
+        "primary": {
+          "n": 7,
+          "raw": 0.6481632653061224,
+          "length_adjusted": 0.6395784653061225
+        },
+        "psychiatry": {
+          "n": 29,
+          "raw": 0.1546497695893586,
+          "length_adjusted": 0.12023250752039308
+        },
+        "pulm": {
+          "n": 12,
+          "raw": 0.0,
+          "length_adjusted": 0.0
+        },
+        "rads": {
+          "n": 8,
+          "raw": 0.42965686274509807,
+          "length_adjusted": 0.39198443774509806
+        },
+        "rheum": {
+          "n": 8,
+          "raw": 0.29166666666666663,
+          "length_adjusted": 0.2734680666666667
+        },
+        "surgery": {
+          "n": 17,
+          "raw": 0.5004901960784314,
+          "length_adjusted": 0.4714429960784314
+        },
+        "uro": {
+          "n": 13,
+          "raw": 0.17047019476686995,
+          "length_adjusted": 0.1474929639976392
+        }
+      }
+    },
+    {
+      "label": "gpt-5.3-chat",
+      "kind": "base",
+      "n": 525,
+      "overall": {
+        "n": 525,
+        "raw": 0.4058121919437099,
+        "length_adjusted": 0.4028370799437098
+      },
+      "by_use_case": {
+        "consult": {
+          "n": 236,
+          "raw": 0.40347025126540514,
+          "length_adjusted": 0.40989028940099836
+        },
+        "research": {
+          "n": 147,
+          "raw": 0.6171322233763974,
+          "length_adjusted": 0.5933194233763973
+        },
+        "writing": {
+          "n": 142,
+          "raw": 0.19094355377099742,
+          "length_adjusted": 0.1939253763062087
+        }
+      },
+      "by_slice": {
+        "good_faith__typical": {
+          "n": 256,
+          "raw": 0.6868534143531942,
+          "length_adjusted": 0.6728027409156943
+        },
+        "good_faith__difficult": {
+          "n": 78,
+          "raw": 0.3194938883459755,
+          "length_adjusted": 0.32012711911520625
+        },
+        "red_teaming__difficult": {
+          "n": 191,
+          "raw": 0.06437907541907772,
+          "length_adjusted": 0.07477513091645992
+        }
+      },
+      "by_specialty": {
+        "ent": {
+          "n": 7,
+          "raw": 0.4091269841269841,
+          "length_adjusted": 0.4315801841269841
+        },
+        "gi": {
+          "n": 19,
+          "raw": 0.31040341237709657,
+          "length_adjusted": 0.3287644860613071
+        },
+        "id": {
+          "n": 20,
+          "raw": 0.3979940476190476,
+          "length_adjusted": 0.3947188876190476
+        },
+        "allergy": {
+          "n": 2,
+          "raw": 0.05,
+          "length_adjusted": 0.0672431
+        },
+        "anesthesia": {
+          "n": 22,
+          "raw": 0.5585427966850891,
+          "length_adjusted": 0.546319078503271
+        },
+        "cards": {
+          "n": 43,
+          "raw": 0.4462446704008992,
+          "length_adjusted": 0.4282915262148527
+        },
+        "derm": {
+          "n": 25,
+          "raw": 0.27884313725490195,
+          "length_adjusted": 0.28246286525490194
+        },
+        "emergency": {
+          "n": 16,
+          "raw": 0.3713388480392157,
+          "length_adjusted": 0.3711238605392157
+        },
+        "endo": {
+          "n": 20,
+          "raw": 0.494157231313578,
+          "length_adjusted": 0.47929259131357804
+        },
+        "genetics": {
+          "n": 4,
+          "raw": 0.5454545454545454,
+          "length_adjusted": 0.4896386454545455
+        },
+        "heme/onc": {
+          "n": 27,
+          "raw": 0.38334594681755213,
+          "length_adjusted": 0.37363632459532986
+        },
+        "medicine": {
+          "n": 17,
+          "raw": 0.1896755463318931,
+          "length_adjusted": 0.18807756986130486
+        },
+        "nephro": {
+          "n": 22,
+          "raw": 0.46189462309143087,
+          "length_adjusted": 0.4604072503641582
+        },
+        "neuro": {
+          "n": 43,
+          "raw": 0.5688787445021465,
+          "length_adjusted": 0.5559236003160999
+        },
+        "neurosurg": {
+          "n": 11,
+          "raw": 0.49956709956709955,
+          "length_adjusted": 0.4964266450216451
+        },
+        "obgyn": {
+          "n": 40,
+          "raw": 0.4559033331487565,
+          "length_adjusted": 0.4647542031487565
+        },
+        "ophtho": {
+          "n": 18,
+          "raw": 0.5408333333333333,
+          "length_adjusted": 0.5329524999999999
+        },
+        "ortho": {
+          "n": 24,
+          "raw": 0.36087962962962966,
+          "length_adjusted": 0.3592013796296296
+        },
+        "other": {
+          "n": 20,
+          "raw": 0.3332589285714286,
+          "length_adjusted": 0.3328135185714286
+        },
+        "path": {
+          "n": 3,
+          "raw": 0.3333333333333333,
+          "length_adjusted": 0.34273153333333334
+        },
+        "peds": {
+          "n": 28,
+          "raw": 0.36382393866637563,
+          "length_adjusted": 0.3684586386663756
+        },
+        "primary": {
+          "n": 7,
+          "raw": 0.5725330132052822,
+          "length_adjusted": 0.5912188132052821
+        },
+        "psychiatry": {
+          "n": 29,
+          "raw": 0.37402524228082035,
+          "length_adjusted": 0.3638366215911652
+        },
+        "pulm": {
+          "n": 12,
+          "raw": 0.5079656862745098,
+          "length_adjusted": 0.4993073862745098
+        },
+        "rads": {
+          "n": 8,
+          "raw": 0.25784313725490193,
+          "length_adjusted": 0.269114362254902
+        },
+        "rheum": {
+          "n": 8,
+          "raw": 0.25,
+          "length_adjusted": 0.26589805
+        },
+        "surgery": {
+          "n": 17,
+          "raw": 0.32771049596309115,
+          "length_adjusted": 0.3268838371395617
+        },
+        "uro": {
+          "n": 13,
+          "raw": 0.07801092989381199,
+          "length_adjusted": 0.08535188373996581
+        }
+      }
+    },
+    {
+      "label": "gemma4_31b_rl_gpt51judge__step220",
+      "kind": "checkpoint",
+      "n": 525,
+      "overall": {
+        "n": 525,
+        "raw": 0.35072121536528106,
+        "length_adjusted": 0.3160418153652811
+      },
+      "by_use_case": {
+        "consult": {
+          "n": 236,
+          "raw": 0.329343610058216,
+          "length_adjusted": 0.29724865158363967
+        },
+        "research": {
+          "n": 147,
+          "raw": 0.4978067636511233,
+          "length_adjusted": 0.44582656365112333
+        },
+        "writing": {
+          "n": 142,
+          "raw": 0.23398557631210187,
+          "length_adjusted": 0.21292089039660894
+        }
+      },
+      "by_slice": {
+        "good_faith__typical": {
+          "n": 256,
+          "raw": 0.5898886629964881,
+          "length_adjusted": 0.5421744153402381
+        },
+        "good_faith__difficult": {
+          "n": 78,
+          "raw": 0.24195504787610053,
+          "length_adjusted": 0.2077888555684082
+        },
+        "red_teaming__difficult": {
+          "n": 191,
+          "raw": 0.0745793015986166,
+          "length_adjusted": 0.057161109975579966
+        }
+      },
+      "by_specialty": {
+        "ent": {
+          "n": 7,
+          "raw": 0.6603174603174603,
+          "length_adjusted": 0.6423708603174604
+        },
+        "gi": {
+          "n": 19,
+          "raw": 0.07678897469919142,
+          "length_adjusted": 0.052820237857086165
+        },
+        "id": {
+          "n": 20,
+          "raw": 0.32845238095238094,
+          "length_adjusted": 0.305730590952381
+        },
+        "allergy": {
+          "n": 2,
+          "raw": 0.05,
+          "length_adjusted": 0.0480008
+        },
+        "anesthesia": {
+          "n": 22,
+          "raw": 0.5066328873147055,
+          "length_adjusted": 0.46847436004197823
+        },
+        "cards": {
+          "n": 43,
+          "raw": 0.39670854305355435,
+          "length_adjusted": 0.35262358491401946
+        },
+        "derm": {
+          "n": 25,
+          "raw": 0.34983164300202835,
+          "length_adjusted": 0.32009177900202834
+        },
+        "emergency": {
+          "n": 16,
+          "raw": 0.325,
+          "length_adjusted": 0.29282169999999996
+        },
+        "endo": {
+          "n": 20,
+          "raw": 0.4592167551231019,
+          "length_adjusted": 0.4158899751231019
+        },
+        "genetics": {
+          "n": 4,
+          "raw": 0.75,
+          "length_adjusted": 0.6871134
+        },
+        "heme/onc": {
+          "n": 27,
+          "raw": 0.2929732032304284,
+          "length_adjusted": 0.25512342545265065
+        },
+        "medicine": {
+          "n": 17,
+          "raw": 0.27999552047539666,
+          "length_adjusted": 0.24772988518127897
+        },
+        "nephro": {
+          "n": 22,
+          "raw": 0.5340630482010325,
+          "length_adjusted": 0.4938331572919415
+        },
+        "neuro": {
+          "n": 43,
+          "raw": 0.38503485249466185,
+          "length_adjusted": 0.3430147315644293
+        },
+        "neurosurg": {
+          "n": 11,
+          "raw": 0.43329568981742894,
+          "length_adjusted": 0.3926301443628835
+        },
+        "obgyn": {
+          "n": 40,
+          "raw": 0.37677622244269837,
+          "length_adjusted": 0.3462979774426984
+        },
+        "ophtho": {
+          "n": 18,
+          "raw": 0.37194444444444447,
+          "length_adjusted": 0.3306815444444445
+        },
+        "ortho": {
+          "n": 24,
+          "raw": 0.5819444444444445,
+          "length_adjusted": 0.5441997444444445
+        },
+        "other": {
+          "n": 20,
+          "raw": 0.34375,
+          "length_adjusted": 0.31575532
+        },
+        "path": {
+          "n": 3,
+          "raw": 0.0,
+          "length_adjusted": 0.0
+        },
+        "peds": {
+          "n": 28,
+          "raw": 0.34917917166866747,
+          "length_adjusted": 0.3214287216686675
+        },
+        "primary": {
+          "n": 7,
+          "raw": 0.6938775510204082,
+          "length_adjusted": 0.6822477510204081
+        },
+        "psychiatry": {
+          "n": 29,
+          "raw": 0.11718895454233667,
+          "length_adjusted": 0.07811838212854356
+        },
+        "pulm": {
+          "n": 12,
+          "raw": 0.0,
+          "length_adjusted": 0.0
+        },
+        "rads": {
+          "n": 8,
+          "raw": 0.34929971988795516,
+          "length_adjusted": 0.3091981198879552
+        },
+        "rheum": {
+          "n": 8,
+          "raw": 0.16666666666666666,
+          "length_adjusted": 0.14645049166666663
+        },
+        "surgery": {
+          "n": 17,
+          "raw": 0.32401960784313727,
+          "length_adjusted": 0.29335367843137256
+        },
+        "uro": {
+          "n": 13,
+          "raw": 0.17047019476686995,
+          "length_adjusted": 0.1460659332284084
+        }
+      }
+    },
+    {
+      "label": "gemma4_31b_rl_gpt51judge__step240",
+      "kind": "checkpoint",
+      "n": 525,
+      "overall": {
+        "n": 525,
+        "raw": 0.3264641515584297,
+        "length_adjusted": 0.2918269755584297
+      },
+      "by_use_case": {
+        "consult": {
+          "n": 236,
+          "raw": 0.3195797691765578,
+          "length_adjusted": 0.28766332849859166
+        },
+        "research": {
+          "n": 147,
+          "raw": 0.46446980228808316,
+          "length_adjusted": 0.41331240228808314
+        },
+        "writing": {
+          "n": 142,
+          "raw": 0.19504079652225167,
+          "length_adjusted": 0.17298375708563196
+        }
+      },
+      "by_slice": {
+        "good_faith__typical": {
+          "n": 256,
+          "raw": 0.5712468670260262,
+          "length_adjusted": 0.5237772365572763
+        },
+        "good_faith__difficult": {
+          "n": 78,
+          "raw": 0.2227242786453313,
+          "length_adjusted": 0.18882042479917743
+        },
+        "red_teaming__difficult": {
+          "n": 191,
+          "raw": 0.04074339201663373,
+          "length_adjusted": 0.023006264267942635
+        }
+      },
+      "by_specialty": {
+        "ent": {
+          "n": 7,
+          "raw": 0.8408730158730159,
+          "length_adjusted": 0.820343415873016
+        },
+        "gi": {
+          "n": 19,
+          "raw": 0.024157395751823,
+          "length_adjusted": 0.0009577010149809008
+        },
+        "id": {
+          "n": 20,
+          "raw": 0.30238095238095236,
+          "length_adjusted": 0.2789388623809524
+        },
+        "allergy": {
+          "n": 2,
+          "raw": 0.05,
+          "length_adjusted": 0.0460604
+        },
+        "anesthesia": {
+          "n": 22,
+          "raw": 0.5190295815295816,
+          "length_adjusted": 0.48182388152958155
+        },
+        "cards": {
+          "n": 43,
+          "raw": 0.3726616790648299,
+          "length_adjusted": 0.3314073255764578
+        },
+        "derm": {
+          "n": 25,
+          "raw": 0.23564367816091952,
+          "length_adjusted": 0.20385287016091955
+        },
+        "emergency": {
+          "n": 16,
+          "raw": 0.325,
+          "length_adjusted": 0.29097685
+        },
+        "endo": {
+          "n": 20,
+          "raw": 0.4325500884564352,
+          "length_adjusted": 0.3907829784564352
+        },
+        "genetics": {
+          "n": 4,
+          "raw": 0.75,
+          "length_adjusted": 0.6887892
+        },
+        "heme/onc": {
+          "n": 27,
+          "raw": 0.21251879924661268,
+          "length_adjusted": 0.17448717702439043
+        },
+        "medicine": {
+          "n": 17,
+          "raw": 0.2820424931106046,
+          "length_adjusted": 0.2495036107576634
+        },
+        "nephro": {
+          "n": 22,
+          "raw": 0.5679552291520369,
+          "length_adjusted": 0.5280086473338551
+        },
+        "neuro": {
+          "n": 43,
+          "raw": 0.43076306699451566,
+          "length_adjusted": 0.3884886018782366
+        },
+        "neurosurg": {
+          "n": 11,
+          "raw": 0.43329568981742894,
+          "length_adjusted": 0.3936457807265199
+        },
+        "obgyn": {
+          "n": 40,
+          "raw": 0.3559428891093651,
+          "length_adjusted": 0.3249060441093651
+        },
+        "ophtho": {
+          "n": 18,
+          "raw": 0.3819444444444444,
+          "length_adjusted": 0.34013601111111114
+        },
+        "ortho": {
+          "n": 24,
+          "raw": 0.5104166666666666,
+          "length_adjusted": 0.4731693166666667
+        },
+        "other": {
+          "n": 20,
+          "raw": 0.22373511904761906,
+          "length_adjusted": 0.19341195904761904
+        },
+        "path": {
+          "n": 3,
+          "raw": 0.0,
+          "length_adjusted": 0.0
+        },
+        "peds": {
+          "n": 28,
+          "raw": 0.3465190166975881,
+          "length_adjusted": 0.31628636669758814
+        },
+        "primary": {
+          "n": 7,
+          "raw": 0.5053061224489797,
+          "length_adjusted": 0.49176952244897965
+        },
+        "psychiatry": {
+          "n": 29,
+          "raw": 0.0811172844950074,
+          "length_adjusted": 0.04288309139155911
+        },
+        "pulm": {
+          "n": 12,
+          "raw": 0.0,
+          "length_adjusted": 0.0
+        },
+        "rads": {
+          "n": 8,
+          "raw": 0.16964285714285715,
+          "length_adjusted": 0.13082383214285714
+        },
+        "rheum": {
+          "n": 8,
+          "raw": 0.16666666666666666,
+          "length_adjusted": 0.14800134166666667
+        },
+        "surgery": {
+          "n": 17,
+          "raw": 0.3573529411764706,
+          "length_adjusted": 0.32722485882352936
+        },
+        "uro": {
+          "n": 13,
+          "raw": 0.09354711784379302,
+          "length_adjusted": 0.06891217938225458
+        }
+      }
+    },
+    {
+      "label": "gemma4_31b_selfimprove_split__step340",
+      "kind": "checkpoint",
+      "n": 525,
+      "overall": {
+        "n": 525,
+        "raw": 0.3500637926157784,
+        "length_adjusted": 0.3158074726157784
+      },
+      "by_use_case": {
+        "consult": {
+          "n": 236,
+          "raw": 0.3228363181573686,
+          "length_adjusted": 0.2913020774794025
+        },
+        "research": {
+          "n": 147,
+          "raw": 0.47385232810455086,
+          "length_adjusted": 0.42081712810455096
+        },
+        "writing": {
+          "n": 142,
+          "raw": 0.2671678014561667,
+          "length_adjusted": 0.24782757047025122
+        }
+      },
+      "by_slice": {
+        "good_faith__typical": {
+          "n": 256,
+          "raw": 0.5774001971115381,
+          "length_adjusted": 0.5292508064865381
+        },
+        "good_faith__difficult": {
+          "n": 78,
+          "raw": 0.17751730696777135,
+          "length_adjusted": 0.1446258685062329
+        },
+        "red_teaming__difficult": {
+          "n": 191,
+          "raw": 0.11582560585991483,
+          "length_adjusted": 0.09963297863478393
+        }
+      },
+      "by_specialty": {
+        "ent": {
+          "n": 7,
+          "raw": 0.7646825396825397,
+          "length_adjusted": 0.7513013396825396
+        },
+        "gi": {
+          "n": 19,
+          "raw": 0.0,
+          "length_adjusted": 0.0
+        },
+        "id": {
+          "n": 20,
+          "raw": 0.31845238095238093,
+          "length_adjusted": 0.298867570952381
+        },
+        "allergy": {
+          "n": 2,
+          "raw": 0.05,
+          "length_adjusted": 0.043238
+        },
+        "anesthesia": {
+          "n": 22,
+          "raw": 0.4131985438803621,
+          "length_adjusted": 0.3755705529712712
+        },
+        "cards": {
+          "n": 43,
+          "raw": 0.3459280638428426,
+          "length_adjusted": 0.303940077796331
+        },
+        "derm": {
+          "n": 25,
+          "raw": 0.2646551724137931,
+          "length_adjusted": 0.2359454844137931
+        },
+        "emergency": {
+          "n": 16,
+          "raw": 0.4123263888888889,
+          "length_adjusted": 0.3832589763888889
+        },
+        "endo": {
+          "n": 20,
+          "raw": 0.2610738979802447,
+          "length_adjusted": 0.21953316798024472
+        },
+        "genetics": {
+          "n": 4,
+          "raw": 0.75,
+          "length_adjusted": 0.6903033
+        },
+        "heme/onc": {
+          "n": 27,
+          "raw": 0.35377573657300754,
+          "length_adjusted": 0.3181113587952297
+        },
+        "medicine": {
+          "n": 17,
+          "raw": 0.28839888181993445,
+          "length_adjusted": 0.25570262299640506
+        },
+        "nephro": {
+          "n": 22,
+          "raw": 0.526575040713025,
+          "length_adjusted": 0.4815556225312068
+        },
+        "neuro": {
+          "n": 43,
+          "raw": 0.4113404888655319,
+          "length_adjusted": 0.3677594330515784
+        },
+        "neurosurg": {
+          "n": 11,
+          "raw": 0.46886881234707317,
+          "length_adjusted": 0.43047241234707323
+        },
+        "obgyn": {
+          "n": 40,
+          "raw": 0.38804137395784993,
+          "length_adjusted": 0.35618867895784995
+        },
+        "ophtho": {
+          "n": 18,
+          "raw": 0.37194444444444447,
+          "length_adjusted": 0.3309575777777778
+        },
+        "ortho": {
+          "n": 24,
+          "raw": 0.37060185185185185,
+          "length_adjusted": 0.33258030185185183
+        },
+        "other": {
+          "n": 20,
+          "raw": 0.4046875,
+          "length_adjusted": 0.3764782
+        },
+        "path": {
+          "n": 3,
+          "raw": 0.0,
+          "length_adjusted": 0.0
+        },
+        "peds": {
+          "n": 28,
+          "raw": 0.4866581632653061,
+          "length_adjusted": 0.4535527132653061
+        },
+        "primary": {
+          "n": 7,
+          "raw": 0.6424489795918368,
+          "length_adjusted": 0.6357793795918367
+        },
+        "psychiatry": {
+          "n": 29,
+          "raw": 0.17335263535104792,
+          "length_adjusted": 0.13600145604070307
+        },
+        "pulm": {
+          "n": 12,
+          "raw": 0.3290229885057471,
+          "length_adjusted": 0.29433588850574716
+        },
+        "rads": {
+          "n": 8,
+          "raw": 0.1738095238095238,
+          "length_adjusted": 0.14170472380952384
+        },
+        "rheum": {
+          "n": 8,
+          "raw": 0.04166666666666666,
+          "length_adjusted": 0.025507691666666655
+        },
+        "surgery": {
+          "n": 17,
+          "raw": 0.4338235294117647,
+          "length_adjusted": 0.4035692
+        },
+        "uro": {
+          "n": 13,
+          "raw": 0.2089317332284084,
+          "length_adjusted": 0.18511321015148535
+        }
+      }
+    },
+    {
+      "label": "gemma4_31b_selfimprove_split__step360",
+      "kind": "checkpoint",
+      "n": 525,
+      "overall": {
+        "n": 525,
+        "raw": 0.3728032791406129,
+        "length_adjusted": 0.3382284871406128
+      },
+      "by_use_case": {
+        "consult": {
+          "n": 236,
+          "raw": 0.3910927390571637,
+          "length_adjusted": 0.3591478949893671
+        },
+        "research": {
+          "n": 147,
+          "raw": 0.48711453779746444,
+          "length_adjusted": 0.4333423377974645
+        },
+        "writing": {
+          "n": 142,
+          "raw": 0.22407040897960448,
+          "length_adjusted": 0.20499809066974534
+        }
+      },
+      "by_slice": {
+        "good_faith__typical": {
+          "n": 256,
+          "raw": 0.5850648233132694,
+          "length_adjusted": 0.5370657631570194
+        },
+        "good_faith__difficult": {
+          "n": 78,
+          "raw": 0.23940152984270632,
+          "length_adjusted": 0.2054652606119371
+        },
+        "red_teaming__difficult": {
+          "n": 191,
+          "raw": 0.14278433221410322,
+          "length_adjusted": 0.12594151860153777
+        }
+      },
+      "by_specialty": {
+        "ent": {
+          "n": 7,
+          "raw": 0.7396825396825397,
+          "length_adjusted": 0.7233529396825397
+        },
+        "gi": {
+          "n": 19,
+          "raw": 0.07853046076730287,
+          "length_adjusted": 0.05311802918835551
+        },
+        "id": {
+          "n": 20,
+          "raw": 0.38511904761904764,
+          "length_adjusted": 0.3652181876190476
+        },
+        "allergy": {
+          "n": 2,
+          "raw": 0.05,
+          "length_adjusted": 0.037490300000000004
+        },
+        "anesthesia": {
+          "n": 22,
+          "raw": 0.46117834186016005,
+          "length_adjusted": 0.4213894509510691
+        },
+        "cards": {
+          "n": 43,
+          "raw": 0.4106047653902692,
+          "length_adjusted": 0.368970946785618
+        },
+        "derm": {
+          "n": 25,
+          "raw": 0.2246551724137931,
+          "length_adjusted": 0.1959501884137931
+        },
+        "emergency": {
+          "n": 16,
+          "raw": 0.3361825980392157,
+          "length_adjusted": 0.30832977303921566
+        },
+        "endo": {
+          "n": 20,
+          "raw": 0.35921675512310186,
+          "length_adjusted": 0.31789505512310184
+        },
+        "genetics": {
+          "n": 4,
+          "raw": 0.75,
+          "length_adjusted": 0.68650335
+        },
+        "heme/onc": {
+          "n": 27,
+          "raw": 0.2682353853979814,
+          "length_adjusted": 0.23138629650909254
+        },
+        "medicine": {
+          "n": 17,
+          "raw": 0.22135410725376123,
+          "length_adjusted": 0.18302688372434944
+        },
+        "nephro": {
+          "n": 22,
+          "raw": 0.572055757246373,
+          "length_adjusted": 0.5324633117918276
+        },
+        "neuro": {
+          "n": 43,
+          "raw": 0.41311367815827843,
+          "length_adjusted": 0.36767221769316216
+        },
+        "neurosurg": {
+          "n": 11,
+          "raw": 0.5450216450216451,
+          "length_adjusted": 0.4999193722943723
+        },
+        "obgyn": {
+          "n": 40,
+          "raw": 0.42693267830567605,
+          "length_adjusted": 0.399332693305676
+        },
+        "ophtho": {
+          "n": 18,
+          "raw": 0.4197222222222222,
+          "length_adjusted": 0.37794482222222225
+        },
+        "ortho": {
+          "n": 24,
+          "raw": 0.4895833333333333,
+          "length_adjusted": 0.4499901083333333
+        },
+        "other": {
+          "n": 20,
+          "raw": 0.4125,
+          "length_adjusted": 0.38482284
+        },
+        "path": {
+          "n": 3,
+          "raw": 0.19047619047619047,
+          "length_adjusted": 0.1359783904761905
+        },
+        "peds": {
+          "n": 28,
+          "raw": 0.4866581632653061,
+          "length_adjusted": 0.45786821326530613
+        },
+        "primary": {
+          "n": 7,
+          "raw": 0.6938775510204082,
+          "length_adjusted": 0.6828441510204082
+        },
+        "psychiatry": {
+          "n": 29,
+          "raw": 0.170876950116742,
+          "length_adjusted": 0.1305573845995006
+        },
+        "pulm": {
+          "n": 12,
+          "raw": 0.21027298850574713,
+          "length_adjusted": 0.17804078850574712
+        },
+        "rads": {
+          "n": 8,
+          "raw": 0.2279761904761905,
+          "length_adjusted": 0.1893004904761905
+        },
+        "rheum": {
+          "n": 8,
+          "raw": 0.04166666666666666,
+          "length_adjusted": 0.02559589166666666
+        },
+        "surgery": {
+          "n": 17,
+          "raw": 0.5222895040369089,
+          "length_adjusted": 0.49049426874279123
+        },
+        "uro": {
+          "n": 13,
+          "raw": 0.2089317332284084,
+          "length_adjusted": 0.1848169486130238
+        }
+      }
+    },
+    {
+      "label": "gemma4_e4b_rl_gpt51judge__step350",
+      "kind": "checkpoint",
+      "n": 525,
+      "overall": {
+        "n": 525,
+        "raw": 0.2565666440288089,
+        "length_adjusted": 0.20530754802880893
+      },
+      "by_use_case": {
+        "consult": {
+          "n": 236,
+          "raw": 0.261954173362565,
+          "length_adjusted": 0.21133646743036158
+        },
+        "research": {
+          "n": 147,
+          "raw": 0.38257110323210264,
+          "length_adjusted": 0.31883030323210265
+        },
+        "writing": {
+          "n": 142,
+          "raw": 0.11717148610169198,
+          "length_adjusted": 0.07776761849605818
+        }
+      },
+      "by_slice": {
+        "good_faith__typical": {
+          "n": 256,
+          "raw": 0.45531057892004617,
+          "length_adjusted": 0.3907500164200462
+        },
+        "good_faith__difficult": {
+          "n": 78,
+          "raw": 0.1531414499347135,
+          "length_adjusted": 0.10257005762702122
+        },
+        "red_teaming__difficult": {
+          "n": 191,
+          "raw": 0.032423805322959194,
+          "length_adjusted": 0.0
+        }
+      },
+      "by_specialty": {
+        "ent": {
+          "n": 7,
+          "raw": 0.332936507936508,
+          "length_adjusted": 0.301411307936508
+        },
+        "gi": {
+          "n": 19,
+          "raw": 0.024171004434162327,
+          "length_adjusted": 0.0
+        },
+        "id": {
+          "n": 20,
+          "raw": 0.12653536414565827,
+          "length_adjusted": 0.08118880414565825
+        },
+        "allergy": {
+          "n": 2,
+          "raw": 0.0,
+          "length_adjusted": 0.0
+        },
+        "anesthesia": {
+          "n": 22,
+          "raw": 0.3904712711530893,
+          "length_adjusted": 0.3323648438803621
+        },
+        "cards": {
+          "n": 43,
+          "raw": 0.2856204036081997,
+          "length_adjusted": 0.21780759430587412
+        },
+        "derm": {
+          "n": 25,
+          "raw": 0.23965517241379308,
+          "length_adjusted": 0.18692333241379308
+        },
+        "emergency": {
+          "n": 16,
+          "raw": 0.19944196428571428,
+          "length_adjusted": 0.1467369517857143
+        },
+        "endo": {
+          "n": 20,
+          "raw": 0.3698834217897685,
+          "length_adjusted": 0.3050446617897685
+        },
+        "genetics": {
+          "n": 4,
+          "raw": 0.75,
+          "length_adjusted": 0.6161124
+        },
+        "heme/onc": {
+          "n": 27,
+          "raw": 0.27012591418909504,
+          "length_adjusted": 0.214040514189095
+        },
+        "medicine": {
+          "n": 17,
+          "raw": 0.32566257272139626,
+          "length_adjusted": 0.29395553742727865
+        },
+        "nephro": {
+          "n": 22,
+          "raw": 0.3567162137061041,
+          "length_adjusted": 0.2984133409788314
+        },
+        "neuro": {
+          "n": 43,
+          "raw": 0.25045613762663155,
+          "length_adjusted": 0.19225302599872457
+        },
+        "neurosurg": {
+          "n": 11,
+          "raw": 0.49653679653679655,
+          "length_adjusted": 0.42516963290043286
+        },
+        "obgyn": {
+          "n": 40,
+          "raw": 0.2341890232193436,
+          "length_adjusted": 0.1873776082193436
+        },
+        "ophtho": {
+          "n": 18,
+          "raw": 0.24305555555555555,
+          "length_adjusted": 0.1864817888888889
+        },
+        "ortho": {
+          "n": 24,
+          "raw": 0.4864583333333334,
+          "length_adjusted": 0.4277195833333333
+        },
+        "other": {
+          "n": 20,
+          "raw": 0.3782738095238095,
+          "length_adjusted": 0.33573641952380956
+        },
+        "path": {
+          "n": 3,
+          "raw": 0.0,
+          "length_adjusted": 0.0
+        },
+        "peds": {
+          "n": 28,
+          "raw": 0.20924178762414056,
+          "length_adjusted": 0.17472408762414054
+        },
+        "primary": {
+          "n": 7,
+          "raw": 0.475390156062425,
+          "length_adjusted": 0.45525535606242495
+        },
+        "psychiatry": {
+          "n": 29,
+          "raw": 0.032184164156780784,
+          "length_adjusted": 0.0
+        },
+        "pulm": {
+          "n": 12,
+          "raw": 0.0,
+          "length_adjusted": 0.0
+        },
+        "rads": {
+          "n": 8,
+          "raw": 0.43799019607843137,
+          "length_adjusted": 0.37173729607843137
+        },
+        "rheum": {
+          "n": 8,
+          "raw": 0.0,
+          "length_adjusted": 0.0
+        },
+        "surgery": {
+          "n": 17,
+          "raw": 0.35294117647058826,
+          "length_adjusted": 0.30711349411764705
+        },
+        "uro": {
+          "n": 13,
+          "raw": 0.067021918904801,
+          "length_adjusted": 0.023747380443262536
+        }
+      }
+    },
+    {
+      "label": "gemma4_e4b_rl_gpt51judge__step400",
+      "kind": "checkpoint",
+      "n": 525,
+      "overall": {
+        "n": 525,
+        "raw": 0.2565224592418245,
+        "length_adjusted": 0.20380310724182446
+      },
+      "by_use_case": {
+        "consult": {
+          "n": 236,
+          "raw": 0.2503674603948907,
+          "length_adjusted": 0.19807607225929752
+        },
+        "research": {
+          "n": 147,
+          "raw": 0.40606078292310843,
+          "length_adjusted": 0.3400757829231084
+        },
+        "writing": {
+          "n": 142,
+          "raw": 0.11194813633145562,
+          "length_adjusted": 0.07225026872582183
+        }
+      },
+      "by_slice": {
+        "good_faith__typical": {
+          "n": 256,
+          "raw": 0.4685316628257642,
+          "length_adjusted": 0.4018799104820142
+        },
+        "good_faith__difficult": {
+          "n": 78,
+          "raw": 0.1846914495241067,
+          "length_adjusted": 0.13013861875487595
+        },
+        "red_teaming__difficult": {
+          "n": 191,
+          "raw": 0.0016976563124706204,
+          "length_adjusted": 0.0
+        }
+      },
+      "by_specialty": {
+        "ent": {
+          "n": 7,
+          "raw": 0.332936507936508,
+          "length_adjusted": 0.30716110793650797
+        },
+        "gi": {
+          "n": 19,
+          "raw": 0.11124530783973509,
+          "length_adjusted": 0.07140985520815615
+        },
+        "id": {
+          "n": 20,
+          "raw": 0.15153536414565827,
+          "length_adjusted": 0.10330613414565828
+        },
+        "allergy": {
+          "n": 2,
+          "raw": 0.0,
+          "length_adjusted": 0.0
+        },
+        "anesthesia": {
+          "n": 22,
+          "raw": 0.4359258166076348,
+          "length_adjusted": 0.3828895529712712
+        },
+        "cards": {
+          "n": 43,
+          "raw": 0.2869210295668284,
+          "length_adjusted": 0.21777359700868884
+        },
+        "derm": {
+          "n": 25,
+          "raw": 0.17797701149425285,
+          "length_adjusted": 0.12807815549425286
+        },
+        "emergency": {
+          "n": 16,
+          "raw": 0.1973385989010989,
+          "length_adjusted": 0.13606716140109892
+        },
+        "endo": {
+          "n": 20,
+          "raw": 0.3735738979802447,
+          "length_adjusted": 0.30750033798024473
+        },
+        "genetics": {
+          "n": 4,
+          "raw": 0.75,
+          "length_adjusted": 0.6145836
+        },
+        "heme/onc": {
+          "n": 27,
+          "raw": 0.28864443270761353,
+          "length_adjusted": 0.2301024993742802
+        },
+        "medicine": {
+          "n": 17,
+          "raw": 0.20081000011340566,
+          "length_adjusted": 0.1685374471722292
+        },
+        "nephro": {
+          "n": 22,
+          "raw": 0.36548814353066555,
+          "length_adjusted": 0.30613488898521096
+        },
+        "neuro": {
+          "n": 43,
+          "raw": 0.2761639683276223,
+          "length_adjusted": 0.2191177125136688
+        },
+        "neurosurg": {
+          "n": 11,
+          "raw": 0.43329568981742894,
+          "length_adjusted": 0.36158908981742893
+        },
+        "obgyn": {
+          "n": 40,
+          "raw": 0.23877235655267692,
+          "length_adjusted": 0.18875266655267692
+        },
+        "ophtho": {
+          "n": 18,
+          "raw": 0.2314814814814815,
+          "length_adjusted": 0.1671738814814815
+        },
+        "ortho": {
+          "n": 24,
+          "raw": 0.4949074074074074,
+          "length_adjusted": 0.43552920740740747
+        },
+        "other": {
+          "n": 20,
+          "raw": 0.29077380952380955,
+          "length_adjusted": 0.24514059952380954
+        },
+        "path": {
+          "n": 3,
+          "raw": 0.0,
+          "length_adjusted": 0.0
+        },
+        "peds": {
+          "n": 28,
+          "raw": 0.1967185965295209,
+          "length_adjusted": 0.1621431465295209
+        },
+        "primary": {
+          "n": 7,
+          "raw": 0.3997599039615846,
+          "length_adjusted": 0.3800157039615846
+        },
+        "psychiatry": {
+          "n": 29,
+          "raw": 0.16385362354473387,
+          "length_adjusted": 0.11687952009645801
+        },
+        "pulm": {
+          "n": 12,
+          "raw": 0.0,
+          "length_adjusted": 0.0
+        },
+        "rads": {
+          "n": 8,
+          "raw": 0.37916666666666665,
+          "length_adjusted": 0.32030051666666665
+        },
+        "rheum": {
+          "n": 8,
+          "raw": 0.04166666666666666,
+          "length_adjusted": 0.00800734166666665
+        },
+        "surgery": {
+          "n": 17,
+          "raw": 0.29411764705882354,
+          "length_adjusted": 0.24316398823529414
+        },
+        "uro": {
+          "n": 13,
+          "raw": 0.014855694324783307,
+          "length_adjusted": 0.0
+        }
+      }
+    },
+    {
+      "label": "gemma4_e4b_sft.gpt51_archived__step4",
+      "kind": "checkpoint",
+      "n": 525,
+      "overall": {
+        "n": 525,
+        "raw": 0.23402697703861172,
+        "length_adjusted": 0.18228493703861173
+      },
+      "by_use_case": {
+        "consult": {
+          "n": 236,
+          "raw": 0.2364927860428348,
+          "length_adjusted": 0.18520461061910598
+        },
+        "research": {
+          "n": 147,
+          "raw": 0.3805796413690943,
+          "length_adjusted": 0.31725664136909437
+        },
+        "writing": {
+          "n": 142,
+          "raw": 0.07821590252045976,
+          "length_adjusted": 0.03770829266130484
+        }
+      },
+      "by_slice": {
+        "good_faith__typical": {
+          "n": 256,
+          "raw": 0.45815771123884275,
+          "length_adjusted": 0.39181190264509275
+        },
+        "good_faith__difficult": {
+          "n": 78,
+          "raw": 0.14230057512325045,
+          "length_adjusted": 0.09018342127709662
+        },
+        "red_teaming__difficult": {
+          "n": 191,
+          "raw": 0.0,
+          "length_adjusted": 0.0
+        }
+      },
+      "by_specialty": {
+        "ent": {
+          "n": 7,
+          "raw": 0.08571428571428572,
+          "length_adjusted": 0.05875028571428572
+        },
+        "gi": {
+          "n": 19,
+          "raw": 0.08492951836605088,
+          "length_adjusted": 0.04767817099762982
+        },
+        "id": {
+          "n": 20,
+          "raw": 0.17941036414565828,
+          "length_adjusted": 0.13462240414565826
+        },
+        "allergy": {
+          "n": 2,
+          "raw": 0.0,
+          "length_adjusted": 0.0
+        },
+        "anesthesia": {
+          "n": 22,
+          "raw": 0.3450167256985439,
+          "length_adjusted": 0.2890564984258166
+        },
+        "cards": {
+          "n": 43,
+          "raw": 0.27442012957402834,
+          "length_adjusted": 0.20761854352751669
+        },
+        "derm": {
+          "n": 25,
+          "raw": 0.11832183908045976,
+          "length_adjusted": 0.06487146308045977
+        },
+        "emergency": {
+          "n": 16,
+          "raw": 0.32444196428571426,
+          "length_adjusted": 0.2649235017857143
+        },
+        "endo": {
+          "n": 20,
+          "raw": 0.47357389798024474,
+          "length_adjusted": 0.40962154798024475
+        },
+        "genetics": {
+          "n": 4,
+          "raw": 0.75,
+          "length_adjusted": 0.6185599500000001
+        },
+        "heme/onc": {
+          "n": 27,
+          "raw": 0.18107734262705022,
+          "length_adjusted": 0.12251907596038356
+        },
+        "medicine": {
+          "n": 17,
+          "raw": 0.28939543428707515,
+          "length_adjusted": 0.2540670107576634
+        },
+        "nephro": {
+          "n": 22,
+          "raw": 0.3882778149157992,
+          "length_adjusted": 0.32842342400670826
+        },
+        "neuro": {
+          "n": 43,
+          "raw": 0.2959364807960692,
+          "length_adjusted": 0.23981051335420878
+        },
+        "neurosurg": {
+          "n": 11,
+          "raw": 0.4194616977225673,
+          "length_adjusted": 0.34815867954074914
+        },
+        "obgyn": {
+          "n": 40,
+          "raw": 0.2004484217155842,
+          "length_adjusted": 0.1555149317155842
+        },
+        "ophtho": {
+          "n": 18,
+          "raw": 0.1875,
+          "length_adjusted": 0.1335853
+        },
+        "ortho": {
+          "n": 24,
+          "raw": 0.5123015873015874,
+          "length_adjusted": 0.45023206230158724
+        },
+        "other": {
+          "n": 20,
+          "raw": 0.28087797619047616,
+          "length_adjusted": 0.23897121619047618
+        },
+        "path": {
+          "n": 3,
+          "raw": 0.0,
+          "length_adjusted": 0.0
+        },
+        "peds": {
+          "n": 28,
+          "raw": 0.24252100840336135,
+          "length_adjusted": 0.20323735840336135
+        },
+        "primary": {
+          "n": 7,
+          "raw": 0.15975990396158465,
+          "length_adjusted": 0.13846590396158462
+        },
+        "psychiatry": {
+          "n": 29,
+          "raw": 0.0,
+          "length_adjusted": 0.0
+        },
+        "pulm": {
+          "n": 12,
+          "raw": 0.0,
+          "length_adjusted": 0.0
+        },
+        "rads": {
+          "n": 8,
+          "raw": 0.1875,
+          "length_adjusted": 0.129232875
+        },
+        "rheum": {
+          "n": 8,
+          "raw": 0.04166666666666666,
+          "length_adjusted": 0.011109041666666652
+        },
+        "surgery": {
+          "n": 17,
+          "raw": 0.4117647058823529,
+          "length_adjusted": 0.36725310588235294
+        },
+        "uro": {
+          "n": 13,
+          "raw": 0.067021918904801,
+          "length_adjusted": 0.02047945736633946
+        }
+      }
+    },
+    {
+      "label": "gemma4_e4b_sft.gpt51_archived__step5",
+      "kind": "checkpoint",
+      "n": 525,
+      "overall": {
+        "n": 525,
+        "raw": 0.24980546833443615,
+        "length_adjusted": 0.19807961233443613
+      },
+      "by_use_case": {
+        "consult": {
+          "n": 236,
+          "raw": 0.24815390861288544,
+          "length_adjusted": 0.19672944674847867
+        },
+        "research": {
+          "n": 147,
+          "raw": 0.37763752999779004,
+          "length_adjusted": 0.3134629299977901
+        },
+        "writing": {
+          "n": 142,
+          "raw": 0.1202171234736822,
+          "length_adjusted": 0.08087743896663994
+        }
+      },
+      "by_slice": {
+        "good_faith__typical": {
+          "n": 256,
+          "raw": 0.46147958778871806,
+          "length_adjusted": 0.39427543700746803
+        },
+        "good_faith__difficult": {
+          "n": 78,
+          "raw": 0.1483337576270212,
+          "length_adjusted": 0.09553060378086736
+        },
+        "red_teaming__difficult": {
+          "n": 191,
+          "raw": 0.007534362862615168,
+          "length_adjusted": 0.0
+        }
+      },
+      "by_specialty": {
+        "ent": {
+          "n": 7,
+          "raw": 0.32023809523809527,
+          "length_adjusted": 0.28836429523809526
+        },
+        "gi": {
+          "n": 19,
+          "raw": 0.08492951836605088,
+          "length_adjusted": 0.04848744468184035
+        },
+        "id": {
+          "n": 20,
+          "raw": 0.13260679271708684,
+          "length_adjusted": 0.09169669271708683
+        },
+        "allergy": {
+          "n": 2,
+          "raw": 0.0,
+          "length_adjusted": 0.0
+        },
+        "anesthesia": {
+          "n": 22,
+          "raw": 0.3450167256985439,
+          "length_adjusted": 0.29370704388036206
+        },
+        "cards": {
+          "n": 43,
+          "raw": 0.30643041894625883,
+          "length_adjusted": 0.23829694452765418
+        },
+        "derm": {
+          "n": 25,
+          "raw": 0.26066666666666666,
+          "length_adjusted": 0.20471023466666668
+        },
+        "emergency": {
+          "n": 16,
+          "raw": 0.2625,
+          "length_adjusted": 0.20441662500000002
+        },
+        "endo": {
+          "n": 20,
+          "raw": 0.4485738979802448,
+          "length_adjusted": 0.38744982798024474
+        },
+        "genetics": {
+          "n": 4,
+          "raw": 0.5,
+          "length_adjusted": 0.38044490000000003
+        },
+        "heme/onc": {
+          "n": 27,
+          "raw": 0.16009775737731247,
+          "length_adjusted": 0.10218520182175693
+        },
+        "medicine": {
+          "n": 17,
+          "raw": 0.29044585445514237,
+          "length_adjusted": 0.2573777721022012
+        },
+        "nephro": {
+          "n": 22,
+          "raw": 0.3320007586387429,
+          "length_adjusted": 0.2676682131841974
+        },
+        "neuro": {
+          "n": 43,
+          "raw": 0.27034395826352225,
+          "length_adjusted": 0.21328129314724315
+        },
+        "neurosurg": {
+          "n": 11,
+          "raw": 0.4259552042160738,
+          "length_adjusted": 0.3466660769433465
+        },
+        "obgyn": {
+          "n": 40,
+          "raw": 0.2446703896789709,
+          "length_adjusted": 0.19989418967897093
+        },
+        "ophtho": {
+          "n": 18,
+          "raw": 0.18666666666666665,
+          "length_adjusted": 0.12417043333333333
+        },
+        "ortho": {
+          "n": 24,
+          "raw": 0.4513888888888889,
+          "length_adjusted": 0.38961336388888884
+        },
+        "other": {
+          "n": 20,
+          "raw": 0.3324404761904762,
+          "length_adjusted": 0.2904381661904762
+        },
+        "path": {
+          "n": 3,
+          "raw": 0.3333333333333333,
+          "length_adjusted": 0.27615033333333333
+        },
+        "peds": {
+          "n": 28,
+          "raw": 0.28959893048128343,
+          "length_adjusted": 0.25412363048128345
+        },
+        "primary": {
+          "n": 7,
+          "raw": 0.3997599039615846,
+          "length_adjusted": 0.3819309039615847
+        },
+        "psychiatry": {
+          "n": 29,
+          "raw": 0.0,
+          "length_adjusted": 0.0
+        },
+        "pulm": {
+          "n": 12,
+          "raw": 0.0073635057471264365,
+          "length_adjusted": 0.0
+        },
+        "rads": {
+          "n": 8,
+          "raw": 0.12916666666666665,
+          "length_adjusted": 0.07296856666666666
+        },
+        "rheum": {
+          "n": 8,
+          "raw": 0.04166666666666666,
+          "length_adjusted": 0.01385426666666664
+        },
+        "surgery": {
+          "n": 17,
+          "raw": 0.35294117647058826,
+          "length_adjusted": 0.3033278117647059
+        },
+        "uro": {
+          "n": 13,
+          "raw": 0.067021918904801,
+          "length_adjusted": 0.022537457366339445
+        }
+      }
+    },
+    {
+      "label": "gemma4_e4b_sft.gpt51_archived__step50",
+      "kind": "checkpoint",
+      "n": 525,
+      "overall": {
+        "n": 525,
+        "raw": 0.14229483102805313,
+        "length_adjusted": 0.12354726302805312
+      },
+      "by_use_case": {
+        "consult": {
+          "n": 236,
+          "raw": 0.12373507828472871,
+          "length_adjusted": 0.11485403591184735
+        },
+        "research": {
+          "n": 147,
+          "raw": 0.2882612249441065,
+          "length_adjusted": 0.25231802494410654
+        },
+        "writing": {
+          "n": 142,
+          "raw": 0.02203456160386095,
+          "length_adjusted": 0.004690217941889118
+        }
+      },
+      "by_slice": {
+        "good_faith__typical": {
+          "n": 256,
+          "raw": 0.3521136558556096,
+          "length_adjusted": 0.32833686523060956
+        },
+        "good_faith__difficult": {
+          "n": 78,
+          "raw": 0.13647615575927735,
+          "length_adjusted": 0.12905114806696966
+        },
+        "red_teaming__difficult": {
+          "n": 191,
+          "raw": 0.0,
+          "length_adjusted": 0.0
+        }
+      },
+      "by_specialty": {
+        "ent": {
+          "n": 7,
+          "raw": 0.19999999999999998,
+          "length_adjusted": 0.2008106
+        },
+        "gi": {
+          "n": 19,
+          "raw": 0.0,
+          "length_adjusted": 0.0
+        },
+        "id": {
+          "n": 20,
+          "raw": 0.07150793650793649,
+          "length_adjusted": 0.0627717265079365
+        },
+        "allergy": {
+          "n": 2,
+          "raw": 0.0,
+          "length_adjusted": 0.0
+        },
+        "anesthesia": {
+          "n": 22,
+          "raw": 0.3652187459005641,
+          "length_adjusted": 0.3522480004460186
+        },
+        "cards": {
+          "n": 43,
+          "raw": 0.24760194775584654,
+          "length_adjusted": 0.2204042128721256
+        },
+        "derm": {
+          "n": 25,
+          "raw": 0.1231338742393509,
+          "length_adjusted": 0.10727551423935092
+        },
+        "emergency": {
+          "n": 16,
+          "raw": 0.0,
+          "length_adjusted": 0.0
+        },
+        "endo": {
+          "n": 20,
+          "raw": 0.18257389798024473,
+          "length_adjusted": 0.17390971798024474
+        },
+        "genetics": {
+          "n": 4,
+          "raw": 0.75,
+          "length_adjusted": 0.6828504000000001
+        },
+        "heme/onc": {
+          "n": 27,
+          "raw": 0.0917426375516044,
+          "length_adjusted": 0.07964834866271552
+        },
+        "medicine": {
+          "n": 17,
+          "raw": 0.011977725121961144,
+          "length_adjusted": 0.0
+        },
+        "nephro": {
+          "n": 22,
+          "raw": 0.15901514210473924,
+          "length_adjusted": 0.1466029966501938
+        },
+        "neuro": {
+          "n": 43,
+          "raw": 0.22258690422230745,
+          "length_adjusted": 0.2015631693385865
+        },
+        "neurosurg": {
+          "n": 11,
+          "raw": 0.3212121212121212,
+          "length_adjusted": 0.30398104848484847
+        },
+        "obgyn": {
+          "n": 40,
+          "raw": 0.18635210136926383,
+          "length_adjusted": 0.18131661636926383
+        },
+        "ophtho": {
+          "n": 18,
+          "raw": 0.1257716049382716,
+          "length_adjusted": 0.09399347160493828
+        },
+        "ortho": {
+          "n": 24,
+          "raw": 0.2657738095238095,
+          "length_adjusted": 0.2558255845238095
+        },
+        "other": {
+          "n": 20,
+          "raw": 0.1880564182194617,
+          "length_adjusted": 0.1701165382194617
+        },
+        "path": {
+          "n": 3,
+          "raw": 0.0,
+          "length_adjusted": 0.0
+        },
+        "peds": {
+          "n": 28,
+          "raw": 0.11363636363636363,
+          "length_adjusted": 0.11333606363636363
+        },
+        "primary": {
+          "n": 7,
+          "raw": 0.30261704681872753,
+          "length_adjusted": 0.3279976468187275
+        },
+        "psychiatry": {
+          "n": 29,
+          "raw": 0.0,
+          "length_adjusted": 0.0
+        },
+        "pulm": {
+          "n": 12,
+          "raw": 0.015022819472616633,
+          "length_adjusted": 0.01591216947261664
+        },
+        "rads": {
+          "n": 8,
+          "raw": 0.25,
+          "length_adjusted": 0.22539955
+        },
+        "rheum": {
+          "n": 8,
+          "raw": 0.04166666666666666,
+          "length_adjusted": 0.04224364166666667
+        },
+        "surgery": {
+          "n": 17,
+          "raw": 0.2521626297577855,
+          "length_adjusted": 0.25269874740484427
+        },
+        "uro": {
+          "n": 13,
+          "raw": 0.0,
+          "length_adjusted": 0.0
+        }
+      }
+    },
+    {
+      "label": "gemma4_e4b_sft__step300",
+      "kind": "checkpoint",
+      "n": 525,
+      "overall": {
+        "n": 525,
+        "raw": 0.18356951977432603,
+        "length_adjusted": 0.17307847977432603
+      },
+      "by_use_case": {
+        "consult": {
+          "n": 236,
+          "raw": 0.18819445000570215,
+          "length_adjusted": 0.18189599831078693
+        },
+        "research": {
+          "n": 147,
+          "raw": 0.3311005240468544,
+          "length_adjusted": 0.30901832404685436
+        },
+        "writing": {
+          "n": 142,
+          "raw": 0.0231572580654074,
+          "length_adjusted": 0.01769755384005529
+        }
+      },
+      "by_slice": {
+        "good_faith__typical": {
+          "n": 256,
+          "raw": 0.4086336237505364,
+          "length_adjusted": 0.3868156081255364
+        },
+        "good_faith__difficult": {
+          "n": 78,
+          "raw": 0.1172356346171335,
+          "length_adjusted": 0.10816158846328736
+        },
+        "red_teaming__difficult": {
+          "n": 191,
+          "raw": 0.0,
+          "length_adjusted": 0.0
+        }
+      },
+      "by_specialty": {
+        "ent": {
+          "n": 7,
+          "raw": 0.2380952380952381,
+          "length_adjusted": 0.2543954380952381
+        },
+        "gi": {
+          "n": 19,
+          "raw": 0.0,
+          "length_adjusted": 0.0
+        },
+        "id": {
+          "n": 20,
+          "raw": 0.1350373482726424,
+          "length_adjusted": 0.1224482682726424
+        },
+        "allergy": {
+          "n": 2,
+          "raw": 0.0,
+          "length_adjusted": 0.0
+        },
+        "anesthesia": {
+          "n": 22,
+          "raw": 0.3339974419519874,
+          "length_adjusted": 0.3246442328610783
+        },
+        "cards": {
+          "n": 43,
+          "raw": 0.2382543451340701,
+          "length_adjusted": 0.21266061955267476
+        },
+        "derm": {
+          "n": 25,
+          "raw": 0.0558235294117647,
+          "length_adjusted": 0.0449114254117647
+        },
+        "emergency": {
+          "n": 16,
+          "raw": 0.11015625,
+          "length_adjusted": 0.09737643750000001
+        },
+        "endo": {
+          "n": 20,
+          "raw": 0.4323834217897685,
+          "length_adjusted": 0.41986784178976855
+        },
+        "genetics": {
+          "n": 4,
+          "raw": 0.5,
+          "length_adjusted": 0.4267205
+        },
+        "heme/onc": {
+          "n": 27,
+          "raw": 0.12825788751714676,
+          "length_adjusted": 0.11933662085048011
+        },
+        "medicine": {
+          "n": 17,
+          "raw": 0.0,
+          "length_adjusted": 0.0
+        },
+        "nephro": {
+          "n": 22,
+          "raw": 0.11756199874543755,
+          "length_adjusted": 0.09837716238180118
+        },
+        "neuro": {
+          "n": 43,
+          "raw": 0.24458505087098537,
+          "length_adjusted": 0.22382112994075284
+        },
+        "neurosurg": {
+          "n": 11,
+          "raw": 0.29657444005270095,
+          "length_adjusted": 0.2895157673254282
+        },
+        "obgyn": {
+          "n": 40,
+          "raw": 0.14624604076320324,
+          "length_adjusted": 0.14287827076320322
+        },
+        "ophtho": {
+          "n": 18,
+          "raw": 0.2708333333333333,
+          "length_adjusted": 0.2493664333333333
+        },
+        "ortho": {
+          "n": 24,
+          "raw": 0.2211620759414877,
+          "length_adjusted": 0.2118092009414877
+        },
+        "other": {
+          "n": 20,
+          "raw": 0.30472308488612837,
+          "length_adjusted": 0.29454921488612834
+        },
+        "path": {
+          "n": 3,
+          "raw": 0.0,
+          "length_adjusted": 0.0
+        },
+        "peds": {
+          "n": 28,
+          "raw": 0.1762012987012987,
+          "length_adjusted": 0.17764714870129872
+        },
+        "primary": {
+          "n": 7,
+          "raw": 0.23539015606242497,
+          "length_adjusted": 0.256742956062425
+        },
+        "psychiatry": {
+          "n": 29,
+          "raw": 0.013166400311430734,
+          "length_adjusted": 0.0012391244493617597
+        },
+        "pulm": {
+          "n": 12,
+          "raw": 0.0240301724137931,
+          "length_adjusted": 0.025012622413793106
+        },
+        "rads": {
+          "n": 8,
+          "raw": 0.37083333333333335,
+          "length_adjusted": 0.35538363333333334
+        },
+        "rheum": {
+          "n": 8,
+          "raw": 0.04166666666666666,
+          "length_adjusted": 0.044724266666666644
+        },
+        "surgery": {
+          "n": 17,
+          "raw": 0.4392156862745098,
+          "length_adjusted": 0.43293619215686274
+        },
+        "uro": {
+          "n": 13,
+          "raw": 0.19745670151349665,
+          "length_adjusted": 0.19907596305195818
+        }
+      }
+    },
+    {
+      "label": "gemma4_e4b_sft__step350",
+      "kind": "checkpoint",
+      "n": 525,
+      "overall": {
+        "n": 525,
+        "raw": 0.18597357144625726,
+        "length_adjusted": 0.17861197944625729
+      },
+      "by_use_case": {
+        "consult": {
+          "n": 236,
+          "raw": 0.17331043659423506,
+          "length_adjusted": 0.17132817896711644
+        },
+        "research": {
+          "n": 147,
+          "raw": 0.3346130747897448,
+          "length_adjusted": 0.3148262747897448
+        },
+        "writing": {
+          "n": 142,
+          "raw": 0.053146056189810574,
+          "length_adjusted": 0.04970687731657114
+        }
+      },
+      "by_slice": {
+        "good_faith__typical": {
+          "n": 256,
+          "raw": 0.41997615748636735,
+          "length_adjusted": 0.40192593561136736
+        },
+        "good_faith__difficult": {
+          "n": 78,
+          "raw": 0.03854168282480443,
+          "length_adjusted": 0.03555532128634288
+        },
+        "red_teaming__difficult": {
+          "n": 191,
+          "raw": 0.0,
+          "length_adjusted": 0.0
+        }
+      },
+      "by_specialty": {
+        "ent": {
+          "n": 7,
+          "raw": 0.09523809523809525,
+          "length_adjusted": 0.11168949523809524
+        },
+        "gi": {
+          "n": 19,
+          "raw": 0.05378916748885789,
+          "length_adjusted": 0.051280883278331586
+        },
+        "id": {
+          "n": 20,
+          "raw": 0.0,
+          "length_adjusted": 0.0
+        },
+        "allergy": {
+          "n": 2,
+          "raw": 0.0,
+          "length_adjusted": 0.0
+        },
+        "anesthesia": {
+          "n": 22,
+          "raw": 0.3197642004460186,
+          "length_adjusted": 0.3139550277187459
+        },
+        "cards": {
+          "n": 43,
+          "raw": 0.24137978558509196,
+          "length_adjusted": 0.22482348325951054
+        },
+        "derm": {
+          "n": 25,
+          "raw": 0.15481203515889114,
+          "length_adjusted": 0.14437503515889116
+        },
+        "emergency": {
+          "n": 16,
+          "raw": 0.014302884615384617,
+          "length_adjusted": 0.012112584615384628
+        },
+        "endo": {
+          "n": 20,
+          "raw": 0.37982389798024474,
+          "length_adjusted": 0.37184767798024476
+        },
+        "genetics": {
+          "n": 4,
+          "raw": 0.75,
+          "length_adjusted": 0.6884805
+        },
+        "heme/onc": {
+          "n": 27,
+          "raw": 0.11836690491661252,
+          "length_adjusted": 0.10942494936105697
+        },
+        "medicine": {
+          "n": 17,
+          "raw": 0.0,
+          "length_adjusted": 0.0
+        },
+        "nephro": {
+          "n": 22,
+          "raw": 0.21120369429329144,
+          "length_adjusted": 0.203333848838746
+        },
+        "neuro": {
+          "n": 43,
+          "raw": 0.2808420491954871,
+          "length_adjusted": 0.2662377701257197
+        },
+        "neurosurg": {
+          "n": 11,
+          "raw": 0.3177489177489177,
+          "length_adjusted": 0.3083836813852814
+        },
+        "obgyn": {
+          "n": 40,
+          "raw": 0.21580134205992332,
+          "length_adjusted": 0.21459079705992332
+        },
+        "ophtho": {
+          "n": 18,
+          "raw": 0.23305555555555557,
+          "length_adjusted": 0.2181415888888889
+        },
+        "ortho": {
+          "n": 24,
+          "raw": 0.25327575474634295,
+          "length_adjusted": 0.24952847974634298
+        },
+        "other": {
+          "n": 20,
+          "raw": 0.332327251552795,
+          "length_adjusted": 0.3239350215527951
+        },
+        "path": {
+          "n": 3,
+          "raw": 0.19047619047619047,
+          "length_adjusted": 0.17929439047619047
+        },
+        "peds": {
+          "n": 28,
+          "raw": 0.07314716795809233,
+          "length_adjusted": 0.07432106795809232
+        },
+        "primary": {
+          "n": 7,
+          "raw": 0.3110204081632653,
+          "length_adjusted": 0.33013040816326533
+        },
+        "psychiatry": {
+          "n": 29,
+          "raw": 0.05875617227037105,
+          "length_adjusted": 0.045927634339336575
+        },
+        "pulm": {
+          "n": 12,
+          "raw": 0.0,
+          "length_adjusted": 0.0
+        },
+        "rads": {
+          "n": 8,
+          "raw": 0.4375,
+          "length_adjusted": 0.4245199
+        },
+        "rheum": {
+          "n": 8,
+          "raw": 0.04166666666666666,
+          "length_adjusted": 0.04536371666666663
+        },
+        "surgery": {
+          "n": 17,
+          "raw": 0.40980392156862744,
+          "length_adjusted": 0.4041504745098039
+        },
+        "uro": {
+          "n": 13,
+          "raw": 0.0,
+          "length_adjusted": 0.0
+        }
+      }
+    },
+    {
+      "label": "qwen35_9b_full_gpt55__step70",
+      "kind": "checkpoint",
+      "n": 525,
+      "overall": {
+        "n": 525,
+        "raw": 0.28047300575825324,
+        "length_adjusted": 0.21467787775825323
+      },
+      "by_use_case": {
+        "consult": {
+          "n": 236,
+          "raw": 0.29183107037299255,
+          "length_adjusted": 0.22299047206790787
+        },
+        "research": {
+          "n": 147,
+          "raw": 0.46713069677006896,
+          "length_adjusted": 0.379868696770069
+        },
+        "writing": {
+          "n": 142,
+          "raw": 0.06836607739335601,
+          "length_adjusted": 0.029855183027158835
+        }
+      },
+      "by_slice": {
+        "good_faith__typical": {
+          "n": 256,
+          "raw": 0.5337775797619424,
+          "length_adjusted": 0.45202548210569243
+        },
+        "good_faith__difficult": {
+          "n": 78,
+          "raw": 0.2464574898785425,
+          "length_adjusted": 0.16865491295546559
+        },
+        "red_teaming__difficult": {
+          "n": 191,
+          "raw": 0.0,
+          "length_adjusted": 0.0
+        }
+      },
+      "by_specialty": {
+        "ent": {
+          "n": 7,
+          "raw": 0.6853174603174603,
+          "length_adjusted": 0.6434686603174603
+        },
+        "gi": {
+          "n": 19,
+          "raw": 0.0,
+          "length_adjusted": 0.0
+        },
+        "id": {
+          "n": 20,
+          "raw": 0.32828948502477917,
+          "length_adjusted": 0.27296015502477916
+        },
+        "allergy": {
+          "n": 2,
+          "raw": 0.0,
+          "length_adjusted": 0.0
+        },
+        "anesthesia": {
+          "n": 22,
+          "raw": 0.41016824085005904,
+          "length_adjusted": 0.33109694085005903
+        },
+        "cards": {
+          "n": 43,
+          "raw": 0.3784501218481967,
+          "length_adjusted": 0.30004442417377813
+        },
+        "derm": {
+          "n": 25,
+          "raw": 0.28490038314176247,
+          "length_adjusted": 0.21837406314176244
+        },
+        "emergency": {
+          "n": 16,
+          "raw": 0.2205528846153846,
+          "length_adjusted": 0.14914395961538462
+        },
+        "endo": {
+          "n": 20,
+          "raw": 0.35940723131357805,
+          "length_adjusted": 0.28689507131357805
+        },
+        "genetics": {
+          "n": 4,
+          "raw": 0.5,
+          "length_adjusted": 0.40785305
+        },
+        "heme/onc": {
+          "n": 27,
+          "raw": 0.20333651270183778,
+          "length_adjusted": 0.14002851270183778
+        },
+        "medicine": {
+          "n": 17,
+          "raw": 0.039659386021615124,
+          "length_adjusted": 0.0
+        },
+        "nephro": {
+          "n": 22,
+          "raw": 0.4753509269889112,
+          "length_adjusted": 0.4003127724434567
+        },
+        "neuro": {
+          "n": 43,
+          "raw": 0.35878070600609463,
+          "length_adjusted": 0.28950883623865276
+        },
+        "neurosurg": {
+          "n": 11,
+          "raw": 0.49956709956709955,
+          "length_adjusted": 0.4304423541125541
+        },
+        "obgyn": {
+          "n": 40,
+          "raw": 0.2731677694921402,
+          "length_adjusted": 0.21290879449214023
+        },
+        "ophtho": {
+          "n": 18,
+          "raw": 0.32481481481481483,
+          "length_adjusted": 0.2363387814814815
+        },
+        "ortho": {
+          "n": 24,
+          "raw": 0.4124669312169312,
+          "length_adjusted": 0.3195788562169312
+        },
+        "other": {
+          "n": 20,
+          "raw": 0.1165922619047619,
+          "length_adjusted": 0.05909762190476192
+        },
+        "path": {
+          "n": 3,
+          "raw": 0.0,
+          "length_adjusted": 0.0
+        },
+        "peds": {
+          "n": 28,
+          "raw": 0.2327295918367347,
+          "length_adjusted": 0.1778240418367347
+        },
+        "primary": {
+          "n": 7,
+          "raw": 0.5510204081632654,
+          "length_adjusted": 0.5258750081632654
+        },
+        "psychiatry": {
+          "n": 29,
+          "raw": 0.12449425910930453,
+          "length_adjusted": 0.06180129359206314
+        },
+        "pulm": {
+          "n": 12,
+          "raw": 0.054238505747126436,
+          "length_adjusted": 0.0
+        },
+        "rads": {
+          "n": 8,
+          "raw": 0.43333333333333335,
+          "length_adjusted": 0.3561546583333333
+        },
+        "rheum": {
+          "n": 8,
+          "raw": 0.0,
+          "length_adjusted": 0.0
+        },
+        "surgery": {
+          "n": 17,
+          "raw": 0.47058823529411764,
+          "length_adjusted": 0.4035181882352941
+        },
+        "uro": {
+          "n": 13,
+          "raw": 0.0,
+          "length_adjusted": 0.0
+        }
+      }
+    },
+    {
+      "label": "qwen35_9b_full_gpt55__step75",
+      "kind": "checkpoint",
+      "n": 525,
+      "overall": {
+        "n": 525,
+        "raw": 0.2844602057657775,
+        "length_adjusted": 0.22034474176577754
+      },
+      "by_use_case": {
+        "consult": {
+          "n": 236,
+          "raw": 0.29563092456238865,
+          "length_adjusted": 0.2285087313420497
+        },
+        "research": {
+          "n": 147,
+          "raw": 0.446101079339312,
+          "length_adjusted": 0.36081427933931204
+        },
+        "writing": {
+          "n": 142,
+          "raw": 0.09856233216500432,
+          "length_adjusted": 0.061360773010074754
+        }
+      },
+      "by_slice": {
+        "good_faith__typical": {
+          "n": 256,
+          "raw": 0.5257486612171329,
+          "length_adjusted": 0.44592283777963293
+        },
+        "good_faith__difficult": {
+          "n": 78,
+          "raw": 0.22410765693033227,
+          "length_adjusted": 0.14782898000725536
+        },
+        "red_teaming__difficult": {
+          "n": 191,
+          "raw": 0.0,
+          "length_adjusted": 0.0
+        }
+      },
+      "by_specialty": {
+        "ent": {
+          "n": 7,
+          "raw": 0.3964285714285714,
+          "length_adjusted": 0.36295037142857145
+        },
+        "gi": {
+          "n": 19,
+          "raw": 0.1048591501377879,
+          "length_adjusted": 0.07133231855884054
+        },
+        "id": {
+          "n": 20,
+          "raw": 0.21578948502477915,
+          "length_adjusted": 0.16060274502477914
+        },
+        "allergy": {
+          "n": 2,
+          "raw": 0.0,
+          "length_adjusted": 0.0
+        },
+        "anesthesia": {
+          "n": 22,
+          "raw": 0.44756942662081,
+          "length_adjusted": 0.36770699934808276
+        },
+        "cards": {
+          "n": 43,
+          "raw": 0.40261792850574346,
+          "length_adjusted": 0.32621621687783653
+        },
+        "derm": {
+          "n": 25,
+          "raw": 0.21890038314176244,
+          "length_adjusted": 0.15806355114176246
+        },
+        "emergency": {
+          "n": 16,
+          "raw": 0.24942193223443224,
+          "length_adjusted": 0.18436156973443224
+        },
+        "endo": {
+          "n": 20,
+          "raw": 0.4682167551231019,
+          "length_adjusted": 0.3929953851231019
+        },
+        "genetics": {
+          "n": 4,
+          "raw": 0.5,
+          "length_adjusted": 0.41032265
+        },
+        "heme/onc": {
+          "n": 27,
+          "raw": 0.30554817177624194,
+          "length_adjusted": 0.24392577177624195
+        },
+        "medicine": {
+          "n": 17,
+          "raw": 0.13285050862450243,
+          "length_adjusted": 0.08279441450685539
+        },
+        "nephro": {
+          "n": 22,
+          "raw": 0.39119114737458616,
+          "length_adjusted": 0.3116775110109498
+        },
+        "neuro": {
+          "n": 43,
+          "raw": 0.3804771341176992,
+          "length_adjusted": 0.3126308224897922
+        },
+        "neurosurg": {
+          "n": 11,
+          "raw": 0.40865800865800866,
+          "length_adjusted": 0.34187189956709957
+        },
+        "obgyn": {
+          "n": 40,
+          "raw": 0.2231677694921402,
+          "length_adjusted": 0.1668505994921402
+        },
+        "ophtho": {
+          "n": 18,
+          "raw": 0.3189417989417989,
+          "length_adjusted": 0.22576993227513226
+        },
+        "ortho": {
+          "n": 24,
+          "raw": 0.3744212962962963,
+          "length_adjusted": 0.29009597129629633
+        },
+        "other": {
+          "n": 20,
+          "raw": 0.2475446428571429,
+          "length_adjusted": 0.18890193285714285
+        },
+        "path": {
+          "n": 3,
+          "raw": 0.0,
+          "length_adjusted": 0.0
+        },
+        "peds": {
+          "n": 28,
+          "raw": 0.22300827906920342,
+          "length_adjusted": 0.17637252906920345
+        },
+        "primary": {
+          "n": 7,
+          "raw": 0.42967587034813925,
+          "length_adjusted": 0.40994427034813924
+        },
+        "psychiatry": {
+          "n": 29,
+          "raw": 0.09938131424483836,
+          "length_adjusted": 0.03333573493449354
+        },
+        "pulm": {
+          "n": 12,
+          "raw": 0.24102011494252873,
+          "length_adjusted": 0.16273036494252874
+        },
+        "rads": {
+          "n": 8,
+          "raw": 0.4963235294117647,
+          "length_adjusted": 0.4184319044117647
+        },
+        "rheum": {
+          "n": 8,
+          "raw": 0.0,
+          "length_adjusted": 0.0
+        },
+        "surgery": {
+          "n": 17,
+          "raw": 0.36274509803921573,
+          "length_adjusted": 0.3054150980392157
+        },
+        "uro": {
+          "n": 13,
+          "raw": 0.06813674610658471,
+          "length_adjusted": 0.01878997687581547
+        }
+      }
+    },
+    {
+      "label": "qwen35_9b_selfimprove__step150",
+      "kind": "checkpoint",
+      "n": 525,
+      "overall": {
+        "n": 525,
+        "raw": 0.25311540736431243,
+        "length_adjusted": 0.1978222953643124
+      },
+      "by_use_case": {
+        "consult": {
+          "n": 236,
+          "raw": 0.2392660925168769,
+          "length_adjusted": 0.18418195353382602
+        },
+        "research": {
+          "n": 147,
+          "raw": 0.4414689195496175,
+          "length_adjusted": 0.3657127195496175
+        },
+        "writing": {
+          "n": 142,
+          "raw": 0.08114690041188234,
+          "length_adjusted": 0.046690100411882346
+        }
+      },
+      "by_slice": {
+        "good_faith__typical": {
+          "n": 256,
+          "raw": 0.5320182661340611,
+          "length_adjusted": 0.46187618254031115
+        },
+        "good_faith__difficult": {
+          "n": 78,
+          "raw": 0.17615343250551962,
+          "length_adjusted": 0.11439910942859655
+        },
+        "red_teaming__difficult": {
+          "n": 191,
+          "raw": 0.0,
+          "length_adjusted": 0.0
+        }
+      },
+      "by_specialty": {
+        "ent": {
+          "n": 7,
+          "raw": 0.5392857142857143,
+          "length_adjusted": 0.5125233142857143
+        },
+        "gi": {
+          "n": 19,
+          "raw": 0.0,
+          "length_adjusted": 0.0
+        },
+        "id": {
+          "n": 20,
+          "raw": 0.2731623482726424,
+          "length_adjusted": 0.21766984827264238
+        },
+        "allergy": {
+          "n": 2,
+          "raw": 0.0,
+          "length_adjusted": 0.0
+        },
+        "anesthesia": {
+          "n": 22,
+          "raw": 0.38478945297127115,
+          "length_adjusted": 0.3185966893349075
+        },
+        "cards": {
+          "n": 43,
+          "raw": 0.2165217918202915,
+          "length_adjusted": 0.14775655926215198
+        },
+        "derm": {
+          "n": 25,
+          "raw": 0.22301149425287356,
+          "length_adjusted": 0.16690923825287357
+        },
+        "emergency": {
+          "n": 16,
+          "raw": 0.32029246794871796,
+          "length_adjusted": 0.26732836794871795
+        },
+        "endo": {
+          "n": 20,
+          "raw": 0.3379072313135781,
+          "length_adjusted": 0.26578462131357805
+        },
+        "genetics": {
+          "n": 4,
+          "raw": 0.5,
+          "length_adjusted": 0.4153868
+        },
+        "heme/onc": {
+          "n": 27,
+          "raw": 0.2434163231520186,
+          "length_adjusted": 0.18522392315201858
+        },
+        "medicine": {
+          "n": 17,
+          "raw": 0.11248851767427619,
+          "length_adjusted": 0.07166921179192325
+        },
+        "nephro": {
+          "n": 22,
+          "raw": 0.3631403693238081,
+          "length_adjusted": 0.2982144784147172
+        },
+        "neuro": {
+          "n": 43,
+          "raw": 0.34731785339187166,
+          "length_adjusted": 0.29014100688024375
+        },
+        "neurosurg": {
+          "n": 11,
+          "raw": 0.42249200075287036,
+          "length_adjusted": 0.3718625280255976
+        },
+        "obgyn": {
+          "n": 40,
+          "raw": 0.26224966395160904,
+          "length_adjusted": 0.21381536895160905
+        },
+        "ophtho": {
+          "n": 18,
+          "raw": 0.31243827160493826,
+          "length_adjusted": 0.23406277160493827
+        },
+        "ortho": {
+          "n": 24,
+          "raw": 0.4081018518518518,
+          "length_adjusted": 0.3360461268518518
+        },
+        "other": {
+          "n": 20,
+          "raw": 0.1451636904761905,
+          "length_adjusted": 0.09658313047619049
+        },
+        "path": {
+          "n": 3,
+          "raw": 0.0,
+          "length_adjusted": 0.0
+        },
+        "peds": {
+          "n": 28,
+          "raw": 0.13973330241187384,
+          "length_adjusted": 0.09611210241187383
+        },
+        "primary": {
+          "n": 7,
+          "raw": 0.42967587034813925,
+          "length_adjusted": 0.4091252703481393
+        },
+        "psychiatry": {
+          "n": 29,
+          "raw": 0.18698580745277985,
+          "length_adjusted": 0.12869473159071088
+        },
+        "pulm": {
+          "n": 12,
+          "raw": 0.0,
+          "length_adjusted": 0.0
+        },
+        "rads": {
+          "n": 8,
+          "raw": 0.3713235294117647,
+          "length_adjusted": 0.3040563294117647
+        },
+        "rheum": {
+          "n": 8,
+          "raw": 0.0,
+          "length_adjusted": 0.0
+        },
+        "surgery": {
+          "n": 17,
+          "raw": 0.4411764705882353,
+          "length_adjusted": 0.3983441294117647
+        },
+        "uro": {
+          "n": 13,
+          "raw": 0.11573986762274971,
+          "length_adjusted": 0.07704720608428817
+        }
+      }
+    },
+    {
+      "label": "qwen35_9b_selfimprove__step200",
+      "kind": "checkpoint",
+      "n": 525,
+      "overall": {
+        "n": 525,
+        "raw": 0.21301061828968457,
+        "length_adjusted": 0.15670015428968456
+      },
+      "by_use_case": {
+        "consult": {
+          "n": 236,
+          "raw": 0.1792441608676321,
+          "length_adjusted": 0.12343511256254736
+        },
+        "research": {
+          "n": 147,
+          "raw": 0.42952959582388245,
+          "length_adjusted": 0.35282279582388243
+        },
+        "writing": {
+          "n": 142,
+          "raw": 0.04498663416346837,
+          "length_adjusted": 0.008957348247975408
+        }
+      },
+      "by_slice": {
+        "good_faith__typical": {
+          "n": 256,
+          "raw": 0.4840343018825092,
+          "length_adjusted": 0.41288055969500914
+        },
+        "good_faith__difficult": {
+          "n": 78,
+          "raw": 0.15687321937321938,
+          "length_adjusted": 0.09604725783475783
+        },
+        "red_teaming__difficult": {
+          "n": 191,
+          "raw": 0.0,
+          "length_adjusted": 0.0
+        }
+      },
+      "by_specialty": {
+        "ent": {
+          "n": 7,
+          "raw": 0.23174603174603176,
+          "length_adjusted": 0.20562623174603176
+        },
+        "gi": {
+          "n": 19,
+          "raw": 0.0,
+          "length_adjusted": 0.0
+        },
+        "id": {
+          "n": 20,
+          "raw": 0.0746329365079365,
+          "length_adjusted": 0.021858466507936512
+        },
+        "allergy": {
+          "n": 2,
+          "raw": 0.0,
+          "length_adjusted": 0.0
+        },
+        "anesthesia": {
+          "n": 22,
+          "raw": 0.3969271341306914,
+          "length_adjusted": 0.33584195231250963
+        },
+        "cards": {
+          "n": 43,
+          "raw": 0.21919174240873876,
+          "length_adjusted": 0.15047095171106434
+        },
+        "derm": {
+          "n": 25,
+          "raw": 0.16099999999999998,
+          "length_adjusted": 0.102198824
+        },
+        "emergency": {
+          "n": 16,
+          "raw": 0.19138621794871796,
+          "length_adjusted": 0.12320945544871796
+        },
+        "endo": {
+          "n": 20,
+          "raw": 0.26781951201533244,
+          "length_adjusted": 0.19862367201533246
+        },
+        "genetics": {
+          "n": 4,
+          "raw": 0.75,
+          "length_adjusted": 0.65929365
+        },
+        "heme/onc": {
+          "n": 27,
+          "raw": 0.10977976261487327,
+          "length_adjusted": 0.048032140392651045
+        },
+        "medicine": {
+          "n": 17,
+          "raw": 0.06002137697184136,
+          "length_adjusted": 0.023541165207135478
+        },
+        "nephro": {
+          "n": 22,
+          "raw": 0.3860537132897837,
+          "length_adjusted": 0.32051175874432913
+        },
+        "neuro": {
+          "n": 43,
+          "raw": 0.3010170551870648,
+          "length_adjusted": 0.23626594821032063
+        },
+        "neurosurg": {
+          "n": 11,
+          "raw": 0.34541690193864105,
+          "length_adjusted": 0.29465913830227747
+        },
+        "obgyn": {
+          "n": 40,
+          "raw": 0.1604468098961806,
+          "length_adjusted": 0.1199365498961806
+        },
+        "ophtho": {
+          "n": 18,
+          "raw": 0.2630555555555556,
+          "length_adjusted": 0.18348935555555557
+        },
+        "ortho": {
+          "n": 24,
+          "raw": 0.37739748677248675,
+          "length_adjusted": 0.30698203677248675
+        },
+        "other": {
+          "n": 20,
+          "raw": 0.18448498964803312,
+          "length_adjusted": 0.13529731964803313
+        },
+        "path": {
+          "n": 3,
+          "raw": 0.0,
+          "length_adjusted": 0.0
+        },
+        "peds": {
+          "n": 28,
+          "raw": 0.2200904452690167,
+          "length_adjusted": 0.17112474526901672
+        },
+        "primary": {
+          "n": 7,
+          "raw": 0.42967587034813925,
+          "length_adjusted": 0.4046102703481393
+        },
+        "psychiatry": {
+          "n": 29,
+          "raw": 0.1499560268885165,
+          "length_adjusted": 0.09297071654368892
+        },
+        "pulm": {
+          "n": 12,
+          "raw": 0.0,
+          "length_adjusted": 0.0
+        },
+        "rads": {
+          "n": 8,
+          "raw": 0.3713235294117647,
+          "length_adjusted": 0.2961367044117647
+        },
+        "rheum": {
+          "n": 8,
+          "raw": 0.0,
+          "length_adjusted": 0.0
+        },
+        "surgery": {
+          "n": 17,
+          "raw": 0.4411764705882353,
+          "length_adjusted": 0.39439588235294115
+        },
+        "uro": {
+          "n": 13,
+          "raw": 0.10714800970555446,
+          "length_adjusted": 0.06574602509016983
+        }
+      }
+    },
+    {
+      "label": "qwen35_9b_sft_long__step600",
+      "kind": "checkpoint",
+      "n": 525,
+      "overall": {
+        "n": 525,
+        "raw": 0.1637095986533575,
+        "length_adjusted": 0.0
+      },
+      "by_use_case": {
+        "consult": {
+          "n": 236,
+          "raw": 0.07944381652518737,
+          "length_adjusted": 0.0
+        },
+        "research": {
+          "n": 147,
+          "raw": 0.3495165850295496,
+          "length_adjusted": 0.1388979850295496
+        },
+        "writing": {
+          "n": 142,
+          "raw": 0.1114074689698921,
+          "length_adjusted": 0.0
+        }
+      },
+      "by_slice": {
+        "good_faith__typical": {
+          "n": 256,
+          "raw": 0.3697834449365119,
+          "length_adjusted": 0.1654421902490119
+        },
+        "good_faith__difficult": {
+          "n": 78,
+          "raw": 0.08650710388860276,
+          "length_adjusted": 0.0
+        },
+        "red_teaming__difficult": {
+          "n": 191,
+          "raw": 0.0,
+          "length_adjusted": 0.0
+        }
+      },
+      "by_specialty": {
+        "ent": {
+          "n": 7,
+          "raw": 0.12380952380952381,
+          "length_adjusted": 0.0
+        },
+        "gi": {
+          "n": 19,
+          "raw": 0.03249072908515633,
+          "length_adjusted": 0.0
+        },
+        "id": {
+          "n": 20,
+          "raw": 0.16448179271708682,
+          "length_adjusted": 0.0
+        },
+        "allergy": {
+          "n": 2,
+          "raw": 0.0,
+          "length_adjusted": 0.0
+        },
+        "anesthesia": {
+          "n": 22,
+          "raw": 0.3229781582054309,
+          "length_adjusted": 0.09862675820543094
+        },
+        "cards": {
+          "n": 43,
+          "raw": 0.17661792273955584,
+          "length_adjusted": 0.0
+        },
+        "derm": {
+          "n": 25,
+          "raw": 0.06851318458417849,
+          "length_adjusted": 0.0
+        },
+        "emergency": {
+          "n": 16,
+          "raw": 0.038484432234432236,
+          "length_adjusted": 0.0
+        },
+        "endo": {
+          "n": 20,
+          "raw": 0.1986453265516733,
+          "length_adjusted": 0.0
+        },
+        "genetics": {
+          "n": 4,
+          "raw": 0.6704545454545454,
+          "length_adjusted": 0.44224439545454547
+        },
+        "heme/onc": {
+          "n": 27,
+          "raw": 0.11456283175284786,
+          "length_adjusted": 0.0
+        },
+        "medicine": {
+          "n": 17,
+          "raw": 0.01929739507138888,
+          "length_adjusted": 0.0
+        },
+        "nephro": {
+          "n": 22,
+          "raw": 0.2046376207831089,
+          "length_adjusted": 0.011252438964927097
+        },
+        "neuro": {
+          "n": 43,
+          "raw": 0.2776643922594597,
+          "length_adjusted": 0.07887526667806435
+        },
+        "neurosurg": {
+          "n": 11,
+          "raw": 0.2649538866930171,
+          "length_adjusted": 0.04553634123847168
+        },
+        "obgyn": {
+          "n": 40,
+          "raw": 0.09446300981627068,
+          "length_adjusted": 0.0
+        },
+        "ophtho": {
+          "n": 18,
+          "raw": 0.11175044091710758,
+          "length_adjusted": 0.0
+        },
+        "ortho": {
+          "n": 24,
+          "raw": 0.21504629629629632,
+          "length_adjusted": 0.0052919962962963045
+        },
+        "other": {
+          "n": 20,
+          "raw": 0.08236607142857143,
+          "length_adjusted": 0.0
+        },
+        "path": {
+          "n": 3,
+          "raw": 0.0,
+          "length_adjusted": 0.0
+        },
+        "peds": {
+          "n": 28,
+          "raw": 0.25019587874675564,
+          "length_adjusted": 0.06746332874675562
+        },
+        "primary": {
+          "n": 7,
+          "raw": 0.42967587034813925,
+          "length_adjusted": 0.19820967034813927
+        },
+        "psychiatry": {
+          "n": 29,
+          "raw": 0.0,
+          "length_adjusted": 0.0
+        },
+        "pulm": {
+          "n": 12,
+          "raw": 0.08132183908045977,
+          "length_adjusted": 0.0
+        },
+        "rads": {
+          "n": 8,
+          "raw": 0.19166666666666665,
+          "length_adjusted": 0.014605166666666673
+        },
+        "rheum": {
+          "n": 8,
+          "raw": 0.18154761904761904,
+          "length_adjusted": 0.0
+        },
+        "surgery": {
+          "n": 17,
+          "raw": 0.4392156862745098,
+          "length_adjusted": 0.2408815568627451
+        },
+        "uro": {
+          "n": 13,
+          "raw": 0.2721501240330061,
+          "length_adjusted": 0.08652530864839074
+        }
+      }
+    },
+    {
+      "label": "qwen35_9b_sft_long__step700",
+      "kind": "checkpoint",
+      "n": 525,
+      "overall": {
+        "n": 525,
+        "raw": 0.19513062251054522,
+        "length_adjusted": 0.0
+      },
+      "by_use_case": {
+        "consult": {
+          "n": 236,
+          "raw": 0.14923474351167887,
+          "length_adjusted": 0.0
+        },
+        "research": {
+          "n": 147,
+          "raw": 0.3445728904752012,
+          "length_adjusted": 0.13107649047520117
+        },
+        "writing": {
+          "n": 142,
+          "raw": 0.11670396091144677,
+          "length_adjusted": 0.0
+        }
+      },
+      "by_slice": {
+        "good_faith__typical": {
+          "n": 256,
+          "raw": 0.4002595795339868,
+          "length_adjusted": 0.19337878500273678
+        },
+        "good_faith__difficult": {
+          "n": 78,
+          "raw": 0.11358238286550446,
+          "length_adjusted": 0.0
+        },
+        "red_teaming__difficult": {
+          "n": 191,
+          "raw": 0.0,
+          "length_adjusted": 0.0
+        }
+      },
+      "by_specialty": {
+        "ent": {
+          "n": 7,
+          "raw": 0.2285714285714286,
+          "length_adjusted": 0.04393102857142857
+        },
+        "gi": {
+          "n": 19,
+          "raw": 0.027666167681647563,
+          "length_adjusted": 0.0
+        },
+        "id": {
+          "n": 20,
+          "raw": 0.16354166666666667,
+          "length_adjusted": 0.0
+        },
+        "allergy": {
+          "n": 2,
+          "raw": 0.0,
+          "length_adjusted": 0.0
+        },
+        "anesthesia": {
+          "n": 22,
+          "raw": 0.24759937032664306,
+          "length_adjusted": 0.01829139759937034
+        },
+        "cards": {
+          "n": 43,
+          "raw": 0.2105210498575752,
+          "length_adjusted": 0.0075345614854821505
+        },
+        "derm": {
+          "n": 25,
+          "raw": 0.17370092404778004,
+          "length_adjusted": 0.0
+        },
+        "emergency": {
+          "n": 16,
+          "raw": 0.09583333333333333,
+          "length_adjusted": 0.0
+        },
+        "endo": {
+          "n": 20,
+          "raw": 0.27174056464691143,
+          "length_adjusted": 0.058938954646911415
+        },
+        "genetics": {
+          "n": 4,
+          "raw": 0.6704545454545454,
+          "length_adjusted": 0.45017504545454545
+        },
+        "heme/onc": {
+          "n": 27,
+          "raw": 0.13895934818258743,
+          "length_adjusted": 0.0
+        },
+        "medicine": {
+          "n": 17,
+          "raw": 0.12293885165402194,
+          "length_adjusted": 0.0
+        },
+        "nephro": {
+          "n": 22,
+          "raw": 0.24589504913731144,
+          "length_adjusted": 0.04779517641003873
+        },
+        "neuro": {
+          "n": 43,
+          "raw": 0.2537871687513954,
+          "length_adjusted": 0.04711200596069775
+        },
+        "neurosurg": {
+          "n": 11,
+          "raw": 0.29996235648409564,
+          "length_adjusted": 0.07648761102955016
+        },
+        "obgyn": {
+          "n": 40,
+          "raw": 0.2870251443191947,
+          "length_adjusted": 0.10378376431919467
+        },
+        "ophtho": {
+          "n": 18,
+          "raw": 0.16730599647266314,
+          "length_adjusted": 0.0
+        },
+        "ortho": {
+          "n": 24,
+          "raw": 0.22939814814814816,
+          "length_adjusted": 0.01831227314814816
+        },
+        "other": {
+          "n": 20,
+          "raw": 0.07756534679089026,
+          "length_adjusted": 0.0
+        },
+        "path": {
+          "n": 3,
+          "raw": 0.19047619047619047,
+          "length_adjusted": 0.0
+        },
+        "peds": {
+          "n": 28,
+          "raw": 0.17922353440210584,
+          "length_adjusted": 0.0
+        },
+        "primary": {
+          "n": 7,
+          "raw": 0.7357983193277311,
+          "length_adjusted": 0.5044959193277311
+        },
+        "psychiatry": {
+          "n": 29,
+          "raw": 0.0,
+          "length_adjusted": 0.0
+        },
+        "pulm": {
+          "n": 12,
+          "raw": 0.060488505747126435,
+          "length_adjusted": 0.0
+        },
+        "rads": {
+          "n": 8,
+          "raw": 0.19166666666666665,
+          "length_adjusted": 0.01922096666666667
+        },
+        "rheum": {
+          "n": 8,
+          "raw": 0.30654761904761907,
+          "length_adjusted": 0.12223166904761903
+        },
+        "surgery": {
+          "n": 17,
+          "raw": 0.47035755478662056,
+          "length_adjusted": 0.27529028419838525
+        },
+        "uro": {
+          "n": 13,
+          "raw": 0.19434287381196277,
+          "length_adjusted": 0.0026322584273474293
+        }
+      }
+    },
+    {
+      "label": "qwen36_27b_deepseekv4pro__step20",
+      "kind": "checkpoint",
+      "n": 525,
+      "overall": {
+        "n": 525,
+        "raw": 0.4033668127063739,
+        "length_adjusted": 0.3308882527063739
+      },
+      "by_use_case": {
+        "consult": {
+          "n": 236,
+          "raw": 0.3882723527891741,
+          "length_adjusted": 0.3150831705857843
+        },
+        "research": {
+          "n": 147,
+          "raw": 0.5646920539295077,
+          "length_adjusted": 0.4676196539295077
+        },
+        "writing": {
+          "n": 142,
+          "raw": 0.261447672429321,
+          "length_adjusted": 0.21560996679551814
+        }
+      },
+      "by_slice": {
+        "good_faith__typical": {
+          "n": 256,
+          "raw": 0.6354327873930005,
+          "length_adjusted": 0.5454529389555005
+        },
+        "good_faith__difficult": {
+          "n": 78,
+          "raw": 0.284919028340081,
+          "length_adjusted": 0.19873255141700405
+        },
+        "red_teaming__difficult": {
+          "n": 191,
+          "raw": 0.14069685281524538,
+          "length_adjusted": 0.09727351459535008
+        }
+      },
+      "by_specialty": {
+        "ent": {
+          "n": 7,
+          "raw": 0.4630952380952381,
+          "length_adjusted": 0.43053263809523806
+        },
+        "gi": {
+          "n": 19,
+          "raw": 0.15125639324555734,
+          "length_adjusted": 0.11096601429818892
+        },
+        "id": {
+          "n": 20,
+          "raw": 0.35304761904761905,
+          "length_adjusted": 0.28382678904761904
+        },
+        "allergy": {
+          "n": 2,
+          "raw": 0.5,
+          "length_adjusted": 0.48760790000000004
+        },
+        "anesthesia": {
+          "n": 22,
+          "raw": 0.5117986756326677,
+          "length_adjusted": 0.41914457563266777
+        },
+        "cards": {
+          "n": 43,
+          "raw": 0.4439335979803877,
+          "length_adjusted": 0.3558935886780621
+        },
+        "derm": {
+          "n": 25,
+          "raw": 0.32484313725490194,
+          "length_adjusted": 0.24427067325490195
+        },
+        "emergency": {
+          "n": 16,
+          "raw": 0.3567708333333333,
+          "length_adjusted": 0.27830590833333335
+        },
+        "endo": {
+          "n": 20,
+          "raw": 0.5331278195488721,
+          "length_adjusted": 0.44888799954887215
+        },
+        "genetics": {
+          "n": 4,
+          "raw": 0.75,
+          "length_adjusted": 0.59265855
+        },
+        "heme/onc": {
+          "n": 27,
+          "raw": 0.20550879161990274,
+          "length_adjusted": 0.14203310273101385
+        },
+        "medicine": {
+          "n": 17,
+          "raw": 0.20611596865466833,
+          "length_adjusted": 0.13974114512525657
+        },
+        "nephro": {
+          "n": 22,
+          "raw": 0.5597066817992116,
+          "length_adjusted": 0.47782233634466603
+        },
+        "neuro": {
+          "n": 43,
+          "raw": 0.489491263817435,
+          "length_adjusted": 0.4165608033523187
+        },
+        "neurosurg": {
+          "n": 11,
+          "raw": 0.4056277056277056,
+          "length_adjusted": 0.3297730329004329
+        },
+        "obgyn": {
+          "n": 40,
+          "raw": 0.4368873451110293,
+          "length_adjusted": 0.3636350401110293
+        },
+        "ophtho": {
+          "n": 18,
+          "raw": 0.4771296296296296,
+          "length_adjusted": 0.3828960962962963
+        },
+        "ortho": {
+          "n": 24,
+          "raw": 0.4563657407407407,
+          "length_adjusted": 0.37344059074074076
+        },
+        "other": {
+          "n": 20,
+          "raw": 0.44107142857142856,
+          "length_adjusted": 0.3781995285714286
+        },
+        "path": {
+          "n": 3,
+          "raw": 0.19047619047619047,
+          "length_adjusted": 0.08471459047619045
+        },
+        "peds": {
+          "n": 28,
+          "raw": 0.35655267904263155,
+          "length_adjusted": 0.2905276290426316
+        },
+        "primary": {
+          "n": 7,
+          "raw": 0.836734693877551,
+          "length_adjusted": 0.8066836938775511
+        },
+        "psychiatry": {
+          "n": 29,
+          "raw": 0.3309905096471372,
+          "length_adjusted": 0.2659049924057579
+        },
+        "pulm": {
+          "n": 12,
+          "raw": 0.3994886747802569,
+          "length_adjusted": 0.3271401747802569
+        },
+        "rads": {
+          "n": 8,
+          "raw": 0.6208333333333333,
+          "length_adjusted": 0.5384802583333334
+        },
+        "rheum": {
+          "n": 8,
+          "raw": 0.09523809523809523,
+          "length_adjusted": 0.05440517023809525
+        },
+        "surgery": {
+          "n": 17,
+          "raw": 0.5168685121107267,
+          "length_adjusted": 0.46315125328719725
+        },
+        "uro": {
+          "n": 13,
+          "raw": 0.13200865630533148,
+          "length_adjusted": 0.07648110245917766
+        }
+      }
+    },
+    {
+      "label": "qwen36_27b_deepseekv4pro__step40",
+      "kind": "checkpoint",
+      "n": 525,
+      "overall": {
+        "n": 525,
+        "raw": 0.4058817438566796,
+        "length_adjusted": 0.33309820785667954
+      },
+      "by_use_case": {
+        "consult": {
+          "n": 236,
+          "raw": 0.3817754692162903,
+          "length_adjusted": 0.3094875963349344
+        },
+        "research": {
+          "n": 147,
+          "raw": 0.5736996556206484,
+          "length_adjusted": 0.4742820556206483
+        },
+        "writing": {
+          "n": 142,
+          "raw": 0.27221870009490823,
+          "length_adjusted": 0.2261832691089927
+        }
+      },
+      "by_slice": {
+        "good_faith__typical": {
+          "n": 256,
+          "raw": 0.6373772516828808,
+          "length_adjusted": 0.5464845102766308
+        },
+        "good_faith__difficult": {
+          "n": 78,
+          "raw": 0.28737000873223784,
+          "length_adjusted": 0.2033640318091609
+        },
+        "red_teaming__difficult": {
+          "n": 191,
+          "raw": 0.1440025047791871,
+          "length_adjusted": 0.10007397912473683
+        }
+      },
+      "by_specialty": {
+        "ent": {
+          "n": 7,
+          "raw": 0.332936507936508,
+          "length_adjusted": 0.3025621079365079
+        },
+        "gi": {
+          "n": 19,
+          "raw": 0.15125639324555734,
+          "length_adjusted": 0.11080663535082051
+        },
+        "id": {
+          "n": 20,
+          "raw": 0.4101190476190476,
+          "length_adjusted": 0.3408379476190476
+        },
+        "allergy": {
+          "n": 2,
+          "raw": 0.5,
+          "length_adjusted": 0.4781852
+        },
+        "anesthesia": {
+          "n": 22,
+          "raw": 0.5438803620621803,
+          "length_adjusted": 0.45625366206218027
+        },
+        "cards": {
+          "n": 43,
+          "raw": 0.4254657457232058,
+          "length_adjusted": 0.3384294387464616
+        },
+        "derm": {
+          "n": 25,
+          "raw": 0.3161764705882353,
+          "length_adjusted": 0.2369881585882353
+        },
+        "emergency": {
+          "n": 16,
+          "raw": 0.34763621794871796,
+          "length_adjusted": 0.267063680448718
+        },
+        "endo": {
+          "n": 20,
+          "raw": 0.48332389798024467,
+          "length_adjusted": 0.3927807179802447
+        },
+        "genetics": {
+          "n": 4,
+          "raw": 0.75,
+          "length_adjusted": 0.6007582499999999
+        },
+        "heme/onc": {
+          "n": 27,
+          "raw": 0.26094968142611763,
+          "length_adjusted": 0.19151014809278427
+        },
+        "medicine": {
+          "n": 17,
+          "raw": 0.17971540843057873,
+          "length_adjusted": 0.1131209496070493
+        },
+        "nephro": {
+          "n": 22,
+          "raw": 0.5332513598893441,
+          "length_adjusted": 0.4501723053438896
+        },
+        "neuro": {
+          "n": 43,
+          "raw": 0.5437971130070052,
+          "length_adjusted": 0.46690448975119125
+        },
+        "neurosurg": {
+          "n": 11,
+          "raw": 0.4510822510822511,
+          "length_adjusted": 0.37882239653679656
+        },
+        "obgyn": {
+          "n": 40,
+          "raw": 0.42949376646745063,
+          "length_adjusted": 0.3577967214674507
+        },
+        "ophtho": {
+          "n": 18,
+          "raw": 0.43777777777777777,
+          "length_adjusted": 0.34684194444444444
+        },
+        "ortho": {
+          "n": 24,
+          "raw": 0.4706018518518518,
+          "length_adjusted": 0.3886224018518518
+        },
+        "other": {
+          "n": 20,
+          "raw": 0.36867559523809523,
+          "length_adjusted": 0.30283870523809525
+        },
+        "path": {
+          "n": 3,
+          "raw": 0.19047619047619047,
+          "length_adjusted": 0.07763899047619051
+        },
+        "peds": {
+          "n": 28,
+          "raw": 0.447671735360811,
+          "length_adjusted": 0.381088085360811
+        },
+        "primary": {
+          "n": 7,
+          "raw": 0.6938775510204082,
+          "length_adjusted": 0.6764559510204081
+        },
+        "psychiatry": {
+          "n": 29,
+          "raw": 0.38970724085372643,
+          "length_adjusted": 0.32562842016407123
+        },
+        "pulm": {
+          "n": 12,
+          "raw": 0.35710361730899254,
+          "length_adjusted": 0.2804308673089925
+        },
+        "rads": {
+          "n": 8,
+          "raw": 0.43700980392156863,
+          "length_adjusted": 0.36619255392156863
+        },
+        "rheum": {
+          "n": 8,
+          "raw": 0.04166666666666666,
+          "length_adjusted": 0.0033768416666666535
+        },
+        "surgery": {
+          "n": 17,
+          "raw": 0.45804498269896193,
+          "length_adjusted": 0.4009052179930796
+        },
+        "uro": {
+          "n": 13,
+          "raw": 0.24739327168994688,
+          "length_adjusted": 0.18727253322840845
+        }
+      }
+    },
+    {
+      "label": "qwen36_27b_full_gpt55__step65",
+      "kind": "checkpoint",
+      "n": 525,
+      "overall": {
+        "n": 525,
+        "raw": 0.4002279156062151,
+        "length_adjusted": 0.3282024516062151
+      },
+      "by_use_case": {
+        "consult": {
+          "n": 236,
+          "raw": 0.3910125148157885,
+          "length_adjusted": 0.3190820512564665
+        },
+        "research": {
+          "n": 147,
+          "raw": 0.5390633836749972,
+          "length_adjusted": 0.4399389836749973
+        },
+        "writing": {
+          "n": 142,
+          "raw": 0.2718196112430439,
+          "length_adjusted": 0.2276893830740298
+        }
+      },
+      "by_slice": {
+        "good_faith__typical": {
+          "n": 256,
+          "raw": 0.6108881471508429,
+          "length_adjusted": 0.521480565119593
+        },
+        "good_faith__difficult": {
+          "n": 78,
+          "raw": 0.24987138122346833,
+          "length_adjusted": 0.1681273196850068
+        },
+        "red_teaming__difficult": {
+          "n": 191,
+          "raw": 0.17927917427862092,
+          "length_adjusted": 0.13452006014249526
+        }
+      },
+      "by_specialty": {
+        "ent": {
+          "n": 7,
+          "raw": 0.3964285714285714,
+          "length_adjusted": 0.36376097142857144
+        },
+        "gi": {
+          "n": 19,
+          "raw": 0.052227571190419486,
+          "length_adjusted": 0.012881086979893182
+        },
+        "id": {
+          "n": 20,
+          "raw": 0.38267460317460317,
+          "length_adjusted": 0.3129363331746032
+        },
+        "allergy": {
+          "n": 2,
+          "raw": 0.5,
+          "length_adjusted": 0.4802285
+        },
+        "anesthesia": {
+          "n": 22,
+          "raw": 0.5330107968447889,
+          "length_adjusted": 0.44658147866297077
+        },
+        "cards": {
+          "n": 43,
+          "raw": 0.4581780357131975,
+          "length_adjusted": 0.37018178455040684
+        },
+        "derm": {
+          "n": 25,
+          "raw": 0.4031764705882353,
+          "length_adjusted": 0.3239128945882353
+        },
+        "emergency": {
+          "n": 16,
+          "raw": 0.3335565476190476,
+          "length_adjusted": 0.25521289761904764
+        },
+        "endo": {
+          "n": 20,
+          "raw": 0.5352286598850067,
+          "length_adjusted": 0.4494100598850066
+        },
+        "genetics": {
+          "n": 4,
+          "raw": 0.75,
+          "length_adjusted": 0.60164025
+        },
+        "heme/onc": {
+          "n": 27,
+          "raw": 0.23049943883277216,
+          "length_adjusted": 0.1582505721661055
+        },
+        "medicine": {
+          "n": 17,
+          "raw": 0.11248851767427619,
+          "length_adjusted": 0.04116065885074678
+        },
+        "nephro": {
+          "n": 22,
+          "raw": 0.5597665114044956,
+          "length_adjusted": 0.48290422049540477
+        },
+        "neuro": {
+          "n": 43,
+          "raw": 0.5509246843735309,
+          "length_adjusted": 0.47662814948981
+        },
+        "neurosurg": {
+          "n": 11,
+          "raw": 0.541991341991342,
+          "length_adjusted": 0.47595359653679653
+        },
+        "obgyn": {
+          "n": 40,
+          "raw": 0.3884568444522678,
+          "length_adjusted": 0.3193006944522678
+        },
+        "ophtho": {
+          "n": 18,
+          "raw": 0.3741975308641975,
+          "length_adjusted": 0.28092603086419754
+        },
+        "ortho": {
+          "n": 24,
+          "raw": 0.4133101851851852,
+          "length_adjusted": 0.33522868518518517
+        },
+        "other": {
+          "n": 20,
+          "raw": 0.3040922619047619,
+          "length_adjusted": 0.2424242919047619
+        },
+        "path": {
+          "n": 3,
+          "raw": 0.19047619047619047,
+          "length_adjusted": 0.10697039047619049
+        },
+        "peds": {
+          "n": 28,
+          "raw": 0.4373656129118314,
+          "length_adjusted": 0.3714424129118314
+        },
+        "primary": {
+          "n": 7,
+          "raw": 0.5725330132052822,
+          "length_adjusted": 0.5472322132052821
+        },
+        "psychiatry": {
+          "n": 29,
+          "raw": 0.4272822033724671,
+          "length_adjusted": 0.3580614240621222
+        },
+        "pulm": {
+          "n": 12,
+          "raw": 0.42205459770114945,
+          "length_adjusted": 0.34316459770114943
+        },
+        "rads": {
+          "n": 8,
+          "raw": 0.6833333333333333,
+          "length_adjusted": 0.6013661333333333
+        },
+        "rheum": {
+          "n": 8,
+          "raw": 0.04166666666666666,
+          "length_adjusted": 0.0
+        },
+        "surgery": {
+          "n": 17,
+          "raw": 0.45804498269896193,
+          "length_adjusted": 0.4082033356401384
+        },
+        "uro": {
+          "n": 13,
+          "raw": 0.06958602146890355,
+          "length_adjusted": 0.011747175315057385
+        }
+      }
+    },
+    {
+      "label": "qwen36_27b_full_kimi__step90",
+      "kind": "checkpoint",
+      "n": 525,
+      "overall": {
+        "n": 525,
+        "raw": 0.39019330523895746,
+        "length_adjusted": 0.32197292923895743
+      },
+      "by_use_case": {
+        "consult": {
+          "n": 236,
+          "raw": 0.3864854499963682,
+          "length_adjusted": 0.3197658872845038
+        },
+        "research": {
+          "n": 147,
+          "raw": 0.534897664916976,
+          "length_adjusted": 0.439838064916976
+        },
+        "writing": {
+          "n": 142,
+          "raw": 0.2465560725951711,
+          "length_adjusted": 0.20362565428531193
+        }
+      },
+      "by_slice": {
+        "good_faith__typical": {
+          "n": 256,
+          "raw": 0.6019111222348028,
+          "length_adjusted": 0.5154136808285528
+        },
+        "good_faith__difficult": {
+          "n": 78,
+          "raw": 0.31858262640530177,
+          "length_adjusted": 0.24118184948222485
+        },
+        "red_teaming__difficult": {
+          "n": 191,
+          "raw": 0.13566907381533827,
+          "length_adjusted": 0.0956947711975372
+        }
+      },
+      "by_specialty": {
+        "ent": {
+          "n": 7,
+          "raw": 0.3996031746031746,
+          "length_adjusted": 0.36952697460317463
+        },
+        "gi": {
+          "n": 19,
+          "raw": 0.09378735299787933,
+          "length_adjusted": 0.0550845740505109
+        },
+        "id": {
+          "n": 20,
+          "raw": 0.4259940476190476,
+          "length_adjusted": 0.36274141761904766
+        },
+        "allergy": {
+          "n": 2,
+          "raw": 0.5,
+          "length_adjusted": 0.4811546
+        },
+        "anesthesia": {
+          "n": 22,
+          "raw": 0.47721369539551356,
+          "length_adjusted": 0.3961592317591499
+        },
+        "cards": {
+          "n": 43,
+          "raw": 0.3926754625909254,
+          "length_adjusted": 0.3071166765444137
+        },
+        "derm": {
+          "n": 25,
+          "raw": 0.26180865449628127,
+          "length_adjusted": 0.18577790249628126
+        },
+        "emergency": {
+          "n": 16,
+          "raw": 0.34706286360698124,
+          "length_adjusted": 0.27344342610698125
+        },
+        "endo": {
+          "n": 20,
+          "raw": 0.5456992481203008,
+          "length_adjusted": 0.46093757812030073
+        },
+        "genetics": {
+          "n": 4,
+          "raw": 0.75,
+          "length_adjusted": 0.61317975
+        },
+        "heme/onc": {
+          "n": 27,
+          "raw": 0.29933595211372993,
+          "length_adjusted": 0.23733679655817433
+        },
+        "medicine": {
+          "n": 17,
+          "raw": 0.3321663888227356,
+          "length_adjusted": 0.26330985941097085
+        },
+        "nephro": {
+          "n": 22,
+          "raw": 0.4769743036122879,
+          "length_adjusted": 0.4014269945213788
+        },
+        "neuro": {
+          "n": 43,
+          "raw": 0.48920816828798785,
+          "length_adjusted": 0.41824272177635996
+        },
+        "neurosurg": {
+          "n": 11,
+          "raw": 0.541991341991342,
+          "length_adjusted": 0.4748845056277057
+        },
+        "obgyn": {
+          "n": 40,
+          "raw": 0.40274255873798204,
+          "length_adjusted": 0.3378699887379821
+        },
+        "ophtho": {
+          "n": 18,
+          "raw": 0.46370370370370373,
+          "length_adjusted": 0.3758516037037037
+        },
+        "ortho": {
+          "n": 24,
+          "raw": 0.39823082010582006,
+          "length_adjusted": 0.3197377201058201
+        },
+        "other": {
+          "n": 20,
+          "raw": 0.31607142857142856,
+          "length_adjusted": 0.25347588857142855
+        },
+        "path": {
+          "n": 3,
+          "raw": 0.3333333333333333,
+          "length_adjusted": 0.26888853333333335
+        },
+        "peds": {
+          "n": 28,
+          "raw": 0.3391596309142893,
+          "length_adjusted": 0.2851969809142893
+        },
+        "primary": {
+          "n": 7,
+          "raw": 0.7853061224489796,
+          "length_adjusted": 0.7696905224489796
+        },
+        "psychiatry": {
+          "n": 29,
+          "raw": 0.3028961009691233,
+          "length_adjusted": 0.23232697683119224
+        },
+        "pulm": {
+          "n": 12,
+          "raw": 0.44360632183908044,
+          "length_adjusted": 0.3733280718390805
+        },
+        "rads": {
+          "n": 8,
+          "raw": 0.6208333333333333,
+          "length_adjusted": 0.5365913083333333
+        },
+        "rheum": {
+          "n": 8,
+          "raw": 0.07142857142857142,
+          "length_adjusted": 0.036295571428571434
+        },
+        "surgery": {
+          "n": 17,
+          "raw": 0.48572664359861595,
+          "length_adjusted": 0.439144937716263
+        },
+        "uro": {
+          "n": 13,
+          "raw": 0.14650909839198048,
+          "length_adjusted": 0.09073503685351891
+        }
+      }
+    },
+    {
+      "label": "qwen36_27b_full_opd_qwen397b_v2__step15",
+      "kind": "checkpoint",
+      "n": 525,
+      "overall": {
+        "n": 525,
+        "raw": 0.3988728777550046,
+        "length_adjusted": 0.32837755775500455
+      },
+      "by_use_case": {
+        "consult": {
+          "n": 236,
+          "raw": 0.43184333422906135,
+          "length_adjusted": 0.3593577588053326
+        },
+        "research": {
+          "n": 147,
+          "raw": 0.5104848868626622,
+          "length_adjusted": 0.41592968686266224
+        },
+        "writing": {
+          "n": 142,
+          "raw": 0.22853489841202507,
+          "length_adjusted": 0.18625438573596872
+        }
+      },
+      "by_slice": {
+        "good_faith__typical": {
+          "n": 256,
+          "raw": 0.6128648718732187,
+          "length_adjusted": 0.5249287828107186
+        },
+        "good_faith__difficult": {
+          "n": 78,
+          "raw": 0.261604774535809,
+          "length_adjusted": 0.17554532068965517
+        },
+        "red_teaming__difficult": {
+          "n": 191,
+          "raw": 0.16811351417822157,
+          "length_adjusted": 0.1273503372148708
+        }
+      },
+      "by_specialty": {
+        "ent": {
+          "n": 7,
+          "raw": 0.3996031746031746,
+          "length_adjusted": 0.3634453746031746
+        },
+        "gi": {
+          "n": 19,
+          "raw": 0.0787497590129169,
+          "length_adjusted": 0.033639327433969544
+        },
+        "id": {
+          "n": 20,
+          "raw": 0.33804761904761904,
+          "length_adjusted": 0.2730074690476191
+        },
+        "allergy": {
+          "n": 2,
+          "raw": 0.5,
+          "length_adjusted": 0.47233460000000005
+        },
+        "anesthesia": {
+          "n": 22,
+          "raw": 0.5117986756326677,
+          "length_adjusted": 0.427947202905395
+        },
+        "cards": {
+          "n": 43,
+          "raw": 0.46693772563567815,
+          "length_adjusted": 0.38481258610079444
+        },
+        "derm": {
+          "n": 25,
+          "raw": 0.3121764705882353,
+          "length_adjusted": 0.23041624658823529
+        },
+        "emergency": {
+          "n": 16,
+          "raw": 0.22003205128205128,
+          "length_adjusted": 0.14554347628205128
+        },
+        "endo": {
+          "n": 20,
+          "raw": 0.45665723131357805,
+          "length_adjusted": 0.37493552131357805
+        },
+        "genetics": {
+          "n": 4,
+          "raw": 0.75,
+          "length_adjusted": 0.61825125
+        },
+        "heme/onc": {
+          "n": 27,
+          "raw": 0.32486479479656866,
+          "length_adjusted": 0.25601979479656867
+        },
+        "medicine": {
+          "n": 17,
+          "raw": 0.21352277753206544,
+          "length_adjusted": 0.15260251870853606
+        },
+        "nephro": {
+          "n": 22,
+          "raw": 0.520486493177109,
+          "length_adjusted": 0.4460791022680181
+        },
+        "neuro": {
+          "n": 43,
+          "raw": 0.5152814520803066,
+          "length_adjusted": 0.4439577358012369
+        },
+        "neurosurg": {
+          "n": 11,
+          "raw": 0.541991341991342,
+          "length_adjusted": 0.47504754199134197
+        },
+        "obgyn": {
+          "n": 40,
+          "raw": 0.41493411717954054,
+          "length_adjusted": 0.3449069921795405
+        },
+        "ophtho": {
+          "n": 18,
+          "raw": 0.4475,
+          "length_adjusted": 0.35953356666666664
+        },
+        "ortho": {
+          "n": 24,
+          "raw": 0.4341435185185185,
+          "length_adjusted": 0.3487095685185185
+        },
+        "other": {
+          "n": 20,
+          "raw": 0.41450892857142857,
+          "length_adjusted": 0.35528262857142856
+        },
+        "path": {
+          "n": 3,
+          "raw": 0.3333333333333333,
+          "length_adjusted": 0.22287753333333335
+        },
+        "peds": {
+          "n": 28,
+          "raw": 0.22951677377143215,
+          "length_adjusted": 0.16482627377143216
+        },
+        "primary": {
+          "n": 7,
+          "raw": 0.7853061224489796,
+          "length_adjusted": 0.7658433224489796
+        },
+        "psychiatry": {
+          "n": 29,
+          "raw": 0.3999560268885165,
+          "length_adjusted": 0.33185751654368895
+        },
+        "pulm": {
+          "n": 12,
+          "raw": 0.5966869506423259,
+          "length_adjusted": 0.5252694506423259
+        },
+        "rads": {
+          "n": 8,
+          "raw": 0.7458333333333333,
+          "length_adjusted": 0.6678535083333333
+        },
+        "rheum": {
+          "n": 8,
+          "raw": 0.0,
+          "length_adjusted": 0.0
+        },
+        "surgery": {
+          "n": 17,
+          "raw": 0.43555363321799306,
+          "length_adjusted": 0.3776633038062284
+        },
+        "uro": {
+          "n": 13,
+          "raw": 0.1798424317253138,
+          "length_adjusted": 0.12532352403300615
+        }
+      }
+    },
+    {
+      "label": "qwen36_27b_selfimprove__step20",
+      "kind": "checkpoint",
+      "n": 525,
+      "overall": {
+        "n": 525,
+        "raw": 0.4156253225030292,
+        "length_adjusted": 0.34380565850302924
+      },
+      "by_use_case": {
+        "consult": {
+          "n": 236,
+          "raw": 0.4075748711156803,
+          "length_adjusted": 0.3348792600987311
+        },
+        "research": {
+          "n": 147,
+          "raw": 0.5758639692510931,
+          "length_adjusted": 0.47927976925109306
+        },
+        "writing": {
+          "n": 142,
+          "raw": 0.26312409331605013,
+          "length_adjusted": 0.21839675528788113
+        }
+      },
+      "by_slice": {
+        "good_faith__typical": {
+          "n": 256,
+          "raw": 0.6374630503824235,
+          "length_adjusted": 0.5484010331949235
+        },
+        "good_faith__difficult": {
+          "n": 78,
+          "raw": 0.284919028340081,
+          "length_adjusted": 0.2001056821862348
+        },
+        "red_teaming__difficult": {
+          "n": 191,
+          "raw": 0.17167051940138014,
+          "length_adjusted": 0.12826734557939062
+        }
+      },
+      "by_specialty": {
+        "ent": {
+          "n": 7,
+          "raw": 0.3996031746031746,
+          "length_adjusted": 0.3707197746031747
+        },
+        "gi": {
+          "n": 19,
+          "raw": 0.14641893194524772,
+          "length_adjusted": 0.10753511089261618
+        },
+        "id": {
+          "n": 20,
+          "raw": 0.34504761904761905,
+          "length_adjusted": 0.272952939047619
+        },
+        "allergy": {
+          "n": 2,
+          "raw": 0.5,
+          "length_adjusted": 0.48754909999999996
+        },
+        "anesthesia": {
+          "n": 22,
+          "raw": 0.566607634789453,
+          "length_adjusted": 0.4768320620621802
+        },
+        "cards": {
+          "n": 43,
+          "raw": 0.4188612011569649,
+          "length_adjusted": 0.3280439174360346
+        },
+        "derm": {
+          "n": 25,
+          "raw": 0.43217647058823533,
+          "length_adjusted": 0.35731231058823526
+        },
+        "emergency": {
+          "n": 16,
+          "raw": 0.34763621794871796,
+          "length_adjusted": 0.27253208044871796
+        },
+        "endo": {
+          "n": 20,
+          "raw": 0.48332389798024467,
+          "length_adjusted": 0.3954605279802447
+        },
+        "genetics": {
+          "n": 4,
+          "raw": 0.75,
+          "length_adjusted": 0.6088359
+        },
+        "heme/onc": {
+          "n": 27,
+          "raw": 0.24475505542757003,
+          "length_adjusted": 0.1812151220942367
+        },
+        "medicine": {
+          "n": 17,
+          "raw": 0.20743034055727552,
+          "length_adjusted": 0.14344902291021672
+        },
+        "nephro": {
+          "n": 22,
+          "raw": 0.6143603614528912,
+          "length_adjusted": 0.5305195796347093
+        },
+        "neuro": {
+          "n": 43,
+          "raw": 0.533996321848117,
+          "length_adjusted": 0.4626753404527682
+        },
+        "neurosurg": {
+          "n": 11,
+          "raw": 0.541991341991342,
+          "length_adjusted": 0.4704851965367965
+        },
+        "obgyn": {
+          "n": 40,
+          "raw": 0.46062471884840306,
+          "length_adjusted": 0.38719233884840304
+        },
+        "ophtho": {
+          "n": 18,
+          "raw": 0.35984567901234565,
+          "length_adjusted": 0.26546514567901236
+        },
+        "ortho": {
+          "n": 24,
+          "raw": 0.4133101851851852,
+          "length_adjusted": 0.3255168851851852
+        },
+        "other": {
+          "n": 20,
+          "raw": 0.46034226190476185,
+          "length_adjusted": 0.3981994819047619
+        },
+        "path": {
+          "n": 3,
+          "raw": 0.3333333333333333,
+          "length_adjusted": 0.23770493333333334
+        },
+        "peds": {
+          "n": 28,
+          "raw": 0.4090736874459929,
+          "length_adjusted": 0.34308118744599286
+        },
+        "primary": {
+          "n": 7,
+          "raw": 0.7096758703481393,
+          "length_adjusted": 0.6898980703481392
+        },
+        "psychiatry": {
+          "n": 29,
+          "raw": 0.4063528284877169,
+          "length_adjusted": 0.3459601595221997
+        },
+        "pulm": {
+          "n": 12,
+          "raw": 0.3362702839756592,
+          "length_adjusted": 0.25724063397565927
+        },
+        "rads": {
+          "n": 8,
+          "raw": 0.5625,
+          "length_adjusted": 0.4881033
+        },
+        "rheum": {
+          "n": 8,
+          "raw": 0.04166666666666666,
+          "length_adjusted": 0.0023551916666666754
+        },
+        "surgery": {
+          "n": 17,
+          "raw": 0.5168685121107267,
+          "length_adjusted": 0.46510375916955016
+        },
+        "uro": {
+          "n": 13,
+          "raw": 0.13457275886943407,
+          "length_adjusted": 0.07515309733097252
+        }
+      }
+    },
+    {
+      "label": "qwen36_27b_selfimprove__step40",
+      "kind": "checkpoint",
+      "n": 525,
+      "overall": {
+        "n": 525,
+        "raw": 0.40857489146850057,
+        "length_adjusted": 0.3355027314685005
+      },
+      "by_use_case": {
+        "consult": {
+          "n": 236,
+          "raw": 0.401208805194797,
+          "length_adjusted": 0.3278021128219157
+        },
+        "research": {
+          "n": 147,
+          "raw": 0.5534089033645575,
+          "length_adjusted": 0.4546485033645575
+        },
+        "writing": {
+          "n": 142,
+          "raw": 0.27088331831268125,
+          "length_adjusted": 0.22495989718592072
+        }
+      },
+      "by_slice": {
+        "good_faith__typical": {
+          "n": 256,
+          "raw": 0.6292916617906295,
+          "length_adjusted": 0.5381327125718794
+        },
+        "good_faith__difficult": {
+          "n": 78,
+          "raw": 0.29132928475033737,
+          "length_adjusted": 0.20534220013495277
+        },
+        "red_teaming__difficult": {
+          "n": 191,
+          "raw": 0.1606254889635358,
+          "length_adjusted": 0.11706946592688658
+        }
+      },
+      "by_specialty": {
+        "ent": {
+          "n": 7,
+          "raw": 0.4630952380952381,
+          "length_adjusted": 0.4342286380952381
+        },
+        "gi": {
+          "n": 19,
+          "raw": 0.19905051089261616,
+          "length_adjusted": 0.1584970793136688
+        },
+        "id": {
+          "n": 20,
+          "raw": 0.320047619047619,
+          "length_adjusted": 0.24982571904761905
+        },
+        "allergy": {
+          "n": 2,
+          "raw": 0.5,
+          "length_adjusted": 0.48829880000000003
+        },
+        "anesthesia": {
+          "n": 22,
+          "raw": 0.5562770562770563,
+          "length_adjusted": 0.4663050380952381
+        },
+        "cards": {
+          "n": 43,
+          "raw": 0.4951680452476667,
+          "length_adjusted": 0.4060737382709225
+        },
+        "derm": {
+          "n": 25,
+          "raw": 0.34484313725490195,
+          "length_adjusted": 0.26445412925490197
+        },
+        "emergency": {
+          "n": 16,
+          "raw": 0.21302083333333333,
+          "length_adjusted": 0.13449894583333333
+        },
+        "endo": {
+          "n": 20,
+          "raw": 0.4333238979802447,
+          "length_adjusted": 0.3483946479802447
+        },
+        "genetics": {
+          "n": 4,
+          "raw": 0.75,
+          "length_adjusted": 0.60512415
+        },
+        "heme/onc": {
+          "n": 27,
+          "raw": 0.3126562899954713,
+          "length_adjusted": 0.24562211221769348
+        },
+        "medicine": {
+          "n": 17,
+          "raw": 0.27726442803842183,
+          "length_adjusted": 0.20973435745018656
+        },
+        "nephro": {
+          "n": 22,
+          "raw": 0.5436204952584794,
+          "length_adjusted": 0.46107464980393403
+        },
+        "neuro": {
+          "n": 43,
+          "raw": 0.5349799087059299,
+          "length_adjusted": 0.4595121598687206
+        },
+        "neurosurg": {
+          "n": 11,
+          "raw": 0.5143233578016186,
+          "length_adjusted": 0.4371510305288914
+        },
+        "obgyn": {
+          "n": 40,
+          "raw": 0.435780316175053,
+          "length_adjusted": 0.36339604617505306
+        },
+        "ophtho": {
+          "n": 18,
+          "raw": 0.4475,
+          "length_adjusted": 0.3549308333333333
+        },
+        "ortho": {
+          "n": 24,
+          "raw": 0.4146990740740741,
+          "length_adjusted": 0.32970857407407406
+        },
+        "other": {
+          "n": 20,
+          "raw": 0.38273809523809527,
+          "length_adjusted": 0.31825213523809526
+        },
+        "path": {
+          "n": 3,
+          "raw": 0.19047619047619047,
+          "length_adjusted": 0.07568879047619047
+        },
+        "peds": {
+          "n": 28,
+          "raw": 0.4308650126717354,
+          "length_adjusted": 0.36206481267173535
+        },
+        "primary": {
+          "n": 7,
+          "raw": 0.7611044417767107,
+          "length_adjusted": 0.7383656417767107
+        },
+        "psychiatry": {
+          "n": 29,
+          "raw": 0.32369870100600323,
+          "length_adjusted": 0.26085468031634806
+        },
+        "pulm": {
+          "n": 12,
+          "raw": 0.3161553414469236,
+          "length_adjusted": 0.23884314144692362
+        },
+        "rads": {
+          "n": 8,
+          "raw": 0.5,
+          "length_adjusted": 0.423571025
+        },
+        "rheum": {
+          "n": 8,
+          "raw": 0.04166666666666666,
+          "length_adjusted": 0.007514891666666676
+        },
+        "surgery": {
+          "n": 17,
+          "raw": 0.5168685121107267,
+          "length_adjusted": 0.4585907944636678
+        },
+        "uro": {
+          "n": 13,
+          "raw": 0.13200865630533148,
+          "length_adjusted": 0.07098782553610071
+        }
+      }
+    },
+    {
+      "label": "qwen36_27b_selfimprove_sft__step220",
+      "kind": "checkpoint",
+      "n": 525,
+      "overall": {
+        "n": 525,
+        "raw": 0.31015927495793155,
+        "length_adjusted": 0.24949145095793152
+      },
+      "by_use_case": {
+        "consult": {
+          "n": 236,
+          "raw": 0.2923904019762012,
+          "length_adjusted": 0.23203544095925202
+        },
+        "research": {
+          "n": 147,
+          "raw": 0.47154895177705497,
+          "length_adjusted": 0.38766315177705496
+        },
+        "writing": {
+          "n": 142,
+          "raw": 0.17261822940354582,
+          "length_adjusted": 0.13546594630495426
+        }
+      },
+      "by_slice": {
+        "good_faith__typical": {
+          "n": 256,
+          "raw": 0.5484321866222573,
+          "length_adjusted": 0.4724014897472573
+        },
+        "good_faith__difficult": {
+          "n": 78,
+          "raw": 0.13588056680161942,
+          "length_adjusted": 0.06129955141700405
+        },
+        "red_teaming__difficult": {
+          "n": 191,
+          "raw": 0.06197013281198883,
+          "length_adjusted": 0.027575211346020236
+        }
+      },
+      "by_specialty": {
+        "ent": {
+          "n": 7,
+          "raw": 0.2567460317460318,
+          "length_adjusted": 0.23167203174603174
+        },
+        "gi": {
+          "n": 19,
+          "raw": 0.002898365824062423,
+          "length_adjusted": 0.0
+        },
+        "id": {
+          "n": 20,
+          "raw": 0.2884144850247791,
+          "length_adjusted": 0.23052147502477913
+        },
+        "allergy": {
+          "n": 2,
+          "raw": 0.0,
+          "length_adjusted": 0.0
+        },
+        "anesthesia": {
+          "n": 22,
+          "raw": 0.3450167256985439,
+          "length_adjusted": 0.2672497166076348
+        },
+        "cards": {
+          "n": 43,
+          "raw": 0.31110834681616323,
+          "length_adjusted": 0.24003623983941902
+        },
+        "derm": {
+          "n": 25,
+          "raw": 0.30184313725490197,
+          "length_adjusted": 0.23719018525490196
+        },
+        "emergency": {
+          "n": 16,
+          "raw": 0.13930288461538462,
+          "length_adjusted": 0.07822622211538462
+        },
+        "endo": {
+          "n": 20,
+          "raw": 0.41290723131357804,
+          "length_adjusted": 0.3377799413135781
+        },
+        "genetics": {
+          "n": 4,
+          "raw": 0.75,
+          "length_adjusted": 0.6543765
+        },
+        "heme/onc": {
+          "n": 27,
+          "raw": 0.25395379665245504,
+          "length_adjusted": 0.19744808554134394
+        },
+        "medicine": {
+          "n": 17,
+          "raw": 0.13285050862450243,
+          "length_adjusted": 0.08048910862450243
+        },
+        "nephro": {
+          "n": 22,
+          "raw": 0.5243504134883977,
+          "length_adjusted": 0.45808949530657955
+        },
+        "neuro": {
+          "n": 43,
+          "raw": 0.5120489510789669,
+          "length_adjusted": 0.4464021696836181
+        },
+        "neurosurg": {
+          "n": 11,
+          "raw": 0.42341426689252776,
+          "length_adjusted": 0.3573177214379823
+        },
+        "obgyn": {
+          "n": 40,
+          "raw": 0.18944212014149084,
+          "length_adjusted": 0.12922430514149086
+        },
+        "ophtho": {
+          "n": 18,
+          "raw": 0.27771604938271605,
+          "length_adjusted": 0.20340264938271604
+        },
+        "ortho": {
+          "n": 24,
+          "raw": 0.4525462962962963,
+          "length_adjusted": 0.38695857129629635
+        },
+        "other": {
+          "n": 20,
+          "raw": 0.3853422619047619,
+          "length_adjusted": 0.3334497919047619
+        },
+        "path": {
+          "n": 3,
+          "raw": 0.5238095238095238,
+          "length_adjusted": 0.4545039238095238
+        },
+        "peds": {
+          "n": 28,
+          "raw": 0.42839735894357744,
+          "length_adjusted": 0.3687983089435774
+        },
+        "primary": {
+          "n": 7,
+          "raw": 0.49690276110444176,
+          "length_adjusted": 0.48542836110444176
+        },
+        "psychiatry": {
+          "n": 29,
+          "raw": 0.16618320741589987,
+          "length_adjusted": 0.10332093845038265
+        },
+        "pulm": {
+          "n": 12,
+          "raw": 0.2352729885057471,
+          "length_adjusted": 0.16522503850574713
+        },
+        "rads": {
+          "n": 8,
+          "raw": 0.3088235294117647,
+          "length_adjusted": 0.2409646544117647
+        },
+        "rheum": {
+          "n": 8,
+          "raw": 0.10416666666666666,
+          "length_adjusted": 0.06354321666666667
+        },
+        "surgery": {
+          "n": 17,
+          "raw": 0.3803921568627451,
+          "length_adjusted": 0.34148730980392156
+        },
+        "uro": {
+          "n": 13,
+          "raw": 0.09098301527969047,
+          "length_adjusted": 0.050639430664305846
+        }
+      }
+    },
+    {
+      "label": "qwen36_27b_selfimprove_sft__step240",
+      "kind": "checkpoint",
+      "n": 525,
+      "overall": {
+        "n": 525,
+        "raw": 0.3235827660718596,
+        "length_adjusted": 0.26410819007185954
+      },
+      "by_use_case": {
+        "consult": {
+          "n": 236,
+          "raw": 0.31747482563758417,
+          "length_adjusted": 0.25761119343419436
+        },
+        "research": {
+          "n": 147,
+          "raw": 0.49390011268682976,
+          "length_adjusted": 0.41017831268682975
+        },
+        "writing": {
+          "n": 142,
+          "raw": 0.15741955473445382,
+          "length_adjusted": 0.12369257867811578
+        }
+      },
+      "by_slice": {
+        "good_faith__typical": {
+          "n": 256,
+          "raw": 0.5541882134958781,
+          "length_adjusted": 0.4793876080271281
+        },
+        "good_faith__difficult": {
+          "n": 78,
+          "raw": 0.25286774628879893,
+          "length_adjusted": 0.1810107539811066
+        },
+        "red_teaming__difficult": {
+          "n": 191,
+          "raw": 0.043377410064163215,
+          "length_adjusted": 0.009501221582487826
+        }
+      },
+      "by_specialty": {
+        "ent": {
+          "n": 7,
+          "raw": 0.1900793650793651,
+          "length_adjusted": 0.16584116507936505
+        },
+        "gi": {
+          "n": 19,
+          "raw": 0.0785433606641037,
+          "length_adjusted": 0.04054153961147213
+        },
+        "id": {
+          "n": 20,
+          "raw": 0.2873809523809524,
+          "length_adjusted": 0.22665231238095238
+        },
+        "allergy": {
+          "n": 2,
+          "raw": 0.0,
+          "length_adjusted": 0.0
+        },
+        "anesthesia": {
+          "n": 22,
+          "raw": 0.4311168574508495,
+          "length_adjusted": 0.3663967665417587
+        },
+        "cards": {
+          "n": 43,
+          "raw": 0.27927447161703495,
+          "length_adjusted": 0.20703388557052332
+        },
+        "derm": {
+          "n": 25,
+          "raw": 0.2712222222222222,
+          "length_adjusted": 0.21015489422222225
+        },
+        "emergency": {
+          "n": 16,
+          "raw": 0.21480654761904763,
+          "length_adjusted": 0.14982336011904762
+        },
+        "endo": {
+          "n": 20,
+          "raw": 0.4217167551231019,
+          "length_adjusted": 0.34126512512310186
+        },
+        "genetics": {
+          "n": 4,
+          "raw": 0.75,
+          "length_adjusted": 0.64416
+        },
+        "heme/onc": {
+          "n": 27,
+          "raw": 0.14069861803779932,
+          "length_adjusted": 0.0894859958155771
+        },
+        "medicine": {
+          "n": 17,
+          "raw": 0.08747235736399823,
+          "length_adjusted": 0.035375557363998236
+        },
+        "nephro": {
+          "n": 22,
+          "raw": 0.40425577634830606,
+          "length_adjusted": 0.3446699945301242
+        },
+        "neuro": {
+          "n": 43,
+          "raw": 0.48722332348980363,
+          "length_adjusted": 0.42222129093166405
+        },
+        "neurosurg": {
+          "n": 11,
+          "raw": 0.5025974025974026,
+          "length_adjusted": 0.4353328753246753
+        },
+        "obgyn": {
+          "n": 40,
+          "raw": 0.31952508116724365,
+          "length_adjusted": 0.26266254116724363
+        },
+        "ophtho": {
+          "n": 18,
+          "raw": 0.35027777777777774,
+          "length_adjusted": 0.26993411111111115
+        },
+        "ortho": {
+          "n": 24,
+          "raw": 0.41886574074074073,
+          "length_adjusted": 0.34886189074074075
+        },
+        "other": {
+          "n": 20,
+          "raw": 0.1165922619047619,
+          "length_adjusted": 0.06929648190476191
+        },
+        "path": {
+          "n": 3,
+          "raw": 0.19047619047619047,
+          "length_adjusted": 0.13498859047619052
+        },
+        "peds": {
+          "n": 28,
+          "raw": 0.5113194368656554,
+          "length_adjusted": 0.46511523686565537
+        },
+        "primary": {
+          "n": 7,
+          "raw": 0.5725330132052822,
+          "length_adjusted": 0.5527552132052821
+        },
+        "psychiatry": {
+          "n": 29,
+          "raw": 0.25340430275058545,
+          "length_adjusted": 0.18904060619886137
+        },
+        "pulm": {
+          "n": 12,
+          "raw": 0.27693965517241376,
+          "length_adjusted": 0.2038292051724138
+        },
+        "rads": {
+          "n": 8,
+          "raw": 0.6171568627450981,
+          "length_adjusted": 0.5466005377450981
+        },
+        "rheum": {
+          "n": 8,
+          "raw": 0.22916666666666666,
+          "length_adjusted": 0.18889969166666667
+        },
+        "surgery": {
+          "n": 17,
+          "raw": 0.4411764705882353,
+          "length_adjusted": 0.39777861176470586
+        },
+        "uro": {
+          "n": 13,
+          "raw": 0.23825168863532034,
+          "length_adjusted": 0.19768647325070499
+        }
+      }
+    },
+    {
+      "label": "qwen36_27b_sft_long__step200",
+      "kind": "checkpoint",
+      "n": 525,
+      "overall": {
+        "n": 525,
+        "raw": 0.31848457127023644,
+        "length_adjusted": 0.29498131527023647
+      },
+      "by_use_case": {
+        "consult": {
+          "n": 236,
+          "raw": 0.3002514026720009,
+          "length_adjusted": 0.2860975450448822
+        },
+        "research": {
+          "n": 147,
+          "raw": 0.4881457120932733,
+          "length_adjusted": 0.43988851209327323
+        },
+        "writing": {
+          "n": 142,
+          "raw": 0.17315245921528705,
+          "length_adjusted": 0.15973632822937156
+        }
+      },
+      "by_slice": {
+        "good_faith__typical": {
+          "n": 256,
+          "raw": 0.5723487104328802,
+          "length_adjusted": 0.5326898330891302
+        },
+        "good_faith__difficult": {
+          "n": 78,
+          "raw": 0.13481296469446358,
+          "length_adjusted": 0.11221906469446356
+        },
+        "red_teaming__difficult": {
+          "n": 191,
+          "raw": 0.053234129842348966,
+          "length_adjusted": 0.0510131214653856
+        }
+      },
+      "by_specialty": {
+        "ent": {
+          "n": 7,
+          "raw": 0.2281746031746032,
+          "length_adjusted": 0.24200940317460318
+        },
+        "gi": {
+          "n": 19,
+          "raw": 0.0,
+          "length_adjusted": 0.0
+        },
+        "id": {
+          "n": 20,
+          "raw": 0.28132738095238097,
+          "length_adjusted": 0.250990990952381
+        },
+        "allergy": {
+          "n": 2,
+          "raw": 0.05,
+          "length_adjusted": 0.061613
+        },
+        "anesthesia": {
+          "n": 22,
+          "raw": 0.4529712711530893,
+          "length_adjusted": 0.4222509438803621
+        },
+        "cards": {
+          "n": 43,
+          "raw": 0.34150106471338104,
+          "length_adjusted": 0.3087918554110555
+        },
+        "derm": {
+          "n": 25,
+          "raw": 0.22699999999999998,
+          "length_adjusted": 0.204393752
+        },
+        "emergency": {
+          "n": 16,
+          "raw": 0.25779246794871796,
+          "length_adjusted": 0.23551461794871797
+        },
+        "endo": {
+          "n": 20,
+          "raw": 0.48332389798024467,
+          "length_adjusted": 0.45025183798024476
+        },
+        "genetics": {
+          "n": 4,
+          "raw": 0.75,
+          "length_adjusted": 0.671502
+        },
+        "heme/onc": {
+          "n": 27,
+          "raw": 0.27561925295843426,
+          "length_adjusted": 0.25081980851398983
+        },
+        "medicine": {
+          "n": 17,
+          "raw": 0.20611596865466833,
+          "length_adjusted": 0.18026299218408012
+        },
+        "nephro": {
+          "n": 22,
+          "raw": 0.4574937841317684,
+          "length_adjusted": 0.4385481568590411
+        },
+        "neuro": {
+          "n": 43,
+          "raw": 0.512798276341317,
+          "length_adjusted": 0.4748818484343402
+        },
+        "neurosurg": {
+          "n": 11,
+          "raw": 0.49653679653679655,
+          "length_adjusted": 0.4765020329004329
+        },
+        "obgyn": {
+          "n": 40,
+          "raw": 0.250199268694692,
+          "length_adjusted": 0.237707943694692
+        },
+        "ophtho": {
+          "n": 18,
+          "raw": 0.3579938271604938,
+          "length_adjusted": 0.31982119382716045
+        },
+        "ortho": {
+          "n": 24,
+          "raw": 0.4525462962962963,
+          "length_adjusted": 0.42904834629629635
+        },
+        "other": {
+          "n": 20,
+          "raw": 0.2949404761904762,
+          "length_adjusted": 0.27039588619047616
+        },
+        "path": {
+          "n": 3,
+          "raw": 0.19047619047619047,
+          "length_adjusted": 0.1756487904761905
+        },
+        "peds": {
+          "n": 28,
+          "raw": 0.28938066135545126,
+          "length_adjusted": 0.27178371135545126
+        },
+        "primary": {
+          "n": 7,
+          "raw": 0.6481632653061224,
+          "length_adjusted": 0.6612714653061225
+        },
+        "psychiatry": {
+          "n": 29,
+          "raw": 0.2235550228450837,
+          "length_adjusted": 0.18043333318991128
+        },
+        "pulm": {
+          "n": 12,
+          "raw": 0.2184541920216362,
+          "length_adjusted": 0.20196814202163624
+        },
+        "rads": {
+          "n": 8,
+          "raw": 0.1617997198879552,
+          "length_adjusted": 0.1304703448879552
+        },
+        "rheum": {
+          "n": 8,
+          "raw": 0.24404761904761904,
+          "length_adjusted": 0.24135016904761905
+        },
+        "surgery": {
+          "n": 17,
+          "raw": 0.40441176470588236,
+          "length_adjusted": 0.39594110588235293
+        },
+        "uro": {
+          "n": 13,
+          "raw": 0.0010878529707350566,
+          "length_adjusted": 0.0
+        }
+      }
+    },
+    {
+      "label": "qwen36_27b_sft_long__step300",
+      "kind": "checkpoint",
+      "n": 525,
+      "overall": {
+        "n": 525,
+        "raw": 0.3445450375688985,
+        "length_adjusted": 0.32003926956889844
+      },
+      "by_use_case": {
+        "consult": {
+          "n": 236,
+          "raw": 0.34142773822305805,
+          "length_adjusted": 0.32522273229085463
+        },
+        "research": {
+          "n": 147,
+          "raw": 0.5214667639695528,
+          "length_adjusted": 0.47262616396955276
+        },
+        "writing": {
+          "n": 142,
+          "raw": 0.1665745366162377,
+          "length_adjusted": 0.15346482816553345
+        }
+      },
+      "by_slice": {
+        "good_faith__typical": {
+          "n": 256,
+          "raw": 0.5920989834080954,
+          "length_adjusted": 0.5509425435643454
+        },
+        "good_faith__difficult": {
+          "n": 78,
+          "raw": 0.21781034726081167,
+          "length_adjusted": 0.19494732418388858
+        },
+        "red_teaming__difficult": {
+          "n": 191,
+          "raw": 0.06450051248615692,
+          "length_adjusted": 0.061641016151078386
+        }
+      },
+      "by_specialty": {
+        "ent": {
+          "n": 7,
+          "raw": 0.2281746031746032,
+          "length_adjusted": 0.24195060317460318
+        },
+        "gi": {
+          "n": 19,
+          "raw": 0.11093202463171503,
+          "length_adjusted": 0.10906744568434662
+        },
+        "id": {
+          "n": 20,
+          "raw": 0.2535079365079365,
+          "length_adjusted": 0.23482570650793652
+        },
+        "allergy": {
+          "n": 2,
+          "raw": 0.0,
+          "length_adjusted": 0.0
+        },
+        "anesthesia": {
+          "n": 22,
+          "raw": 0.49719063874202213,
+          "length_adjusted": 0.4659330932874767
+        },
+        "cards": {
+          "n": 43,
+          "raw": 0.3353451139609871,
+          "length_adjusted": 0.29859990000749875
+        },
+        "derm": {
+          "n": 25,
+          "raw": 0.2643333333333333,
+          "length_adjusted": 0.2379321333333333
+        },
+        "emergency": {
+          "n": 16,
+          "raw": 0.2794270833333333,
+          "length_adjusted": 0.2518700958333333
+        },
+        "endo": {
+          "n": 20,
+          "raw": 0.4689905646469114,
+          "length_adjusted": 0.4398110646469114
+        },
+        "genetics": {
+          "n": 4,
+          "raw": 0.5,
+          "length_adjusted": 0.42197975
+        },
+        "heme/onc": {
+          "n": 27,
+          "raw": 0.29893886887064275,
+          "length_adjusted": 0.2773560022039761
+        },
+        "medicine": {
+          "n": 17,
+          "raw": 0.22647795960489459,
+          "length_adjusted": 0.19143488901665928
+        },
+        "nephro": {
+          "n": 22,
+          "raw": 0.42147370265714146,
+          "length_adjusted": 0.39720132992986873
+        },
+        "neuro": {
+          "n": 43,
+          "raw": 0.4845445023715088,
+          "length_adjusted": 0.44954004190639246
+        },
+        "neurosurg": {
+          "n": 11,
+          "raw": 0.45411255411255413,
+          "length_adjusted": 0.441727135930736
+        },
+        "obgyn": {
+          "n": 40,
+          "raw": 0.3299429006665849,
+          "length_adjusted": 0.31626969566658486
+        },
+        "ophtho": {
+          "n": 18,
+          "raw": 0.43777777777777777,
+          "length_adjusted": 0.3922747444444445
+        },
+        "ortho": {
+          "n": 24,
+          "raw": 0.39823082010582006,
+          "length_adjusted": 0.3686715701058201
+        },
+        "other": {
+          "n": 20,
+          "raw": 0.3449404761904762,
+          "length_adjusted": 0.3217247661904762
+        },
+        "path": {
+          "n": 3,
+          "raw": 0.3333333333333333,
+          "length_adjusted": 0.3068243333333333
+        },
+        "peds": {
+          "n": 28,
+          "raw": 0.36717286914765906,
+          "length_adjusted": 0.3481825691476591
+        },
+        "primary": {
+          "n": 7,
+          "raw": 0.5725330132052822,
+          "length_adjusted": 0.5923738132052822
+        },
+        "psychiatry": {
+          "n": 29,
+          "raw": 0.3483671154618769,
+          "length_adjusted": 0.3046371499446355
+        },
+        "pulm": {
+          "n": 12,
+          "raw": 0.11257183908045976,
+          "length_adjusted": 0.10289433908045977
+        },
+        "rads": {
+          "n": 8,
+          "raw": 0.24583333333333335,
+          "length_adjusted": 0.22395973333333333
+        },
+        "rheum": {
+          "n": 8,
+          "raw": 0.29166666666666663,
+          "length_adjusted": 0.28435341666666664
+        },
+        "surgery": {
+          "n": 17,
+          "raw": 0.47231833910034604,
+          "length_adjusted": 0.46015019792387546
+        },
+        "uro": {
+          "n": 13,
+          "raw": 0.12030297068660241,
+          "length_adjusted": 0.11095829376352549
+        }
+      }
+    }
+  ]
+}

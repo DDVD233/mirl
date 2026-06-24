@@ -62,11 +62,36 @@ fi
 TEACHER_RETRIES="${TEACHER_RETRIES:-2}"
 TEACHER_MAX_TOKENS="${TEACHER_MAX_TOKENS:-4096}"
 
+# CLIMB multimodal generation (gen_mm mode). Enabled when CLIMB_SEEDS_PATH +
+# CLIMB_FILE_BASE are set; the file-server token is read from CLIMB_FILE_TOKEN
+# in the server process (never passed on the CLI). For CLIMB retrieval set
+# MILVUS_COLLECTION=medical_knowledge_v2 (the collection that indexes CLIMB).
+CLIMB_SEEDS_PATH="${CLIMB_SEEDS_PATH:-}"
+CLIMB_FILE_BASE="${CLIMB_FILE_BASE:-}"
+GEN_MM_TARGET="${GEN_MM_TARGET:-0.0}"
+MM_IMAGES_PER_QUERY="${MM_IMAGES_PER_QUERY:-3}"
+MM_VIDEO_FRAMES="${MM_VIDEO_FRAMES:-2}"
+MM_MAX_PIXELS="${MM_MAX_PIXELS:-1048576}"
+MM_DIRECT_PROB="${MM_DIRECT_PROB:-0.3}"
+
 cd "$(dirname "$0")/../../.."
 
 TEST_SEEDS_FLAG=()
 if [ -n "$TEST_SEEDS_PATH" ]; then
     TEST_SEEDS_FLAG=(--test_seeds_path "$TEST_SEEDS_PATH")
+fi
+
+CLIMB_FLAGS=()
+if [ -n "$CLIMB_SEEDS_PATH" ] && [ -n "$CLIMB_FILE_BASE" ]; then
+    CLIMB_FLAGS=(
+        --climb_seeds_path "$CLIMB_SEEDS_PATH"
+        --climb_file_base "$CLIMB_FILE_BASE"
+        --gen_mm_target "$GEN_MM_TARGET"
+        --mm_images_per_query "$MM_IMAGES_PER_QUERY"
+        --mm_video_frames "$MM_VIDEO_FRAMES"
+        --mm_max_pixels "$MM_MAX_PIXELS"
+        --mm_direct_prob "$MM_DIRECT_PROB"
+    )
 fi
 
 exec "$PYTHON_BIN" scripts/self_evolving/generation_server.py \
@@ -94,6 +119,7 @@ exec "$PYTHON_BIN" scripts/self_evolving/generation_server.py \
     --port "$GEN_SERVER_PORT" \
     --teacher_retries "$TEACHER_RETRIES" \
     --teacher_max_tokens "$TEACHER_MAX_TOKENS" \
+    "${CLIMB_FLAGS[@]}" \
     $NO_LABEL_FLAG \
     $SFT_MODE_FLAG \
     "$@"

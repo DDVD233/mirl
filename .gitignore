@@ -137,4 +137,7 @@ docker/kub_config/
 # TRAPI rate-limit probe output (generated data, not source)
 scripts/self_evolving/trapi_limits_out/
 
+# Cached wandb run data (generated, not source)
+scripts/self_evolving/wandb_cache/
+
 .claude

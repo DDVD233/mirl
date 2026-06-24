@@ -77,22 +77,40 @@ You are a medical answer grader. You are given:
 - The correct ground-truth answer (typically a disease, often with an ICD code)
 - The model's extracted final answer
 
-Decide whether the model's answer matches the ground truth as the SAME disease. \
-Match should be APPROXIMATE — accept different ways of naming the same disease:
-- Synonyms (e.g. "MI" = "myocardial infarction" = "heart attack")
-- Different ICD codes for the same underlying disease
-- ICD code with vs. without descriptive text (e.g. "C22.0" vs. "C22.0: Liver cell carcinoma")
-- More specific vs. more general subtype if the core diagnosis is correct \
-  (e.g. "pneumonia" when GT is "bacterial pneumonia") — accept when the core dx is right
+Decide whether the model's answer identifies the SAME disease as the ground truth. \
+Grade GENEROUSLY — the DISEASE NAME is what matters, NOT the exact ICD code or the \
+level of coding detail. The ICD code is secondary; if the named disease is the same, \
+the answer is CORRECT.
+
+Mark CORRECT (accept) when:
+- The disease NAME is the same, even if the ICD code differs \
+  (e.g. GT "I82.0: Budd-Chiari syndrome" vs answer "I82.1: Budd-Chiari syndrome" -> CORRECT; \
+  GT "B60.0: Babesiosis" vs "B62.0: Babesiosis" -> CORRECT; \
+  GT "L73.2: Hidradenitis suppurativa" vs "L73.3: Hidradenitis suppurativa" -> CORRECT)
+- Synonyms / abbreviations (e.g. "MI" = "myocardial infarction" = "heart attack"; \
+  "factor VIII deficiency" = "hemophilia A")
+- ICD code with vs. without descriptive text (e.g. "C22.0" vs "C22.0: Liver cell carcinoma")
+- The answer differs only in subtype, site, severity, or remission/relapse status but \
+  names the SAME core disease \
+  (e.g. GT "C90.00: Multiple myeloma not having achieved remission" vs "Multiple myeloma" \
+  -> CORRECT; GT "C92.40: APL not in remission" vs "C92.0: Acute promyelocytic leukemia" -> CORRECT)
+- A more general or more specific form when the core diagnosis is right \
+  (e.g. "pneumonia" when GT is "bacterial pneumonia")
+- The correct disease is clearly stated as the primary/final diagnosis even if a short \
+  differential is mentioned
 - Misspellings or differences in capitalization / abbreviation
 
-REJECT:
-- A different disease — even if related or in the same family \
+Mark INCORRECT (reject) ONLY when:
+- A genuinely DIFFERENT disease (different name, not a synonym/subtype) \
+  (e.g. "neutropenia" vs GT "multiple myeloma"; "epilepsy" vs GT "encephalocele")
+- A clearly different entity in the same family that is a distinct diagnosis \
   (e.g. "atrial flutter" when GT is "atrial fibrillation"; \
   "Hodgkin lymphoma" when GT is "non-Hodgkin lymphoma")
-- Wrong organ system / wrong category
-- Generic non-answers ("unknown", "no diagnosis", "see above")
+- Generic non-answers or template placeholders \
+  ("unknown", "no diagnosis", "see above", "ICD-10 CODE: Diagnosis name")
 - Empty or missing answer
+
+When in doubt and the disease name plausibly refers to the same condition, prefer CORRECT.
 
 Directly output your verdict inside \\boxed{...} as either \\boxed{correct} or \
 \\boxed{incorrect}. Do not write any reasoning, explanation, or text outside the boxed \
@@ -140,33 +158,16 @@ answer."""
 # rare with strict match).
 # embed_sim and char_bleu are smooth surrogates that fire even when the
 # discrete signals collapse to 0; they keep reward shaping above the noise floor.
-# Re-weighted 2026-06-10: the LLM-judge disease match (lenient/strict) is now the
-# primary correctness signal, NOT the brittle exact ICD-code string match. Error
-# analysis on the val dumps showed the exact-code match (`accuracy`) undercounts
-# correct diagnoses ~3x — e.g. GT "G70.00" vs model "G70.0" (same disease) scores
-# 0 on exact match but 1 on the judge. So judges dominate (0.60); exact match is
-# kept at a small weight (0.10) as a reference signal; surface surrogates stay
-# minimized.
 ACCURACY_WEIGHT = 0.10
-JUDGE_ACCURACY_LENIENT_WEIGHT = 0.25
-JUDGE_ACCURACY_STRICT_WEIGHT = 0.35
-REASONING_WEIGHT = 0.05
-ANSWER_QUALITY_WEIGHT = 0.10
-FORMAT_WEIGHT = 0.10
-EMBED_SIM_WEIGHT = 0.05
-CHAR_BLEU_WEIGHT = 0.00
+JUDGE_ACCURACY_LENIENT_WEIGHT = 0.05
+JUDGE_ACCURACY_STRICT_WEIGHT = 0.05
+REASONING_WEIGHT = 0.15
+ANSWER_QUALITY_WEIGHT = 0.20
+FORMAT_WEIGHT = 0.15
+EMBED_SIM_WEIGHT = 0.20
+CHAR_BLEU_WEIGHT = 0.10
 
 DEBUG_PRINT_PROB = 0.01
-
-
-def _crop(s, head: int = 100, tail: int = 100) -> str:
-    """For trainer-side debug prints: keep only the first `head` and last `tail`
-    characters of a long string and mark how many were elided, so the reward log
-    stays readable instead of dumping full questions / responses."""
-    s = "" if s is None else str(s)
-    if len(s) <= head + tail:
-        return s
-    return f"{s[:head]} …[{len(s) - head - tail} chars omitted]… {s[-tail:]}"
 
 
 def extract_boxed_answer(text: str) -> str | None:
@@ -177,30 +178,66 @@ def extract_boxed_answer(text: str) -> str | None:
     return None
 
 
+# Fallback answer cues for responses that state a final diagnosis WITHOUT \boxed{}.
+# In practice ~half of the model's responses finish with a clear diagnosis line
+# ("Final Diagnosis: ...", "ICD-10: ...") but no \boxed, which the boxed-only
+# extractor dropped to an empty answer -> auto-zero (the judge never ran). We
+# keep format_ok tied to \boxed (training pressure toward clean format) but let
+# the accuracy/judge path recover these answers so they are actually graded.
+_ANSWER_CUE_RE = re.compile(
+    r"(?:final\s+diagnosis|primary\s+diagnosis|most\s+likely\s+diagnosis|"
+    r"final\s+answer|diagnosis|icd[-\s]?10(?:\s*code)?|conclusion|answer)"
+    r"\s*(?:is|:|=|-)\s*",
+    re.IGNORECASE,
+)
+
+
+def _clean_answer(s: str) -> str:
+    """Strip markdown / boilerplate from a captured answer span (first line only)."""
+    s = s.strip().splitlines()[0] if s.strip() else ""
+    s = s.replace("**", "").replace("`", "").strip()
+    # drop a trailing sentence after the diagnosis (keep code + name, cut prose)
+    s = re.split(r"\s+(?:because|since|as the|which|given)\b", s, maxsplit=1)[0]
+    return s.strip(" .*:-\t")
+
+
+def extract_final_answer(text: str) -> str | None:
+    """Best-effort final-answer extraction.
+
+    Prefer \\boxed{...}; otherwise fall back to the LAST explicit diagnosis cue
+    ("Final Diagnosis: ...", "ICD-10: ...", etc.). Returns None if nothing found.
+    """
+    boxed = extract_boxed_answer(text)
+    if boxed:
+        return boxed
+    last = None
+    for m in _ANSWER_CUE_RE.finditer(text):
+        span = text[m.end():]
+        cleaned = _clean_answer(span)
+        if cleaned and len(cleaned) >= 2:
+            last = cleaned
+    if last:
+        return last
+    # Last resort: no \boxed and no explicit diagnosis cue (e.g. the model ran out
+    # of tokens mid-reasoning). Feed the tail of the response so the judge can still
+    # see the disease the model was converging on, instead of an auto-zero. This is
+    # EVAL-ONLY (gated on REWARD_EVAL_LENIENT_ONLY): in the training reward it would
+    # be a reward-hacking surface (the model could ramble instead of committing to a
+    # boxed/cued diagnosis and still earn partial credit), so training stops at cues.
+    if os.environ.get("REWARD_EVAL_LENIENT_ONLY", "0") == "1":
+        tail = re.sub(r"\s+", " ", text.replace("**", "").replace("`", "")).strip()
+        tail = tail[-200:].strip()
+        return tail if len(tail) >= 2 else None
+    return None
+
+
 def check_format(text: str) -> bool:
     return bool(re.search(r"\\boxed\{[^}]*\}", text))
 
 
-# ICD-10 code, e.g. "C22.0", "G20", "G40.A0": a letter, two digits (3rd may be
-# A/B), and an optional dotted subcode. Used so that the *code* drives the match
-# instead of the free-text description — "C22.0: Liver cell carcinoma" and
-# "C22.0: Hepatocellular carcinoma" are the same diagnosis and must score equal.
-ICD_CODE_RE = re.compile(r"([A-Z][0-9][0-9AB](?:\.[0-9A-Z]{1,4})?)", re.IGNORECASE)
-
-
-def _icd_code(text: str) -> str | None:
-    m = ICD_CODE_RE.search(text or "")
-    return m.group(1).upper() if m else None
-
-
 def check_accuracy(solution_str: str, ground_truth: str) -> tuple[bool, str | None]:
-    """Match the extracted boxed answer to ground_truth.
-
-    For ICD-coded answers (this dataset) compare on the *code*, not the
-    free-text description, since one code has many synonymous names. Falls back
-    to normalized exact string match when neither side carries a code.
-    """
-    extracted = extract_boxed_answer(solution_str)
+    """Normalized string match between extracted final answer and ground_truth."""
+    extracted = extract_final_answer(solution_str)
     if extracted is None:
         return False, None
     gt = ground_truth.strip().lower()
@@ -209,10 +246,6 @@ def check_accuracy(solution_str: str, ground_truth: str) -> tuple[bool, str | No
     if len(gt) == 1 and gt in "abcd":
         pred_letter = re.sub(r"[^a-d]", "", pred)[:1]
         return pred_letter == gt, extracted
-    gt_code = _icd_code(ground_truth)
-    pred_code = _icd_code(extracted)
-    if gt_code is not None and pred_code is not None:
-        return gt_code == pred_code, extracted
     return pred == gt, extracted
 
 
@@ -268,11 +301,6 @@ async def _call_api(
         payload.pop("max_tokens", None)
         payload["max_completion_tokens"] = max_tokens
         payload["reasoning_effort"] = "none"
-    elif provider == "deepseek":
-        # DeepSeek-V4-Pro: thinking via chat_template_kwargs {"thinking", "reasoning_effort"},
-        # NOT Qwen's enable_thinking. Judges want a fast boxed verdict -> thinking OFF.
-        payload["temperature"] = 0.0
-        payload["chat_template_kwargs"] = {"thinking": False}
     else:  # openai-compatible / generic
         payload["temperature"] = 0.0
 
@@ -626,7 +654,7 @@ async def compute_score(
     # `judge_acc_lenient` and `judge_acc_strict` are LLM-judged disease matches at
     # two strictness levels — only meaningful with a ground truth. In no-label
     # mode they mirror `accuracy` so the weight isn't wasted.
-    extracted_answer = extract_boxed_answer(solution_str)
+    extracted_answer = extract_final_answer(solution_str)
     judge_acc_lenient = 0.0
     judge_acc_strict = 0.0
     if has_label:
@@ -712,7 +740,7 @@ async def compute_score(
         mode = "label" if has_label else "no-label"
         print(f"\n{'=' * 60}")
         print(f"[REWARD DEBUG] mode={mode}  format={extra_info.get('format', '?')}")
-        print(f"  question: {_crop(question)}")
+        print(f"  question: {question}")
         print(f"  ground_truth: {ground_truth!r}")
         print(f"  extracted: {extracted_answer!r}")
         print(f"  accuracy={accuracy:.1f}  judge_lenient={judge_acc_lenient:.1f}  "
@@ -721,32 +749,23 @@ async def compute_score(
               f"format={format_ok:.1f}  embed_sim={embed_sim:.2f}  "
               f"char_bleu={char_bleu_score:.2f}")
         print(f"  total_score={score:.3f}")
-        print(f"  response: {_crop(solution_str)}")
+        print(f"  response: {solution_str}")
         print(f"{'=' * 60}\n")
 
     # Feed accuracy back to the generation server so it can keep its
     # sliding-window difficulty calibration and per-id log up to date.
     # gen_server_url comes from reward_kwargs in the run script; falls back
     # to env var so ad-hoc evals can opt in / out without re-launching.
-    # Primary correctness = the judge's lenient disease match (right diagnosis,
-    # allowing synonyms / subtype precision), reported as the headline `acc` so
-    # val-core tracks it instead of the brittle exact ICD-code match. The exact
-    # match is preserved as `exact_acc` for reference. Difficulty calibration
-    # (/report) also uses this judge signal so the gen server targets ~50%
-    # diagnostic correctness rather than ~50% exact-code match.
-    primary_acc = float(judge_acc_lenient)
-
     server_url = gen_server_url or os.environ.get("GEN_SERVER_URL", "")
     question_id = (extra_info or {}).get("question_id", "")
     if server_url and question_id:
-        await _report_to_gen_server(server_url, question_id, primary_acc)
+        await _report_to_gen_server(server_url, question_id, accuracy)
 
     return {
         "score": score,
-        "acc": primary_acc,
+        "acc": accuracy,
         "judge_acc_lenient": judge_acc_lenient,
         "judge_acc_strict": judge_acc_strict,
-        "exact_acc": accuracy,
         "answer_quality": answer_quality,
         "reasoning_quality": reasoning_score,
         "format_ok": format_ok,

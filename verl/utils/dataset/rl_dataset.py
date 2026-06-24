@@ -127,6 +127,15 @@ class RLHFDataset(Dataset):
         self.apply_chat_template_kwargs = config.get("apply_chat_template_kwargs", {})
         self.mm_processor_kwargs = config.get("mm_processor_kwargs", {})
 
+        # CLIMB multimodal media: rows may reference images/videos as remote
+        # "climb://<relpath>" handles that live only on the local file server
+        # (the trainer node has no access to /scratch/high_modality on disk).
+        # Resolved on demand in `_build_messages`. None unless data.climb.file_base
+        # is configured, so this is a no-op for every non-CLIMB dataset.
+        from verl.utils.climb import ClimbMediaConfig
+
+        self._climb_media_cfg = ClimbMediaConfig.from_data_config(config)
+
         # Mirror AgentLoopWorker's tool loading so length filtering sees the
         # same schemas the rollout will.
         self.tool_config_path = config.get("tool_config_path", None)
@@ -322,6 +331,108 @@ class RLHFDataset(Dataset):
         images = example.get(self.image_key, None) or []
         videos = example.get(self.video_key, None) or []
         audios = example.get(self.audio_key, None) or []
+
+        # Resolve any remote CLIMB media handles ("climb://<relpath>") to local
+        # cached paths before the placeholder loop, so the rest of this method
+        # (and the downstream processor / rollout) sees ordinary local files.
+        climb_cfg = getattr(self, "_climb_media_cfg", None)
+        if climb_cfg is not None and (images or videos):
+            from verl.utils.climb import has_climb_refs, resolve_climb_media
+
+            if has_climb_refs(images, videos):
+                images, videos = resolve_climb_media(images, videos, climb_cfg)
+                example[self.image_key] = images
+                example[self.video_key] = videos
+
+        # Mixed text+multimodal FSDP safety: give text-only rows a dummy blank
+        # image so the vision tower runs uniformly on every rank (a text-only
+        # micro-batch otherwise skips the vision all-gather while an image one
+        # performs it → collective desync → NCCL timeout). Idempotent: only
+        # fires when an unbuilt (string-content) user message is present, so
+        # re-accessing an already-built cached row is a no-op.
+        if (
+            climb_cfg is not None
+            and getattr(climb_cfg, "force_multimodal", False)
+            and not images
+            and not videos
+        ):
+            target = next(
+                (m for m in messages if m.get("role") == "user" and isinstance(m.get("content"), str)),
+                None,
+            )
+            if target is not None:
+                from verl.utils.climb import dummy_image
+
+                images = [dummy_image()]
+                example[self.image_key] = images
+                target["content"] = "<image>\n" + target["content"]
+                RLHFDataset._dummy_inject_count = getattr(RLHFDataset, "_dummy_inject_count", 0) + 1
+                if RLHFDataset._dummy_inject_count <= 5 or RLHFDataset._dummy_inject_count % 200 == 0:
+                    logger.warning(
+                        "[climb force_multimodal] injected dummy image into text-only row "
+                        "(data_source=%s, count=%d)",
+                        example.get("data_source", "?"),
+                        RLHFDataset._dummy_inject_count,
+                    )
+
+        # CLIMB image-only policy: flatten every <video> into N <image> frames so
+        # the whole pipeline (train + eval) is uniformly image-format — no video
+        # backend, and no per-rank video-token imbalance in FSDP. resolve_climb_media
+        # above already turned each climb video ref into a list of extracted frame
+        # paths; here we splice those frames into the image stream *in placeholder
+        # order* and rewrite the <video> token to N consecutive <image> tokens. Each
+        # frame carries a small max_pixels cap so a clip stays ~<2k vision tokens.
+        if climb_cfg is not None and videos:
+            vmp = getattr(climb_cfg, "video_max_pixels", None)
+
+            def _frames_of(v):
+                if isinstance(v, dict):
+                    v = v.get("video", v)
+                frames = v if isinstance(v, list) else [v]
+                out = []
+                for fr in frames:
+                    fr = os.fspath(fr) if isinstance(fr, os.PathLike) else fr
+                    out.append({"image": fr, "max_pixels": vmp} if vmp else {"image": fr})
+                return out
+
+            per_video_frames = [_frames_of(v) for v in videos]
+            new_images: list = []
+            ii = vi = 0
+            for message in messages:
+                content = message.get("content")
+                if not isinstance(content, str):
+                    continue
+                rebuilt = []
+                for seg in re.split("(<image>|<video>|<audio>)", content):
+                    if seg == "<image>":
+                        if ii < len(images):
+                            new_images.append(images[ii])
+                            ii += 1
+                        rebuilt.append("<image>")
+                    elif seg == "<video>":
+                        frames = per_video_frames[vi] if vi < len(per_video_frames) else []
+                        vi += 1
+                        new_images.extend(frames)
+                        rebuilt.append("<image>" * len(frames))
+                    else:
+                        rebuilt.append(seg)
+                message["content"] = "".join(rebuilt)
+            if ii < len(images):  # defensive: keep any non-placeholder images
+                new_images.extend(images[ii:])
+            images = new_images
+            videos = []
+            example[self.image_key] = images
+            example[self.video_key] = []
+            RLHFDataset._video_flatten_count = getattr(RLHFDataset, "_video_flatten_count", 0) + 1
+            if RLHFDataset._video_flatten_count <= 5 or RLHFDataset._video_flatten_count % 200 == 0:
+                logger.warning(
+                    "[climb video->image] flattened %d video(s) -> %d frame-images "
+                    "(data_source=%s, count=%d)",
+                    len(per_video_frames),
+                    sum(len(f) for f in per_video_frames),
+                    example.get("data_source", "?"),
+                    RLHFDataset._video_flatten_count,
+                )
 
         image_offset, video_offset, audio_offset = 0, 0, 0
         for message in messages:
