@@ -31,8 +31,11 @@ Run with `start_generation_server.sh`.
 
 import argparse
 import asyncio
+import base64
+import io
 import json
 import logging
+import mimetypes
 import os
 import random
 import re
@@ -187,7 +190,14 @@ SFT_TEACHER_SYSTEM_PROMPT = (
     "You MUST write out your full step-by-step clinical reasoning as visible prose: "
     "interpret the key findings, weigh the plausible differentials, and justify why the "
     "correct answer is right and the others are wrong. Write several sentences of reasoning "
-    "— do NOT respond with only the final answer. Commit to your reasoning; do not hedge or "
+    "— do NOT respond with only the final answer. "
+    "You may be given reference medical knowledge (the same passages this question was "
+    "synthesized from, plus the original training context) as background to ground yourself. "
+    "USE it to reason correctly and reach the right answer, but write SELF-CONTAINED clinical "
+    "reasoning — NEVER refer to \"the passage\", \"the reference\", \"the context\", or "
+    "\"the document\", because the student you are teaching will NOT see this material and "
+    "must learn reasoning it can reproduce from the question alone. "
+    "Commit to your reasoning; do not hedge or "
     "backtrack. After the reasoning, on its own line, output the final answer wrapped in "
     "\\boxed{} — a single letter (A, B, C, or D) for a multiple-choice question, otherwise a "
     "short specific phrase (1-15 words). The boxed answer is REQUIRED. "
@@ -271,6 +281,7 @@ class ServerState:
             "served_from_seeds": 0,
             "sft_traces_skipped": 0,
             "served_incomplete_skipped": 0,
+            "served_missing_image_skipped": 0,
             "served_repaired_inline": 0,
             "started_at": datetime.now().isoformat(),
         }
@@ -1229,6 +1240,134 @@ async def _teacher_solve_call(state: ServerState, system_prompt: str,
     return content
 
 
+async def _gather_teacher_context(state: ServerState, entry: dict,
+                                  question_text: str) -> str:
+    """Assemble the retrieved-knowledge context the teacher sees while
+    producing an SFT trace.
+
+    The teacher must solve the question with the SAME evidence the answer is
+    grounded in — not from the bare question — so it reasons correctly (more
+    traces pass the GT gate) and produces grounded reasoning. For generated
+    entries the exact passages the question was synthesized from are stored on
+    the entry (`extra_info['passage']`); reuse them verbatim. For raw/direct
+    seeds (no stored passage) fall back to a fresh Milvus retrieval on the
+    question so the teacher is still grounded. Best-effort: returns "" if
+    nothing is available, in which case the teacher solves from the question
+    alone (previous behavior)."""
+    extra = entry.get("extra_info") or {}
+    passage = (extra.get("passage") or "").strip()
+    if passage:
+        return passage
+    try:
+        hits = await _milvus_search(state, question_text, top_k=state.args.milvus_top_k)
+    except Exception as e:
+        logger.warning(f"teacher-context retrieval failed: {type(e).__name__}: {e}")
+        return ""
+    if not hits:
+        return ""
+    knowledge = "\n\n".join(
+        f"[passage {i + 1} / source={h.get('source', '?')}]\n{h['text']}"
+        for i, h in enumerate(hits)
+    )
+    return knowledge[:4000]
+
+
+def _entry_images_present(entry: dict) -> bool:
+    """True if the entry has no images, or every referenced image file exists
+    on disk. SFT serves image rows through the multimodal tokenizer, which
+    opens each file — a missing file (e.g. the ecg_images set that is absent on
+    this pod) would crash the trainer's __getitem__, so such entries must not be
+    served and the teacher should not waste a solve on them."""
+    for im in (entry.get("images") or []):
+        p = im.get("image") if isinstance(im, dict) else im
+        if not isinstance(p, str) or not os.path.isfile(p):
+            return False
+    return True
+
+
+def _image_to_data_uri(img) -> Optional[str]:
+    """Encode one entry image (dict {"image": path, "max_pixels": N} or a path
+    string) into a data: URI for the OpenAI/vLLM chat image_url field.
+
+    Best-effort downscale to the seed's `max_pixels` so the teacher sees the
+    SAME resolution the student's multimodal SFT row will (the dataset resizes
+    to max_pixels), keeping image-grounded reasoning reproducible. Returns None
+    if the file is unreadable. Sync (blocking I/O + PIL) — call via to_thread."""
+    path = img.get("image") if isinstance(img, dict) else img
+    max_pixels = img.get("max_pixels") if isinstance(img, dict) else None
+    if not isinstance(path, str) or not path:
+        return None
+    try:
+        with open(path, "rb") as f:
+            data = f.read()
+    except Exception as e:
+        logger.warning(f"teacher image read failed for {path}: {type(e).__name__}: {e}")
+        return None
+    if max_pixels:
+        try:
+            from PIL import Image
+
+            im = Image.open(io.BytesIO(data)).convert("RGB")
+            if im.width * im.height > max_pixels:
+                scale = (max_pixels / float(im.width * im.height)) ** 0.5
+                im = im.resize((max(1, int(im.width * scale)), max(1, int(im.height * scale))))
+            buf = io.BytesIO()
+            im.save(buf, format="PNG")
+            return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode("ascii")
+        except Exception as e:
+            logger.warning(f"teacher image resize failed for {path}: {type(e).__name__}: {e}")
+    mime = mimetypes.guess_type(path)[0] or "image/png"
+    return f"data:{mime};base64," + base64.b64encode(data).decode("ascii")
+
+
+async def _build_teacher_content(entry: dict, user_text: str, knowledge: str):
+    """Build the teacher's user message content.
+
+    Text-only entries → a plain string. Multimodal entries (direct/raw seeds
+    carrying `images`, e.g. an ECG/chest-xray) → a list of OpenAI content parts
+    with the seed images interleaved at their `<image>` placeholders, so the
+    teacher SEES the same clinical image the student does (the student's SFT row
+    carries the image too). The retrieved knowledge is prepended as grounding
+    the teacher is told not to cite (SFT_TEACHER_SYSTEM_PROMPT)."""
+    prefix = ""
+    if knowledge:
+        prefix = (
+            "Reference medical knowledge (background for your own grounding — "
+            "do NOT cite it; the student will not see it):\n"
+            f"{knowledge}\n\n"
+            "Question to solve and teach:\n"
+        )
+    images = entry.get("images") or []
+    if not images:
+        return prefix + user_text
+
+    content: list = []
+    if prefix:
+        content.append({"type": "text", "text": prefix})
+    parts = re.split(r"(<image>)", user_text)
+    img_idx = 0
+    for p in parts:
+        if p == "<image>":
+            uri = (
+                await asyncio.to_thread(_image_to_data_uri, images[img_idx])
+                if img_idx < len(images) else None
+            )
+            content.append(
+                {"type": "image_url", "image_url": {"url": uri}} if uri
+                else {"type": "text", "text": "<image>"}
+            )
+            img_idx += 1
+        elif p:
+            content.append({"type": "text", "text": p})
+    # Trailing images without a matching placeholder.
+    while img_idx < len(images):
+        uri = await asyncio.to_thread(_image_to_data_uri, images[img_idx])
+        if uri:
+            content.append({"type": "image_url", "image_url": {"url": uri}})
+        img_idx += 1
+    return content
+
+
 async def attach_teacher_trace(state: ServerState, entry: dict) -> bool:
     """Solve the entry's question with the teacher and attach a verified trace.
 
@@ -1247,6 +1386,15 @@ async def attach_teacher_trace(state: ServerState, entry: dict) -> bool:
             user_text = _text_from_content(m.get("content"))
     if not user_text:
         return False
+    # Ground the teacher in the retrieved medical knowledge (and original
+    # training context carried in user_text) so its trace is correct and
+    # well-supported — NOT a solve from the bare question. The student's prompt
+    # (entry["prompt"]) is left untouched: it never sees this material, so the
+    # teacher is told to write self-contained reasoning (SFT_TEACHER_SYSTEM_PROMPT).
+    knowledge = await _gather_teacher_context(state, entry, user_text)
+    # Text entries -> a string; multimodal entries -> a content list with the
+    # seed image(s) interleaved so the teacher SEES the clinical image.
+    teacher_prompt = await _build_teacher_content(entry, user_text, knowledge)
     # Teacher uses the visible-reasoning prompt (NOT the student's SOLVER prompt),
     # so the distillation trace contains an actual chain-of-thought.
     sys_prompt = SFT_TEACHER_SYSTEM_PROMPT
@@ -1254,7 +1402,7 @@ async def attach_teacher_trace(state: ServerState, entry: dict) -> bool:
     for _ in range(state.args.teacher_retries + 1):
         try:
             raw = await _teacher_solve_call(
-                state, sys_prompt, user_text, state.args.teacher_max_tokens,
+                state, sys_prompt, teacher_prompt, state.args.teacher_max_tokens,
             )
         except Exception as e:
             logger.warning(f"teacher solve failed: {type(e).__name__}: {e!r}")
@@ -1356,6 +1504,12 @@ async def worker_loop(state: ServerState, worker_id: int):
             if mode == "direct":
                 target = random.choice(state.train_seeds)
                 entry = _build_raw_entry(target, cur_target_idx, cur_cycle)
+                # SFT serves image rows multimodally (teacher + trainer open the
+                # files); skip raw seeds whose images are missing on this pod so
+                # we neither waste a teacher solve nor serve a row that crashes
+                # the trainer's tokenizer.
+                if state.args.sft_mode and not _entry_images_present(entry):
+                    continue
                 if state.args.sft_mode and not await attach_teacher_trace(state, entry):
                     state.stats["sft_traces_skipped"] += 1
                     continue
@@ -1630,6 +1784,12 @@ async def _finalize_served(s, entry: dict, source: str):
     cannot produce a verified trace the entry is rejected rather than served
     incomplete.
     """
+    # Backstop: never serve an SFT image row whose files are missing on this
+    # pod (would crash the trainer's multimodal tokenizer). Covers replay /
+    # history / cold-start-seed sources that bypass the worker's direct-mode gate.
+    if getattr(s.args, "sft_mode", False) and not _entry_images_present(entry):
+        s.stats["served_missing_image_skipped"] += 1
+        return None
     missing = _missing_fields(s, entry)
     if missing == ["reference_response"] and getattr(s.args, "sft_mode", False):
         try:

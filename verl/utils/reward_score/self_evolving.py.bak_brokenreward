@@ -77,40 +77,22 @@ You are a medical answer grader. You are given:
 - The correct ground-truth answer (typically a disease, often with an ICD code)
 - The model's extracted final answer
 
-Decide whether the model's answer identifies the SAME disease as the ground truth. \
-Grade GENEROUSLY — the DISEASE NAME is what matters, NOT the exact ICD code or the \
-level of coding detail. The ICD code is secondary; if the named disease is the same, \
-the answer is CORRECT.
-
-Mark CORRECT (accept) when:
-- The disease NAME is the same, even if the ICD code differs \
-  (e.g. GT "I82.0: Budd-Chiari syndrome" vs answer "I82.1: Budd-Chiari syndrome" -> CORRECT; \
-  GT "B60.0: Babesiosis" vs "B62.0: Babesiosis" -> CORRECT; \
-  GT "L73.2: Hidradenitis suppurativa" vs "L73.3: Hidradenitis suppurativa" -> CORRECT)
-- Synonyms / abbreviations (e.g. "MI" = "myocardial infarction" = "heart attack"; \
-  "factor VIII deficiency" = "hemophilia A")
-- ICD code with vs. without descriptive text (e.g. "C22.0" vs "C22.0: Liver cell carcinoma")
-- The answer differs only in subtype, site, severity, or remission/relapse status but \
-  names the SAME core disease \
-  (e.g. GT "C90.00: Multiple myeloma not having achieved remission" vs "Multiple myeloma" \
-  -> CORRECT; GT "C92.40: APL not in remission" vs "C92.0: Acute promyelocytic leukemia" -> CORRECT)
-- A more general or more specific form when the core diagnosis is right \
-  (e.g. "pneumonia" when GT is "bacterial pneumonia")
-- The correct disease is clearly stated as the primary/final diagnosis even if a short \
-  differential is mentioned
+Decide whether the model's answer matches the ground truth as the SAME disease. \
+Match should be APPROXIMATE — accept different ways of naming the same disease:
+- Synonyms (e.g. "MI" = "myocardial infarction" = "heart attack")
+- Different ICD codes for the same underlying disease
+- ICD code with vs. without descriptive text (e.g. "C22.0" vs. "C22.0: Liver cell carcinoma")
+- More specific vs. more general subtype if the core diagnosis is correct \
+  (e.g. "pneumonia" when GT is "bacterial pneumonia") — accept when the core dx is right
 - Misspellings or differences in capitalization / abbreviation
 
-Mark INCORRECT (reject) ONLY when:
-- A genuinely DIFFERENT disease (different name, not a synonym/subtype) \
-  (e.g. "neutropenia" vs GT "multiple myeloma"; "epilepsy" vs GT "encephalocele")
-- A clearly different entity in the same family that is a distinct diagnosis \
+REJECT:
+- A different disease — even if related or in the same family \
   (e.g. "atrial flutter" when GT is "atrial fibrillation"; \
   "Hodgkin lymphoma" when GT is "non-Hodgkin lymphoma")
-- Generic non-answers or template placeholders \
-  ("unknown", "no diagnosis", "see above", "ICD-10 CODE: Diagnosis name")
+- Wrong organ system / wrong category
+- Generic non-answers ("unknown", "no diagnosis", "see above")
 - Empty or missing answer
-
-When in doubt and the disease name plausibly refers to the same condition, prefer CORRECT.
 
 Directly output your verdict inside \\boxed{...} as either \\boxed{correct} or \
 \\boxed{incorrect}. Do not write any reasoning, explanation, or text outside the boxed \
@@ -195,54 +177,6 @@ def extract_boxed_answer(text: str) -> str | None:
     return None
 
 
-# Fallback answer cues for responses that state a final diagnosis WITHOUT \boxed{}.
-# In practice ~half of the model's responses finish with a clear diagnosis line
-# ("Final Diagnosis: ...", "ICD-10: ...") but no \boxed, which the boxed-only
-# extractor dropped to an empty answer -> auto-zero (the judge never ran). We
-# keep format_ok tied to \boxed (training pressure toward clean format) but let
-# the accuracy/judge path recover these answers so they are actually graded.
-_ANSWER_CUE_RE = re.compile(
-    r"(?:final\s+diagnosis|primary\s+diagnosis|most\s+likely\s+diagnosis|"
-    r"final\s+answer|diagnosis|icd[-\s]?10(?:\s*code)?|conclusion|answer)"
-    r"\s*(?:is|:|=|-)\s*",
-    re.IGNORECASE,
-)
-
-
-def _clean_answer(s: str) -> str:
-    """Strip markdown / boilerplate from a captured answer span (first line only)."""
-    s = s.strip().splitlines()[0] if s.strip() else ""
-    s = s.replace("**", "").replace("`", "").strip()
-    # drop a trailing sentence after the diagnosis (keep code + name, cut prose)
-    s = re.split(r"\s+(?:because|since|as the|which|given)\b", s, maxsplit=1)[0]
-    return s.strip(" .*:-\t")
-
-
-def extract_final_answer(text: str) -> str | None:
-    """Best-effort final-answer extraction.
-
-    Prefer \\boxed{...}; otherwise fall back to the LAST explicit diagnosis cue
-    ("Final Diagnosis: ...", "ICD-10: ...", etc.). Returns None if nothing found.
-    """
-    boxed = extract_boxed_answer(text)
-    if boxed:
-        return boxed
-    last = None
-    for m in _ANSWER_CUE_RE.finditer(text):
-        span = text[m.end():]
-        cleaned = _clean_answer(span)
-        if cleaned and len(cleaned) >= 2:
-            last = cleaned
-    if last:
-        return last
-    # Last resort: no \boxed and no explicit diagnosis cue (e.g. the model ran out
-    # of tokens mid-reasoning). Feed the tail of the response so the judge can still
-    # see the disease the model was converging on, instead of an auto-zero.
-    tail = re.sub(r"\s+", " ", text.replace("**", "").replace("`", "")).strip()
-    tail = tail[-200:].strip()
-    return tail if len(tail) >= 2 else None
-
-
 def check_format(text: str) -> bool:
     return bool(re.search(r"\\boxed\{[^}]*\}", text))
 
@@ -266,7 +200,7 @@ def check_accuracy(solution_str: str, ground_truth: str) -> tuple[bool, str | No
     free-text description, since one code has many synonymous names. Falls back
     to normalized exact string match when neither side carries a code.
     """
-    extracted = extract_final_answer(solution_str)
+    extracted = extract_boxed_answer(solution_str)
     if extracted is None:
         return False, None
     gt = ground_truth.strip().lower()
@@ -759,7 +693,7 @@ async def compute_score(
     # (keeps us under the shared TRAPI rate limit + ~4x faster). Set via
     # REWARD_EVAL_LENIENT_ONLY=1; training leaves it unset (all judges run).
     lenient_only = os.environ.get("REWARD_EVAL_LENIENT_ONLY", "0") == "1"
-    extracted_answer = extract_final_answer(solution_str)
+    extracted_answer = extract_boxed_answer(solution_str)
     judge_acc_lenient = 0.0
     judge_acc_strict = 0.0
     if has_label:

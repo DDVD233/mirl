@@ -115,12 +115,6 @@ PROVIDER_DEFAULT_MODEL = {
 }
 
 
-# Tally of multimodal inputs across the run, printed in the final summary so we
-# can confirm images were actually passed (and catch silent drops). A missing /
-# unreadable image is dropped from the prompt AND logged loudly to stderr.
-_IMG_STATS = {"ok": 0, "missing": 0, "error": 0}
-
-
 def _read_image_b64(
     path: str,
     max_pixels: int = 256 * 256,
@@ -132,16 +126,7 @@ def _read_image_b64(
     to mirror what the training pipeline gives the trained Qwen actor via
     qwen_vl_utils.fetch_image with max_pixels=65536 (256x256). This keeps
     Gemini and the trained actor on parity for visual input bandwidth.
-
-    A referenced image that does not exist or cannot be decoded is dropped from
-    the prompt (returns None) and an error is printed to stderr so multimodal
-    coverage gaps are never silent.
     """
-    if not os.path.exists(path):
-        _IMG_STATS["missing"] += 1
-        print(f"[IMAGE MISSING] referenced image not found, dropped from prompt: {path}",
-              file=sys.stderr, flush=True)
-        return None
     try:
         from io import BytesIO
         from PIL import Image as _PILImage
@@ -162,12 +147,8 @@ def _read_image_b64(
             data = buf.getvalue()
         if len(data) > max_bytes:
             data = data[:max_bytes]
-        _IMG_STATS["ok"] += 1
         return "image/jpeg", base64.b64encode(data).decode("ascii")
-    except Exception as e:
-        _IMG_STATS["error"] += 1
-        print(f"[IMAGE ERROR] failed to read referenced image {path}: "
-              f"{type(e).__name__}: {e}", file=sys.stderr, flush=True)
+    except Exception:
         return None
 
 
@@ -331,17 +312,12 @@ def _build_openai_request(
 
     # NOTE: GPT-5+ reasoning models only accept the default temperature (1).
     # max_completion_tokens still works but reasoning tokens count against it,
-    # so we leave it generous. reasoning_effort is env-controlled so a frontier
-    # baseline can think (to match the thinking-ON local models).
-    body = {
+    # so we leave it generous and let the model decide.
+    return {
         "model": model_name,
         "messages": messages,
-        "max_completion_tokens": int(os.environ.get("OPENAI_MAX_COMPLETION_TOKENS", "24576")),
+        "max_completion_tokens": 16384,
     }
-    effort = os.environ.get("OPENAI_REASONING_EFFORT", "")
-    if effort:
-        body["reasoning_effort"] = effort
-    return body
 
 
 def _build_vllm_request(
@@ -543,7 +519,7 @@ async def _score_one(
     extra_info.setdefault("question", entry.get("prompt", [{}, {}])[1].get("content", "")[:2000])
 
     return await compute_score(
-        data_source=entry.get("data_source", "mimic_rare/other"),
+        data_source=entry.get("data_source", "mimiciv_rare_dx"),
         solution_str=entry["__response__"],
         ground_truth=entry["reward_model"]["ground_truth"],
         extra_info=extra_info,
@@ -637,18 +613,7 @@ async def _eval_one(
     score["error_msg"] = err or ""
     score["ground_truth"] = entry["reward_model"]["ground_truth"]
     score["hadm_id"] = entry.get("extra_info", {}).get("hadm_id")
-    # data_source is the ICD-10 chapter group (e.g. "mimic_rare/neoplasms");
-    # carried per-sample so the summary can break metrics down by category,
-    # mirroring verl's per-data_source validation metrics.
-    score["data_source"] = entry.get("data_source", "")
     return score
-
-
-METRIC_KEYS = (
-    "score", "acc", "judge_acc_lenient", "judge_acc_strict",
-    "answer_quality", "reasoning_quality",
-    "embed_sim", "biobert_sim", "char_bleu", "format_ok",
-)
 
 
 def _agg(values: list[float]) -> dict:
@@ -663,32 +628,9 @@ def _agg(values: list[float]) -> dict:
     }
 
 
-def _accumulate(rec: dict, aggregated: dict, by_source: dict) -> None:
-    """Append a per-sample record's numeric metrics to the global aggregator
-    and to the per-data_source (ICD category) aggregator."""
-    ds = rec.get("data_source", "") or "unknown"
-    for k in METRIC_KEYS:
-        v = rec.get(k)
-        if isinstance(v, (int, float)) and not isinstance(v, bool):
-            aggregated[k].append(float(v))
-            by_source[ds][k].append(float(v))
-
-
 async def _main_async(args) -> int:
     with open(args.val_file) as f:
         entries = [json.loads(line) for line in f if line.strip()]
-    if getattr(args, "text_only", False):
-        # Drop all images: the <image> split-points then attach no blob, so the
-        # builders emit clean text-only prompts. Used to A/B whether images help.
-        n_had_img = sum(1 for e in entries if e.get("images"))
-        for e in entries:
-            e["images"] = []
-        print(f"TEXT-ONLY mode: stripped images from {n_had_img}/{len(entries)} entries")
-    if getattr(args, "sample_n", 0) and args.sample_n > 0 and args.sample_n < len(entries):
-        import random as _r
-        _r.seed(args.sample_seed)
-        entries = _r.sample(entries, args.sample_n)
-        print(f"Randomly sampled {len(entries)} entries (seed={args.sample_seed})")
     if args.limit and args.limit > 0:
         entries = entries[: args.limit]
     print(f"Loaded {len(entries)} entries from {args.val_file}")
@@ -707,7 +649,6 @@ async def _main_async(args) -> int:
     # may be a partial write from a SIGINT mid-flush — caught by the JSONDecodeError
     # handler and silently skipped.
     aggregated: dict[str, list[float]] = defaultdict(list)
-    by_source: dict[str, dict[str, list[float]]] = defaultdict(lambda: defaultdict(list))
     done_ids: set = set()
     resumed = 0
     if output_path.exists():
@@ -727,7 +668,12 @@ async def _main_async(args) -> int:
                 resumed += 1
                 if rec.get("error"):
                     pass  # still counted in done_ids; skip on retry
-                _accumulate(rec, aggregated, by_source)
+                for k in ("acc", "judge_acc_lenient", "judge_acc_strict",
+                          "answer_quality", "reasoning_quality",
+                          "embed_sim", "biobert_sim", "char_bleu",
+                          "format_ok", "score"):
+                    if k in rec and isinstance(rec[k], (int, float)):
+                        aggregated[k].append(float(rec[k]))
         if resumed:
             print(f"Resuming from {output_path}: {resumed} entries already done")
 
@@ -763,7 +709,12 @@ async def _main_async(args) -> int:
                 completed += 1
                 if score.get("error"):
                     error_count += 1
-                _accumulate(score, aggregated, by_source)
+                for k in ("acc", "judge_acc_lenient", "judge_acc_strict",
+                          "answer_quality", "reasoning_quality",
+                          "embed_sim", "biobert_sim", "char_bleu",
+                          "format_ok", "score"):
+                    if k in score and isinstance(score[k], (int, float)):
+                        aggregated[k].append(float(score[k]))
                 out_fp.write(json.dumps(score) + "\n")
                 if completed % flush_every == 0:
                     out_fp.flush()
@@ -796,55 +747,15 @@ async def _main_async(args) -> int:
     print("=" * 70)
     print(f"SoTA evaluation summary  (provider={args.provider}, model={args.model_name})")
     print(f"  total: {completed}, errors: {error_count}")
-    print(f"  image inputs: passed={_IMG_STATS['ok']} missing={_IMG_STATS['missing']} "
-          f"unreadable={_IMG_STATS['error']}")
-    if _IMG_STATS["missing"] or _IMG_STATS["error"]:
-        print(f"  WARNING: {_IMG_STATS['missing'] + _IMG_STATS['error']} referenced images "
-              f"were dropped from prompts (see [IMAGE MISSING]/[IMAGE ERROR] above)")
     print("=" * 70)
-    headline = ("score", "acc", "judge_acc_lenient", "judge_acc_strict",
+    for key in ("score", "acc", "judge_acc_lenient", "judge_acc_strict",
                 "answer_quality", "reasoning_quality",
-                "embed_sim", "char_bleu", "format_ok")
-    for key in headline:
+                "embed_sim", "char_bleu", "format_ok"):
         a = _agg(aggregated.get(key, []))
         print(
             f"  {key:>20s}  mean={a['mean']:.4f}  median={a['median']:.4f}  "
             f"min={a['min']:.4f}  max={a['max']:.4f}  n={a['n']}"
         )
-
-    # Per-category (data_source) breakdown — one row per ICD-10 chapter group.
-    print()
-    print("-" * 70)
-    print("  Per-category accuracy (acc / judge_acc_lenient):")
-    print("-" * 70)
-    for ds in sorted(by_source.keys()):
-        acc = _agg(by_source[ds].get("acc", []))
-        jl = _agg(by_source[ds].get("judge_acc_lenient", []))
-        print(
-            f"  {ds:>34s}  n={acc['n']:5d}  acc={acc['mean']:.4f}  "
-            f"jL={jl['mean']:.4f}"
-        )
-
-    # Machine-readable summary for the cross-checkpoint analysis step.
-    summary = {
-        "provider": args.provider,
-        "model": args.model_name,
-        "judge_model": args.judge_model_name,
-        "judge_api_base": args.api_base,
-        "val_file": args.val_file,
-        "n_total": completed,
-        "n_errors": error_count,
-        "image_inputs": dict(_IMG_STATS),
-        "overall": {k: _agg(aggregated.get(k, [])) for k in headline},
-        "by_category": {
-            ds: {k: _agg(by_source[ds].get(k, [])) for k in headline}
-            for ds in sorted(by_source.keys())
-        },
-    }
-    summary_path = args.summary_json or (str(output_path) + ".summary.json")
-    with open(summary_path, "w") as f:
-        json.dump(summary, f, indent=2)
-    print(f"\nWrote summary to {summary_path}")
     return 0
 
 
@@ -926,12 +837,6 @@ def main() -> None:
     )
     parser.add_argument("--concurrency", type=int, default=8)
     parser.add_argument("--limit", type=int, default=0, help="0 means evaluate all entries")
-    parser.add_argument("--sample_n", type=int, default=0,
-                        help="Randomly sample N entries before eval (0=all). For fast iteration.")
-    parser.add_argument("--sample_seed", type=int, default=0,
-                        help="Seed for --sample_n random sampling (reproducible subsets).")
-    parser.add_argument("--text_only", action="store_true",
-                        help="Strip all images from prompts (text-only A/B test).")
     parser.add_argument(
         "--output_jsonl",
         default="",
@@ -940,13 +845,6 @@ def main() -> None:
              "skipped and we append new ones — so the run is resumable across "
              "interruptions. Pick a stable filename per run; do NOT timestamp "
              "it if you want resume to work.",
-    )
-    parser.add_argument(
-        "--summary_json",
-        default="",
-        help="Path to write the aggregate summary JSON (overall + per-category "
-             "metrics). Defaults to <output_jsonl>.summary.json. Consumed by the "
-             "cross-checkpoint analysis step.",
     )
     parser.add_argument(
         "--flush_every",

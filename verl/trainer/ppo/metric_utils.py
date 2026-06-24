@@ -595,13 +595,21 @@ def process_validation_metrics(
         >>> result = process_validation_metrics(data_sources, sample_uids, infos_dict)
         >>> # result will contain statistics for each data source and variable
     """
-    # Group metrics by data source, prompt and variable
+    # Group metrics by data source, prompt and variable.
+    # For slash-namespaced data sources (e.g. "mimic_rare/neoplasms") we ALSO
+    # accumulate each sample into its top-level prefix bucket ("mimic_rare"), so
+    # the per-category metrics are accompanied by a single overall metric
+    # (micro-average across all categories), e.g. val-core/mimic_rare/acc/mean@1.
     data_src2uid2var2vals = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
     for sample_idx, data_source in enumerate(data_sources):
         uid = sample_uids[sample_idx]
-        var2vals = data_src2uid2var2vals[data_source][uid]
-        for var_name, var_vals in infos_dict.items():
-            var2vals[var_name].append(var_vals[sample_idx])
+        buckets = [data_source]
+        if "/" in data_source:
+            buckets.append(data_source.split("/", 1)[0])
+        for bucket in buckets:
+            var2vals = data_src2uid2var2vals[bucket][uid]
+            for var_name, var_vals in infos_dict.items():
+                var2vals[var_name].append(var_vals[sample_idx])
 
     np_mean = np.mean
     np_std = np.std

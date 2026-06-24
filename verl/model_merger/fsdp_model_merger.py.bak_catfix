@@ -199,16 +199,7 @@ class FSDPModelMerger(BaseModelMerger):
                     # 2-D list, FSDP + TP
                     raise NotImplementedError("FSDP + TP is not supported yet")
             else:
-                # Non-DTensor entries are full tensors saved on every rank, not
-                # row-sharded ones (buffers, scalars, replicated multimodal-tower
-                # params in Gemma3/4). Identical across ranks, so concatenating
-                # duplicates them world_size times and fails on 0-dim scalars.
-                # Take rank 0's copy when scalar/replicated; cat only genuine shards.
-                shards = state_dict[key]
-                if shards[0].dim() == 0 or all(torch.equal(shards[0], s) for s in shards[1:]):
-                    state_dict[key] = shards[0]
-                else:
-                    state_dict[key] = torch.cat(shards, dim=0)
+                state_dict[key] = torch.cat(state_dict[key], dim=0)
 
         return state_dict
 

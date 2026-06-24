@@ -786,6 +786,12 @@ def extract_multi_modal_inputs(
                 multi_modal_inputs_collected[key].append(value)
 
     for key, values in multi_modal_inputs_collected.items():
+        if key == "mm_token_type_ids":
+            # Gemma's processor emits a per-token (1, seq_len) mm_token_type_ids that
+            # cannot be concatenated across variable-length samples; it is only used to
+            # compute position ids (which verl provides explicitly). Drop it, mirroring
+            # the SFT dataset (multiturn_sft_dataset.py) and agent-loop paths.
+            continue
         if has_image_bound:  # minicpm-o logic
             multi_modal_inputs[key] = values
         elif key in _VARLEN_MULTI_MODAL_KEYS:
