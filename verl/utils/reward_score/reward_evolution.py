@@ -154,7 +154,9 @@ lenient on wrong diagnoses, too harsh on correct-but-differently-worded answers,
 clarity / usefulness / safety, or rewarding verbosity or format hacks.
 
 Then write an IMPROVED judging prompt that grades more faithfully toward true diagnostic \
-quality and usefulness, while staying a clear, self-contained rubric.
+quality and usefulness, while staying a clear, self-contained rubric. The model's committed \
+final answer is conventionally in \\boxed{{...}}; the grader should judge primarily by that \
+committed diagnosis, not by tentative differentials the model floats mid-reasoning.
 
 HARD REQUIREMENTS for the prompt you write:
 - It must tell the grader it will receive [QUESTION], [MODEL RESPONSE], and [CORRECT ANSWER] \
@@ -204,11 +206,27 @@ internet. Make it ROBUST and FAST:
 
 You will be shown the CURRENT function and several worked examples (question, response, \
 correct answer, the judge / sub-reward values, and the extracted answer). Improve the \
-function so its output correlates with genuine diagnostic correctness and usefulness — \
-for example: normalize and compare ICD-10 codes (exact match, then 3-character category \
-prefix for partial credit), match the diagnosis name (synonyms / substring), reward a \
-clear committed final answer, and penalize empty / hedging / unsafe replies. Start simple \
-and correct; you can grow it over future rounds.
+function so its output is a USEFUL, WELL-SPREAD signal:
+- a correct or clinically-equivalent final answer scores HIGH (≈0.8–1.0),
+- a clearly wrong answer scores LOW (≈0.0–0.2),
+- a near-miss (same ICD-10 3-character category, or a closely related diagnosis) lands in between.
+
+Base the score on the model's COMMITTED final answer, not on incidental mentions. Prefer the \
+\\boxed{{...}} content (the student is trained to end with e.g. \\boxed{{E70.0: Classical \
+phenylketonuria}}), but FALL BACK GRACEFULLY when there is no clean box: use the last \
+explicit "final / primary diagnosis:" line, else the most prominent diagnosis the response \
+commits to. Avoid handing full credit to an ICD code or disease name that only appears in \
+passing in the middle of the reasoning, but do not become so strict that you fail to credit \
+a genuinely correct answer.
+
+Useful signals: normalize and compare ICD-10 codes (exact = full credit, same 3-char \
+category = partial credit) and weight the CODE match more heavily than the name match; match \
+the diagnosis name via a real synonym or substring overlap, and AVOID loose character-\
+similarity ratios (e.g. difflib on whole strings) that hand false credit to unrelated \
+diseases which merely share letters (a wrong "melanoma" must not look like a correct \
+"myeloma"). Lightly penalize empty, hedging, or unsafe replies. CRITICAL: do NOT collapse to \
+a constant or near-zero output — on the examples shown, the correct answers must end up \
+clearly higher than the wrong ones. Start simple and correct; you can grow it over future rounds.
 
 First reason about what signal to add (reason freely). Then, OUTSIDE of and AFTER any \
 reasoning, output the COMPLETE function (with any imports and helpers it needs) as the \
@@ -662,6 +680,21 @@ async def evolve_once(
         fn_valid, fn_err, fn_outs = await asyncio.get_event_loop().run_in_executor(
             None, validate_function_src, new_fn, examples
         )
+    # Degeneracy gate: a function that returns a near-constant value across examples that
+    # DO vary in combined reward carries no gradient signal (it collapsed to a constant).
+    # Reject it and keep the previous version rather than wasting the function component.
+    fn_degenerate = False
+    if fn_valid and fn_outs and len(fn_outs) >= 2:
+        ex_rewards = [float(e.get("combined_reward", 0.0)) for e in examples[: len(fn_outs)]]
+        ex_spread = max(ex_rewards) - min(ex_rewards)
+        out_spread = max(fn_outs) - min(fn_outs)
+        if ex_spread > 0.1 and out_spread < 0.05:
+            fn_degenerate = True
+            fn_valid = False
+            fn_err = (
+                f"degenerate: output spread {out_spread:.3f} on examples whose reward "
+                f"spread is {ex_spread:.3f} — keeping previous function"
+            )
     eff_fn = new_fn if fn_valid else cur_fn_src
     fn_changed = fn_valid and (new_fn.strip() != cur_fn_src.strip())
 
@@ -675,6 +708,7 @@ async def evolve_once(
         "reward_evolution/prompt_changed": float(prompt_changed),
         "reward_evolution/fn_valid": float(fn_valid),
         "reward_evolution/fn_changed": float(fn_changed),
+        "reward_evolution/fn_degenerate": float(fn_degenerate),
         "reward_evolution/fn_mean_on_examples": float(fn_mean),
         "reward_evolution/fn_spread_on_examples": float(fn_spread),
     }
