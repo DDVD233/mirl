@@ -59,7 +59,10 @@ class DAPORewardManager(RewardManagerBase):
 
         data_source = data_item.non_tensor_batch["data_source"]
         ground_truth = data_item.non_tensor_batch["reward_model"]["ground_truth"]
-        extra_info = data_item.non_tensor_batch.get("extra_info", {})
+        # Copy so we don't mutate the stored dict; thread the train/val flag through to
+        # compute_score (reward-evolution mode is training-only and reads _is_validation).
+        extra_info = dict(data_item.non_tensor_batch.get("extra_info", {}) or {})
+        extra_info["_is_validation"] = bool(data.meta_info.get("validate", False))
 
         response_str = await self.loop.run_in_executor(
             None, lambda: self.tokenizer.decode(valid_response_ids, skip_special_tokens=True)

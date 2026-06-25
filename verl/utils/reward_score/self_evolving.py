@@ -608,6 +608,66 @@ async def judge_correctness(
         return 0.0
 
 
+async def _compute_score_evolve(
+    question: str,
+    solution_str: str,
+    ground_truth: str,
+    extra_info: dict,
+    api_base: str,
+    api_key: str,
+    model_name: str,
+    evolve_dir: str,
+    w_judge: float,
+    w_func: float,
+    gen_server_url: str = "",
+) -> dict:
+    """Reward-evolution mode reward: renorm(w_judge*judge + w_func*function), both in [0,1].
+
+    Training-only. Reads the latest evolved judge prompt + executable function from
+    ``{evolve_dir}/current/`` (see ``reward_evolution.get_current_artifacts``). The full
+    composite (embedding, multi-judge, bleu) is bypassed entirely. ``acc`` (exact match)
+    is still computed cheaply for monitoring and for the gen-server difficulty feedback,
+    but is NOT part of the reward. Returned keys mirror the composite path (plus
+    ``judge_reward`` / ``function_reward``) so the per-batch reward dict stays homogeneous.
+    """
+    from verl.utils.reward_score import reward_evolution as RE  # lazy import avoids a cycle
+
+    judge_prompt, fn, _fn_src = RE.get_current_artifacts(evolve_dir)
+    judge_reward = await RE.score_with_judge_prompt(
+        api_base, api_key, model_name, judge_prompt, question, solution_str, ground_truth
+    )
+    function_reward = RE.safe_call_function(fn, question, solution_str, ground_truth)
+    denom = (w_judge + w_func) or 1.0
+    score = (w_judge * judge_reward + w_func * function_reward) / denom
+
+    is_correct, extracted = check_accuracy(solution_str, ground_truth)
+    accuracy = 1.0 if is_correct else 0.0
+
+    # Keep the self-evolving question-generation loop calibrated: report exact-match acc
+    # back to the gen-server exactly as the composite path does.
+    server_url = gen_server_url or os.environ.get("GEN_SERVER_URL", "")
+    question_id = (extra_info or {}).get("question_id", "")
+    if server_url and question_id:
+        await _report_to_gen_server(server_url, question_id, accuracy)
+
+    return {
+        "score": score,
+        "acc": accuracy,
+        "judge_reward": judge_reward,
+        "function_reward": function_reward,
+        # zero-filled composite keys so the per-batch reward dict stays homogeneous with
+        # the validation (composite) path; unused in evolve mode.
+        "judge_acc_lenient": 0.0,
+        "judge_acc_strict": 0.0,
+        "answer_quality": 0.0,
+        "reasoning_quality": 0.0,
+        "format_ok": 1.0 if check_format(solution_str) else 0.0,
+        "embed_sim": 0.0,
+        "char_bleu": 0.0,
+        "extracted_answer": extracted or "",
+    }
+
+
 async def compute_score(
     data_source: str,
     solution_str: str,
@@ -620,6 +680,10 @@ async def compute_score(
     embed_api_key: str = "EMPTY",
     embed_model: str = "",
     gen_server_url: str = "",
+    evolve_enable: bool = False,
+    evolve_dir: str = "",
+    evolve_w_judge: float = 0.7,
+    evolve_w_func: float = 0.3,
     **kwargs,
 ) -> dict:
     """Compute composite reward.
@@ -645,6 +709,26 @@ async def compute_score(
     context = extra_info.get("context", "")
     options = extra_info.get("options", {}) if isinstance(extra_info.get("options"), dict) else {}
     has_label = bool(ground_truth and ground_truth.strip())
+
+    # === Reward-evolution mode (optional, training-only) ===
+    # When enabled and NOT during validation, drop the composite entirely and score with
+    # only the evolvable judge prompt + evolvable executable function (see reward_evolution).
+    # Validation always falls through to the composite path below, so val metrics (esp. the
+    # exact-match accuracy) stay comparable across steps. Off by default => unchanged.
+    if evolve_enable and evolve_dir and not extra_info.get("_is_validation", False):
+        return await _compute_score_evolve(
+            question=question,
+            solution_str=solution_str,
+            ground_truth=ground_truth,
+            extra_info=extra_info,
+            api_base=api_base,
+            api_key=api_key,
+            model_name=model_name,
+            evolve_dir=evolve_dir,
+            w_judge=evolve_w_judge,
+            w_func=evolve_w_func,
+            gen_server_url=gen_server_url,
+        )
 
     # 1. Format check
     format_ok = 1.0 if check_format(solution_str) else 0.0

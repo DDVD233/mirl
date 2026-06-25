@@ -91,6 +91,8 @@ class RemoteRewardManager(RewardManagerBase):
         rollout_reward_scores = data_item.non_tensor_batch.get("reward_scores", {})
         extra_info["num_turns"] = num_turns
         extra_info["rollout_reward_scores"] = rollout_reward_scores
+        # training-only reward-evolution mode reads this to fall through to the composite path on val
+        extra_info["_is_validation"] = bool(data.meta_info.get("validate", False))
 
         response_str = await self.loop.run_in_executor(
             None, lambda: self.tokenizer.decode(valid_response_ids, skip_special_tokens=True)

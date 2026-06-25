@@ -721,12 +721,19 @@ async def evolve_once(
     return metrics
 
 
+def evolve_once_sync(**kwargs) -> dict:
+    """Blocking wrapper around ``evolve_once`` for the synchronous trainer fit loop."""
+    return asyncio.run(evolve_once(**kwargs))
+
+
 # ---------------------------------------------------------------------------
 # Helper for building example dicts from the existing reward sub-scores
 # ---------------------------------------------------------------------------
 
 _SUB_REWARD_KEYS = (
     "acc",
+    "judge_reward",
+    "function_reward",
     "judge_acc_lenient",
     "judge_acc_strict",
     "answer_quality",
@@ -781,6 +788,7 @@ __all__ = [
     "EvolutionStore",
     "get_current_artifacts",
     "evolve_once",
+    "evolve_once_sync",
     "make_example",
     "select_contrastive",
     "format_examples",

@@ -596,6 +596,79 @@ class RayPPOTrainer:
         batch_reward = self.reward_loop_manager.compute_rm_score(batch)
         return batch_reward
 
+    def _maybe_evolve_reward(self, batch: DataProto, reward_extra_infos_dict: dict) -> dict:
+        """Optional, training-only end-of-step reward evolution.
+
+        When ``reward.reward_evolution.enable`` is set, ask the judge model to (1) rewrite
+        the judging prompt and (2) write/improve an executable ``function_reward`` based on
+        a contrastive set of this step's (question, response, ground_truth, sub-rewards)
+        samples. Artifacts are versioned under ``{default_local_dir}/reward_evolution/`` and
+        the reward function reads the latest valid pair on the next step. Off by default and
+        best-effort: any failure is logged and skipped so it can never break training.
+        """
+        cfg = self.config.reward.get("reward_evolution", None)
+        if not cfg or not cfg.get("enable", False):
+            return {}
+        every = int(cfg.get("every_n_steps", 1) or 1)
+        if every > 1 and (self.global_steps % every != 0):
+            return {}
+        try:
+            from verl.utils.reward_score import reward_evolution as RE
+
+            rk = self.config.reward.custom_reward_function.get("reward_kwargs", {}) or {}
+            api_base = rk.get("api_base", "")
+            if not api_base:
+                return {}
+            api_key = rk.get("api_key", "EMPTY")
+            model_name = rk.get("model_name", "")
+            evolve_dir = cfg.get("evolve_dir", "") or os.path.join(
+                self.config.trainer.default_local_dir, "reward_evolution"
+            )
+            num_examples = int(cfg.get("num_examples", 6) or 6)
+            design_max_tokens = int(cfg.get("design_max_tokens", 8000) or 8000)
+
+            scores = reward_extra_infos_dict.get("score") or reward_extra_infos_dict.get("reward")
+            n = len(batch)
+            if scores is None or len(scores) == 0 or n == 0:
+                return {}
+            scores = [float(s) for s in scores]
+            # contrastive pick: spread across the reward range (lowest..highest)
+            order = sorted(range(n), key=lambda i: scores[i])
+            k = min(num_examples, n)
+            picks = [0] if k <= 1 else sorted({round(j * (n - 1) / (k - 1)) for j in range(k)})
+            picked = [order[p] for p in picks]
+
+            examples = []
+            for i in picked:
+                data_item = batch[i]
+                prompt_ids = data_item.batch["prompts"]
+                plen = prompt_ids.shape[-1]
+                resp_ids = data_item.batch["responses"]
+                valid_resp_len = int(data_item.batch["attention_mask"][plen:].sum())
+                resp_str = self.tokenizer.decode(resp_ids[:valid_resp_len], skip_special_tokens=True)
+                gt = data_item.non_tensor_batch["reward_model"]["ground_truth"]
+                ex_info = data_item.non_tensor_batch.get("extra_info", {}) or {}
+                question = ex_info.get("question", "")
+                row = {
+                    key: vals[i]
+                    for key, vals in reward_extra_infos_dict.items()
+                    if i < len(vals)
+                }
+                examples.append(RE.make_example(question, resp_str, gt, row))
+
+            return RE.evolve_once_sync(
+                api_base=api_base,
+                api_key=api_key,
+                model_name=model_name,
+                evolve_dir=evolve_dir,
+                examples=examples,
+                step=self.global_steps,
+                design_max_tokens=design_max_tokens,
+            ) or {}
+        except Exception as e:  # noqa: BLE001 — never break training on evolution failure
+            print(f"[reward_evolution] end-of-step evolution failed (skipping): {type(e).__name__}: {e}")
+            return {}
+
     def _validate(self, merged: bool = False):
         data_source_lst = []
         reward_extra_infos_dict: dict[str, list] = defaultdict(list)
@@ -650,6 +723,10 @@ class RayPPOTrainer:
                 # for colocate reward models, we need to sleep rollout model
                 # to spare GPU memory for reward model
                 self.checkpoint_manager.sleep_replicas()
+                # Mark this batch as validation so the reward fn uses the composite (non-evolve)
+                # path: the evolvable function never runs on val and the judge prompt stays
+                # static, keeping val metrics comparable across steps.
+                test_output_gen_batch_padded.meta_info["validate"] = True
                 batch_reward = self._compute_reward_colocate(test_output_gen_batch_padded)
                 test_output_gen_batch_padded = test_output_gen_batch_padded.union(batch_reward)
                 # wake up rollout model
@@ -1726,6 +1803,12 @@ class RayPPOTrainer:
                     rollout_data_dir = self.config.trainer.get("rollout_data_dir", None)
                     if rollout_data_dir:
                         self._log_rollout_data(batch, reward_extra_infos_dict, timing_raw, rollout_data_dir)
+
+                    # Optional, training-only: evolve the judge prompt + executable function
+                    # reward at end of step (off by default; returns {} when disabled).
+                    evo_metrics = self._maybe_evolve_reward(batch, reward_extra_infos_dict)
+                    if evo_metrics:
+                        metrics.update(evo_metrics)
 
                 # validate
                 if self.config.trainer.test_freq > 0 and (

@@ -12,6 +12,28 @@ custom_reward_function:
   # The name of the reward function within the specified file. Default is 'compute_score'.
   name: compute_score
 
+# Optional, default-OFF self-evolving reward. When enabled, at the end of each TRAINING step
+# the judge model rewrites the judging prompt and writes/improves an executable
+# function_reward; the training reward becomes renorm(w_judge*judge + w_func*function), and
+# the per-step artifacts are versioned under {trainer.default_local_dir}/reward_evolution/.
+# Validation always uses the existing composite reward path, so val metrics stay comparable.
+# When disabled (default) training is byte-identical to before.
+# See verl/utils/reward_score/reward_evolution.py and ray_trainer._maybe_evolve_reward.
+# NOTE: the component WEIGHTS and the reward-side toggle live in
+# custom_reward_function.reward_kwargs (evolve_enable / evolve_dir / evolve_w_judge /
+# evolve_w_func) because compute_score reads them there; the run script sets both
+# consistently. The fields below control the trainer-side evolution step.
+reward_evolution:
+  enable: false
+  # run the evolution step every N training steps (1 = every step)
+  every_n_steps: 1
+  # number of contrastive (low..high reward) examples shown to the judge each round
+  num_examples: 6
+  # max tokens for the judge's design (prompt / function) generations
+  design_max_tokens: 8000
+  # artifact directory; empty => {trainer.default_local_dir}/reward_evolution
+  evolve_dir: ""
+
 # reward manager, see `verl/trainer/config/reward_manager.yaml` for details.
 reward_manager:
   _target_: verl.workers.config.reward.RewardManagerConfig
