@@ -606,33 +606,55 @@ class RayPPOTrainer:
         the reward function reads the latest valid pair on the next step. Off by default and
         best-effort: any failure is logged and skipped so it can never break training.
         """
-        cfg = self.config.reward.get("reward_evolution", None)
-        if not cfg or not cfg.get("enable", False):
+        from omegaconf import OmegaConf
+
+        # Read config via OmegaConf.select (lenient under struct mode). Enable if EITHER the
+        # trainer-side reward_evolution.enable OR the reward-side reward_kwargs.evolve_enable
+        # is set (the latter is the path that demonstrably reaches compute_score).
+        re_cfg = OmegaConf.select(self.config, "reward.reward_evolution") or {}
+        rk = OmegaConf.select(self.config, "reward.custom_reward_function.reward_kwargs") or {}
+        enabled = bool(re_cfg.get("enable", False)) or bool(rk.get("evolve_enable", False))
+        if not enabled:
             return {}
-        every = int(cfg.get("every_n_steps", 1) or 1)
+        every = int(re_cfg.get("every_n_steps", 1) or 1)
         if every > 1 and (self.global_steps % every != 0):
             return {}
+
+        def _say(msg: str) -> None:
+            print(f"[reward_evolution] step {self.global_steps}: {msg}", flush=True)
+
         try:
             from verl.utils.reward_score import reward_evolution as RE
 
-            rk = self.config.reward.custom_reward_function.get("reward_kwargs", {}) or {}
-            api_base = rk.get("api_base", "")
-            if not api_base:
-                return {}
+            api_base = rk.get("api_base", "") or ""
             api_key = rk.get("api_key", "EMPTY")
             model_name = rk.get("model_name", "")
-            evolve_dir = cfg.get("evolve_dir", "") or os.path.join(
-                self.config.trainer.default_local_dir, "reward_evolution"
+            if not api_base:
+                _say("skip: no judge api_base in reward_kwargs")
+                return {}
+            evolve_dir = (
+                rk.get("evolve_dir", "")
+                or re_cfg.get("evolve_dir", "")
+                or os.path.join(self.config.trainer.default_local_dir, "reward_evolution")
             )
-            num_examples = int(cfg.get("num_examples", 6) or 6)
-            design_max_tokens = int(cfg.get("design_max_tokens", 8000) or 8000)
+            num_examples = int(re_cfg.get("num_examples", 6) or 6)
+            design_max_tokens = int(re_cfg.get("design_max_tokens", 8000) or 8000)
 
-            scores = reward_extra_infos_dict.get("score") or reward_extra_infos_dict.get("reward")
+            # Per-sample combined reward: prefer reward_extra_infos_dict, then non_tensor_batch,
+            # then the token-level rm_scores summed over the response dim.
             n = len(batch)
+            scores = None
+            for src in (reward_extra_infos_dict, batch.non_tensor_batch):
+                if src is not None and ("score" in src or "reward" in src):
+                    scores = src.get("score", src.get("reward"))
+                    break
+            if scores is None and "rm_scores" in batch.batch:
+                scores = batch.batch["rm_scores"].sum(dim=-1).cpu().tolist()
             if scores is None or len(scores) == 0 or n == 0:
+                _say(f"skip: no per-sample scores (n={n}, extra_keys={list(reward_extra_infos_dict.keys())})")
                 return {}
             scores = [float(s) for s in scores]
-            # contrastive pick: spread across the reward range (lowest..highest)
+
             order = sorted(range(n), key=lambda i: scores[i])
             k = min(num_examples, n)
             picks = [0] if k <= 1 else sorted({round(j * (n - 1) / (k - 1)) for j in range(k)})
@@ -652,21 +674,29 @@ class RayPPOTrainer:
                 row = {
                     key: vals[i]
                     for key, vals in reward_extra_infos_dict.items()
-                    if i < len(vals)
+                    if hasattr(vals, "__len__") and i < len(vals)
                 }
                 examples.append(RE.make_example(question, resp_str, gt, row))
 
-            return RE.evolve_once_sync(
-                api_base=api_base,
-                api_key=api_key,
-                model_name=model_name,
-                evolve_dir=evolve_dir,
-                examples=examples,
-                step=self.global_steps,
-                design_max_tokens=design_max_tokens,
-            ) or {}
+            _say(f"evolving with {len(examples)} examples -> {evolve_dir}")
+            metrics = (
+                RE.evolve_once_sync(
+                    api_base=api_base,
+                    api_key=api_key,
+                    model_name=model_name,
+                    evolve_dir=evolve_dir,
+                    examples=examples,
+                    step=self.global_steps,
+                    design_max_tokens=design_max_tokens,
+                )
+                or {}
+            )
+            _say(f"done: {metrics}")
+            return metrics
         except Exception as e:  # noqa: BLE001 — never break training on evolution failure
-            print(f"[reward_evolution] end-of-step evolution failed (skipping): {type(e).__name__}: {e}")
+            import traceback
+
+            _say(f"FAILED: {type(e).__name__}: {e}\n{traceback.format_exc()}")
             return {}
 
     def _validate(self, merged: bool = False):
