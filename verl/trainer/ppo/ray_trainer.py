@@ -856,6 +856,18 @@ class RayPPOTrainer:
                     pfx = f"{metric_sec}/{data_source}/{var_name}/{metric_name}"
                     metric_dict[pfx] = metric_val
 
+        # Overall (micro-average) accuracy across ALL validation samples, regardless of
+        # data_source — the single headline number. mimic_rare splits the val set into many
+        # per-ICD-category data_sources, so the per-source means above don't give one overall
+        # figure. `acc` is the exact-match accuracy the composite reward computes per sample.
+        for _var in ("acc", "reward"):
+            _vals = reward_extra_infos_dict.get(_var)
+            if _vals is not None and len(_vals) > 0:
+                _arr = np.asarray(_vals, dtype=np.float64)
+                _arr = _arr[np.isfinite(_arr)]
+                if _arr.size:
+                    metric_dict[f"val-core/overall/{_var}/mean"] = float(_arr.mean())
+
         if len(sample_turns) > 0:
             sample_turns = np.concatenate(sample_turns)
             metric_dict["val-aux/num_turns/min"] = sample_turns.min()

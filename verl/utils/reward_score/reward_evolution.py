@@ -226,7 +226,19 @@ similarity ratios (e.g. difflib on whole strings) that hand false credit to unre
 diseases which merely share letters (a wrong "melanoma" must not look like a correct \
 "myeloma"). Lightly penalize empty, hedging, or unsafe replies. CRITICAL: do NOT collapse to \
 a constant or near-zero output — on the examples shown, the correct answers must end up \
-clearly higher than the wrong ones. Start simple and correct; you can grow it over future rounds.
+clearly higher than the wrong ones.
+
+KEEP IT FOCUSED AND MAINTAINABLE (aim for under ~250 lines). The current function is given to \
+you to IMPROVE, not just to extend — once it already separates correct from wrong reliably, \
+PREFER refining, consolidating, or removing redundant/dead branches over piling on more \
+heuristics. Do not let it grow unboundedly.
+
+The LLM judge already scores overall correctness and quality, so make the function COMPLEMENTARY: \
+add cheap, deterministic signal the judge is weak or inconsistent at, e.g. did the model commit \
+to exactly ONE final answer (penalize multiple/contradictory final diagnoses), is the ICD-10 code \
+well-formed and consistent with the stated diagnosis name, and is the reply clear, committed, and \
+appropriately concise and useful for a real patient–doctor conversation — not just a string that \
+matches the ground-truth diagnosis. Start simple and correct; refine it over future rounds.
 
 First reason about what signal to add (reason freely). Then, OUTSIDE of and AFTER any \
 reasoning, output the COMPLETE function (with any imports and helpers it needs) as the \
