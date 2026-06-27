@@ -238,6 +238,47 @@ SFT_TEACHER_SYSTEM_PROMPT = (
 
 
 # ======================================================================
+# Sampling pool
+# ======================================================================
+class _RandomQueue(asyncio.Queue):
+    """Bounded async queue that pops a uniform-RANDOM element on get() (not FIFO).
+
+    Subclasses asyncio.Queue the same way the stdlib's LifoQueue / PriorityQueue
+    do — overriding only _init/_put/_get — so all of Queue's backpressure and
+    (importantly) cancellation-safe getter/putter handling is reused unchanged.
+    This matters because /sample wraps get() in asyncio.wait_for(..., 30s).
+
+    Why not FIFO: the workers emit entries in bursts *by mode*. ``direct`` seeds
+    (long, ~4.6k-char clinical cases) are cloned instantly and flood in, while
+    ``gen_train``/``gen_test`` questions (short, ~90-char) trickle in over
+    50-70 s LLM calls. A FIFO pool therefore serves the trainer long contiguous
+    runs of one mode. The trainer consumes this stream in order (data.shuffle
+    =False -> SequentialSampler; and shuffle=True is a no-op for the
+    fetch-on-first-touch SelfEvolvingDataset), so those runs alias against the
+    fixed batch size into a period-2 oscillation: consecutive steps train on
+    wildly different prompt-length / difficulty populations and every logged
+    metric zig-zags while val flatlines.
+
+    Drawing a uniform-random member from the bounded window (whose composition
+    the deficit scheduler keeps near the target mix) makes every fetched batch a
+    representative mix, so prompt-length means stay flat across steps.
+    """
+
+    def _init(self, maxsize: int) -> None:
+        self._queue: list = []
+
+    def _put(self, item) -> None:
+        self._queue.append(item)
+
+    def _get(self):
+        # O(1) unordered removal: swap the chosen element to the end, then pop.
+        # Order within the list is irrelevant since we always draw at random.
+        i = random.randrange(len(self._queue))
+        self._queue[i], self._queue[-1] = self._queue[-1], self._queue[i]
+        return self._queue.pop()
+
+
+# ======================================================================
 # Server state
 # ======================================================================
 class ServerState:
@@ -288,7 +329,10 @@ class ServerState:
             self.mix_targets[k] /= total
         self.mix_counts = {"direct": 0, "gen_train": 0, "gen_test": 0, "gen_mm": 0}
 
-        self.pool: asyncio.Queue = asyncio.Queue(maxsize=args.max_pool_size)
+        # Random-draw (not FIFO) so each fetched batch is a representative mix
+        # of the bursty per-mode output instead of a contiguous run of one mode
+        # (see _RandomQueue for why FIFO caused a period-2 training oscillation).
+        self.pool: asyncio.Queue = _RandomQueue(maxsize=args.max_pool_size)
         # Unbounded buffer drained by /sample BEFORE the regular pool. Used by
         # /replay so we don't drop entries when the pool is full; the trainer
         # pulls these first, then the pool's freshly-generated stream takes
