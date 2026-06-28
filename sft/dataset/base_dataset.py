@@ -120,8 +120,13 @@ class BaseDataset(Dataset):
             "class_label": datasets.Value("string"),
             "texts": datasets.Sequence(datasets.Value("string")),
             "modality_signature": datasets.Value("string"),
+            # Pre-extracted side-feature paths. Omni used video/audio; the Qwen3-VL
+            # ChildPlay splits add facial/pose (and keep audio). All must be declared or
+            # datasets' strict cast rejects the JSONL ("column names don't match").
             "ext_video_feats": datasets.Sequence(datasets.Value("string")),
             "ext_audio_feats": datasets.Sequence(datasets.Value("string")),
+            "ext_facial_feats": datasets.Sequence(datasets.Value("string")),
+            "ext_pose_feats": datasets.Sequence(datasets.Value("string")),
         })
 
         dataframes = []
@@ -298,17 +303,15 @@ class BaseDataset(Dataset):
             if val is None:
                 row_dict[key] = []
 
-        video_rel_path = row_dict.get('ext_video_feats', None)
-        if video_rel_path:
-            row_dict["ext_video_feats_path"] = os.path.join(self.base_dir, video_rel_path[0])
-        else:
-            row_dict["ext_video_feats_path"] = None
-
-        audio_rel_path = row_dict.get('ext_audio_feats', None)
-        if audio_rel_path:
-            row_dict["ext_audio_feats_path"] = os.path.join(self.base_dir, audio_rel_path[0])
-        else:
-            row_dict["ext_audio_feats_path"] = None
+        # Resolve external (pre-extracted) feature paths to absolute "<key>_path" entries.
+        # os.path.join is a no-op when the JSONL stores absolute paths (ChildPlay VL splits do).
+        # Streams: legacy video/audio (Omni) + facial/pose/audio (Qwen3-VL ChildPlay).
+        for _ext_key in ("ext_video_feats", "ext_audio_feats", "ext_facial_feats", "ext_pose_feats"):
+            _rel = row_dict.get(_ext_key, None)
+            if _rel:
+                row_dict[f"{_ext_key}_path"] = os.path.join(self.base_dir, _rel[0])
+            else:
+                row_dict[f"{_ext_key}_path"] = None
 
         messages = self._build_messages(row_dict)
 

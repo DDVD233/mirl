@@ -3,9 +3,23 @@ import torch
 from torch.utils.data import BatchSampler
 
 from dataset.base_dataset import BaseDataset
+from models.bam_vl_utils import build_keypoint_feat, build_audio_feat
 
 
-FAILED_PATHS_LOG = "/home/keaneong/human-behavior/verl/sft/failed_ext_paths_log/missing_feats.txt"
+# Log dir is configurable via env; defaults under the repo
+FAILED_PATHS_LOG = os.environ.get(
+    "BAM_FAILED_PATHS_LOG",
+    os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                 "failed_ext_paths_log", "missing_feats.txt"),
+)
+
+# How to pool each pre-extracted VL stream into a fixed adapter-input vector.
+# kind label, loader, default temporal mode. Dims come from the dataset config.
+VL_STREAM_SPECS = {
+    "facial": ("facial", build_keypoint_feat, "meanstd"),
+    "pose":   ("pose",   build_keypoint_feat, "meanstd"),
+    "audio":  ("audio",  build_audio_feat,    "none"),
+}
 
 
 def log_failed_path(path: str, kind: str, logfile: str = FAILED_PATHS_LOG) -> None:
@@ -56,20 +70,47 @@ class OmniClassifierDataset(BaseDataset):
     go through the normal label-map classification path.
     """
 
-    def __init__(self, *args, label_key='answer', label_map=None, dataset_key='dataset', qa_datasets=None, **kwargs):
+    def __init__(self, *args, label_key='answer', label_map=None, dataset_key='dataset',
+                 qa_datasets=None, vl_feat_config=None, **kwargs):
         super().__init__(*args, **kwargs)
         self.label_key = label_key
         self.label_map = label_map
         self.dataset_key = dataset_key
         self.qa_datasets = set([d.lower() for d in (qa_datasets or [])])
+        # vl_feat_config: {"facial": {"use": bool, "dim": int, "mode": str}, "pose": {...}, "audio": {...}}
+        # default collate can stack them and missing files are handled per row.
+        self.vl_feat_config = vl_feat_config or {}
+
+    def _load_pooled_stream(self, row_dict, stream):
+        """Return (feats[dim] float tensor, mask scalar) for a VL stream; zeros+0 if missing/off."""
+        spec = self.vl_feat_config.get(stream, {})
+        dim = int(spec["dim"])
+        kind, builder, default_mode = VL_STREAM_SPECS[stream]
+        mode = spec.get("mode", default_mode)
+        path = row_dict.get(f"ext_{stream}_feats_path", None)
+        obj = load_feat_or_none(path, kind=kind)
+        v = builder(obj, mode, dim) if obj is not None else None
+        if v is None:
+            return torch.zeros(dim, dtype=torch.float32), torch.tensor(0.0, dtype=torch.float32)
+        return v.float(), torch.tensor(1.0, dtype=torch.float32)
 
     def __getitem__(self, item):
         row_dict = super().__getitem__(item)
 
-        video_feats_path = row_dict.get('ext_video_feats_path', row_dict.get('ext_video_feats', None))
-        audio_feats_path = row_dict.get('ext_audio_feats_path', row_dict.get('ext_audio_feats', None))
-        row_dict['video_feats'] = load_feat_or_none(video_feats_path, kind="video")
-        row_dict['audio_feats'] = load_feat_or_none(audio_feats_path, kind="audio")
+        if self.vl_feat_config:
+            # Qwen3-VL ChildPlay path: load + pool facial / pose / audio to fixed vectors.
+            for stream, spec in self.vl_feat_config.items():
+                if not spec.get("use", False):
+                    continue
+                feats, mask = self._load_pooled_stream(row_dict, stream)
+                row_dict[f"{stream}_feats"] = feats
+                row_dict[f"{stream}_mask"] = mask
+        else:
+            # Legacy Omni path: load raw .pt objects; the trainer pools them.
+            video_feats_path = row_dict.get('ext_video_feats_path', row_dict.get('ext_video_feats', None))
+            audio_feats_path = row_dict.get('ext_audio_feats_path', row_dict.get('ext_audio_feats', None))
+            row_dict['video_feats'] = load_feat_or_none(video_feats_path, kind="video")
+            row_dict['audio_feats'] = load_feat_or_none(audio_feats_path, kind="audio")
 
         original_answer = row_dict.get(self.label_key, "").lower()
         dataset_name = row_dict.get(self.dataset_key, "").lower()

@@ -1,0 +1,134 @@
+system:
+  cuda_visible_devices: "0,1"
+
+mode: "train"  # train or test
+
+data:
+  # ChildPlay "for_VL" splits. train_all has the 3 extracted streams; train_baseline has none
+  # (video+text control). Point val at the matching split files when available.
+  train_file: "/orcd/scratch/orcd/011/emorfin/ados/childplay_splits/train_for_VL/train_all_for_VL.jsonl"
+  val_file:   "/orcd/scratch/orcd/011/emorfin/ados/childplay_splits/val_for_VL/val_all_for_VL.jsonl"
+  # Single-domain ADOS label scheme (meta.global_classes / meta.dataset_domain must
+  # include the 'default' dataset). Build one for {0,1,2,3,4,"Cannot assess from video"}.
+  label_map_path: "/orcd/scratch/orcd/011/emorfin/mirl/sft/label_maps/childplay_vl_label_map.json"
+
+model:
+  backbone_name: "Qwen/Qwen3-VL-32B-Instruct"     # change this to switch model (see backbone_class note)
+  tokenizer_name: "Qwen/Qwen3-VL-32B-Instruct"
+  processor_name: "Qwen/Qwen3-VL-32B-Instruct"
+  # null -> AutoModelForImageTextToText auto-dispatches the right class from the checkpoint
+  # (dense Qwen3-VL, Qwen3-VL-MoE, Qwen2.5-VL, ...). To switch to e.g. a 27B/30B model,
+  # update backbone_name/tokenizer_name/processor_name together, and update the FSDP wrap
+  # classes in the accelerate launch YAML (Qwen3VLMoeTextDecoderLayer/Qwen3VLMoeVisionModel
+  # for MoE). Set this only to force a specific class.
+  backbone_class: null
+  attn_implementation: "flash_attention_2"
+  training_strategy: "head_only"                  # head_only | lora | full  (bam_only freezes base anyway)
+  device_map: null                                # null for Accelerate/FSDP
+  torch_dtype: "bfloat16"                          # Qwen3-VL native dtype
+  lora_config:
+    r: 32
+    alpha: 64
+    dropout: 0.05
+    target_modules: ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "down_proj", "up_proj"]
+
+bam:
+  task_type: "qa"                                 # qa (teacher-forcing LM) | cls
+  dataset_name: "default"
+  qa_datasets: ["default"]                        # rows whose dataset is here are QA (lm_labels=answer)
+
+  bam_stage: "bam_only"                           # bam_only | bam_and_classifier_heads_only | bam_and_full_model
+  bam_fresh_start: false
+  qa_loss_weight: 1.0
+
+  # Native video is NOT wired in BAMVLTrainer yet (text+BAM core). Keep false.
+  vl_use_native_video: false
+
+  # --- Three extracted streams (dims locked from the real .pt files) ---
+  # facial: MediaPipe FaceMesh [T,478,3] -> meanstd -> 2868
+  use_bam_facial: true
+  d_facial_feat: 2868
+  bam_facial_temporal: "meanstd"
+  bam_hidden_facial: 256
+  bam_p_moddrop_facial: 0.30
+  bam_facial_use_ln: false
+  bam_facial_alpha_init: 1.0
+
+  # pose: COCO-17 keypoints [T,17,3] -> meanstd -> 102
+  use_bam_pose: true
+  d_pose_feat: 102
+  bam_pose_temporal: "meanstd"
+  bam_hidden_pose: 128
+  bam_p_moddrop_pose: 0.30
+  bam_pose_use_ln: false
+  bam_pose_alpha_init: 1.0
+
+  # audio: eGeMAPS dict{"features":[1,88]} -> none -> 88 (already normalized + pooled)
+  use_bam_audio: true
+  d_audio_feat: 88
+  bam_audio_temporal: "none"
+  bam_hidden_audio: 128
+  bam_p_moddrop_audio: 0.30
+  bam_audio_use_ln: false
+  bam_audio_alpha_init: 1.0
+
+train:
+  train_batch_size: 4
+  val_batch_size: 4
+  test_batch_size: 1
+  lr: 1e-6
+  base_lr: 1e-4        # backbone (0 effective under bam_only)
+  bam_lr: 1e-4           # adapters learn fast
+  max_grad_norm: 1.0     # gradient clipping (verl fsdp_sft default); pre-clip norm logged as train/grad_norm
+
+  epochs: 5
+  save_checkpoint_dir: "/orcd/scratch/orcd/011/emorfin/ados/checkpoints/bam_vl_qwen3vl32b_qa_sft"
+  load_checkpoint_path: null
+  # With load_checkpoint_path null, training starts FRESH and ignores any checkpoints already
+  # in save_checkpoint_dir (so a prior run there can't contaminate this one). Set
+  # resume_from_latest: true to opt back into auto-resuming the most recent checkpoint.
+  resume_from_latest: false
+  validation_result_dir: null
+  save_every_n_epochs: 1
+  save_every_n_steps: null
+  # Validation cadence is counted in dataloader iterations (micro-batches), same clock as
+  # save_every_n_steps.
+  # Set validate_every_n_steps to null to validate only at epoch end.
+  validate_every_n_epochs: 1
+  validate_every_n_steps: 400
+  early_stopping_patience: 99999
+  gradient_accumulation_steps: 16
+  num_workers: 0                  # handled by Accelerate
+  use_scheduler: false
+  scheduler_type: "cosine"
+  warmup_steps: 100
+
+dataset_config:
+  max_prompt_length: 2048
+  # Text + BAM core: native video off (matches vl_use_native_video=false). The prompt
+  # already embeds a [Video Summary]. Switch to "videos" only once native-video collation
+  # is wired (deferred step 7).
+  modalities: ""
+  prompt_key: "problem"
+  image_key: "images"
+  video_key: "videos"
+  audio_key: "audios"
+  label_key: "answer"
+  return_multi_modal_inputs: true
+  num_workers: 0
+  filter_overlong_prompts_workers: 0
+  filter_overlong_prompts: false
+  truncation: "right"
+
+# NOTE (FSDP launch wiring, deferred to entry-point step): in the Accelerate launch YAML
+# (e.g. accelerate_config_qwen.yaml) set
+#   fsdp_transformer_layer_cls_to_wrap: Qwen3VLTextDecoderLayer
+# (optionally also the vision block) so FSDP wraps Qwen3-VL decoder layers correctly.
+
+wandb:
+  use: true
+  project: "bam-vl-qwen3vl-sft"   # all BAM-VL runs land here so loss curves overlay for comparison
+  entity: null                # null -> your default wandb entity (from `wandb login`)
+  # Explicit run name shown in wandb. If null, an auto descriptive name is used
+  # (bamvl_<task>_<stage>_<datasplit>_feats-<streams>_<timestamp>).
+  run_name: "sft-3VL-32B-lr-1e-6"

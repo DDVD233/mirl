@@ -111,9 +111,11 @@ class BaseMultiHeadTrainer:
         self.qa_loss_weight = 1.0
 
         use_wandb = self.global_config.get('USE_WANDB', False)
+        # Default 'fp16' preserves Omni behavior; VL trainers set 'bf16' (Qwen3-VL native dtype).
+        mixed_precision = self.global_config.get('MIXED_PRECISION', 'fp16')
         self.accelerator = Accelerator(
             gradient_accumulation_steps=gradient_accumulation_steps,
-            mixed_precision='fp16',
+            mixed_precision=mixed_precision,
             log_with="wandb" if use_wandb else None,
             project_dir=save_checkpoint_dir if use_wandb else None,
             kwargs_handlers=self._accelerator_kwargs_handlers(),
@@ -172,11 +174,13 @@ class BaseMultiHeadTrainer:
             "warmup_steps": self.warmup_steps if self.use_scheduler else None,
         }
         cfg.update(self._extra_wandb_config())
+        run_name = self.global_config.get('RUN_NAME') or \
+            f"omni_classifier_accelerate_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
         init_wandb(
             project=self.global_config.get('WANDB_PROJECT', ''),
             entity=self.global_config.get('WANDB_ENTITY', ''),
             config=cfg,
-            run_name=f"omni_classifier_accelerate_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            run_name=run_name,
         )
 
     # -------------------------------------------------------------------------
