@@ -173,11 +173,11 @@ def test_get_current_artifacts_uninitialized_falls_back_to_starter():
 # ---------------------------------------------------------------------------
 
 def test_make_example_and_select_contrastive():
-    row = {"score": 0.12, "acc": 0.0, "judge_reward": 0.3, "function_reward": 0.1,
+    row = {"score": 0.12, "acc": 0.0, "dynamic_judge": 0.3, "dynamic_function": 0.1,
            "extracted_answer": "E83.11"}
     ex = RE.make_example("the question", "resp", "K22.0: Achalasia", row)
     assert ex["combined_reward"] == 0.12
-    assert ex["sub_rewards"]["judge_reward"] == 0.3
+    assert ex["sub_rewards"]["dynamic_judge"] == 0.3
     assert ex["extracted_answer"] == "E83.11"
 
     pool = [{"combined_reward": i / 10.0} for i in range(20)]  # 0.0 .. 1.9
@@ -196,7 +196,7 @@ def _run(coro):
 
 
 def test_compute_score_off_path_is_composite():
-    """evolve_enable=False -> original composite dict, no judge_reward/function_reward keys."""
+    """evolve_enable=False -> original composite dict, no dynamic_judge/dynamic_function keys."""
     res = _run(
         SE.compute_score(
             data_source="mimic_rare/test",
@@ -208,39 +208,54 @@ def test_compute_score_off_path_is_composite():
         )
     )
     assert "score" in res and "acc" in res
-    assert "judge_reward" not in res
-    assert "function_reward" not in res
+    assert "dynamic_judge" not in res
+    assert "dynamic_function" not in res
     # exact match -> acc 1.0, format present
     assert res["acc"] == 1.0
     assert res["format_ok"] == 1.0
 
 
-def test_compute_score_on_path_uses_evolve():
-    """evolve_enable=True + not validation -> evolve dict with judge_reward/function_reward."""
+def test_compute_score_on_path_is_composite_plus_addon():
+    """evolve_enable=True + not validation -> composite reward PLUS dynamic_judge/dynamic_function
+    add-on keys. With api_base='' the dynamic terms are 0, so the total equals the renormalized
+    composite (composite / (1 + w_judge + w_func)); the composite components are still present."""
     with tempfile.TemporaryDirectory() as d:
         RE.EvolutionStore(d).init_if_needed()  # starter: judge 0 (no api), function 0
-        res = _run(
+        off = _run(
             SE.compute_score(
                 data_source="mimic_rare/test",
                 solution_str="\\boxed{E70.0: PKU}",
                 ground_truth="E70.0: PKU",
                 extra_info={"question": "q"},
-                api_base="",  # judge unreachable -> judge_reward 0.0
+                api_base="",
+                evolve_enable=False,
+            )
+        )
+        on = _run(
+            SE.compute_score(
+                data_source="mimic_rare/test",
+                solution_str="\\boxed{E70.0: PKU}",
+                ground_truth="E70.0: PKU",
+                extra_info={"question": "q"},
+                api_base="",  # dynamic terms unreachable -> 0
                 evolve_enable=True,
                 evolve_dir=d,
                 evolve_w_judge=0.7,
                 evolve_w_func=0.3,
             )
         )
-        assert "judge_reward" in res and "function_reward" in res
-        assert res["judge_reward"] == 0.0  # no api
-        assert res["function_reward"] == 0.0  # starter returns 0
-        assert res["score"] == 0.0
-        assert res["acc"] == 1.0  # acc still computed for monitoring
+        # add-on keys present and 0 (no api / starter fn)
+        assert on["dynamic_judge"] == 0.0
+        assert on["dynamic_function"] == 0.0
+        # original composite components are STILL present (add-on, not replacement)
+        assert "answer_quality" in on and "char_bleu" in on
+        assert on["acc"] == 1.0
+        # total = composite / (1 + 0.7 + 0.3); composite reward is preserved as the base
+        assert abs(on["score"] - off["score"] / 2.0) < 1e-6
 
 
-def test_compute_score_validation_uses_composite_even_when_enabled():
-    """evolve_enable=True but _is_validation=True -> composite path (no evolve keys)."""
+def test_compute_score_validation_uses_pure_composite_even_when_enabled():
+    """evolve_enable=True but _is_validation=True -> pure composite (no add-on keys)."""
     with tempfile.TemporaryDirectory() as d:
         RE.EvolutionStore(d).init_if_needed()
         res = _run(
@@ -254,6 +269,6 @@ def test_compute_score_validation_uses_composite_even_when_enabled():
                 evolve_dir=d,
             )
         )
-        assert "judge_reward" not in res
-        assert "function_reward" not in res
+        assert "dynamic_judge" not in res
+        assert "dynamic_function" not in res
         assert res["acc"] == 1.0

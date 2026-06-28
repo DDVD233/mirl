@@ -608,64 +608,37 @@ async def judge_correctness(
         return 0.0
 
 
-async def _compute_score_evolve(
+async def _evolve_addon(
+    composite_score: float,
     question: str,
     solution_str: str,
     ground_truth: str,
-    extra_info: dict,
     api_base: str,
     api_key: str,
     model_name: str,
     evolve_dir: str,
     w_judge: float,
     w_func: float,
-    gen_server_url: str = "",
-) -> dict:
-    """Reward-evolution mode reward: renorm(w_judge*judge + w_func*function), both in [0,1].
+) -> tuple[float, float, float]:
+    """Reward-evolution ADD-ON (training-only). Fold the evolvable judge prompt + executable
+    function ON TOP of the existing composite instead of replacing it.
 
-    Training-only. Reads the latest evolved judge prompt + executable function from
-    ``{evolve_dir}/current/`` (see ``reward_evolution.get_current_artifacts``). The full
-    composite (embedding, multi-judge, bleu) is bypassed entirely. ``acc`` (exact match)
-    is still computed cheaply for monitoring and for the gen-server difficulty feedback,
-    but is NOT part of the reward. Returned keys mirror the composite path (plus
-    ``judge_reward`` / ``function_reward``) so the per-batch reward dict stays homogeneous.
+    Returns ``(total, dynamic_judge, dynamic_function)`` where
+    ``total = (composite + w_judge*dynamic_judge + w_func*dynamic_function) / (1 + w_judge + w_func)``
+    in [0,1]. The full composite (acc / lenient / strict / answer_quality / reasoning / format /
+    embed / bleu) stays the BASE reward; the evolvable judge prompt (dynamic_judge) and executable
+    function (dynamic_function) are additive signals on top. Reads ``{evolve_dir}/current/``.
     """
     from verl.utils.reward_score import reward_evolution as RE  # lazy import avoids a cycle
 
     judge_prompt, fn, _fn_src = RE.get_current_artifacts(evolve_dir)
-    judge_reward = await RE.score_with_judge_prompt(
+    dynamic_judge = await RE.score_with_judge_prompt(
         api_base, api_key, model_name, judge_prompt, question, solution_str, ground_truth
     )
-    function_reward = RE.safe_call_function(fn, question, solution_str, ground_truth)
-    denom = (w_judge + w_func) or 1.0
-    score = (w_judge * judge_reward + w_func * function_reward) / denom
-
-    is_correct, extracted = check_accuracy(solution_str, ground_truth)
-    accuracy = 1.0 if is_correct else 0.0
-
-    # Keep the self-evolving question-generation loop calibrated: report exact-match acc
-    # back to the gen-server exactly as the composite path does.
-    server_url = gen_server_url or os.environ.get("GEN_SERVER_URL", "")
-    question_id = (extra_info or {}).get("question_id", "")
-    if server_url and question_id:
-        await _report_to_gen_server(server_url, question_id, accuracy)
-
-    return {
-        "score": score,
-        "acc": accuracy,
-        "judge_reward": judge_reward,
-        "function_reward": function_reward,
-        # zero-filled composite keys so the per-batch reward dict stays homogeneous with
-        # the validation (composite) path; unused in evolve mode.
-        "judge_acc_lenient": 0.0,
-        "judge_acc_strict": 0.0,
-        "answer_quality": 0.0,
-        "reasoning_quality": 0.0,
-        "format_ok": 1.0 if check_format(solution_str) else 0.0,
-        "embed_sim": 0.0,
-        "char_bleu": 0.0,
-        "extracted_answer": extracted or "",
-    }
+    dynamic_function = RE.safe_call_function(fn, question, solution_str, ground_truth)
+    denom = 1.0 + w_judge + w_func
+    total = (composite_score + w_judge * dynamic_judge + w_func * dynamic_function) / denom
+    return total, dynamic_judge, dynamic_function
 
 
 async def compute_score(
@@ -709,26 +682,6 @@ async def compute_score(
     context = extra_info.get("context", "")
     options = extra_info.get("options", {}) if isinstance(extra_info.get("options"), dict) else {}
     has_label = bool(ground_truth and ground_truth.strip())
-
-    # === Reward-evolution mode (optional, training-only) ===
-    # When enabled and NOT during validation, drop the composite entirely and score with
-    # only the evolvable judge prompt + evolvable executable function (see reward_evolution).
-    # Validation always falls through to the composite path below, so val metrics (esp. the
-    # exact-match accuracy) stay comparable across steps. Off by default => unchanged.
-    if evolve_enable and evolve_dir and not extra_info.get("_is_validation", False):
-        return await _compute_score_evolve(
-            question=question,
-            solution_str=solution_str,
-            ground_truth=ground_truth,
-            extra_info=extra_info,
-            api_base=api_base,
-            api_key=api_key,
-            model_name=model_name,
-            evolve_dir=evolve_dir,
-            w_judge=evolve_w_judge,
-            w_func=evolve_w_func,
-            gen_server_url=gen_server_url,
-        )
 
     # 1. Format check
     format_ok = 1.0 if check_format(solution_str) else 0.0
@@ -820,6 +773,32 @@ async def compute_score(
         + CHAR_BLEU_WEIGHT * char_bleu_score
     )
 
+    # === Reward-evolution ADD-ON (optional, training-only) ===
+    # When enabled and NOT during validation, fold the evolvable judge prompt + executable
+    # function ON TOP of the composite above (the composite stays the base reward; the new
+    # judge/function are additive signals, not the sole reward). Validation always uses the
+    # pure composite so val metrics stay comparable. Off by default => composite unchanged.
+    dynamic_judge = 0.0
+    dynamic_function = 0.0
+    evolve_on = bool(evolve_enable and evolve_dir and not extra_info.get("_is_validation", False))
+    if evolve_on:
+        try:
+            score, dynamic_judge, dynamic_function = await _evolve_addon(
+                composite_score=score,
+                question=question,
+                solution_str=solution_str,
+                ground_truth=ground_truth,
+                api_base=api_base,
+                api_key=api_key,
+                model_name=model_name,
+                evolve_dir=evolve_dir,
+                w_judge=evolve_w_judge,
+                w_func=evolve_w_func,
+            )
+        except Exception as e:  # never let the add-on break the (working) composite reward
+            logger.warning(f"evolve add-on failed, using composite only: {type(e).__name__}: {e}")
+            evolve_on = False
+
     if random.random() < DEBUG_PRINT_PROB:
         mode = "label" if has_label else "no-label"
         print(f"\n{'=' * 60}")
@@ -845,7 +824,7 @@ async def compute_score(
     if server_url and question_id:
         await _report_to_gen_server(server_url, question_id, accuracy)
 
-    return {
+    result = {
         "score": score,
         "acc": accuracy,
         "judge_acc_lenient": judge_acc_lenient,
@@ -857,3 +836,9 @@ async def compute_score(
         "char_bleu": char_bleu_score,
         "extracted_answer": extracted_answer or "",
     }
+    # Surface the add-on components only when active (keeps the OFF path byte-identical).
+    # dynamic_judge = evolvable judge-prompt score; dynamic_function = evolvable function score.
+    if evolve_on:
+        result["dynamic_judge"] = dynamic_judge
+        result["dynamic_function"] = dynamic_function
+    return result

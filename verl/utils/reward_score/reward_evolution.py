@@ -59,9 +59,33 @@ logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 # quality), so we steer toward generic diagnostic correctness + usefulness, never
 # toward the heldout set itself.
 STEER_SENTENCE = (
-    "Optimize for responses that reach the correct diagnosis and are maximally "
-    "useful, clear, and safe as a doctor's reply in a patient–doctor conversation."
+    "Optimize for medical answers that are diagnostically correct AND genuinely useful as a "
+    "doctor's reply — complete, clearly communicated, appropriately calibrated, and safe — so "
+    "the signal transfers from rare-disease diagnosis (MIMIC) to open-ended patient–doctor "
+    "consultations (HealthBench Professional)."
 )
+
+# Shared context injected into BOTH meta-prompts. The reward is trained on MIMIC (single
+# ground-truth diagnosis per item) but the artifact is also evaluated, unseen, on HealthBench
+# Professional (open-ended consultations graded by physician rubrics). Left unchecked, the
+# evolved judge/function drift toward "exact boxed diagnosis = 10, penalize everything else,
+# prioritize terseness" — which games MIMIC accuracy but tanks HealthBench (which rewards
+# thorough, well-communicated, safe consultations). This block counters that drift.
+DUAL_OBJECTIVE = """\
+DUAL OBJECTIVE — read carefully. The student model is TRAINED on MIMIC rare-disease cases \
+(each has ONE ground-truth diagnosis) but will ALSO be evaluated, unseen, on open-ended \
+patient–doctor consultations graded by physician-written rubrics (HealthBench Professional), \
+which score: diagnostic/factual ACCURACY, COMPLETENESS (covers the key issues, work-up, and \
+next steps), COMMUNICATION quality (clear, well-organized, patient-appropriate), CALIBRATION \
+(commits when warranted, states uncertainty when warranted), and SAFETY/ESCALATION (flags red \
+flags, no dangerous advice). Therefore reward GENERALIZABLE clinical-answer quality, NOT just \
+exact diagnosis-string / ICD matching. Concretely:
+- A correct diagnosis delivered as a clear, complete, safe, patient-appropriate explanation \
+must OUTSCORE a bare correct \\boxed{code} with no reasoning.
+- Do NOT reward terse, code-only outputs and do NOT penalize appropriate, well-organized \
+clinical detail — that bias games MIMIC but fails HealthBench.
+- Keep diagnostic accuracy a necessary, heavily-weighted axis, but make reasoning, \
+completeness, communication, calibration, and safety co-count so the reward transfers."""
 
 # The judge-scoring contract is fixed: the grader receives these exact bracket
 # labels in the user message and must emit one integer 0-10 in \boxed{...}. The
@@ -147,16 +171,22 @@ and must output a single integer score from 0 to 10 inside \\boxed{{...}}.
 
 {STEER_SENTENCE}
 
+{DUAL_OBJECTIVE}
+
 You will be shown the CURRENT judging prompt and several worked examples — each with the \
 question, the model's response, the correct answer, and the sub-reward / combined-reward \
 values the current grading produced. Study where the current prompt mis-grades: too \
 lenient on wrong diagnoses, too harsh on correct-but-differently-worded answers, ignoring \
-clarity / usefulness / safety, or rewarding verbosity or format hacks.
+clarity / completeness / safety — and especially the common DRIFT toward "boxed answer \
+absent => 0, deduct for length, prioritize terseness", which over-fits MIMIC and would hurt \
+HealthBench. Fix that drift if you see it.
 
-Then write an IMPROVED judging prompt that grades more faithfully toward true diagnostic \
-quality and usefulness, while staying a clear, self-contained rubric. The model's committed \
-final answer is conventionally in \\boxed{{...}}; the grader should judge primarily by that \
-committed diagnosis, not by tentative differentials the model floats mid-reasoning.
+Then write an IMPROVED judging prompt: a clear, self-contained, MULTI-AXIS rubric covering \
+diagnostic accuracy, clinical reasoning, completeness, communication clarity, calibration, \
+and safety (per the dual objective above). Identify the model's committed final answer \
+(often in \\boxed{{...}}) and weight diagnostic correctness heavily, but score the FULL reply \
+across all axes — do NOT collapse the rubric to boxed-exact-match alone, and do NOT make a \
+missing box an automatic zero if the conclusion is clearly stated.
 
 HARD REQUIREMENTS for the prompt you write:
 - It must tell the grader it will receive [QUESTION], [MODEL RESPONSE], and [CORRECT ANSWER] \
@@ -198,6 +228,8 @@ Use exactly this signature (do not change it):
 
 {STEER_SENTENCE}
 
+{DUAL_OBJECTIVE}
+
 Environment: the function runs inside Docker. You MAY import any library and use the \
 internet. Make it ROBUST and FAST:
 - Never raise on weird input — wrap risky work in try/except and fall back to a sane default.
@@ -236,9 +268,11 @@ heuristics. Do not let it grow unboundedly.
 The LLM judge already scores overall correctness and quality, so make the function COMPLEMENTARY: \
 add cheap, deterministic signal the judge is weak or inconsistent at, e.g. did the model commit \
 to exactly ONE final answer (penalize multiple/contradictory final diagnoses), is the ICD-10 code \
-well-formed and consistent with the stated diagnosis name, and is the reply clear, committed, and \
-appropriately concise and useful for a real patient–doctor conversation — not just a string that \
-matches the ground-truth diagnosis. Start simple and correct; refine it over future rounds.
+well-formed and consistent with the stated diagnosis name, and does the reply actually read as a \
+usable clinical answer. Do NOT give full credit to a bare \\boxed{{code}} with no diagnosis name or \
+reasoning, and do NOT reward extreme terseness (a code-only answer would fail an open-ended \
+HealthBench consultation) — but likewise do not just reward length. Start simple and correct; \
+refine it over future rounds.
 
 First reason about what signal to add (reason freely). Then, OUTSIDE of and AFTER any \
 reasoning, output the COMPLETE function (with any imports and helpers it needs) as the \
@@ -744,8 +778,8 @@ def evolve_once_sync(**kwargs) -> dict:
 
 _SUB_REWARD_KEYS = (
     "acc",
-    "judge_reward",
-    "function_reward",
+    "dynamic_judge",
+    "dynamic_function",
     "judge_acc_lenient",
     "judge_acc_strict",
     "answer_quality",

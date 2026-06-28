@@ -2,12 +2,14 @@
 # Self-evolving REWARD run: same Qwen3.6-27B self-improve setup as
 # run_qwen36_27b_selfimprove_kl.sh, but with the optional reward-evolution switch ON.
 #
-# When ON the per-sample TRAINING reward drops the composite (embedding / multi-judge /
-# bleu) and uses only:  renorm( w_judge * judge_reward(evolvable prompt)
-#                              + w_func  * function_reward(evolvable python) ).
-# At the end of EACH training step the judge (gpu5 teacher) rewrites the judging prompt
+# When ON the per-sample TRAINING reward keeps the full existing composite (acc / lenient /
+# strict / answer_quality / reasoning / format / embed / bleu) as the BASE and folds two
+# evolvable signals ON TOP as add-ons:
+#   total = ( composite + w_judge * dynamic_judge(evolvable prompt)
+#                       + w_func  * dynamic_function(evolvable python) ) / (1 + w_judge + w_func)
+# At the end of EACH training step the judge (gpu5 self-teacher) rewrites the judging prompt
 # and writes/improves an executable function_reward; artifacts are versioned under
-# $EVOLVE_DIR/step_NNN with an atomic current/ pointer. Validation always uses the old
+# $EVOLVE_DIR/step_NNN with an atomic current/ pointer. Validation always uses the pure
 # composite path, so val accuracy stays comparable. With the switch OFF this script
 # behaves byte-identically to run_qwen36_27b_selfimprove_kl.sh.
 #
