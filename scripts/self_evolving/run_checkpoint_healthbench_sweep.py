@@ -240,7 +240,9 @@ def run_eval(served_name: str, tag: str, args) -> bool:
         "--model-base", f"http://127.0.0.1:{args.port}/v1", "--model-name", served_name,
         "--model-provider", "vllm", *think,
         "--grader", "trapi", "--grader-base", args.judge_base, "--grader-key", args.judge_key,
-        "--grader-model", args.judge_model, "--grader-effort", "none",
+        # gpt-chat-latest rejects reasoning_effort="none" (only "medium"); omit effort for it.
+        "--grader-model", args.judge_model,
+        "--grader-effort", ("" if "chat-latest" in args.judge_model else "none"),
         "--concurrency", str(args.concurrency), "--max-tokens", "2048", "--limit", str(args.limit),
         "--wandb-project", args.wandb_project, "--wandb-run-name", f"hbpro-ckpt-{tag}",
         "--output-dir", eval_out,

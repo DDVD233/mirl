@@ -300,12 +300,14 @@ async def _call_api(
     elif provider == "kimi":
         payload["thinking"] = {"type": "disabled"}
     elif provider == "trapi":
-        # TRAPI Azure-OpenAI models (Kimi, gpt-5.5, ...): no temperature; want
-        # `max_completion_tokens` (gpt-5.x 400 on `max_tokens`); judge disables
-        # reasoning via reasoning_effort.
+        # TRAPI Azure-OpenAI models (Kimi, gpt-5.x, ...): no temperature; want
+        # `max_completion_tokens` (gpt-5.x 400 on `max_tokens`). gpt-5.x reasoning
+        # models take reasoning_effort="none" to skip reasoning, but the high-throughput
+        # gpt-chat-latest deployment REJECTS "none" (only "medium"), so omit it there.
         payload.pop("max_tokens", None)
         payload["max_completion_tokens"] = max_tokens
-        payload["reasoning_effort"] = "none"
+        if "chat-latest" not in model_name.lower():
+            payload["reasoning_effort"] = "none"
     else:  # openai-compatible / generic
         payload["temperature"] = 0.0
 
