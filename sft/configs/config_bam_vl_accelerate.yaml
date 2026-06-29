@@ -6,16 +6,16 @@ mode: "train"  # train or test
 data:
   # ChildPlay "for_VL" splits. train_all has the 3 extracted streams; train_baseline has none
   # (video+text control). Point val at the matching split files when available.
-  train_file: "/orcd/scratch/orcd/011/emorfin/ados/childplay_splits/train_for_VL/train_all_for_VL.jsonl"
-  val_file:   "/orcd/scratch/orcd/011/emorfin/ados/childplay_splits/val_for_VL/val_all_for_VL.jsonl"
+  train_file: "/orcd/scratch/orcd/011/emorfin/ados/childplay_splits/train_for_VL/train_all_for_VL_cot.jsonl"
+  val_file:   "/orcd/scratch/orcd/011/emorfin/ados/childplay_splits/val_for_VL/val_all_for_VL_cot.jsonl"
   # Single-domain ADOS label scheme (meta.global_classes / meta.dataset_domain must
   # include the 'default' dataset). Build one for {0,1,2,3,4,"Cannot assess from video"}.
-  label_map_path: "/orcd/scratch/orcd/011/emorfin/mirl/sft/label_maps/childplay_vl_label_map.json"
+  label_map_path: "/orcd/scratch/orcd/011/emorfin/mirl/sft/label_maps/childplay_vl_tap_label_map.json"
 
 model:
-  backbone_name: "Qwen/Qwen3-VL-32B-Instruct"     # change this to switch model (see backbone_class note)
-  tokenizer_name: "Qwen/Qwen3-VL-32B-Instruct"
-  processor_name: "Qwen/Qwen3-VL-32B-Instruct"
+  backbone_name: "Qwen/Qwen3.5-27B"     # change this to switch model (see backbone_class note)
+  tokenizer_name: "Qwen/Qwen3.5-27B"
+  processor_name: "Qwen/Qwen3.5-27B"
   # null -> AutoModelForImageTextToText auto-dispatches the right class from the checkpoint
   # (dense Qwen3-VL, Qwen3-VL-MoE, Qwen2.5-VL, ...). To switch to e.g. a 27B/30B model,
   # update backbone_name/tokenizer_name/processor_name together, and update the FSDP wrap
@@ -41,8 +41,10 @@ bam:
   bam_fresh_start: false
   qa_loss_weight: 1.0
 
-  # Native video is NOT wired in BAMVLTrainer yet (text+BAM core). Keep false.
-  vl_use_native_video: false
+  # Native video: feed sampled video frames through the Qwen3-VL backbone alongside the
+  # BAM side-channel adapters. Requires `videos` in dataset_config.modalities so the
+  # processor expands <video> placeholder tokens and emits the visual tensors.
+  vl_use_native_video: true
 
   # --- Three extracted streams (dims locked from the real .pt files) ---
   # facial: MediaPipe FaceMesh [T,478,3] -> meanstd -> 2868
@@ -73,16 +75,19 @@ bam:
   bam_audio_alpha_init: 1.0
 
 train:
-  train_batch_size: 4
-  val_batch_size: 4
+  train_batch_size: 2
+  val_batch_size: 2
   test_batch_size: 1
   lr: 1e-6
   base_lr: 1e-4        # backbone (0 effective under bam_only)
-  bam_lr: 1e-4           # adapters learn fast
+  bam_lr: 2e-4           # adapters learn fast
   max_grad_norm: 1.0     # gradient clipping (verl fsdp_sft default); pre-clip norm logged as train/grad_norm
 
-  epochs: 5
-  save_checkpoint_dir: "/orcd/scratch/orcd/011/emorfin/ados/checkpoints/bam_vl_qwen3vl32b_qa_sft"
+  epochs: 1
+  # Curriculum stage cap, counted in dataloader micro-batches (same clock as
+  # save/validate_every_n_steps) A final checkpoint is always written when this is hit.
+  max_steps: 500
+  save_checkpoint_dir: "/orcd/scratch/orcd/011/emorfin/ados/checkpoints/bam_vl_qwen35_27b_qa_sft_stage1_bam_only"
   load_checkpoint_path: null
   # With load_checkpoint_path null, training starts FRESH and ignores any checkpoints already
   # in save_checkpoint_dir (so a prior run there can't contaminate this one). Set
@@ -97,18 +102,19 @@ train:
   validate_every_n_epochs: 1
   validate_every_n_steps: 400
   early_stopping_patience: 99999
-  gradient_accumulation_steps: 16
-  num_workers: 0                  # handled by Accelerate
+  gradient_accumulation_steps: 32
+  num_workers: 8 
   use_scheduler: false
   scheduler_type: "cosine"
   warmup_steps: 100
 
 dataset_config:
-  max_prompt_length: 2048
-  # Text + BAM core: native video off (matches vl_use_native_video=false). The prompt
-  # already embeds a [Video Summary]. Switch to "videos" only once native-video collation
-  # is wired (deferred step 7).
-  modalities: ""
+  max_prompt_length: 4096
+  # Native video on (matches vl_use_native_video=true): the processor samples frames from
+  # the row's `videos` path, expands <video> placeholder tokens into input_ids, and emits
+  # pixel_values_videos / video_grid_thw. Set to "" to fall back to the text-only [Video
+  # Summary] + BAM core. Frame count / resolution come from dataset/vision_utils.process_video.
+  modalities: "videos"
   prompt_key: "problem"
   image_key: "images"
   video_key: "videos"
@@ -127,8 +133,8 @@ dataset_config:
 
 wandb:
   use: true
-  project: "bam-vl-qwen3vl-sft"   # all BAM-VL runs land here so loss curves overlay for comparison
+  project: "bam-vl-qwen3-5-27B-sft"   # all BAM-VL runs land here so loss curves overlay for comparison
   entity: null                # null -> your default wandb entity (from `wandb login`)
   # Explicit run name shown in wandb. If null, an auto descriptive name is used
   # (bamvl_<task>_<stage>_<datasplit>_feats-<streams>_<timestamp>).
-  run_name: "sft-3VL-32B-lr-1e-6"
+  run_name: "sft-27B-lr-2e-4-test-bam-only"

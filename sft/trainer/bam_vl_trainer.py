@@ -10,9 +10,12 @@ Key differences vs BAMTrainer:
   * Side features are PRE-POOLED to fixed vectors in the dataset (OmniClassifierDataset
     with vl_feat_config), each accompanied by a 0/1 presence mask. So _extract_feats here
     just moves the already-batched [B, D] tensors to device — no per-batch pooling.
-  * Native video (pixel_values_videos) is NOT wired in this trainer yet; this is the
-    runnable text+BAM QA core. The model forward already accepts video kwargs, so adding
-    them later is additive (see VL_USE_NATIVE_VIDEO guard).
+  * Native video (pixel_values_videos / video_grid_thw) is supported via
+    VL_USE_NATIVE_VIDEO: the dataset (modalities="videos") expands <video> placeholder
+    tokens and emits the visual tensors, vl_collate_fn concatenates them across the batch,
+    and _extract_native_video forwards them to the backbone alongside the BAM deltas.
+    position_ids are left unset so Qwen3-VL recomputes 3D M-RoPE from input_ids +
+    video_grid_thw each (cache-less) training forward.
 
 Adapters are registered as nn.Module submodules on the model wrapper BEFORE
 accelerator.prepare(), so FSDP/DDP wraps model + adapters as one unit.
@@ -29,7 +32,7 @@ from transformers import get_scheduler
 
 from trainer.base_trainer import BaseMultiHeadTrainer
 from dataset.sft_dataset import OmniClassifierDataset
-from dataset.dataset_utils import collate_fn
+from dataset.dataset_utils import vl_collate_fn
 from torch.utils.data import DataLoader
 from utils.logger import log_batch_training_metrics, log_validation_results, log_epoch_training_metrics
 from utils.wandb_utils import log_metrics
@@ -62,20 +65,24 @@ class BAMVLTrainer(BaseMultiHeadTrainer):
         self.qa_loss_weight = float(cfg.get("QA_LOSS_WEIGHT", 1.0))
         self.qa_datasets = set(d.lower() for d in cfg.get("QA_DATASETS", []))
 
-        # Native video stays off in this trainer (deferred); guard so configs can't silently
-        # assume it works yet.
+        # Native video (pixel_values_videos / video_grid_thw): flows through the Qwen3-VL
+        # backbone alongside the BAM side-channel adapters. When on, the dataset must be
+        # built with `videos` in `modalities` so the processor expands <video> placeholder
+        # tokens into input_ids and emits the visual tensors in multi_modal_inputs; the
+        # vl_collate_fn then concatenates those across the batch and _extract_native_video
+        # forwards them. position_ids are intentionally NOT supplied — Qwen3-VL recomputes
+        # 3D M-RoPE from input_ids + video_grid_thw each (cache-less) training forward.
         self.use_native_video = bool(cfg.get("VL_USE_NATIVE_VIDEO", False))
-        if self.use_native_video:
-            raise NotImplementedError(
-                "VL_USE_NATIVE_VIDEO=True is not wired in BAMVLTrainer yet "
-                "(native-video collation/teacher-forcing is a separate step). "
-                "Run with native video off for the text+BAM QA core."
-            )
 
         self.validate_every_n_epochs = cfg.get("VALIDATE_EVERY_N_EPOCHS", None)
         self.validate_every_n_steps = cfg.get("VALIDATE_EVERY_N_STEPS", None)
         self.save_every_n_epochs = cfg.get("SAVE_EVERY_N_EPOCHS", None)
         self.save_every_n_steps = cfg.get("SAVE_EVERY_N_STEPS", None)
+        # Hard cap on training duration, counted in the SAME unit as save/validate_every_n_steps
+        # (dataloader micro-batches, per process). When current_step reaches it, a final
+        # checkpoint is written and training stops — used to bound a curriculum stage
+        # (e.g. a short bam_only warm-up before unfreezing). None = run all epochs.
+        self.max_steps = cfg.get("MAX_STEPS", None)
         self.early_stopping_patience = cfg.get("EARLY_STOPPING_PATIENCE", 0)
         self.use_wandb = bool(cfg.get("USE_WANDB", False))
         self.num_classes = int(cfg.get("NUM_CLASSES", 0))
@@ -237,8 +244,10 @@ class BAMVLTrainer(BaseMultiHeadTrainer):
             qa_datasets=list(self.qa_datasets),
             vl_feat_config=self._build_vl_feat_config(),
         )
+        # vl_collate_fn == collate_fn plus native-video/image tensor merging; it is a no-op
+        # when no visual tensors are present, so it is safe whether or not native video is on.
         return DataLoader(
-            dataset, batch_size=batch_size, shuffle=shuffle, collate_fn=collate_fn,
+            dataset, batch_size=batch_size, shuffle=shuffle, collate_fn=vl_collate_fn,
             num_workers=num_workers, pin_memory=True, persistent_workers=num_workers > 0,
         )
 
@@ -456,6 +465,53 @@ class BAMVLTrainer(BaseMultiHeadTrainer):
             "audio_feats": feats["audio"][0], "audio_mask": feats["audio"][1],
         }
 
+    # Visual tensors the vl_collate_fn merges to the batch top level; forwarded verbatim
+    # to the Qwen3-VL backbone (which derives M-RoPE from them + input_ids).
+    _NATIVE_VIDEO_KEYS = ("pixel_values_videos", "video_grid_thw", "pixel_values", "image_grid_thw")
+
+    def _mm_special_token_ids(self):
+        """(image_pad_id, video_pad_id) used to derive Qwen3.5 mm_token_type_ids. Cached."""
+        ids = getattr(self, "_cached_mm_special_ids", None)
+        if ids is None:
+            proc = self.processor
+            img = getattr(proc, "image_token_id", None) if proc is not None else None
+            vid = getattr(proc, "video_token_id", None) if proc is not None else None
+            if img is None:
+                img = self.tokenizer.convert_tokens_to_ids("<|image_pad|>")
+            if vid is None:
+                vid = self.tokenizer.convert_tokens_to_ids("<|video_pad|>")
+            ids = (img, vid)
+            self._cached_mm_special_ids = ids
+        return ids
+
+    def _extract_native_video(self, batch, device, input_ids=None):
+        """Return {key: tensor.to(device)} for whichever native-video/image tensors the
+        batch carries, plus Qwen3.5 `mm_token_type_ids` derived from `input_ids` when visual
+        tensors are present. Empty dict when native video is off or no visual tensors present,
+        so callers can splat it unconditionally into the model call.
+
+        `mm_token_type_ids` (0=text, 1=image, 2=video) is mandatory for Qwen3.5's M-RoPE
+        whenever image/video grids are passed (the model no longer infers visual spans by
+        scanning token ids). It is derived from the *exact* input_ids fed to the model so it
+        stays aligned through the teacher-forcing rebuild, rather than carried from the
+        processor through the collate."""
+        if not self.use_native_video:
+            return {}
+        out = {}
+        for k in self._NATIVE_VIDEO_KEYS:
+            v = batch.get(k, None)
+            if isinstance(v, torch.Tensor):
+                out[k] = v.to(device)
+        if out and input_ids is not None:
+            img_id, vid_id = self._mm_special_token_ids()
+            mm_tt = torch.zeros_like(input_ids)
+            if img_id is not None:
+                mm_tt[input_ids == img_id] = 1
+            if vid_id is not None:
+                mm_tt[input_ids == vid_id] = 2
+            out["mm_token_type_ids"] = mm_tt.to(device)
+        return out
+
     # -------------------------------------------------------------------------
     # Teacher-forcing input builder (QA)
     # -------------------------------------------------------------------------
@@ -473,9 +529,25 @@ class BAMVLTrainer(BaseMultiHeadTrainer):
 
         for j in range(B):
             prompt_ids = ids_all[j]
-            prompt_len = int(attn_all[j].sum().item()) if attn_all is not None else int((prompt_ids != pad_id).sum().item())
-            prompt_len = min(prompt_len, T)
-            qa_input_ids[j, :prompt_len] = prompt_ids[:prompt_len]
+            # The dataset LEFT-pads input_ids to max_prompt_length, so the real prompt tokens
+            # sit at the END of the row, not the front. Select them by the attention mask
+            # (falling back to non-pad) rather than a head slice, then left-align them here.
+            # This is also what keeps native-video <video> placeholder tokens intact and in
+            # order — Qwen3-VL requires their count to exactly match video_grid_thw, so the
+            # prompt span must never be truncated/reordered.
+            if attn_all is not None:
+                content_ids = prompt_ids[attn_all[j] == 1]
+            else:
+                content_ids = prompt_ids[prompt_ids != pad_id]
+            prompt_len = int(content_ids.numel())
+            if prompt_len > T:
+                # Truncating the prompt could slice through a video placeholder span and
+                # desync it from the visual embeddings; fail loudly instead.
+                raise ValueError(
+                    f"Prompt length {prompt_len} exceeds sequence budget {T}; increase "
+                    f"max_prompt_length or reduce video frames/resolution."
+                )
+            qa_input_ids[j, :prompt_len] = content_ids
             qa_attn[j, :prompt_len] = 1
 
             ans = batch["lm_labels"][j]
@@ -529,8 +601,10 @@ class BAMVLTrainer(BaseMultiHeadTrainer):
                     else:
                         raise ValueError(f"Unexpected labels shape {labels.shape}")
                 feats = self._extract_feats(batch, device)
+                video_kwargs = self._extract_native_video(batch, device, input_ids=input_ids)
                 out = self.model(input_ids=input_ids, attention_mask=attention_mask,
-                                 domain_ids=domain_ids, train_mode=False, **self._model_feat_kwargs(feats))
+                                 domain_ids=domain_ids, train_mode=False,
+                                 **self._model_feat_kwargs(feats), **video_kwargs)
                 logits = out[0] if isinstance(out, tuple) else out["cls_logits"]
                 loss = criterion(logits, labels)
                 total_loss += loss.item() * labels.size(0)
@@ -647,11 +721,13 @@ class BAMVLTrainer(BaseMultiHeadTrainer):
 
                 tf_input_ids, tf_attn, lm_labels = self._build_tf_inputs_and_labels(batch, T, input_ids.device)
                 feats = self._extract_feats(batch, input_ids.device)
+                video_kwargs = self._extract_native_video(batch, input_ids.device, input_ids=tf_input_ids)
 
                 with self.accelerator.accumulate(self.model):
                     out = self.model(
                         input_ids=tf_input_ids, attention_mask=tf_attn, domain_ids=domain_ids,
                         lm_labels=lm_labels, train_mode=True, **self._model_feat_kwargs(feats),
+                        **video_kwargs,
                     )
                     lm_loss = out["lm_loss"]
                     if lm_loss is None or not torch.isfinite(lm_loss):
@@ -711,6 +787,20 @@ class BAMVLTrainer(BaseMultiHeadTrainer):
                         base_ckpt_dir=self.checkpoint_dir,
                     )
 
+                # Stage cap: stop after max_steps micro-batches, always leaving a final
+                # checkpoint for the next curriculum stage to load.
+                if self.max_steps and current_step >= self.max_steps:
+                    if self.accelerator.is_main_process:
+                        print(f"[max_steps] reached step {current_step} >= {self.max_steps}; "
+                              f"saving final checkpoint and stopping.")
+                    self.save_checkpoint_unified(
+                        accelerator=self.accelerator, model=self.model, epoch=epoch,
+                        batch_idx=batch_idx, len_train_dataloader=len(train_dataloader),
+                        training_strategy=self.global_config.get("TRAINING_STRATEGY"),
+                        base_ckpt_dir=self.checkpoint_dir,
+                    )
+                    return
+
             avg_train_loss = total_loss / max(1, total_samples)
             if self.accelerator.is_main_process:
                 print(f"Epoch {epoch+1}/{self.epochs} - QA Train Loss: {avg_train_loss:.4f}")
@@ -756,9 +846,11 @@ class BAMVLTrainer(BaseMultiHeadTrainer):
                 domain_ids = torch.full((B,), -1, dtype=torch.long, device=input_ids.device)
                 tf_input_ids, tf_attn, lm_labels = self._build_tf_inputs_and_labels(batch, T, input_ids.device)
                 feats = self._extract_feats(batch, input_ids.device)
+                video_kwargs = self._extract_native_video(batch, input_ids.device, input_ids=tf_input_ids)
                 out = self.model(
                     input_ids=tf_input_ids, attention_mask=tf_attn, domain_ids=domain_ids,
                     lm_labels=lm_labels, train_mode=False, **self._model_feat_kwargs(feats),
+                    **video_kwargs,
                 )
                 if out["lm_loss"] is not None:
                     loss_sum += out["lm_loss"].item()
@@ -818,11 +910,12 @@ class BAMVLTrainer(BaseMultiHeadTrainer):
                     else:
                         raise ValueError(f"Unexpected labels shape {labels.shape}")
                 feats = self._extract_feats(batch, device)
+                video_kwargs = self._extract_native_video(batch, device, input_ids=input_ids)
 
                 with self.accelerator.accumulate(self.model):
                     logits, _ = self.model(
                         input_ids=input_ids, attention_mask=attention_mask, domain_ids=domain_ids,
-                        train_mode=True, **self._model_feat_kwargs(feats),
+                        train_mode=True, **self._model_feat_kwargs(feats), **video_kwargs,
                     )
                     loss = criterion(logits, labels)
                     if not torch.isfinite(loss):
@@ -862,6 +955,19 @@ class BAMVLTrainer(BaseMultiHeadTrainer):
                             training_strategy=self.global_config.get("TRAINING_STRATEGY"),
                             base_ckpt_dir=self.checkpoint_dir,
                         )
+
+                # Stage cap: stop after max_steps micro-batches, leaving a final checkpoint.
+                if self.max_steps and current_step >= self.max_steps:
+                    if self.accelerator.is_main_process:
+                        print(f"[max_steps] reached step {current_step} >= {self.max_steps}; "
+                              f"saving final checkpoint and stopping.")
+                    self.save_checkpoint_unified(
+                        accelerator=self.accelerator, model=self.model, epoch=epoch,
+                        batch_idx=batch_idx, len_train_dataloader=len(train_dataloader),
+                        training_strategy=self.global_config.get("TRAINING_STRATEGY"),
+                        base_ckpt_dir=self.checkpoint_dir,
+                    )
+                    return
 
             if self.save_every_n_epochs and (epoch + 1) % self.save_every_n_epochs == 0:
                 self.save_checkpoint_unified(

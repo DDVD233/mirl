@@ -5,8 +5,8 @@ Entry point for BAM-on-Qwen3-VL training (parallel to train_bam.py for Omni).
   --task_type cls  ->  BAMVLCLS model (multi-head CE loss)
 
 Reads configs/config_bam_vl_accelerate.yaml. Most settings live in the YAML; only a
-few high-level overrides are exposed on the CLI for convenience. Native video is not
-wired yet (VL_USE_NATIVE_VIDEO must be false; BAMVLTrainer enforces this).
+few high-level overrides are exposed on the CLI for convenience. Native video is
+supported via vl_use_native_video=true (requires modalities="videos" in dataset_config).
 """
 import os
 import sys
@@ -34,7 +34,7 @@ def _parse_n(v):
 
 
 def parse_parameters():
-    parser = argparse.ArgumentParser(description="BAM-on-Qwen3-VL training")
+    parser = argparse.ArgumentParser(description="BAM-on-Qwen3.5 training")
     parser.add_argument("--config", type=str, default="configs/config_bam_vl_accelerate.yaml")
     parser.add_argument("--mode", type=str, choices=["train", "test"])
     parser.add_argument("--task_type", type=str, choices=["cls", "qa"])
@@ -98,6 +98,7 @@ def build_global_config(cfg, label_config):
         "VALIDATE_EVERY_N_STEPS":  _parse_n(train.validate_every_n_steps),
         "SAVE_EVERY_N_EPOCHS":     _parse_n(train.save_every_n_epochs),
         "SAVE_EVERY_N_STEPS":      _parse_n(train.save_every_n_steps),
+        "MAX_STEPS":               _parse_n(train.get("max_steps", None)),
         "EARLY_STOPPING_PATIENCE": int(train.early_stopping_patience),
         "BASE_LR":                 float(train.get("base_lr", float(train.lr) * 0.25)),
         "BAM_LR":                  float(train.get("bam_lr", float(train.lr) * 5.0)),
@@ -174,6 +175,7 @@ def main():
     trainer = BAMVLTrainer(
         data_files=cfg.data.train_file,
         val_data_files=cfg.data.val_file,
+        test_data_files=None,
         tokenizer=tokenizer,
         processor=processor,
         config=dataset_config,

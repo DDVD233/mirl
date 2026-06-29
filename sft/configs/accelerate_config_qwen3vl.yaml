@@ -6,7 +6,7 @@ fsdp_config:
   fsdp_backward_prefetch: "BACKWARD_PRE"
   fsdp_offload_params: false
   fsdp_state_dict_type: "FULL_STATE_DICT"
-  fsdp_transformer_layer_cls_to_wrap: "Qwen3VLTextDecoderLayer,Qwen3VLVisionModel,Qwen3VLVisionBlock"
+  fsdp_transformer_layer_cls_to_wrap: "Qwen3_5DecoderLayer,Qwen3_5VisionBlock"
   fsdp_use_orig_params: true
   fsdp_sharding_strategy: 1
 machine_rank: 0

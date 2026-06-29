@@ -72,7 +72,8 @@ class BAMVLBase(MultiHeadVLClassifier):
         return h
 
     @staticmethod
-    def _collect_mm_kwargs(pixel_values_videos, video_grid_thw, pixel_values, image_grid_thw):
+    def _collect_mm_kwargs(pixel_values_videos, video_grid_thw, pixel_values, image_grid_thw,
+                           mm_token_type_ids=None):
         mm = {}
         if pixel_values_videos is not None:
             mm["pixel_values_videos"] = pixel_values_videos
@@ -82,6 +83,10 @@ class BAMVLBase(MultiHeadVLClassifier):
             mm["pixel_values"] = pixel_values
         if image_grid_thw is not None:
             mm["image_grid_thw"] = image_grid_thw
+        # Qwen3.5 M-RoPE requires a per-token type mask (0=text/1=image/2=video) whenever
+        # image/video grids are passed; the trainer derives it from the fed input_ids.
+        if mm_token_type_ids is not None:
+            mm["mm_token_type_ids"] = mm_token_type_ids
         return mm
 
 
@@ -105,12 +110,14 @@ class BAMVLCLS(BAMVLBase):
         video_grid_thw=None,
         pixel_values=None,
         image_grid_thw=None,
+        mm_token_type_ids=None,
         **kwargs,
     ):
         if domain_ids is None:
             raise ValueError("domain_ids required")
 
-        mm = self._collect_mm_kwargs(pixel_values_videos, video_grid_thw, pixel_values, image_grid_thw)
+        mm = self._collect_mm_kwargs(pixel_values_videos, video_grid_thw, pixel_values, image_grid_thw,
+                                     mm_token_type_ids=mm_token_type_ids)
         out = self.backbone(
             input_ids=input_ids,
             attention_mask=attention_mask,
@@ -167,6 +174,7 @@ class BAMVLQA(BAMVLBase):
         video_grid_thw=None,
         pixel_values=None,
         image_grid_thw=None,
+        mm_token_type_ids=None,
         **kwargs,
     ):
         if domain_ids is None:
@@ -177,7 +185,8 @@ class BAMVLQA(BAMVLBase):
         #    of the full [B, T, vocab] tensor (~B*T*150k*2 bytes) — we never use out.logits
         #    because we recompute lm_head from the hidden states below. This avoids
         #    materializing the huge logits twice.
-        mm = self._collect_mm_kwargs(pixel_values_videos, video_grid_thw, pixel_values, image_grid_thw)
+        mm = self._collect_mm_kwargs(pixel_values_videos, video_grid_thw, pixel_values, image_grid_thw,
+                                     mm_token_type_ids=mm_token_type_ids)
         out = self.backbone(
             input_ids=input_ids,
             attention_mask=attention_mask,
@@ -194,31 +203,36 @@ class BAMVLQA(BAMVLBase):
         pooled_eff = self._apply_adapters(pooled_base, facial_feats, pose_feats, audio_feats, train_mode,
                                           facial_mask=facial_mask, pose_mask=pose_mask, audio_mask=audio_mask)
 
-        # 3) Inject delta into pre-norm last hidden state, then norm + lm_head.
-        #    hidden_states[-1] is pre-final-norm on Qwen3-VL, so official-equivalent
-        #    logits are lm_head(norm(hidden_states[-1] + delta)).
+        # 3) Inject delta into pre-norm last hidden state. The expensive final-norm + lm_head
+        #    are deferred to step 4 so they run on ONLY the supervised positions.
+        #    hidden_states[-1] is pre-final-norm on Qwen3-VL, so official-equivalent logits
+        #    are lm_head(norm(hidden_states[-1] + delta)).
         delta = (pooled_eff - pooled_base).to(hidden_states[-1].dtype)  # [B, H]
         h_last_mod = hidden_states[-1] + delta.unsqueeze(1)             # [B, T, H]
-        h_for_lm = self._resolve_final_norm()(h_last_mod)
-        lm_logits = self._resolve_lm_head()(h_for_lm)                   # [B, T, V]
 
-        # 4) Teacher-forcing LM loss + token accuracy. Both are reduced to scalars HERE so
-        #    the caller never needs the full [B, T, vocab] logits returned.
+        # 4) Teacher-forcing LM loss + token accuracy, computed on answer tokens only.
+        #    Position p predicts token p+1, so position p is supervised iff lm_labels[:, p+1]
+        #    != -100. Gathering those positions BEFORE the final-norm + lm_head shrinks the
+        #    head from [B, T, V] to [N, V] (N = #answer tokens, tiny vs. a long video seq),
+        #    cutting both forward compute and the backward activation/grad memory that drove
+        #    the earlier OOM. Mathematically identical to masking a full-sequence CE with
+        #    ignore_index=-100: ignored positions contribute zero gradient either way, and the
+        #    delta still receives gradient from exactly the supervised positions it broadcasts to.
         lm_loss = None
         lm_token_correct = lm_token_total = None
         if lm_labels is not None:
-            shift_logits = lm_logits[:, :-1, :]
-            shift_labels = lm_labels[:, 1:]
-            lm_loss = F.cross_entropy(
-                shift_logits.reshape(-1, shift_logits.size(-1)),
-                shift_labels.reshape(-1),
-                ignore_index=-100,
-            )
-            with torch.no_grad():
-                valid = shift_labels != -100                       # answer tokens only
-                preds = shift_logits.argmax(dim=-1)                # [B, T-1]; reads (not copies) logits
-                lm_token_correct = (preds[valid] == shift_labels[valid]).sum()
-                lm_token_total = valid.sum()
+            shift_labels = lm_labels[:, 1:]                           # [B, T-1] target tokens
+            valid = shift_labels != -100                             # answer-token mask
+            lm_token_total = valid.sum()
+            lm_token_correct = lm_token_total.new_zeros(())          # 0 unless tokens present
+            if lm_token_total > 0:
+                h_pred = h_last_mod[:, :-1, :][valid]                # [N, H] supervised states
+                target = shift_labels[valid]                        # [N]
+                h_for_lm = self._resolve_final_norm()(h_pred)       # [N, H]
+                sel_logits = self._resolve_lm_head()(h_for_lm)     # [N, V]
+                lm_loss = F.cross_entropy(sel_logits, target)
+                with torch.no_grad():
+                    lm_token_correct = (sel_logits.argmax(dim=-1) == target).sum()
 
         # 5) Classification logits (QA rows have domain_id=-1 -> neg_inf)
         cls_logits = self._heads_from_pooled(pooled_eff, domain_ids)

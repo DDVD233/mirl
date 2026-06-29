@@ -69,3 +69,39 @@ def collate_fn(data_list: list[dict]) -> dict:
         non_tensors[key] = np.fromiter(val, dtype=object, count=len(val))
 
     return {**tensors, **non_tensors}
+
+
+# Native-video/image tensors that Qwen3-VL consumes as a single batch-flattened block:
+# pixel patches are concatenated along dim 0 across the whole batch, and the *_grid_thw
+# tensors ([num_visuals, 3]) tell the model how to slice them back per sample.
+_VL_MM_CAT_KEYS = ("pixel_values_videos", "video_grid_thw", "pixel_values", "image_grid_thw")
+
+
+def vl_collate_fn(data_list: list[dict]) -> dict:
+    """
+    collate_fn + native-video/image merging for Qwen3-VL.
+
+    The per-sample processor outputs live in each row's `multi_modal_inputs` dict (an
+    object array after the base collate). Qwen3-VL expects the visual tensors NOT stacked
+    but concatenated along dim 0 across the batch (variable patch counts per sample), with
+    the grid_thw tensors concatenated in the same sample order so placeholder tokens in
+    `input_ids` line up with their embeddings. Samples without video/image contribute
+    nothing, so mixed text/video batches work. No-op when no visual tensors are present.
+    """
+    batch = collate_fn(data_list)
+    mm_inputs = batch.get("multi_modal_inputs", None)
+    if mm_inputs is None:
+        return batch
+
+    merged = defaultdict(list)
+    for d in mm_inputs:  # object array of per-sample dicts (in batch order)
+        if not isinstance(d, dict):
+            continue
+        for k in _VL_MM_CAT_KEYS:
+            v = d.get(k, None)
+            if isinstance(v, torch.Tensor):
+                merged[k].append(v)
+    for k, lst in merged.items():
+        if lst:
+            batch[k] = torch.cat(lst, dim=0)
+    return batch

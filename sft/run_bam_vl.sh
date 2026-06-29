@@ -3,12 +3,16 @@
 #
 # Trains three side-channel adapters (facial / pose / audio) on top of a (frozen,
 # bam_only) Qwen3-VL-8B-Instruct backbone with the QA teacher-forcing objective.
-# Native video is NOT wired yet — this is the text+BAM QA core.
+# Native video frames feed the backbone alongside the BAM deltas when
+# vl_use_native_video=true / modalities="videos" (set in the config).
 #
 # Most settings come from configs/config_bam_vl_accelerate.yaml; edit there or override
 # the few flags below. Run from the sft/ directory.
 
 set -euo pipefail
+
+module load community-modules ffmpeg/5.1.4
+export LD_LIBRARY_PATH="$(dirname "$(dirname "$(command -v ffmpeg)")")/lib:$LD_LIBRARY_PATH"
 
 CONFIG="configs/config_bam_vl_accelerate.yaml"
 ACCEL_CONFIG="configs/accelerate_config_qwen3vl.yaml"

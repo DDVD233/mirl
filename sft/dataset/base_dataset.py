@@ -171,7 +171,11 @@ class BaseDataset(Dataset):
                 if "images" in self.modalities and self.image_key in doc and len(doc[self.image_key]) > 0:
                     processor_kwargs["images"] = [process_image(img) for img in doc[self.image_key]]
                 if "videos" in self.modalities and self.video_key in doc and len(doc[self.video_key]) > 0:
-                    processor_kwargs["videos"] = [process_video(v) for v in doc[self.video_key]]
+                    vids, vmeta = zip(*[process_video(v, return_metadata=True) for v in doc[self.video_key]])
+                    processor_kwargs["videos"] = list(vids)
+                    # Match __getitem__'s video tokenization so the length filter is accurate.
+                    processor_kwargs["video_metadata"] = list(vmeta)
+                    processor_kwargs["do_sample_frames"] = False
                 if "audio" in self.modalities and doc.get(self.audio_key):
                     audios = []
                     for audio in doc[self.audio_key]:
@@ -344,11 +348,19 @@ class BaseDataset(Dataset):
 
             if "videos" in self.modalities and self.video_key in row_dict and row_dict.get(self.video_key) and len(row_dict[self.video_key]) > 0:
                 videos = []
+                video_metadata = []
                 for vid in row_dict[self.video_key]:
                     vid = os.path.join(self.base_dir, vid) if isinstance(vid, str) else vid
-                    videos.append(process_video(vid))
+                    frames, meta = process_video(vid, return_metadata=True)
+                    videos.append(frames)
+                    video_metadata.append(meta)
                 multi_modal_data["video"] = [v.numpy() for v in videos]
                 processor_kwargs["videos"] = videos
+                # Give Qwen3-VL the true source fps + sampled-frame indices so it computes correct
+                # frame timestamps instead of defaulting to fps=24. do_sample_frames=False keeps the
+                # frames process_video already decoded rather than re-sampling them.
+                processor_kwargs["video_metadata"] = video_metadata
+                processor_kwargs["do_sample_frames"] = False
 
             if "audio" in self.modalities and self.audio_key in row_dict and row_dict.get(self.audio_key) and len(row_dict[self.audio_key]) > 0:
                 audios_np = []
@@ -388,8 +400,15 @@ class BaseDataset(Dataset):
             truncation=self.truncation,
         )
 
-        # RoPE position IDs for Qwen2VL; fall back to cumsum-based for other models
-        if self.processor is not None and "Qwen2VLImageProcessor" in self.processor.image_processor.__class__.__name__:
+        # 3D M-RoPE position IDs only for genuine Qwen2-VL / Qwen2.5-VL processors.
+        # Gate on the *processor* class name, not the image_processor: Qwen3-VL
+        # (Qwen3VLProcessor, e.g. Qwen3.5) reuses Qwen2VLImageProcessor, so keying off
+        # the image processor would wrongly route it through the Qwen2-VL get_rope_index,
+        # whose one-video=one-grid-row assumption breaks on Qwen3-VL's timestamp-segmented
+        # video token layout (IndexError on video_grid_thw). Qwen3-VL recomputes its own
+        # 3D M-RoPE inside the forward pass, so the cumsum fallback below is sufficient.
+        proc_name = self.processor.__class__.__name__ if self.processor is not None else ""
+        if proc_name in ("Qwen2VLProcessor", "Qwen2_5_VLProcessor"):
             try:
                 from verl.models.transformers.qwen2_vl import get_rope_index
                 position_ids = [get_rope_index(
