@@ -158,14 +158,19 @@ answer."""
 # rare with strict match).
 # embed_sim and char_bleu are smooth surrogates that fire even when the
 # discrete signals collapse to 0; they keep reward shaping above the noise floor.
-ACCURACY_WEIGHT = 0.10
-JUDGE_ACCURACY_LENIENT_WEIGHT = 0.05
+# Re-weighted (2026-06-29) to sharpen the gradient toward CORRECTNESS after a flat-training
+# diagnosis: embed_sim/char_bleu sat ~constant (0.66/0.19) regardless of policy quality and
+# diluted the signal, so they are cut to near-zero; accuracy / lenient / answer_quality are
+# raised; FORMAT is raised to 0.20 to restore boxing/commitment pressure (only ~48% of outputs
+# were emitting \boxed, flooring exact-match acc). Weights sum to 1.0.
+ACCURACY_WEIGHT = 0.20
+JUDGE_ACCURACY_LENIENT_WEIGHT = 0.10
 JUDGE_ACCURACY_STRICT_WEIGHT = 0.05
 REASONING_WEIGHT = 0.15
-ANSWER_QUALITY_WEIGHT = 0.20
-FORMAT_WEIGHT = 0.15
-EMBED_SIM_WEIGHT = 0.20
-CHAR_BLEU_WEIGHT = 0.10
+ANSWER_QUALITY_WEIGHT = 0.25
+FORMAT_WEIGHT = 0.20
+EMBED_SIM_WEIGHT = 0.05
+CHAR_BLEU_WEIGHT = 0.00
 
 DEBUG_PRINT_PROB = 0.01
 

@@ -85,7 +85,12 @@ must OUTSCORE a bare correct \\boxed{code} with no reasoning.
 - Do NOT reward terse, code-only outputs and do NOT penalize appropriate, well-organized \
 clinical detail — that bias games MIMIC but fails HealthBench.
 - Keep diagnostic accuracy a necessary, heavily-weighted axis, but make reasoning, \
-completeness, communication, calibration, and safety co-count so the reward transfers."""
+completeness, communication, calibration, and safety co-count so the reward transfers.
+- Reward a CLEAR, COMMITTED final answer in the format the task asks for — the MIMIC task \
+requires the final diagnosis in \\boxed{{...}}, so reward responses that commit one and \
+penalize wishy-washy answers that never state a single final diagnosis. (Do not zero a \
+clearly-stated conclusion merely for a missing literal box, but a present, committed \\boxed{{}} \
+answer is the desired behavior and should score higher than an uncommitted one.)"""
 
 # The judge-scoring contract is fixed: the grader receives these exact bracket
 # labels in the user message and must emit one integer 0-10 in \boxed{...}. The
