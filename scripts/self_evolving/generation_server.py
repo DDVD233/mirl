@@ -1368,25 +1368,50 @@ _USER_ROLES = {"user", "clinician", "physician", "doctor", "human", "md", "provi
 _ASSISTANT_ROLES = {"assistant", "ai", "model", "bot", "chatbot", "gpt"}
 
 
+def _coerce_content(c) -> str:
+    """Flatten a message 'content' (str, list of parts, or {text|content}) to text."""
+    if isinstance(c, str):
+        return c
+    if isinstance(c, list):
+        parts = []
+        for x in c:
+            if isinstance(x, str):
+                parts.append(x)
+            elif isinstance(x, dict):
+                parts.append(x.get("text") or x.get("content") or "")
+        return " ".join(p for p in parts if p)
+    if isinstance(c, dict):
+        return c.get("text") or c.get("content") or ""
+    return ""
+
+
 def _normalize_conversation(conv):
     """Coerce a generated conversation into a verl-shape list that ENDS on a user
     turn, or return None if there is no usable user content.
 
-    Salvages the common generator quirks that were being rejected wholesale:
+    Salvages the generator quirks that were being rejected wholesale:
       - the model answers its own question (trailing assistant turn) -> drop it;
-      - messages wrapped as {"messages": [...]} -> unwrap;
+      - messages wrapped as {"messages": [...]} / {"turns": [...]} -> unwrap;
+      - conversation given as a plain STRING or a list of STRINGS -> user turn(s);
+      - structured content (list of parts / {text}) -> flattened text;
       - role synonyms (clinician/physician/doctor/human...) -> "user".
     """
     if isinstance(conv, dict):
-        conv = conv.get("messages") or conv.get("conversation")
+        conv = conv.get("messages") or conv.get("conversation") or conv.get("turns")
+    if isinstance(conv, str):
+        return [{"role": "user", "content": conv}] if conv.strip() else None
     if not isinstance(conv, list):
         return None
     norm = []
     for m in conv:
+        if isinstance(m, str):
+            if m.strip():
+                norm.append({"role": "user", "content": m})
+            continue
         if not isinstance(m, dict):
             continue
-        content = m.get("content")
-        if not (isinstance(content, str) and content.strip()):
+        content = _coerce_content(m.get("content"))
+        if not content.strip():
             continue
         role = str(m.get("role", "user")).strip().lower()
         if role in _ASSISTANT_ROLES:
@@ -1446,8 +1471,20 @@ async def agent_task_rubric_generator(state: ServerState, request: str, use_case
     if not isinstance(obj, dict):
         raise ValueError(f"generator did not return an object: {response[:200]!r}")
     conv = _normalize_conversation(obj.get("conversation"))
+    if not conv:
+        # Some generations put the task under a different key instead of "conversation".
+        for k in ("task", "request", "prompt", "user_message", "question", "clinician_request"):
+            v = obj.get(k)
+            if isinstance(v, str) and v.strip():
+                conv = [{"role": "user", "content": v}]
+                break
     items = obj.get("rubric_items")
     if not conv:
+        logger.warning(
+            "conv normalize failed: obj_keys=%s conv_type=%s sample=%s",
+            list(obj.keys()), type(obj.get("conversation")).__name__,
+            repr(obj.get("conversation"))[:200],
+        )
         raise ValueError("invalid conversation (no usable clinician/user turn)")
     if not _valid_rubric(items):
         raise ValueError("invalid rubric (need 3-20 items, >=1 pos & >=1 neg, points in [-10,10])")
