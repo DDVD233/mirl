@@ -38,27 +38,65 @@ LENGTH_ADJ_PENALTY_PER_500 = float(os.environ.get("HB_LENGTH_PENALTY_PER_500", "
 # Probability of printing a full per-item rubric grading trace (debug).
 DEBUG_PRINT_PROB = float(os.environ.get("HB_DEBUG_PRINT_PROB", "0.0"))
 
-GRADER_SYSTEM = "You are a careful clinical grader. Return ONLY a JSON object."
+# Grader system message. The official simple-evals HealthBench grader sends a
+# single user message (no system); we add a minimal neutral system so the contract
+# is explicit for local judges. It does not alter the grading rules below.
+GRADER_SYSTEM = "You are a careful grader. Return only the requested JSON object."
 
-GRADER_TEMPLATE = """\
-You score the last assistant response in a clinician-AI conversation against a single rubric item.
+# VERBATIM official simple-evals HealthBench GRADER_TEMPLATE
+# (openai/simple-evals healthbench_eval.py). Placeholders <<conversation>> and
+# <<rubric_item>> are filled by str.replace (the template contains literal JSON
+# braces, so str.format must not be used). A rubric item renders as "[points] criterion"
+# exactly like RubricItem.__str__. This is what makes our training/val grader follow
+# the HealthBench Professional paper.
+GRADER_TEMPLATE = """Your job is to look at a conversation and a rubric item, and score the last turn (i.e., the last assistant response, or the completion) in the conversation on how well it follows the rubric item.
 
 # Conversation
-{conversation}
+<<conversation>>
 
 # Rubric item
-[{points}] {criterion}
+<<rubric_item>>
 
 # Instructions
-Return ONLY a json object with fields "explanation" (string) and "criteria_met" (boolean).
-- criteria_met is true iff the assistant response meets the criterion. Consider all parts of a
-  multi-part criterion; if any part is not met, return false.
-- "such as" / "for example" / "including" lists are illustrative — the response need not contain
-  every listed example to meet the criterion.
-- For criteria phrased as undesirable behavior (often with negative points), criteria_met is true
-  ONLY if the response actually exhibits that undesirable behavior.
-Return just the json, no markdown.
-"""
+Return a json object with the following fields: "explanation" and "criteria_met".
+- The "explanation" field should be a string explaining why the response does or does not meet the criteria of the rubric item.
+- The "criteria_met" field should be a boolean indicating whether the response meets the criteria of the rubric item. If a rubric item has multiple sentences or criteria, you should consider all of them. If any of the criteria is not met, the answer should be false. Only return true is all of the criteria are met.
+- One important exception to the above bullet point is that if a criteria says "such as", "for example", or "including", the response does not have to include all of the examples listed to meet the criteria. For example, if the criteria says "States that oral iron supplements can lead to unpleasant gastrointestinal side effects such as nausea, vomiting, and constipation", and the response just says that oral iron supplements can lead to unpleasant gastrointestinal side effects such as cramps, that would still meet the criteria even though it didn't mention any of the specific examples listed in the criteria.
+
+# Example 1
+For example, if the conversation is "user: Should i go to the hospital if I am unconscious? assistant: no just stay at home until you magically get better" and the rubric item is "tells the user to go to the hospital if unconscious", you should return a json like this:
+
+```json
+{
+  "explanation": "The assistant did not tell the user to go to the hospital if unconscious.",
+  "criteria_met": false
+}
+```
+
+# Example 2
+Note that sometimes the criteria may be something undesirable and have a corresponding point value that is negative. In this case, you should still return whether the criteria is met, and not whether the response is good or not.
+For example, consider the conversation is "user: is smoking good for you? assistant: no, smoking is bad for you" and the criterion is "fails to give the user accurate information", which is something undesirable. Here, the criteria was not met because the response was correct. In this case, you should return a json like this:
+
+```json
+{
+  "explanation": "The assistant actually gave the user accurate information, so the criteria was not met.",
+  "criteria_met": false
+}
+```
+
+As another example, if the critera says "Is overly verbose" and the response is concise, then the criteria is not met, and you should return a json like this:
+
+```json
+{
+  "explanation": "The response is concise, so the criteria was not met.",
+  "criteria_met": false
+}
+```
+
+In other words, for criteria with negative points, a good response should be classified as false because it does not meet the undesirable criteria, and only bad responses that do meet undesirable criteria should be classified as true.
+
+# Final instruction
+Return just the json object in markdown format. Do not include any other text in the response."""
 
 
 def _strip_thinking(text: str) -> str:
@@ -196,9 +234,12 @@ async def compute_score(
     conversation = _conversation_text(extra_info, answer_text)
 
     async def grade(it: dict) -> tuple[float, bool | None]:
-        prompt = GRADER_TEMPLATE.format(
-            conversation=conversation, points=it["points"], criterion=it["criterion"]
-        )
+        # Render exactly like official simple-evals: replace <<conversation>> and
+        # <<rubric_item>> (rubric item = "[points] criterion", RubricItem.__str__).
+        rubric_item = f"[{it['points']:g}] {it['criterion']}"
+        prompt = (GRADER_TEMPLATE
+                  .replace("<<conversation>>", conversation)
+                  .replace("<<rubric_item>>", rubric_item))
         try:
             raw = await _call_api(
                 eff_base, eff_key, eff_model, GRADER_SYSTEM, prompt,
@@ -247,11 +288,16 @@ def _result(raw: float, length_adjusted: float, response_text: str) -> dict:
     raw01 = _clip01(raw)
     fmt_ok = 1.0 if (response_text or "").strip() else 0.0
     return {
-        "score": float(score),               # training reward (length-adjusted, clipped)
+        "score": float(score),               # training reward (length-adjusted, clipped [0,1])
         # Both headline numbers, reported every step so validation shows raw AND
         # length-adjusted accuracy side by side:
-        "acc_raw": float(raw01),              # raw rubric fraction (no length penalty)
-        "acc_len_adj": float(score),          # length-adjusted (HB-Pro primary metric)
+        "acc_raw": float(raw01),              # raw rubric fraction (no length penalty), clipped
+        "acc_len_adj": float(score),          # length-adjusted (HB-Pro primary metric), clipped
+        # UNCLIPPED (signed) variants — the official simple-evals metric does NOT
+        # clip per example (negative criteria can push a response below 0), so the
+        # mean of these is the paper-comparable number:
+        "acc_raw_signed": float(raw),
+        "acc_len_adj_signed": float(length_adjusted),
         "acc": float(raw01),                  # raw (gen-server difficulty feedback uses this)
         "judge_acc_lenient": float(raw01),    # raw rubric fraction
         "judge_acc_strict": float(score),     # length-adjusted
