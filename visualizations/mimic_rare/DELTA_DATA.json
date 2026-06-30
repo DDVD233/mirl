@@ -1,0 +1,72 @@
+{
+  "meta": {
+    "judge": "gpt-chat-latest_2026-05-28",
+    "n": 2452,
+    "self_improve": {
+      "base": "qwen36_27b_base (eval_sota 8192-tok, from MIMIC_RARE_RESULTS.json)",
+      "best": "qwen36_27b_selfimprove__step40 (from MIMIC_RARE_RESULTS.json)"
+    },
+    "train_only": {
+      "run": "mimiciv_rare_qwen36_27b_baseline",
+      "base": "step0 val-trace (4096-tok)",
+      "best": "qwen36_27b_baseline__step40 (best epoch overall of full step sweep)",
+      "note": "rejudged from training-time validation_data_dir traces; each run vs its own base"
+    }
+  },
+  "self_improve": {
+    "base": {
+      "overall": 0.3340130505709625,
+      "per_cat": {
+        "neoplasms": 0.5482014388489208,
+        "nervous_system": 0.38917525773195877,
+        "blood_immune": 0.33183856502242154,
+        "circulatory": 0.15602836879432624,
+        "digestive": 0.26136363636363635,
+        "endocrine_metabolic": 0.16396761133603238,
+        "infectious": 0.29411764705882354,
+        "other": 0.17757009345794392
+      }
+    },
+    "best": {
+      "overall": 0.34991843393148453,
+      "per_cat": {
+        "neoplasms": 0.5553956834532374,
+        "nervous_system": 0.4020618556701031,
+        "blood_immune": 0.3901345291479821,
+        "circulatory": 0.19148936170212766,
+        "digestive": 0.3068181818181818,
+        "endocrine_metabolic": 0.17611336032388664,
+        "infectious": 0.29411764705882354,
+        "other": 0.1806853582554517
+      }
+    }
+  },
+  "train_only": {
+    "base": {
+      "overall": 0.3103588907014682,
+      "per_cat": {
+        "neoplasms": 0.5050359712230216,
+        "nervous_system": 0.32216494845360827,
+        "blood_immune": 0.35874439461883406,
+        "circulatory": 0.1276595744680851,
+        "digestive": 0.2840909090909091,
+        "endocrine_metabolic": 0.14979757085020243,
+        "infectious": 0.30392156862745096,
+        "other": 0.17757009345794392
+      }
+    },
+    "best": {
+      "overall": 0.3181076672104405,
+      "per_cat": {
+        "neoplasms": 0.5151079136690647,
+        "nervous_system": 0.32989690721649484,
+        "blood_immune": 0.3452914798206278,
+        "circulatory": 0.14893617021276595,
+        "digestive": 0.3181818181818182,
+        "endocrine_metabolic": 0.14979757085020243,
+        "infectious": 0.3235294117647059,
+        "other": 0.19003115264797507
+      }
+    }
+  }
+}
