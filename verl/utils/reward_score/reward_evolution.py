@@ -132,6 +132,134 @@ FUNCTION_SIGNATURE = (
     "def function_reward(input_question: str, output_answer: str, ground_truth: str) -> float"
 )
 
+# Per-sample runtime budget (seconds) the evolved function may spend. Reward scoring runs
+# samples concurrently (each function call is dispatched to a thread, see
+# self_evolving._evolve_addon), so a generous per-call timeout does not serialize the step.
+FUNCTION_TIME_BUDGET_S = int(os.environ.get("REWARD_FN_TIMEOUT", "25"))
+
+# Runtime tooling contract handed to the function-evolution judge. The evolved
+# function_reward runs inside the training Docker on a GPU node WITH network + a writable
+# cache, so it may call the grading judge, query our medical vector DB, and download
+# models/tools — but it must NEVER touch the open web (held-out eval leak surface). The
+# concrete endpoints arrive as environment variables (exported by the run script; see
+# run_qwen36_27b_evolve_reward.sh) so the fixed 3-arg signature stays unchanged.
+FUNCTION_TOOLING_GUIDE = f"""\
+RUNTIME ENVIRONMENT & TOOLS. The function runs inside the training Docker on a GPU node with \
+network access and a writable cache. You MAY import any library, download models/tools, call our \
+grading judge LLM, and query our medical vector database. You have a generous per-call budget \
+(~{FUNCTION_TIME_BUDGET_S}s; calls are dispatched concurrently across samples, so this does not \
+serialize the step) — but you MUST still wrap every external call in try/except with a fast \
+deterministic fallback and pass an explicit network timeout so one hung call can't stall.
+
+HARD RULE — NO OPEN WEB: never do web search / scraping / fetch arbitrary external URLs. That can \
+leak the held-out evaluation. ONLY these are allowed: our own judge endpoint, our own vector DB, \
+and model/tool downloads from trusted hubs (e.g. HuggingFace). Nothing else on the network.
+
+Credentials/endpoints are provided as environment variables:
+  REWARD_JUDGE_API_BASE, REWARD_JUDGE_API_KEY, REWARD_JUDGE_MODEL   # grading LLM (OpenAI-compatible)
+  EMBED_API_BASE, EMBED_API_KEY, EMBED_MODEL                        # embeddings for vector search
+  MILVUS_URI, MILVUS_TOKEN, MILVUS_COLLECTION                       # our medical knowledge vector DB
+  REWARD_FN_TOOL_CACHE                                              # writable dir for model/tool downloads
+
+Example 1 — ask the judge LLM a targeted question about the answer:
+```python
+import os, requests
+def _ask_judge(system, user, max_tokens=64, timeout={FUNCTION_TIME_BUDGET_S}):
+    base = os.environ.get("REWARD_JUDGE_API_BASE")
+    if not base:
+        return None
+    r = requests.post(base.rstrip("/") + "/chat/completions",
+        headers={{"Authorization": f"Bearer {{os.environ.get('REWARD_JUDGE_API_KEY','EMPTY')}}"}},
+        json={{"model": os.environ.get("REWARD_JUDGE_MODEL", ""), "max_tokens": max_tokens,
+              "temperature": 0.0, "chat_template_kwargs": {{"enable_thinking": False}},
+              "messages": [{{"role": "system", "content": system}},
+                           {{"role": "user", "content": user}}]}},
+        timeout=timeout)
+    r.raise_for_status()
+    return r.json()["choices"][0]["message"].get("content", "")
+```
+
+Example 2 — search our medical vector DB (embed the query, then ANN-search Milvus):
+```python
+import os, requests
+from pymilvus import MilvusClient
+def _kb_search(query, top_k=5, timeout={FUNCTION_TIME_BUDGET_S}):
+    eb = os.environ.get("EMBED_API_BASE")
+    e = requests.post(eb.rstrip("/") + "/embeddings",
+        headers={{"Authorization": f"Bearer {{os.environ.get('EMBED_API_KEY','EMPTY')}}"}},
+        json={{"model": os.environ.get("EMBED_MODEL"), "input": [query[:2000]]}}, timeout=timeout)
+    vec = e.json()["data"][0]["embedding"]
+    cli = MilvusClient(uri=os.environ["MILVUS_URI"], token=os.environ.get("MILVUS_TOKEN", "root:Milvus"))
+    hits = cli.search(collection_name=os.environ.get("MILVUS_COLLECTION", "medical_knowledge_v2"),
+        data=[vec], limit=top_k, output_fields=["text_content", "question", "answer"])
+    return hits[0] if hits else []
+```
+
+Example 3 — download & run any tool/model (download ONCE at module import; it is cached after):
+```python
+import os
+os.environ.setdefault("HF_HOME", os.environ.get("REWARD_FN_TOOL_CACHE", "/tmp/reward_fn_cache"))
+os.environ["HF_HUB_OFFLINE"] = "0"   # allow the first download; cached calls need no network
+_TOOL = None
+def _get_tool():
+    global _TOOL
+    if _TOOL is None:
+        from transformers import pipeline      # or a segmentation / vision model, nnUNet, etc.
+        _TOOL = pipeline("text-classification", model="some/medical-model")
+    return _TOOL
+```
+
+Cache results in a module-level dict keyed on (output_answer, ground_truth) so repeated identical \
+samples don't re-hit the network. Keep all of this OPTIONAL: if a tool/import/endpoint is \
+unavailable, fall straight back to your deterministic scoring — never raise."""
+
+
+# ---------------------------------------------------------------------------
+# Error-summarization meta-prompts (per-case + aggregate)
+# ---------------------------------------------------------------------------
+
+PER_CASE_SUMMARY_SYSTEM = f"""\
+You are diagnosing failures in a medical reinforcement-learning reward loop. You are given ONE \
+case: the clinical QUESTION, the student model's full RESPONSE, the CORRECT answer, and the \
+reward signals the CURRENT reward setting produced for it — namely the CURRENT judge prompt and \
+the CURRENT Python function_reward (shown to you), plus the sub-reward scores they assigned.
+
+{STEER_SENTENCE}
+
+In about 500 tokens, do TWO things for THIS case:
+1. STUDENT ERROR — precisely what did the student get wrong (or right)? Name the specific \
+knowledge or capability gap, e.g.: wrong ICD subtype / right disease family but wrong code; \
+confused two related-but-distinct entities; never committed a final \\boxed diagnosis or ran out \
+of tokens mid-reasoning; hedged with a differential instead of committing; over-reached for a \
+rare diagnosis when the true answer was common; couldn't map raw EHR procedure/med codes to \
+meaning.
+2. REWARD CRITIQUE — for THIS case, what did the current judge prompt and the current \
+function_reward MISS or mis-score? Did they over-credit or under-credit it relative to how a \
+careful attending would grade it? What concrete signal (an ICD-subtype check, a commitment/box \
+check, a knowledge-base lookup, a confusion-pair penalty, …) would have graded this case \
+correctly?
+
+Be concrete and specific to this case; do not give generic advice. Output prose."""
+
+
+AGGREGATE_SUMMARY_SYSTEM = """\
+You are given a set of per-case failure analyses from a medical reinforcement-learning reward \
+loop. Each describes what a student model got wrong on one case AND what the current reward \
+setting (the LLM-judge prompt + the Python function_reward) missed or mis-scored on that case. \
+Base your synthesis only on the cases actually provided below, however many there are.
+
+Synthesize them into about 1000 tokens with three clearly labeled sections:
+1. COMMON STUDENT ERROR PATTERNS — the recurring knowledge / capability gaps, ranked by how \
+often and how badly they hurt (e.g. "never commits a boxed diagnosis / truncates", "right \
+disease family but wrong ICD subtype", "rare-diagnosis over-reach on common cases", specific \
+confusion pairs).
+2. REWARD GAPS — where the current judge prompt and the current function_reward systematically \
+fail to reward or penalize the right thing (over-crediting un-committed rambles, missing \
+ICD-subtype partial credit, not using available tools / knowledge base, etc.).
+3. IMPROVEMENT SUGGESTIONS — concrete, actionable changes, given SEPARATELY for (a) the JUDGE \
+PROMPT and (b) the FUNCTION_REWARD, that would better separate strong from weak student answers \
+and push the student to fix the common errors. Be specific and implementable."""
+
 
 # ---------------------------------------------------------------------------
 # Example formatting (shared by both meta-prompts and the offline harness)
@@ -162,12 +290,39 @@ def format_examples(examples: list[dict], q_chars: int = 1600, r_chars: int = 14
     return "\n\n".join(blocks)
 
 
+def format_one_case(ex: dict, current_prompt: str, current_fn_src: str,
+                    q_chars: int = 1600, r_chars: int = 1800, fn_chars: int = 6000) -> str:
+    """Render a single case + the current reward setting, for per-case error summarization."""
+    sub = ex.get("sub_rewards", {}) or {}
+    sub_str = ", ".join(f"{k}={float(v):.3f}" for k, v in sub.items()) if sub else "(none)"
+    return (
+        "## THE CASE\n"
+        f"[QUESTION]\n{_truncate(ex.get('question', ''), q_chars)}\n\n"
+        f"[STUDENT RESPONSE]\n{_truncate(ex.get('response', ''), r_chars)}\n\n"
+        f"[CORRECT ANSWER]\n{ex.get('ground_truth', '')}\n\n"
+        f"[STUDENT EXTRACTED ANSWER] {ex.get('extracted_answer', '')}\n"
+        f"[CURRENT REWARD ASSIGNED] combined={float(ex.get('combined_reward', 0.0)):.3f}; "
+        f"sub-rewards: {sub_str}\n\n"
+        "## CURRENT JUDGE PROMPT (being critiqued)\n"
+        f"{_truncate(current_prompt, 4000)}\n\n"
+        "## CURRENT function_reward (being critiqued)\n"
+        "```python\n"
+        f"{_truncate(current_fn_src, fn_chars)}\n"
+        "```\n"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Meta-prompt builders
 # ---------------------------------------------------------------------------
 
-def build_prompt_evolution_messages(current_prompt: str, examples: list[dict]) -> tuple[str, str]:
-    """Return (system, user) messages asking the judge to improve the judging prompt."""
+def build_prompt_evolution_messages(current_prompt: str, error_summary: str) -> tuple[str, str]:
+    """Return (system, user) messages asking the judge to improve the judging prompt.
+
+    ``error_summary`` is the aggregated error-analysis + improvement-suggestions text distilled
+    from this step's per-case student-failure summaries (see ``aggregate_error_summary``). It
+    replaces the raw worked-examples that earlier versions pasted in.
+    """
     system = f"""\
 You are improving the JUDGING PROMPT used to score a medical model's answers inside a \
 reinforcement-learning loop. That judging prompt is handed to a grader model as its \
@@ -178,13 +333,13 @@ and must output a single integer score from 0 to 10 inside \\boxed{{...}}.
 
 {DUAL_OBJECTIVE}
 
-You will be shown the CURRENT judging prompt and several worked examples — each with the \
-question, the model's response, the correct answer, and the sub-reward / combined-reward \
-values the current grading produced. Study where the current prompt mis-grades: too \
-lenient on wrong diagnoses, too harsh on correct-but-differently-worded answers, ignoring \
-clarity / completeness / safety — and especially the common DRIFT toward "boxed answer \
-absent => 0, deduct for length, prioritize terseness", which over-fits MIMIC and would hurt \
-HealthBench. Fix that drift if you see it.
+You will be shown the CURRENT judging prompt and an ERROR ANALYSIS + IMPROVEMENT SUGGESTIONS \
+distilled from the student model's recent failures (recurring knowledge/capability gaps and the \
+specific places the current grading mis-scored them). Use that analysis to decide what to fix. \
+Watch for: too lenient on wrong diagnoses, too harsh on correct-but-differently-worded answers, \
+ignoring clarity / completeness / safety, missing ICD-subtype partial credit — and especially the \
+common DRIFT toward "boxed answer absent => 0, deduct for length, prioritize terseness", which \
+over-fits MIMIC and would hurt HealthBench. Fix what the analysis flags.
 
 Then write an IMPROVED judging prompt: a clear, self-contained, MULTI-AXIS rubric covering \
 diagnostic accuracy, clinical reasoning, completeness, communication clarity, calibration, \
@@ -209,15 +364,19 @@ reasoning, output the final improved judging prompt and NOTHING else between the
     user = (
         "## CURRENT JUDGING PROMPT\n"
         f"{current_prompt}\n\n"
-        "## WORKED EXAMPLES\n"
-        f"{format_examples(examples)}\n\n"
+        "## ERROR ANALYSIS & IMPROVEMENT SUGGESTIONS (from this step's student failures)\n"
+        f"{error_summary or '(no analysis available this round)'}\n\n"
         "Now produce the improved judging prompt inside <prompt>...</prompt>."
     )
     return system, user
 
 
-def build_function_evolution_messages(current_fn_src: str, examples: list[dict]) -> tuple[str, str]:
-    """Return (system, user) messages asking the judge to improve function_reward."""
+def build_function_evolution_messages(current_fn_src: str, error_summary: str) -> tuple[str, str]:
+    """Return (system, user) messages asking the judge to improve function_reward.
+
+    ``error_summary`` is the aggregated error-analysis + improvement-suggestions text (see
+    ``aggregate_error_summary``), used in place of raw worked examples.
+    """
     system = f"""\
 You are writing an executable Python reward function that AUGMENTS an LLM judge in a \
 medical reinforcement-learning loop. It deterministically inspects the model's answer \
@@ -235,14 +394,17 @@ Use exactly this signature (do not change it):
 
 {DUAL_OBJECTIVE}
 
-Environment: the function runs inside Docker. You MAY import any library and use the \
-internet. Make it ROBUST and FAST:
-- Never raise on weird input — wrap risky work in try/except and fall back to a sane default.
-- Return quickly: no sleeps, no unbounded loops, no waiting on slow network calls.
-- Do NOT read or write files, call os.system, or spawn processes.
+{FUNCTION_TOOLING_GUIDE}
 
-You will be shown the CURRENT function and several worked examples (question, response, \
-correct answer, the judge / sub-reward values, and the extracted answer). Improve the \
+Make it ROBUST:
+- Never raise on weird input — wrap risky work in try/except and fall back to a sane default.
+- Avoid unbounded loops; bound every external call with an explicit timeout.
+- Do NOT read or write arbitrary files or call os.system on the host; model/tool downloads to \
+the provided cache dir are fine.
+
+You will be shown the CURRENT function and an ERROR ANALYSIS + IMPROVEMENT SUGGESTIONS distilled \
+from the student model's recent failures (the recurring knowledge/capability gaps and where the \
+current function mis-scored them). Use that analysis to decide what signal to add. Improve the \
 function so its output is a USEFUL, WELL-SPREAD signal:
 - a correct or clinically-equivalent final answer scores HIGH (≈0.8–1.0),
 - a clearly wrong answer scores LOW (≈0.0–0.2),
@@ -292,11 +454,63 @@ Output only that one ```python code block as the final artifact."""
         "```python\n"
         f"{current_fn_src}\n"
         "```\n\n"
-        "## WORKED EXAMPLES\n"
-        f"{format_examples(examples)}\n\n"
+        "## ERROR ANALYSIS & IMPROVEMENT SUGGESTIONS (from this step's student failures)\n"
+        f"{error_summary or '(no analysis available this round)'}\n\n"
         "Now produce the improved function as a single ```python code block."
     )
     return system, user
+
+
+# ---------------------------------------------------------------------------
+# Error summarization: per-case + aggregate (judge calls)
+# ---------------------------------------------------------------------------
+
+async def summarize_case_error(
+    api_base: str,
+    api_key: str,
+    model_name: str,
+    current_prompt: str,
+    current_fn_src: str,
+    example: dict,
+    max_tokens: int = 900,
+) -> str:
+    """Ask the judge to summarize, for ONE case, what the student got wrong AND what the current
+    judge prompt + function_reward missed (~500 tokens of content). Returns "" on failure."""
+    user = format_one_case(example, current_prompt, current_fn_src)
+    try:
+        return await _call_judge_design(
+            api_base, api_key, model_name, PER_CASE_SUMMARY_SYSTEM, user, max_tokens=max_tokens
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"summarize_case_error failed: {type(e).__name__}: {e}")
+        return ""
+
+
+async def aggregate_error_summary(
+    api_base: str,
+    api_key: str,
+    model_name: str,
+    case_summaries: list[str],
+    max_tokens: int = 1400,
+) -> str:
+    """Collapse the per-case summaries into one ~1000-token error summary + improvement
+    suggestions (separately for judge prompt and function). Returns "" on failure."""
+    if not case_summaries:
+        return ""
+    blocks = "\n\n".join(
+        f"### Case {i} analysis\n{s}" for i, s in enumerate(case_summaries, 1) if s
+    )
+    user = (
+        "Here are the per-case failure analyses. Synthesize them per your instructions.\n\n"
+        f"{blocks}"
+    )
+    try:
+        return await _call_judge_design(
+            api_base, api_key, model_name, AGGREGATE_SUMMARY_SYSTEM, user, max_tokens=max_tokens
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"aggregate_error_summary failed: {type(e).__name__}: {e}")
+        return ""
 
 
 # ---------------------------------------------------------------------------
@@ -383,14 +597,25 @@ with open(out_path, "w") as f:
 
 
 def validate_function_src(
-    src: str, examples: list[dict], timeout_s: float = 8.0, max_calls: int = 6
+    src: str,
+    examples: list[dict],
+    timeout_s: float | None = None,
+    max_calls: int = 3,
 ) -> tuple[bool, str, list[float] | None]:
     """Compile + run the candidate function on a few examples in a fresh subprocess.
 
     Returns (ok, error_message, outputs_on_examples). Rejects on syntax error,
     runtime exception, missing/uncallable function_reward, or timeout (unbounded
     loops are SIGKILLed by the subprocess timeout).
+
+    The evolved function may now call the judge / query Milvus / download a tool, so the
+    validation timeout is generous: ``REWARD_FN_VALIDATE_TIMEOUT`` (default = a few per-sample
+    budgets, to allow a one-time model download on the first call) and we run fewer example
+    calls (``max_calls``). The child subprocess inherits this process's environment, so the
+    REWARD_JUDGE_* / EMBED_* / MILVUS_* credentials reach the candidate.
     """
+    if timeout_s is None:
+        timeout_s = float(os.environ.get("REWARD_FN_VALIDATE_TIMEOUT", str(max(90, FUNCTION_TIME_BUDGET_S * 3))))
     if not src or "def function_reward" not in src:
         return False, "no function_reward definition", None
     try:
@@ -651,6 +876,12 @@ class EvolutionStore:
         self._write_pair(self.step_dir(step), prompt, fn_src)
         self._write_pair(self.current_dir, prompt, fn_src)
 
+    def write_step_aux(self, step: int, name: str, content: str) -> None:
+        """Persist an auxiliary artifact (e.g. error_summary.txt) under step_{step}."""
+        if not content:
+            return
+        self._atomic_write(os.path.join(self.step_dir(step), name), content)
+
 
 # Runtime read-through cache for compute_score: re-read current/ only when files change.
 _CURRENT_CACHE: dict[str, tuple[float, str, object, str]] = {}
@@ -695,10 +926,21 @@ async def evolve_once(
     examples: list[dict],
     step: int,
     design_max_tokens: int = 8000,
+    summary_max_tokens: int = 900,
+    aggregate_max_tokens: int = 1400,
 ) -> dict:
-    """Run one evolution round: rewrite the judge prompt and the function, validate,
-    and commit step_{step} + update current. On parse/validation failure for either
-    artifact, the previous (current) version is carried forward unchanged.
+    """Run one evolution round.
+
+    Flow (new):
+      1. For each of the (~20) sampled cases, ask the judge — IN THE CONTEXT of the current
+         judge prompt + function — to summarize what the student got wrong and what the current
+         reward setting missed (``summarize_case_error``, ~500 tokens each, run concurrently).
+      2. Collapse those per-case summaries into one error summary + improvement suggestions
+         (``aggregate_error_summary``, ~1000 tokens).
+      3. Evolve BOTH the judge prompt and the function, feeding that error summary + suggestions
+         (instead of raw student answers) as the design context.
+    Then validate, apply the degeneracy gate, and commit step_{step} + update current. On
+    parse/validation failure for either artifact, the previous version is carried forward.
 
     Returns a small metrics dict for logging.
     """
@@ -706,8 +948,30 @@ async def evolve_once(
     store.init_if_needed()
     cur_prompt, cur_fn_src = store.read_current()
 
-    p_sys, p_user = build_prompt_evolution_messages(cur_prompt, examples)
-    f_sys, f_user = build_function_evolution_messages(cur_fn_src, examples)
+    # --- 1. per-case error summaries (concurrent), each judging the current setting too ---
+    case_summaries = await asyncio.gather(
+        *[
+            summarize_case_error(
+                api_base, api_key, model_name, cur_prompt, cur_fn_src, ex, summary_max_tokens
+            )
+            for ex in examples
+        ]
+    )
+    case_summaries = [s for s in case_summaries if s]
+
+    # --- 2. aggregate into one error summary + improvement suggestions ---
+    error_summary = await aggregate_error_summary(
+        api_base, api_key, model_name, case_summaries, aggregate_max_tokens
+    )
+    store.write_step_aux(step, "error_summary.txt", error_summary)
+    store.write_step_aux(
+        step, "case_summaries.txt",
+        "\n\n".join(f"### Case {i}\n{s}" for i, s in enumerate(case_summaries, 1)),
+    )
+
+    # --- 3. evolve prompt + function from the error summary (not raw student answers) ---
+    p_sys, p_user = build_prompt_evolution_messages(cur_prompt, error_summary)
+    f_sys, f_user = build_function_evolution_messages(cur_fn_src, error_summary)
 
     async def _gen(sys_p, usr_p):
         try:
@@ -762,6 +1026,8 @@ async def evolve_once(
         "reward_evolution/fn_degenerate": float(fn_degenerate),
         "reward_evolution/fn_mean_on_examples": float(fn_mean),
         "reward_evolution/fn_spread_on_examples": float(fn_spread),
+        "reward_evolution/num_case_summaries": float(len(case_summaries)),
+        "reward_evolution/error_summary_chars": float(len(error_summary or "")),
     }
     if not fn_valid and new_fn:
         logger.warning(f"[reward_evolution] step {step}: function rejected: {fn_err}")
@@ -828,6 +1094,12 @@ __all__ = [
     "STARTER_FUNCTION_SRC",
     "build_prompt_evolution_messages",
     "build_function_evolution_messages",
+    "format_one_case",
+    "summarize_case_error",
+    "aggregate_error_summary",
+    "FUNCTION_TOOLING_GUIDE",
+    "PER_CASE_SUMMARY_SYSTEM",
+    "AGGREGATE_SUMMARY_SYSTEM",
     "parse_evolved_prompt",
     "parse_evolved_function",
     "validate_function_src",

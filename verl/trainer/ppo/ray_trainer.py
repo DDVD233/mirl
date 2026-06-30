@@ -637,7 +637,7 @@ class RayPPOTrainer:
                 or re_cfg.get("evolve_dir", "")
                 or os.path.join(self.config.trainer.default_local_dir, "reward_evolution")
             )
-            num_examples = int(re_cfg.get("num_examples", 6) or 6)
+            num_examples = int(re_cfg.get("num_examples", 20) or 20)
             design_max_tokens = int(re_cfg.get("design_max_tokens", 8000) or 8000)
 
             # Per-sample combined reward: prefer reward_extra_infos_dict, then non_tensor_batch,
@@ -655,10 +655,13 @@ class RayPPOTrainer:
                 return {}
             scores = [float(s) for s in scores]
 
-            order = sorted(range(n), key=lambda i: scores[i])
+            # Uniformly random sample of this step's cases (the new per-case error-summarization
+            # flow digests them individually, so we want an unbiased slice, not a reward-spread
+            # subset). scores are still required above to confirm rewards were computed.
+            import random as _random
+
             k = min(num_examples, n)
-            picks = [0] if k <= 1 else sorted({round(j * (n - 1) / (k - 1)) for j in range(k)})
-            picked = [order[p] for p in picks]
+            picked = _random.sample(range(n), k)
 
             examples = []
             for i in picked:

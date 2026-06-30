@@ -162,7 +162,7 @@ def main() -> None:
     ap.add_argument("--api-key", default=os.environ.get("JUDGE_KEY", ""))
     ap.add_argument("--api-key-file", default="/scratch/sheng/self_evolving/.climb_teacher_key")
     ap.add_argument("--model", default=os.environ.get("JUDGE_MODEL", "Qwen/Qwen3.6-27B"))
-    ap.add_argument("--n-examples", type=int, default=6)
+    ap.add_argument("--n-examples", type=int, default=20)
     ap.add_argument("--rounds", type=int, default=2)
     ap.add_argument("--max-tokens", type=int, default=8000)
     ap.add_argument("--max-rows", type=int, default=400, help="cap rows read from the dump")

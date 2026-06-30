@@ -32,7 +32,11 @@ EVOLVE_ENABLE="${EVOLVE_ENABLE:-True}"
 EVOLVE_W_JUDGE="${EVOLVE_W_JUDGE:-0.7}"
 EVOLVE_W_FUNC="${EVOLVE_W_FUNC:-0.3}"
 EVOLVE_EVERY_N="${EVOLVE_EVERY_N:-1}"
-EVOLVE_N_EXAMPLES="${EVOLVE_N_EXAMPLES:-6}"
+# New evolution flow (see verl/utils/reward_score/reward_evolution.evolve_once): each round
+# samples this many random cases, asks the judge to summarize EACH case's student error +
+# critique the current judge-prompt/function, aggregates into one error summary + improvement
+# suggestions, then evolves both artifacts from that summary (not raw student answers).
+EVOLVE_N_EXAMPLES="${EVOLVE_N_EXAMPLES:-20}"
 # Keep the artifact dir under the experiment's checkpoint dir; absolute so the trainer and
 # the colocated reward workers agree on the path.
 DEFAULT_LOCAL_DIR="${DEFAULT_LOCAL_DIR:-/scratch/sheng/self_evolving/checkpoints/self_evolving_medical/$EXP}"
@@ -40,7 +44,27 @@ EVOLVE_DIR="${EVOLVE_DIR:-$DEFAULT_LOCAL_DIR/reward_evolution}"
 
 export CHAT_PROVIDER=vllm
 export HF_HOME=/scratch/sheng/self_evolving/hf_cache
-export HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1
+# Reward-evolution: the evolved function_reward may DOWNLOAD tools/models (e.g. a segmentation
+# model) on first use, so we must NOT run fully offline. Training weights are already cached under
+# HF_HOME, so cache-hits avoid network; only genuinely-new downloads hit the hub. (Web search stays
+# forbidden by the function meta-prompt — only the judge endpoint, our Milvus, and trusted hubs.)
+export HF_HUB_OFFLINE=0 TRANSFORMERS_OFFLINE=0
+
+# Credentials/endpoints the evolved function_reward reads from the environment (judge LLM, the
+# medical-knowledge vector DB, and embeddings). See FUNCTION_TOOLING_GUIDE in reward_evolution.py.
+export REWARD_JUDGE_API_BASE="$TEACHER_BASE"
+export REWARD_JUDGE_API_KEY="$KEY"
+export REWARD_JUDGE_MODEL="${REWARD_JUDGE_MODEL:-Qwen/Qwen3.6-27B}"
+export EMBED_API_BASE="$EMBED_API_BASE"
+export EMBED_API_KEY="${EMBED_API_KEY:-EMPTY}"
+export EMBED_MODEL="${EMBED_MODEL:-Qwen/Qwen3-VL-Embedding-2B}"
+export MILVUS_URI="${MILVUS_URI:-http://mib.media.mit.edu:19531}"
+export MILVUS_TOKEN="${MILVUS_TOKEN:-root:Milvus}"
+export MILVUS_COLLECTION="${MILVUS_COLLECTION:-medical_knowledge_v2}"
+export REWARD_FN_TOOL_CACHE="${REWARD_FN_TOOL_CACHE:-/scratch/sheng/self_evolving/reward_fn_cache}"
+# Generous per-sample budget for the function's tool/judge/DB calls (reward batch is concurrent).
+export REWARD_FN_TIMEOUT="${REWARD_FN_TIMEOUT:-25}"
+mkdir -p "$REWARD_FN_TOOL_CACHE"
 export RAY_ADDRESS=local
 export CUDA_VISIBLE_DEVICES=0,1,2,3
 export WANDB_MODE="${WANDB_MODE:-online}"

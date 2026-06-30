@@ -638,11 +638,27 @@ async def _evolve_addon(
     """
     from verl.utils.reward_score import reward_evolution as RE  # lazy import avoids a cycle
 
+    # Expose judge/embed credentials to the evolved function (it only gets the fixed 3-arg
+    # signature, so it reads endpoints from the environment). Milvus creds come from the run
+    # script's env exports; setdefault never clobbers those. See FUNCTION_TOOLING_GUIDE.
+    for k, v in (
+        ("REWARD_JUDGE_API_BASE", api_base),
+        ("REWARD_JUDGE_API_KEY", api_key),
+        ("REWARD_JUDGE_MODEL", model_name),
+    ):
+        if v:
+            os.environ.setdefault(k, str(v))
+
     judge_prompt, fn, _fn_src = RE.get_current_artifacts(evolve_dir)
-    dynamic_judge = await RE.score_with_judge_prompt(
-        api_base, api_key, model_name, judge_prompt, question, solution_str, ground_truth
+    # The function may now do blocking network I/O (judge / Milvus / tool download). Run it in a
+    # worker thread so a slow call does not stall this worker's event loop — keeping the per-sample
+    # reward batch genuinely concurrent (a generous REWARD_FN_TIMEOUT is then acceptable).
+    dynamic_judge, dynamic_function = await asyncio.gather(
+        RE.score_with_judge_prompt(
+            api_base, api_key, model_name, judge_prompt, question, solution_str, ground_truth
+        ),
+        asyncio.to_thread(RE.safe_call_function, fn, question, solution_str, ground_truth),
     )
-    dynamic_function = RE.safe_call_function(fn, question, solution_str, ground_truth)
     denom = 1.0 + w_judge + w_func
     total = (composite_score + w_judge * dynamic_judge + w_func * dynamic_function) / denom
     return total, dynamic_judge, dynamic_function
