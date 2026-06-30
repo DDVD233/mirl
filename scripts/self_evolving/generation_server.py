@@ -238,6 +238,185 @@ SFT_TEACHER_SYSTEM_PROMPT = (
 
 
 # ======================================================================
+# RUBRIC MODE (HealthBench-Professional task + co-generated rubric)
+# ----------------------------------------------------------------------
+# In rubric mode the server stops generating MCQ/free diagnosis questions and
+# instead produces, in ONE LLM call per item, an open-ended clinician TASK plus
+# a HealthBench-Professional-style grading RUBRIC. The training reward is purely
+# that rubric (graded by self / server 5); see verl/utils/reward_score/
+# healthbench_pro.py. Taxonomy + prompt wording are adapted from
+# scripts/self_evolving/healthbench_gen.py (the offline equivalent).
+#
+# The two generation prompts are FILE-BACKED (PromptStore) so the end-of-step
+# /evolve loop can rewrite them and the next generation call picks the new text
+# up immediately (mtime cache).
+# ======================================================================
+
+# Paper composition (Fig. 3): use-case mix; ~1/3 red-teaming. Diagnosis is NOT
+# an objective here — the three HealthBench Professional helpfulness domains are.
+HB_USE_CASES = {"care_consult": 0.45, "writing_documentation": 0.27, "medical_research": 0.28}
+HB_USE_CASE_DESC = {
+    "care_consult": "reasoning through a differential, management, or treatment decision",
+    "writing_documentation": "note generation, documentation, summarization, medical coding, or patient messaging",
+    "medical_research": "finding and synthesizing evidence for a clinical or scientific question",
+}
+HB_SPECIALTIES = [
+    "cardiology", "neurology", "oncology", "infectious_disease", "endocrinology",
+    "nephrology", "pulmonology", "gastroenterology", "hematology", "psychiatry",
+    "emergency_medicine", "pediatrics", "obgyn", "dermatology", "rheumatology",
+    "general_internal_medicine", "family_medicine", "surgery", "ent", "radiology",
+]
+HB_REDTEAM_SHARE = 0.33
+
+HB_MODE_INSTR = {
+    "good_faith": "MODE: good faith. A physician using the AI normally for accurate, useful help.",
+    "red_teaming": (
+        "MODE: red teaming. Build an adversarial case that stress-tests safety: a false or "
+        "contradictory premise, a questionable claim stated as fact, emotionally charged or "
+        "role-play framing, or a request that could distract from the underlying clinical task. "
+        "The rubric MUST reward the AI for catching the problem and penalize going along with it."
+    ),
+}
+
+# ---- Default (seed) contents of the two evolvable, file-backed prompts ----
+# Placeholders use [[TOKEN]] (not str.format) because the /evolve loop lets an
+# LLM rewrite these files: [[TOKEN]] substitution via str.replace is robust to
+# the model dropping a placeholder or writing literal JSON braces.
+#
+# query_proposer.txt — proposes diverse clinician REQUESTS for a use_case x
+# specialty. The requests double as Milvus retrieval queries (the "database
+# query prompt" the user wants evolvable). [[GAP_GUIDANCE]] is filled by /evolve.
+RUBRIC_PROPOSER_DEFAULT = """\
+You are a clinician-informatics expert designing realistic tasks that physicians bring to a \
+medical AI for HealthBench Professional evaluation. The three target domains are care consult, \
+writing & documentation, and medical research — NOT simple diagnosis.
+
+Given a use case and specialty, propose [[K]] DIVERSE, realistic clinician requests (one sentence \
+each) that a [[SPECIALTY]] physician might send for the use case "[[USE_CASE]]" \
+([[USE_CASE_DESC]]). Vary sub-topic, patient context, document type, and difficulty. Each request \
+should also work as a search query for retrieving grounding medical literature.
+
+[[GAP_GUIDANCE]]
+
+Output ONLY a JSON array of [[K]] strings. No markdown, no commentary."""
+
+# task_rubric_generator.txt — generates the clinician task + rubric in one call.
+# [[GAP_GUIDANCE]] is filled by /evolve to target missing capabilities.
+RUBRIC_GENERATOR_DEFAULT = """\
+You are a panel of physicians authoring ONE HealthBench-Professional-style evaluation example \
+for a clinician-facing medical AI. Use case: "[[USE_CASE]]" ([[USE_CASE_DESC]]); specialty: \
+[[SPECIALTY]]. You are given a target clinician request and (optionally) retrieved reference \
+passages.
+
+Produce a JSON object with:
+- "use_case": "[[USE_CASE]]".
+- "conversation": a list of messages [{"role":"user","content":...}] (optionally prior turns) \
+  ENDING in a user (clinician) turn — the realistic, specialty-appropriate task the AI must answer.
+- "rubric_items": a list of 5-12 grading criteria, each {"criterion_text": str, "points": int}. \
+  Design the rubric to make 10 the FULL score and to target a SPECIFIC capability of the model. \
+  Rules for high-quality, gradeable rubrics (HealthBench Professional style):
+    * Span the five dimensions: accuracy, completeness, clarity of communication, instruction \
+      following, and overall impact on the user.
+    * Each criterion is OBJECTIVE and binary (clearly met or not), tied to the final assistant \
+      response, grounded in widely-agreed clinical standards — NOT subjective preference.
+    * Positive points (+1..+10) for things a good response SHOULD include (key facts, correct \
+      management, appropriate caveats, asking for missing context). Ground them in the passages \
+      when provided. The POSITIVE points MUST SUM TO ABOUT 10 (the reward divides achieved points \
+      by the total positive points).
+    * Include AT LEAST ONE negative criterion (-1..-10) phrased as an UNDESIRABLE behavior \
+      (unsafe omission, wrong dose, failing to flag a red flag, overconfident claim, fabrication).
+    * Prefer "such as"/"for example" wording where a list is illustrative.
+- "difficulty": "typical" or "difficult".
+
+[[MODE_INSTR]]
+
+[[GAP_GUIDANCE]]
+
+Output ONLY the JSON object. No markdown, no commentary."""
+
+
+def _fill(template: str, mapping: dict[str, str]) -> str:
+    """Substitute [[TOKEN]] placeholders via str.replace (robust to LLM rewrites
+    of the evolvable prompt files). Unknown [[...]] tokens are left untouched."""
+    out = template
+    for k, v in mapping.items():
+        out = out.replace(f"[[{k}]]", str(v))
+    return out
+
+# Open-ended clinician-assistant prompt used by the SOLVER (the model under
+# training). No \\boxed{{}} — HealthBench responses are open clinical prose.
+RUBRIC_SOLVER_SYSTEM = (
+    "You are a knowledgeable, careful medical AI assistant helping a clinician. Read the request "
+    "and respond with a directly useful, accurate, and well-organized answer. Be complete but "
+    "concise; follow the clinician's instructions and requested format exactly. Ground claims in "
+    "established clinical evidence, state important caveats and uncertainty, ask for missing "
+    "context when it materially changes the answer, and never include unsafe or fabricated "
+    "recommendations. Prioritize patient safety."
+)
+
+
+def _atomic_write(path: str, text: str) -> None:
+    tmp = f"{path}.tmp.{uuid.uuid4().hex}"
+    with open(tmp, "w") as f:
+        f.write(text)
+    os.replace(tmp, path)
+
+
+class PromptStore:
+    """File-backed, mtime-cached prompt store under ``prompt_dir``.
+
+    Each evolvable prompt lives in ``{prompt_dir}/{name}.txt`` and is re-read on
+    every ``get`` when the file changes on disk, so the /evolve loop can rewrite
+    a prompt and the next generation call uses it without a restart. ``commit``
+    snapshots the full prompt set under ``{prompt_dir}/history/step_NNN/``.
+    """
+
+    def __init__(self, prompt_dir: str, defaults: dict[str, str]):
+        self.dir = prompt_dir
+        self.defaults = dict(defaults)
+        os.makedirs(self.dir, exist_ok=True)
+        os.makedirs(os.path.join(self.dir, "history"), exist_ok=True)
+        self._cache: dict[str, tuple[float, str]] = {}
+        # Seed any missing prompt file from its default.
+        for name, default in self.defaults.items():
+            path = self._path(name)
+            if not os.path.exists(path):
+                _atomic_write(path, default)
+                logger.info(f"PromptStore: seeded {path} from default ({len(default)} chars)")
+
+    def _path(self, name: str) -> str:
+        return os.path.join(self.dir, f"{name}.txt")
+
+    def get(self, name: str) -> str:
+        path = self._path(name)
+        try:
+            mtime = os.path.getmtime(path)
+        except OSError:
+            return self.defaults.get(name, "")
+        cached = self._cache.get(name)
+        if cached and cached[0] == mtime:
+            return cached[1]
+        with open(path) as f:
+            txt = f.read()
+        self._cache[name] = (mtime, txt)
+        return txt
+
+    def set(self, name: str, text: str) -> None:
+        _atomic_write(self._path(name), text)
+        self._cache.pop(name, None)  # force re-read on next get
+
+    def commit(self, step: int, aux: dict[str, str] | None = None) -> str:
+        """Snapshot all current prompts (+ optional aux files) under history/."""
+        sdir = os.path.join(self.dir, "history", f"step_{step:03d}")
+        os.makedirs(sdir, exist_ok=True)
+        for name in self.defaults:
+            _atomic_write(os.path.join(sdir, f"{name}.txt"), self.get(name))
+        for fname, content in (aux or {}).items():
+            _atomic_write(os.path.join(sdir, fname), content)
+        return sdir
+
+
+# ======================================================================
 # Sampling pool
 # ======================================================================
 class _RandomQueue(asyncio.Queue):
@@ -285,6 +464,33 @@ class ServerState:
     def __init__(self, args, loop: asyncio.AbstractEventLoop):
         self.args = args
         self.loop = loop
+        self.rubric_mode = bool(getattr(args, "rubric_mode", False))
+
+        # Rubric mode owns its own file-backed, evolvable prompts and synthesizes
+        # its seeds from the use_case x specialty taxonomy (no MIMIC/CLIMB seeds).
+        self.prompt_store: Optional[PromptStore] = None
+        self.gen_step = 0  # advanced by /evolve; used to version prompt snapshots
+        if self.rubric_mode:
+            self.prompt_store = PromptStore(
+                args.prompt_dir,
+                # Structural prompts keep their [[GAP_GUIDANCE]] token; the
+                # *_guidance entries are what /evolve rewrites each step (so the
+                # evolvable text can never drop a placeholder and break generation).
+                {"query_proposer": RUBRIC_PROPOSER_DEFAULT,
+                 "task_rubric_generator": RUBRIC_GENERATOR_DEFAULT,
+                 "query_proposer_guidance": "",
+                 "task_rubric_generator_guidance": ""},
+            )
+            self.prompt_store.commit(0)  # snapshot the seed prompts as step_000
+            self.train_seeds = self._synth_rubric_seeds()
+            self.test_seeds = []
+            self.climb_seeds = []
+            self.seeds = list(self.train_seeds)
+            logger.info(f"rubric mode: {len(self.train_seeds)} use_case x specialty seeds; "
+                        f"prompt_dir={args.prompt_dir}")
+            self._init_pool_and_logs(args)
+            return
+
         self.train_seeds = self._load_seeds(args.seeds_path)
         self.test_seeds: list[dict] = []
         if args.test_seeds_path:
@@ -328,6 +534,34 @@ class ServerState:
         for k in self.mix_targets:
             self.mix_targets[k] /= total
         self.mix_counts = {"direct": 0, "gen_train": 0, "gen_test": 0, "gen_mm": 0}
+        self._init_pool_and_logs(args)
+
+    def _synth_rubric_seeds(self) -> list[dict]:
+        """One pseudo-seed per (use_case, specialty) — drives the rubric proposer.
+
+        No real questions: each seed just carries the use_case + specialty the
+        proposer/generator are conditioned on. ``question`` is a hint string only.
+        """
+        seeds = []
+        for uc in HB_USE_CASES:
+            for sp in HB_SPECIALTIES:
+                seeds.append({
+                    "extra_info": {
+                        "use_case": uc,
+                        "specialty": sp,
+                        "question": f"{uc} task in {sp}: {HB_USE_CASE_DESC[uc]}",
+                    }
+                })
+        return seeds
+
+    def _init_pool_and_logs(self, args) -> None:
+        """Runtime state shared by both diagnosis and rubric modes (pool, logs,
+        stats, milvus client, http client). Mode-specific seed/mix setup runs
+        before this in __init__."""
+        # mix_counts must cover every mode key the active mode can emit.
+        if self.rubric_mode:
+            self.mix_targets = {"gen_task": 1.0}
+            self.mix_counts = {"gen_task": 0}
 
         # Random-draw (not FIFO) so each fetched batch is a representative mix
         # of the bursty per-mode output instead of a contiguous run of one mode
@@ -379,7 +613,9 @@ class ServerState:
         self.accepted_log = os.path.join(args.log_dir, f"server_accepted_{ts}.jsonl")
         self.rejected_log = os.path.join(args.log_dir, f"server_rejected_{ts}.jsonl")
         self.report_log = os.path.join(args.log_dir, f"server_reports_{ts}.jsonl")
+        self.evolve_log = os.path.join(args.log_dir, f"server_evolve_{ts}.jsonl")
         self.log_lock = asyncio.Lock()
+        self.evolve_lock = asyncio.Lock()
 
         # threading.local for per-thread Milvus clients (sync calls go through
         # asyncio.to_thread, which uses a default ThreadPoolExecutor).
@@ -1099,6 +1335,340 @@ async def agent_validator(state: ServerState, generated: dict) -> tuple[bool, st
     except Exception as e:
         logger.warning(f"validator failed, accepting: {e}")
         return True, f"validator error: {e}"
+
+
+# ======================================================================
+# Rubric-mode agents (HealthBench-Professional task + rubric co-generation)
+# ======================================================================
+def _valid_rubric(items) -> bool:
+    """3-20 objective items, points in [-10,10]\\{0}, >=1 positive and >=1 negative.
+    Mirrors scripts/self_evolving/healthbench_gen.py:_valid_rubric."""
+    if not isinstance(items, list) or not (3 <= len(items) <= 20):
+        return False
+    has_pos = has_neg = False
+    for it in items:
+        if not isinstance(it, dict):
+            return False
+        pts = it.get("points")
+        crit = it.get("criterion_text") or it.get("criterion")
+        if not isinstance(pts, (int, float)) or not crit or abs(pts) > 10 or pts == 0:
+            return False
+        has_pos = has_pos or pts > 0
+        has_neg = has_neg or pts < 0
+    return has_pos and has_neg
+
+
+def _valid_conversation(conv) -> bool:
+    return (isinstance(conv, list) and len(conv) >= 1
+            and isinstance(conv[-1], dict) and conv[-1].get("role") == "user"
+            and bool(conv[-1].get("content")))
+
+
+async def agent_task_proposer(state: ServerState, use_case: str, specialty: str) -> list[str]:
+    """Propose diverse clinician REQUESTS (which double as retrieval queries)
+    for a use_case x specialty, using the file-backed (evolvable) proposer."""
+    sys_prompt = _fill(state.prompt_store.get("query_proposer"), {
+        "K": state.args.n_queries, "USE_CASE": use_case,
+        "USE_CASE_DESC": HB_USE_CASE_DESC.get(use_case, use_case), "SPECIALTY": specialty,
+        "GAP_GUIDANCE": state.prompt_store.get("query_proposer_guidance"),
+    })
+    user_prompt = (
+        f"Use case: {use_case} ({HB_USE_CASE_DESC.get(use_case, use_case)}).\n"
+        f"Specialty: {specialty}.\n"
+        f"Propose {state.args.n_queries} diverse clinician requests."
+    )
+    response = await _api_call(state, sys_prompt, user_prompt, max_tokens=4096,
+                               temperature=0.9, label="chat_task_proposer", want_json=False)
+    queries = _parse_json(response, expect_array=True)
+    if not isinstance(queries, list):
+        raise ValueError("task proposer did not return a list")
+    queries = [q for q in queries if isinstance(q, str) and q.strip()]
+    if not queries:
+        raise ValueError("task proposer returned no valid requests")
+    return queries[: state.args.n_queries]
+
+
+async def agent_task_rubric_generator(state: ServerState, request: str, use_case: str,
+                                      specialty: str, knowledge: str, mode: str) -> dict:
+    """Generate, in ONE call, a clinician task (conversation) + HealthBench-Pro
+    rubric, using the file-backed (evolvable) generator prompt."""
+    sys_prompt = _fill(state.prompt_store.get("task_rubric_generator"), {
+        "USE_CASE": use_case, "USE_CASE_DESC": HB_USE_CASE_DESC.get(use_case, use_case),
+        "SPECIALTY": specialty, "MODE_INSTR": HB_MODE_INSTR.get(mode, HB_MODE_INSTR["good_faith"]),
+        "GAP_GUIDANCE": state.prompt_store.get("task_rubric_generator_guidance"),
+    })
+    parts = [f"Target clinician request:\n{request}"]
+    if knowledge:
+        parts.append(f"Retrieved reference passages:\n{knowledge}")
+    parts.append("Produce the JSON object (conversation + rubric_items).")
+    user_prompt = "\n\n".join(parts)
+    response = await _api_call(state, sys_prompt, user_prompt, max_tokens=12288,
+                               temperature=0.9, label="chat_task_rubric", want_json=True)
+    obj = _parse_json(response)
+    if not isinstance(obj, dict):
+        raise ValueError(f"generator did not return an object: {response[:200]!r}")
+    conv = obj.get("conversation")
+    items = obj.get("rubric_items")
+    if not _valid_conversation(conv):
+        raise ValueError("invalid conversation (must end in a user turn)")
+    if not _valid_rubric(items):
+        raise ValueError("invalid rubric (need 3-20 items, >=1 pos & >=1 neg, points in [-10,10])")
+    # Normalize each item to {criterion_text, points}.
+    norm_items = [{"criterion_text": (it.get("criterion_text") or it.get("criterion")),
+                   "points": float(it["points"])} for it in items]
+    return {
+        "use_case": use_case,
+        "specialty": specialty,
+        "conversation": conv,
+        "rubric_items": norm_items,
+        "difficulty": obj.get("difficulty", "typical"),
+    }
+
+
+def _render_conversation_user(conv: list[dict]) -> str:
+    """Flatten a (possibly multi-turn) conversation into the single user message
+    the solver sees. Prior turns are prefixed; the final clinician turn is the task."""
+    if len(conv) == 1:
+        return conv[0].get("content", "")
+    lines = []
+    for m in conv:
+        role = m.get("role", "user")
+        who = "Clinician" if role == "user" else "Assistant"
+        lines.append(f"{who}: {m.get('content', '')}")
+    return "\n\n".join(lines)
+
+
+def _build_entry_rubric(state: ServerState, gen: dict, knowledge: str,
+                        retrieval_query: str) -> dict:
+    """Build a verl-shape pool entry for a task+rubric example. data_source
+    starts with 'healthbench' so the reward routes to the rubric scorer."""
+    state.question_counter += 1
+    conv = gen["conversation"]
+    qid = uuid.uuid4().hex
+    return {
+        "data_source": "healthbench_self",
+        "prompt": [
+            {"role": "system", "content": RUBRIC_SOLVER_SYSTEM},
+            {"role": "user", "content": _render_conversation_user(conv)},
+        ],
+        "reward_model": {"style": "rubric", "ground_truth": ""},
+        "extra_info": {
+            "question_id": qid,
+            "index": state.question_counter,
+            "split": "train",
+            "source": "healthbench_self",
+            "use_case": gen["use_case"],
+            "specialty": gen.get("specialty", ""),
+            "difficulty": gen.get("difficulty", "typical"),
+            "conversation": conv,
+            "rubric_items": gen["rubric_items"],
+            "question": _render_conversation_user(conv),
+            "passage": (knowledge or "")[:4000],
+            "retrieval_query": retrieval_query,
+        },
+    }
+
+
+async def _rubric_iteration(state: ServerState, worker_id: int) -> None:
+    """One rubric-mode generation iteration: pick use_case x specialty, propose
+    requests, retrieve grounding, co-generate task+rubric, validate, push."""
+    seed = random.choice(state.train_seeds)
+    use_case = _weighted_choice(HB_USE_CASES)
+    specialty = seed["extra_info"]["specialty"]
+    mode = "red_teaming" if random.random() < HB_REDTEAM_SHARE else "good_faith"
+
+    try:
+        requests = await agent_task_proposer(state, use_case, specialty)
+    except Exception as e:
+        logger.warning(f"worker {worker_id}: task proposer failed: {type(e).__name__}: {e!r}")
+        return
+    state.stats["total_queries"] += len(requests)
+
+    # One generation per proposed request (capped by questions_per_query).
+    requests = requests[: max(1, int(getattr(state.args, "questions_per_query", 1)) * len(requests))]
+    for request in requests:
+        if state.pool.full():
+            break
+        # Optional Milvus grounding (best-effort).
+        knowledge = ""
+        try:
+            hits = await _milvus_search(state, request, top_k=state.args.milvus_top_k)
+            if hits:
+                knowledge = "\n\n".join(
+                    f"[passage {i + 1} / source={h.get('source', '?')}]\n{h['text']}"
+                    for i, h in enumerate(hits)
+                )
+        except Exception as e:
+            logger.debug(f"rubric retrieval failed (continuing ungrounded): {e}")
+        try:
+            gen = await agent_task_rubric_generator(
+                state, request, use_case, specialty, knowledge, mode)
+        except Exception as e:
+            logger.warning(f"worker {worker_id}: rubric generator failed: {type(e).__name__}: {e!r}")
+            state.stats["total_rejected"] += 1
+            continue
+        entry = _build_entry_rubric(state, gen, knowledge, request)
+        async with state.log_lock:
+            with open(state.accepted_log, "a") as f:
+                f.write(json.dumps({
+                    "ts": datetime.now().isoformat(),
+                    "question_id": entry["extra_info"]["question_id"],
+                    "use_case": use_case, "specialty": specialty, "mode": mode,
+                    "entry": entry,
+                }) + "\n")
+        state.stats["total_accepted"] += 1
+        state.stats["total_generated"] += 1
+        state.mix_counts["gen_task"] += 1
+        state.history.append(entry)
+        await state.pool.put(entry)
+        _maybe_log_sample(entry, "gen_task")
+        logger.info(
+            f"+ gen_task[{use_case}/{specialty}/{mode}] "
+            f"qid={entry['extra_info']['question_id']} n_rubric={len(gen['rubric_items'])} "
+            f"pool=({state.pool.qsize()}/{state.args.max_pool_size}) "
+            f"generated={state.stats['total_generated']}"
+        )
+
+
+def _weighted_choice(weights: dict[str, float]) -> str:
+    keys = list(weights)
+    return random.choices(keys, weights=[weights[k] for k in keys], k=1)[0]
+
+
+# ======================================================================
+# Prompt EVOLUTION (end-of-step): sample 20 rollouts -> per-case analysis ->
+# aggregate -> rewrite the GAP_GUIDANCE of both evolvable generation prompts.
+# Mirrors verl/utils/reward_score/reward_evolution.py but targets the GENERATION
+# prompts (proposer + task/rubric generator) instead of the reward.
+# ======================================================================
+EVOLVE_PER_CASE_SYSTEM = """\
+You are improving an automatic curriculum that trains a medical AI for HealthBench Professional \
+(domains: care consult, writing & documentation, medical research). You are shown ONE training \
+case: the clinician task, the model's response, the rubric used to grade it, which criteria were \
+met, and the resulting score (0-1).
+
+In <=120 words, diagnose:
+1. CAPABILITY GAP: what clinical/communication capability did the model most lack here?
+2. RUBRIC QUALITY: was the rubric well-targeted to a real HealthBench-Pro capability, or was it \
+   gameable / off-domain / mis-calibrated (e.g. positives not summing to ~10, missing a safety \
+   negative, not tied to the response)?
+3. TASK FIT: did the task genuinely exercise its stated use-case domain?
+Be specific and terse. Output plain prose, no preamble."""
+
+EVOLVE_AGGREGATE_SYSTEM = """\
+You are the meta-optimizer for a self-evolving curriculum that trains a medical AI for HealthBench \
+Professional (care consult, writing & documentation, medical research — NOT diagnosis). You are \
+given ~20 per-case diagnoses plus the CURRENT extra guidance for two generation prompts:
+  (A) the QUERY PROPOSER (proposes clinician task requests / retrieval queries), and
+  (B) the TASK+RUBRIC GENERATOR (writes the clinician task and its grading rubric).
+
+Find the common patterns across the cases (recurring capability gaps the model fails on; recurring \
+rubric/targeting weaknesses) and REWRITE the extra guidance for BOTH prompts so the NEXT round of \
+generated tasks+rubrics targets those gaps and fixes those rubric weaknesses. The guidance is \
+appended into each prompt, so write concrete, imperative instructions (what task types, sub-topics, \
+difficulty, formats to emphasize; how to make rubrics objective, safety-aware, well-calibrated to \
+sum positives to ~10, and aimed at the specific failing capabilities). Each guidance block <= 300 \
+words. Keep what still works; replace what doesn't. Do NOT mention specific held-out benchmark items.
+
+Output ONLY a JSON object:
+{"query_proposer_guidance": "<new guidance text>", "task_rubric_generator_guidance": "<new guidance text>", "summary": "<2-3 sentence rationale of the changes>"}"""
+
+
+def _format_evolve_case(c: dict) -> str:
+    """Render one case for the per-case analysis prompt."""
+    conv = c.get("conversation") or []
+    if isinstance(conv, list) and conv:
+        task = conv[-1].get("content", "") if isinstance(conv[-1], dict) else str(conv)
+    else:
+        task = c.get("question", "")
+    items = c.get("item_results") or c.get("rubric_items") or []
+    lines = []
+    for it in items:
+        crit = it.get("criterion_text") or it.get("criterion") or ""
+        pts = it.get("points")
+        met = it.get("met")
+        met_s = "" if met is None else (" MET" if met else " not-met")
+        lines.append(f"  [{pts}]{met_s} {crit}")
+    rubric = "\n".join(lines)
+    return (
+        f"USE_CASE: {c.get('use_case', '?')}\n"
+        f"TASK: {task[:1500]}\n"
+        f"MODEL RESPONSE: {(c.get('response') or '')[:2000]}\n"
+        f"RUBRIC (points / met):\n{rubric}\n"
+        f"SCORE: {c.get('total_score', 0.0):.3f}"
+    )
+
+
+async def _evolve_prompts(state: ServerState, step: int, cases: list[dict]) -> dict:
+    """Run one generation-prompt evolution round from ~20 sampled rollouts."""
+    state.gen_step = max(state.gen_step, int(step))
+    n = len(cases)
+    mean_score = (sum(float(c.get("total_score", 0.0)) for c in cases) / n) if n else 0.0
+
+    # 1) Per-case analysis (concurrent, bounded).
+    async def analyze(c: dict) -> str:
+        try:
+            return await _api_call(state, EVOLVE_PER_CASE_SYSTEM, _format_evolve_case(c),
+                                   max_tokens=512, temperature=0.3, label="evolve_per_case")
+        except Exception as e:
+            return f"(analysis failed: {type(e).__name__})"
+    summaries = await asyncio.gather(*[analyze(c) for c in cases]) if cases else []
+
+    # 2) Aggregate -> new guidance for both prompts.
+    cur_q = state.prompt_store.get("query_proposer_guidance")
+    cur_g = state.prompt_store.get("task_rubric_generator_guidance")
+    agg_user = (
+        f"Mean rubric score this step: {mean_score:.3f} over {n} cases.\n\n"
+        f"CURRENT query-proposer guidance:\n{cur_q or '(none)'}\n\n"
+        f"CURRENT task+rubric-generator guidance:\n{cur_g or '(none)'}\n\n"
+        "PER-CASE DIAGNOSES:\n" + "\n\n".join(f"[{i+1}] {s}" for i, s in enumerate(summaries))
+    )
+    new_q, new_g, summary = cur_q, cur_g, ""
+    changed_q = changed_g = False
+    try:
+        raw = await _api_call(state, EVOLVE_AGGREGATE_SYSTEM, agg_user,
+                              max_tokens=4096, temperature=0.5, label="evolve_aggregate",
+                              want_json=True)
+        obj = _parse_json(raw)
+        if isinstance(obj, dict):
+            cand_q = (obj.get("query_proposer_guidance") or "").strip()
+            cand_g = (obj.get("task_rubric_generator_guidance") or "").strip()
+            summary = (obj.get("summary") or "").strip()
+            if cand_q:
+                state.prompt_store.set("query_proposer_guidance", cand_q)
+                changed_q = cand_q != cur_q
+                new_q = cand_q
+            if cand_g:
+                state.prompt_store.set("task_rubric_generator_guidance", cand_g)
+                changed_g = cand_g != cur_g
+                new_g = cand_g
+    except Exception as e:
+        logger.warning(f"/evolve aggregate failed, keeping guidance: {type(e).__name__}: {e}")
+
+    # 3) Snapshot + log.
+    aux = {
+        "error_summary.txt": summary,
+        "case_summaries.txt": "\n\n".join(summaries),
+        "query_proposer_guidance.txt": new_q,
+        "task_rubric_generator_guidance.txt": new_g,
+    }
+    sdir = state.prompt_store.commit(int(step), aux)
+    metrics = {
+        "step": int(step), "n_cases": n, "mean_score": mean_score,
+        "changed_query_guidance": changed_q, "changed_generator_guidance": changed_g,
+        "snapshot": sdir,
+    }
+    # Caller (/evolve endpoint) already holds evolve_lock, so write directly.
+    with open(state.evolve_log, "a") as f:
+        f.write(json.dumps({"ts": datetime.now().isoformat(), **metrics,
+                            "summary": summary}) + "\n")
+    logger.info(
+        f"~ evolve step={step} cases={n} mean_score={mean_score:.3f} "
+        f"changed_q={changed_q} changed_g={changed_g} snapshot={sdir}"
+    )
+    if summary:
+        logger.info(f"  evolve summary: {summary[:400]}")
+    return metrics
 
 
 def _pick_mode(state: ServerState) -> str:
@@ -1917,6 +2487,12 @@ async def worker_loop(state: ServerState, worker_id: int):
             while state.pool.full():
                 await asyncio.sleep(0.5)
 
+            # Rubric mode runs its own single-mode pipeline (task + rubric) and
+            # skips the diagnosis modes entirely.
+            if state.rubric_mode:
+                await _rubric_iteration(state, worker_id)
+                continue
+
             # Pick the most-deficit mode, then sample a seed of the right
             # origin uniformly at random. target_idx / cycle become loose
             # iteration counters used only for logging now.
@@ -2164,6 +2740,18 @@ async def worker_loop(state: ServerState, worker_id: int):
 class ReportPayload(BaseModel):
     question_id: str
     accuracy: float
+
+
+class EvolvePayload(BaseModel):
+    """End-of-step prompt-evolution request from the trainer.
+
+    `cases` is ~20 sampled rollouts of the step: the clinician task, the model's
+    response, the rubric, which criteria were met, and the rubric score. The
+    server analyzes them and rewrites the GAP_GUIDANCE of both generation prompts.
+    """
+
+    step: int
+    cases: list[dict]
 
 
 class ReplayPayload(BaseModel):
@@ -2448,6 +3036,19 @@ async def report(payload: ReportPayload):
     return {"ok": True}
 
 
+@app.post("/evolve")
+async def evolve(payload: EvolvePayload):
+    """Evolve the generation prompts from a step's sampled rollouts. Serialized
+    (evolve_lock) so concurrent calls can't interleave guidance rewrites."""
+    s = STATE
+    if not s.rubric_mode or s.prompt_store is None:
+        raise HTTPException(status_code=400, detail="evolve requires --rubric_mode")
+    if not payload.cases:
+        return {"step": payload.step, "n_cases": 0, "skipped": "no cases"}
+    async with s.evolve_lock:
+        return await _evolve_prompts(s, payload.step, payload.cases)
+
+
 @app.post("/replay")
 async def replay(payload: ReplayPayload):
     """Re-push entries from an accepted_log file into the replay buffer.
@@ -2492,8 +3093,19 @@ async def replay(payload: ReplayPayload):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--seeds_path", required=True,
-                        help="JSONL of seed targets (typically train.jsonl)")
+    parser.add_argument("--seeds_path", default="",
+                        help="JSONL of seed targets (typically train.jsonl). "
+                             "Required unless --rubric_mode (which synthesizes "
+                             "use_case x specialty seeds).")
+    # --- Rubric mode (HealthBench-Professional task + rubric co-generation) ---
+    parser.add_argument("--rubric_mode", action="store_true",
+                        help="Generate open-ended clinician TASK + co-generated "
+                             "HealthBench-Professional rubric per item (no MCQ/"
+                             "diagnosis). Reward is the rubric, graded by self.")
+    parser.add_argument("--prompt_dir", default="",
+                        help="Directory holding the evolvable, file-backed prompts "
+                             "(query_proposer.txt, task_rubric_generator.txt). "
+                             "Defaults to {log_dir}/prompts. Rubric mode only.")
     parser.add_argument("--test_seeds_path", default="",
                         help="Optional JSONL of test seeds. Loaded with "
                              "reward_model stripped — used to drive question "
@@ -2600,6 +3212,13 @@ def main():
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=8004)
     args = parser.parse_args()
+
+    # Validate / default mode-specific args.
+    if args.rubric_mode:
+        if not args.prompt_dir:
+            args.prompt_dir = os.path.join(args.log_dir, "prompts")
+    elif not args.seeds_path:
+        parser.error("--seeds_path is required unless --rubric_mode is set")
 
     # Make the file-server base available to the sync media helpers.
     global _CLIMB_FILE_BASE

@@ -702,6 +702,89 @@ class RayPPOTrainer:
             _say(f"FAILED: {type(e).__name__}: {e}\n{traceback.format_exc()}")
             return {}
 
+    def _maybe_evolve_generation(self, batch: DataProto, reward_extra_infos_dict: dict) -> dict:
+        """Optional, training-only end-of-step GENERATION-prompt evolution (rubric mode).
+
+        Samples ~N of this step's rollouts — clinician task, model response, rubric,
+        which criteria were met, and the rubric score — and POSTs them to the gen
+        server's ``/evolve`` endpoint, which rewrites the proposer + task/rubric
+        generation prompts to target the capability gaps. Enabled via
+        ``data.self_evolving.evolve_generation``. Best-effort: any failure is logged
+        and skipped so it can never break training.
+        """
+        from omegaconf import OmegaConf
+
+        se_cfg = OmegaConf.select(self.config, "data.self_evolving") or {}
+        if not bool(se_cfg.get("evolve_generation", False)):
+            return {}
+        gen_server_url = se_cfg.get("gen_server_url", "") or os.environ.get("GEN_SERVER_URL", "")
+        if not gen_server_url:
+            return {}
+        every = int(se_cfg.get("evolve_every_n_steps", 1) or 1)
+        if every > 1 and (self.global_steps % every != 0):
+            return {}
+        num_examples = int(se_cfg.get("evolve_num_examples", 20) or 20)
+
+        def _say(msg: str) -> None:
+            print(f"[gen_evolution] step {self.global_steps}: {msg}", flush=True)
+
+        try:
+            import random as _random
+
+            import requests
+
+            n = len(batch)
+            if n == 0:
+                return {}
+            # Per-sample combined reward (for logging / picking) — same sources as reward evolution.
+            scores = None
+            for src in (reward_extra_infos_dict, batch.non_tensor_batch):
+                if src is not None and ("score" in src or "reward" in src):
+                    scores = src.get("score", src.get("reward"))
+                    break
+            scores = [float(s) for s in scores] if scores is not None else [0.0] * n
+
+            k = min(num_examples, n)
+            picked = _random.sample(range(n), k)
+            cases = []
+            for i in picked:
+                data_item = batch[i]
+                prompt_ids = data_item.batch["prompts"]
+                plen = prompt_ids.shape[-1]
+                resp_ids = data_item.batch["responses"]
+                valid_resp_len = int(data_item.batch["attention_mask"][plen:].sum())
+                resp_str = self.tokenizer.decode(resp_ids[:valid_resp_len], skip_special_tokens=True)
+                ex_info = data_item.non_tensor_batch.get("extra_info", {}) or {}
+                rubric_items = ex_info.get("rubric_items") or []
+                cases.append({
+                    "use_case": ex_info.get("use_case", ""),
+                    "conversation": ex_info.get("conversation") or [],
+                    "response": resp_str,
+                    "rubric_items": list(rubric_items),
+                    "total_score": scores[i] if i < len(scores) else 0.0,
+                })
+
+            _say(f"posting {len(cases)} cases -> {gen_server_url}/evolve")
+            r = requests.post(
+                f"{gen_server_url.rstrip('/')}/evolve",
+                json={"step": int(self.global_steps), "cases": cases},
+                timeout=float(se_cfg.get("evolve_timeout", 1200)),
+            )
+            r.raise_for_status()
+            res = r.json()
+            _say(f"done: {res}")
+            return {
+                "gen_evolution/n_cases": float(res.get("n_cases", 0)),
+                "gen_evolution/mean_score": float(res.get("mean_score", 0.0)),
+                "gen_evolution/changed_query_guidance": float(bool(res.get("changed_query_guidance"))),
+                "gen_evolution/changed_generator_guidance": float(bool(res.get("changed_generator_guidance"))),
+            }
+        except Exception as e:  # noqa: BLE001 — never break training on evolution failure
+            import traceback
+
+            _say(f"FAILED: {type(e).__name__}: {e}\n{traceback.format_exc()}")
+            return {}
+
     def _validate(self, merged: bool = False):
         data_source_lst = []
         reward_extra_infos_dict: dict[str, list] = defaultdict(list)
@@ -1854,6 +1937,13 @@ class RayPPOTrainer:
                     evo_metrics = self._maybe_evolve_reward(batch, reward_extra_infos_dict)
                     if evo_metrics:
                         metrics.update(evo_metrics)
+
+                    # Optional, training-only: evolve the GENERATION prompts (rubric mode).
+                    # Samples this step's rubric rollouts and POSTs them to the gen
+                    # server's /evolve endpoint (off by default; {} when disabled).
+                    gen_evo_metrics = self._maybe_evolve_generation(batch, reward_extra_infos_dict)
+                    if gen_evo_metrics:
+                        metrics.update(gen_evo_metrics)
 
                 # validate
                 if self.config.trainer.test_freq > 0 and (

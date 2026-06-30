@@ -261,6 +261,7 @@ async def _call_api(
     system_prompt: str,
     user_prompt: str,
     max_tokens: int = 256,
+    provider: str = "",
 ) -> str:
     """Call the chat API with thinking disabled.
 
@@ -285,7 +286,10 @@ async def _call_api(
     #           — Kimi non-thinking mode fixes it to 0.6 and 400s on any
     #           other value)
     #   other : drop both; let the provider's own default handle it.
-    provider = os.environ.get("CHAT_PROVIDER", "vllm").lower()
+    # `provider` arg (when given) overrides the global env so a single process
+    # can mix a vllm self-judge (training) and a TRAPI gpt-chat-latest judge
+    # (validation) — they need different request shaping.
+    provider = (provider or os.environ.get("CHAT_PROVIDER", "vllm")).lower()
     payload: dict = {
         "model": model_name,
         "messages": [
@@ -680,6 +684,12 @@ async def compute_score(
     evolve_dir: str = "",
     evolve_w_judge: float = 0.7,
     evolve_w_func: float = 0.3,
+    rubric_mode: bool = False,
+    provider: str = "",
+    val_api_base: str = "",
+    val_api_key: str = "EMPTY",
+    val_model_name: str = "",
+    val_provider: str = "",
     **kwargs,
 ) -> dict:
     """Compute composite reward.
@@ -701,6 +711,38 @@ async def compute_score(
               + 0.20*embed_sim + 0.10*char_bleu
     """
     extra_info = extra_info or {}
+
+    # === Rubric mode (HealthBench-Professional task+rubric co-generation) ===
+    # When enabled (reward_kwargs.rubric_mode) or the data_source is a HealthBench
+    # set, the reward is PURELY the co-generated rubric graded by an LLM judge —
+    # the 8-component composite and the judge/function reward-evolution add-on are
+    # bypassed entirely. Training grades with self (server 5); validation grades
+    # with the gpt-chat-latest judge (the rubric scorer branches on _is_validation).
+    if rubric_mode or str(data_source or "").startswith("healthbench"):
+        from verl.utils.reward_score import healthbench_pro
+
+        result = await healthbench_pro.compute_score(
+            data_source=data_source,
+            solution_str=solution_str,
+            ground_truth=ground_truth,
+            extra_info=extra_info,
+            api_base=api_base,
+            api_key=api_key,
+            model_name=model_name,
+            provider=provider,
+            val_api_base=val_api_base,
+            val_api_key=val_api_key,
+            val_model_name=val_model_name,
+            val_provider=val_provider,
+        )
+        # Feed the rubric fraction back to the gen server for difficulty
+        # calibration (training only; validation rows have no gen-server entry).
+        server_url = gen_server_url or os.environ.get("GEN_SERVER_URL", "")
+        question_id = extra_info.get("question_id", "")
+        if server_url and question_id and not extra_info.get("_is_validation", False):
+            await _report_to_gen_server(server_url, question_id, float(result.get("acc", 0.0)))
+        return result
+
     question = extra_info.get("question", "")
     context = extra_info.get("context", "")
     options = extra_info.get("options", {}) if isinstance(extra_info.get("options"), dict) else {}
