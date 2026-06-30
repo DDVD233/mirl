@@ -61,6 +61,30 @@ Return just the json, no markdown.
 """
 
 
+def _strip_thinking(text: str) -> str:
+    """Return only the final answer, dropping any reasoning/thinking channel.
+
+    The solver runs with thinking ENABLED, so its response is
+    ``<think> ... </think> <answer>`` (or, if the chat template streams reasoning
+    without an open tag, ``... </think> <answer>``). We grade and length-measure
+    ONLY the answer:
+      - if a ``</think>`` close tag exists, take everything after the LAST one;
+      - else if an unclosed ``<think>`` exists (truncated reasoning, no answer),
+        drop it (treated as an empty answer -> low score, which is correct);
+      - else return the text unchanged.
+    """
+    if not text:
+        return ""
+    low = text.lower()
+    close = low.rfind("</think>")
+    if close != -1:
+        return text[close + len("</think>"):].strip()
+    open_i = low.find("<think>")
+    if open_i != -1:
+        return text[:open_i].strip()
+    return text.strip()
+
+
 def _rubric_items(extra_info: dict) -> list[dict]:
     items = extra_info.get("rubric_items")
     if items is None:
@@ -135,11 +159,21 @@ async def compute_score(
         achieved  = Σ points of met criteria (negative items subtract)
         total_pos = Σ positive points
         raw       = achieved / total_pos      (≈ achieved/10 since positives sum ~10)
-        score     = clip(raw [- length penalty in val], 0, 1)
+        score     = clip(raw - length penalty, 0, 1)
+
+    The solver runs with THINKING ENABLED, so its raw output is
+    ``<think>...</think> answer``. Grading and length-measurement use ONLY the
+    answer (thinking stripped): the judge sees just the final answer, and the
+    length penalty counts only the answer's characters — so reasoning length is
+    never rewarded or penalized. The length penalty (HealthBench-Pro style) is
+    applied for BOTH training and validation.
     """
     extra_info = extra_info or {}
     items = _rubric_items(extra_info)
     response_text = solution_str or ""
+    # Strip the thinking channel: the judge grades — and length counts — only the
+    # final answer, not the reasoning.
+    answer_text = _strip_thinking(response_text)
 
     is_val = bool(extra_info.get("_is_validation", False))
     if is_val and val_api_base:
@@ -154,12 +188,12 @@ async def compute_score(
     # No rubric or no grader configured -> neutral, homogeneous result.
     total_pos = sum(it["points"] for it in items if it["points"] > 0)
     if not items or total_pos <= 0 or not eff_base:
-        return _result(0.0, 0.0, response_text)
+        return _result(0.0, 0.0, answer_text)
 
     # Lazy import to avoid an import cycle (self_evolving imports us).
     from verl.utils.reward_score.self_evolving import _call_api
 
-    conversation = _conversation_text(extra_info, response_text)
+    conversation = _conversation_text(extra_info, answer_text)
 
     async def grade(it: dict) -> tuple[float, bool | None]:
         prompt = GRADER_TEMPLATE.format(
@@ -172,21 +206,20 @@ async def compute_score(
             )
         except Exception:
             return 0.0, None  # unreachable grader -> treat as not met (no credit)
-        met = _parse_met(raw)
+        # Defensive: if the judge itself emits a thinking channel, keep only the
+        # main text before parsing the verdict JSON.
+        met = _parse_met(_strip_thinking(raw))
         return (it["points"] if met else 0.0), met
 
     graded = await asyncio.gather(*[grade(it) for it in items])
     achieved = sum(pts for pts, _met in graded)
     raw = achieved / total_pos  # may be negative if negative criteria fire
 
-    # Length adjustment is the HealthBench-Pro primary metric, applied ONLY for
-    # validation (to match the official benchmark). The training reward is the
-    # pure clipped rubric fraction so the policy isn't length-shaped by the proxy.
-    chars = len(response_text)
-    if is_val:
-        length_adjusted = raw - LENGTH_ADJ_PENALTY_PER_500 * ((chars - LENGTH_ADJ_CENTER) / 500.0)
-    else:
-        length_adjusted = raw
+    # HealthBench-Pro length adjustment on the ANSWER length (thinking stripped),
+    # applied for both training and validation so longer answers pay the same
+    # penalty the benchmark uses.
+    chars = len(answer_text)
+    length_adjusted = raw - LENGTH_ADJ_PENALTY_PER_500 * ((chars - LENGTH_ADJ_CENTER) / 500.0)
 
     if random.random() < DEBUG_PRINT_PROB:
         mode = "VAL" if is_val else "train"
@@ -196,10 +229,11 @@ async def compute_score(
         for (pts, met), it in zip(graded, items):
             print(f"  [{it['points']:+.0f}] met={met}  {it['criterion'][:90]}")
         print(f"  achieved={achieved:.1f}  total_pos={total_pos:.1f}  "
-              f"raw={raw:.3f}  len_adj={length_adjusted:.3f}  chars={chars}")
+              f"raw={raw:.3f}  len_adj={length_adjusted:.3f}  answer_chars={chars} "
+              f"(resp_chars={len(response_text)})")
         print(f"{'=' * 60}\n")
 
-    return _result(raw, length_adjusted, response_text)
+    return _result(raw, length_adjusted, answer_text)
 
 
 def _clip01(x: float) -> float:
@@ -214,9 +248,13 @@ def _result(raw: float, length_adjusted: float, response_text: str) -> dict:
     fmt_ok = 1.0 if (response_text or "").strip() else 0.0
     return {
         "score": float(score),               # training reward (length-adjusted, clipped)
-        "acc": float(raw01),                  # headline rubric fraction / gen-server feedback
+        # Both headline numbers, reported every step so validation shows raw AND
+        # length-adjusted accuracy side by side:
+        "acc_raw": float(raw01),              # raw rubric fraction (no length penalty)
+        "acc_len_adj": float(score),          # length-adjusted (HB-Pro primary metric)
+        "acc": float(raw01),                  # raw (gen-server difficulty feedback uses this)
         "judge_acc_lenient": float(raw01),    # raw rubric fraction
-        "judge_acc_strict": float(score),     # length-adjusted (the HB-Pro primary metric)
+        "judge_acc_strict": float(score),     # length-adjusted
         "exact_acc": float(raw01),
         "answer_quality": 1.0 + 4.0 * raw01,  # 1-5 slot
         "reasoning_quality": 3.0,

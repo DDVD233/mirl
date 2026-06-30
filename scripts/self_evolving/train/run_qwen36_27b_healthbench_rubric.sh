@@ -73,7 +73,8 @@ cd "$REPO"
     data.custom_cls.name=SelfEvolvingDataset \
     data.train_batch_size=64 \
     data.max_prompt_length=8192 \
-    data.max_response_length=4096 \
+    data.max_response_length="${MAX_RESP_LEN:-8192}" \
+    +data.apply_chat_template_kwargs.enable_thinking=True \
     data.shuffle=False \
     data.val_batch_size=64 \
     ++data.val_max_samples=-1 \
