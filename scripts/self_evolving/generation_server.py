@@ -1364,6 +1364,44 @@ def _valid_conversation(conv) -> bool:
             and bool(conv[-1].get("content")))
 
 
+_USER_ROLES = {"user", "clinician", "physician", "doctor", "human", "md", "provider", "nurse", "client"}
+_ASSISTANT_ROLES = {"assistant", "ai", "model", "bot", "chatbot", "gpt"}
+
+
+def _normalize_conversation(conv):
+    """Coerce a generated conversation into a verl-shape list that ENDS on a user
+    turn, or return None if there is no usable user content.
+
+    Salvages the common generator quirks that were being rejected wholesale:
+      - the model answers its own question (trailing assistant turn) -> drop it;
+      - messages wrapped as {"messages": [...]} -> unwrap;
+      - role synonyms (clinician/physician/doctor/human...) -> "user".
+    """
+    if isinstance(conv, dict):
+        conv = conv.get("messages") or conv.get("conversation")
+    if not isinstance(conv, list):
+        return None
+    norm = []
+    for m in conv:
+        if not isinstance(m, dict):
+            continue
+        content = m.get("content")
+        if not (isinstance(content, str) and content.strip()):
+            continue
+        role = str(m.get("role", "user")).strip().lower()
+        if role in _ASSISTANT_ROLES:
+            role = "assistant"
+        elif role == "system":
+            role = "system"
+        else:
+            role = "user"  # default unknown / user-like roles to the clinician
+        norm.append({"role": role, "content": content})
+    # Drop trailing assistant/system turns so the task ends on the clinician's ask.
+    while norm and norm[-1]["role"] != "user":
+        norm.pop()
+    return norm if (norm and norm[-1]["role"] == "user") else None
+
+
 async def agent_task_proposer(state: ServerState, use_case: str, specialty: str) -> list[str]:
     """Propose diverse clinician REQUESTS (which double as retrieval queries)
     for a use_case x specialty, using the file-backed (evolvable) proposer."""
@@ -1407,10 +1445,10 @@ async def agent_task_rubric_generator(state: ServerState, request: str, use_case
     obj = _parse_json(response)
     if not isinstance(obj, dict):
         raise ValueError(f"generator did not return an object: {response[:200]!r}")
-    conv = obj.get("conversation")
+    conv = _normalize_conversation(obj.get("conversation"))
     items = obj.get("rubric_items")
-    if not _valid_conversation(conv):
-        raise ValueError("invalid conversation (must end in a user turn)")
+    if not conv:
+        raise ValueError("invalid conversation (no usable clinician/user turn)")
     if not _valid_rubric(items):
         raise ValueError("invalid rubric (need 3-20 items, >=1 pos & >=1 neg, points in [-10,10])")
     # Normalize each item to {criterion_text, points}.
