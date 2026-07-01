@@ -1520,12 +1520,13 @@ def _build_entry_rubric(state: ServerState, gen: dict, knowledge: str,
     state.question_counter += 1
     conv = gen["conversation"]
     qid = uuid.uuid4().hex
+    # BARE solver prompt (match the official HealthBench eval, which passes the
+    # conversation as-is with NO system message). Send the raw conversation turns.
+    prompt = [{"role": m.get("role", "user"), "content": m.get("content", "")}
+              for m in conv if m.get("content")]
     return {
         "data_source": "healthbench_self",
-        "prompt": [
-            {"role": "system", "content": RUBRIC_SOLVER_SYSTEM},
-            {"role": "user", "content": _render_conversation_user(conv)},
-        ],
+        "prompt": prompt,
         "reward_model": {"style": "rubric", "ground_truth": ""},
         "extra_info": {
             "question_id": qid,

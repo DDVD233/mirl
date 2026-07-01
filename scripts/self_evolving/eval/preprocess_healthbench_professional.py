@@ -83,9 +83,13 @@ def _to_verl_rows(hf_rows: list[dict], split: str):
         if not messages or not rubric:
             continue
         qid = ex.get("id") or uuid.uuid4().hex
-        prompt = [{"role": "system", "content": SYSTEM_PROMPT}] + messages
+        # BARE prompt (match official eval: conversation as-is, no system message).
+        prompt = messages
+        # Per-use_case data_source so verl reports each task type separately in val
+        # (val-core/healthbench_professional/<use_case>/...). Falls back to "other".
+        use_case = (ex.get("use_case") or "other")
         yield {
-            "data_source": "healthbench_professional",
+            "data_source": f"healthbench_professional/{use_case}",
             "prompt": prompt,
             "reward_model": {"style": "rubric", "ground_truth": ""},
             "extra_info": {

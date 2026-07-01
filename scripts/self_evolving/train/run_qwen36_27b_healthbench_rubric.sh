@@ -32,10 +32,9 @@ GEN_SERVER_URL="${GEN_SERVER_URL:-http://localhost:8006}"
 # Validation judge: gpt-chat-latest via the TRAPI proxy (the standard HealthBench
 # judge). Overridable; the rubric scorer only uses these on validation batches.
 VAL_JUDGE_BASE="${VAL_JUDGE_BASE:-http://point.dd.works:18890/v1}"
-# gpt-5.3-chat is a stricter grader than gpt-chat-latest (closest available proxy
-# for the official gpt-5.4-low, which is currently down). Switch back to
-# gpt-5.4_2026-03-05 when it returns for leaderboard-comparable numbers.
-VAL_JUDGE_MODEL="${VAL_JUDGE_MODEL:-gpt-5.3-chat_2026-03-03}"
+# gpt-5.1 val grader (more TRAPI budget than gpt-5.3-chat/gpt-5.4). Switch to
+# gpt-5.4_2026-03-05 when it returns for the official leaderboard-comparable grader.
+VAL_JUDGE_MODEL="${VAL_JUDGE_MODEL:-gpt-5.1_2025-11-13}"
 VAL_JUDGE_KEY="${VAL_JUDGE_KEY:-$(cat /scratch/sheng/self_evolving/.trapi_key 2>/dev/null || echo EMPTY)}"
 
 # Official HealthBench Professional val parquet (built by preprocess_healthbench_professional.py).
@@ -68,7 +67,7 @@ cd "$REPO"
 /usr/local/bin/python -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
     algorithm.use_kl_in_reward=False \
-    algorithm.kl_ctrl.kl_coef=0.001 \
+    algorithm.kl_ctrl.kl_coef=0.0 \
     algorithm.norm_adv_by_std_in_grpo=True \
     data.train_files="$TRAIN_PLACEHOLDER" \
     data.val_files="$VAL_FILES" \
@@ -114,8 +113,8 @@ cd "$REPO"
     actor_rollout_ref.ref.use_torch_compile=False \
     actor_rollout_ref.actor.clip_ratio_low=0.2 \
     actor_rollout_ref.actor.clip_ratio_high=0.28 \
-    actor_rollout_ref.actor.use_kl_loss=True \
-    actor_rollout_ref.actor.kl_loss_coef=0.001 \
+    actor_rollout_ref.actor.use_kl_loss=False \
+    actor_rollout_ref.actor.kl_loss_coef=0.0 \
     actor_rollout_ref.actor.kl_loss_type=low_var_kl \
     actor_rollout_ref.actor.loss_agg_mode=token-mean \
     actor_rollout_ref.actor.fsdp_config.param_offload=True \
