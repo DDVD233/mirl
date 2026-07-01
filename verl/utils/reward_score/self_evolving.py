@@ -310,7 +310,10 @@ async def _call_api(
         # gpt-chat-latest deployment REJECTS "none" (only "medium"), so omit it there.
         payload.pop("max_tokens", None)
         payload["max_completion_tokens"] = max_tokens
-        if "chat-latest" not in model_name.lower():
+        # Reasoning models (gpt-5.x, o-series) take reasoning_effort="none" to skip
+        # reasoning. CHAT deployments (gpt-chat-latest, gpt-5.3-chat, ...) reject it
+        # (only accept their default), so omit for any "chat" model.
+        if "chat" not in model_name.lower():
             payload["reasoning_effort"] = "none"
     else:  # openai-compatible / generic
         payload["temperature"] = 0.0

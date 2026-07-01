@@ -24,9 +24,15 @@ cd "$(dirname "$0")/../../.."
 LIMIT_FLAG=()
 [ "$LIMIT" -gt 0 ] && LIMIT_FLAG=(--limit "$LIMIT")
 
+# Optional system message (e.g. the clinical-assistant solver prompt) for a
+# conditions-matched comparison. Set SYS="..." to enable.
+SYS_FLAG=()
+[ -n "${SYS:-}" ] && SYS_FLAG=(--system-message "$SYS")
+
 exec /usr/local/bin/python scripts/self_evolving/eval/healthbench_professional_eval.py \
     --model-provider trapi --model-base "$TRAPI_BASE" --model-name "$MODEL" --model-key "$KEY" \
     --max-tokens "$MAXTOK" \
+    "${SYS_FLAG[@]}" \
     --grader trapi --grader-base "$TRAPI_BASE" --grader-key "$KEY" \
     --grader-model "$GRADER_MODEL" --grader-effort "" \
     --concurrency "$CONC" --no-wandb \

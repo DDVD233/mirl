@@ -32,7 +32,10 @@ GEN_SERVER_URL="${GEN_SERVER_URL:-http://localhost:8006}"
 # Validation judge: gpt-chat-latest via the TRAPI proxy (the standard HealthBench
 # judge). Overridable; the rubric scorer only uses these on validation batches.
 VAL_JUDGE_BASE="${VAL_JUDGE_BASE:-http://point.dd.works:18890/v1}"
-VAL_JUDGE_MODEL="${VAL_JUDGE_MODEL:-gpt-chat-latest_2026-05-28}"
+# gpt-5.3-chat is a stricter grader than gpt-chat-latest (closest available proxy
+# for the official gpt-5.4-low, which is currently down). Switch back to
+# gpt-5.4_2026-03-05 when it returns for leaderboard-comparable numbers.
+VAL_JUDGE_MODEL="${VAL_JUDGE_MODEL:-gpt-5.3-chat_2026-03-03}"
 VAL_JUDGE_KEY="${VAL_JUDGE_KEY:-$(cat /scratch/sheng/self_evolving/.trapi_key 2>/dev/null || echo EMPTY)}"
 
 # Official HealthBench Professional val parquet (built by preprocess_healthbench_professional.py).
