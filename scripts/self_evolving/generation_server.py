@@ -482,6 +482,21 @@ class ServerState:
                  "task_rubric_generator_guidance": ""},
             )
             self.prompt_store.commit(0)  # snapshot the seed prompts as step_000
+            # Guidance-version history with measured outcomes (mean rubric score of
+            # the rollouts observed AFTER each rewrite). Fed back into the aggregate
+            # meta-prompt so evolution can see which guidance directions actually
+            # helped, instead of rewriting blindly each step. Persisted so restarts
+            # keep the record.
+            self.evolve_history_path = os.path.join(args.prompt_dir, "evolve_history.json")
+            self.evolve_history: list[dict] = []
+            try:
+                with open(self.evolve_history_path) as f:
+                    self.evolve_history = json.load(f)
+                logger.info(f"loaded {len(self.evolve_history)} evolve-history entries")
+            except FileNotFoundError:
+                pass
+            except Exception as e:
+                logger.warning(f"could not load evolve history: {e}")
             self.train_seeds = self._synth_rubric_seeds()
             self.test_seeds = []
             self.climb_seeds = []
@@ -1620,23 +1635,40 @@ def _weighted_choice(weights: dict[str, float]) -> str:
 EVOLVE_PER_CASE_SYSTEM = """\
 You are improving an automatic curriculum that trains a medical AI for HealthBench Professional \
 (domains: care consult, writing & documentation, medical research). You are shown ONE training \
-case: the clinician task, the model's response, the rubric used to grade it, which criteria were \
-met, and the resulting score (0-1).
+case: the clinician task, the model's FINAL ANSWER, the rubric used to grade it, which criteria \
+were met, and the resulting score (0-1).
+
+IMPORTANT context about the harness (do not re-diagnose it):
+- The model reasons in a private thinking channel that is ALREADY REMOVED from the answer shown \
+  to you, and is NEVER graded. Reasoning presence is not a failure and rubrics must not target it.
+- THINK_STATS tells you whether the reasoning finished. If it did not (think_closed=false), the \
+  answer is empty and the score is a fixed 0 from a training-side penalty that already handles \
+  this; do not propose rubric or task changes for it.
 
 In <=120 words, diagnose:
-1. CAPABILITY GAP: what clinical/communication capability did the model most lack here?
+1. CAPABILITY GAP: what clinical/communication capability did the model most lack here \
+   (medical accuracy, safety, completeness, terminology, language fidelity, calculation, \
+   instruction following, concision)?
 2. RUBRIC QUALITY: was the rubric well-targeted to a real HealthBench-Pro capability, or was it \
    gameable / off-domain / mis-calibrated (e.g. positives not summing to ~10, missing a safety \
-   negative, not tied to the response)?
-3. TASK FIT: did the task genuinely exercise its stated use-case domain?
+   negative, not tied to the response, or wasting points on formatting/meta constraints)?
+3. TASK FIT: did the task genuinely exercise its stated use-case domain, and is it the kind of \
+   realistic request a clinician would actually send?
 Be specific and terse. Output plain prose, no preamble."""
 
 EVOLVE_AGGREGATE_SYSTEM = """\
 You are the meta-optimizer for a self-evolving curriculum that trains a medical AI for HealthBench \
 Professional (care consult, writing & documentation, medical research — NOT diagnosis). You are \
-given ~20 per-case diagnoses plus the CURRENT extra guidance for two generation prompts:
+given ~20 per-case diagnoses, the CURRENT extra guidance for two generation prompts, and a HISTORY \
+of previous guidance versions with the mean rubric score measured under each:
   (A) the QUERY PROPOSER (proposes clinician task requests / retrieval queries), and
   (B) the TASK+RUBRIC GENERATOR (writes the clinician task and its grading rubric).
+
+Use the HISTORY as evidence: directions whose scores improved are working — keep and extend them; \
+directions that repeatedly failed to move the score, or that every recent version already repeats, \
+are exhausted — drop them and try something genuinely different. Do not oscillate between two \
+alternatives the history shows have both been tried. (Mean score also moves when tasks get harder \
+— judge a direction by its per-case diagnoses too, not the score alone.)
 
 Find the common patterns across the cases (recurring capability gaps the model fails on; recurring \
 rubric/targeting weaknesses) and REWRITE the extra guidance for BOTH prompts so the NEXT round of \
@@ -1644,14 +1676,27 @@ generated tasks+rubrics targets those gaps and fixes those rubric weaknesses. Th
 appended into each prompt, so write concrete, imperative instructions (what task types, sub-topics, \
 difficulty, formats to emphasize; how to make rubrics objective, safety-aware, well-calibrated to \
 sum positives to ~10, and aimed at the specific failing capabilities). Each guidance block <= 300 \
-words. Keep what still works; replace what doesn't. Do NOT mention specific held-out benchmark items.
+words. Keep what still works; replace what doesn't.
+
+Hard constraints:
+- The model's private reasoning channel is stripped before grading and NEVER graded. Guidance and \
+  rubrics must NOT target chain-of-thought suppression, "no reasoning traces", word caps, or exact \
+  header echoes — those criteria are dead weight. Spend rubric points on medical substance.
+- Preserve TASK DIVERSITY: vary use case, specialty, language/register, artifact type, and \
+  difficulty. Never let all tasks collapse into one template.
+- Do NOT mention specific held-out benchmark items.
 
 Output ONLY a JSON object:
 {"query_proposer_guidance": "<new guidance text>", "task_rubric_generator_guidance": "<new guidance text>", "summary": "<2-3 sentence rationale of the changes>"}"""
 
 
 def _format_evolve_case(c: dict) -> str:
-    """Render one case for the per-case analysis prompt."""
+    """Render one case for the per-case analysis prompt.
+
+    ``response`` arrives from the trainer already think-STRIPPED (the final
+    answer, exactly what the grader saw) and is rendered IN FULL — truncating it
+    used to show the analyzer only reasoning fragments and derailed evolution.
+    """
     conv = c.get("conversation") or []
     if isinstance(conv, list) and conv:
         task = conv[-1].get("content", "") if isinstance(conv[-1], dict) else str(conv)
@@ -1666,13 +1711,54 @@ def _format_evolve_case(c: dict) -> str:
         met_s = "" if met is None else (" MET" if met else " not-met")
         lines.append(f"  [{pts}]{met_s} {crit}")
     rubric = "\n".join(lines)
+    closed = c.get("think_closed")
+    think_stats = ""
+    if closed is not None:
+        think_stats = (f"THINK_STATS: think_closed={str(bool(closed)).lower()} "
+                       f"think_chars={int(c.get('think_chars', 0))}\n")
     return (
         f"USE_CASE: {c.get('use_case', '?')}\n"
-        f"TASK: {task[:1500]}\n"
-        f"MODEL RESPONSE: {(c.get('response') or '')[:2000]}\n"
+        f"TASK: {task[:4000]}\n"
+        f"{think_stats}"
+        f"MODEL FINAL ANSWER (reasoning channel already removed):\n"
+        f"{(c.get('response') or '(empty)')[:30000]}\n"
         f"RUBRIC (points / met):\n{rubric}\n"
         f"SCORE: {c.get('total_score', 0.0):.3f}"
     )
+
+
+def _history_block(history: list[dict], max_entries: int = 8) -> str:
+    """Render the last guidance versions + their measured outcomes for the
+    aggregate meta-prompt, oldest first, with score deltas between versions."""
+    ent = history[-max_entries:]
+    if not ent:
+        return "(no previous guidance versions)"
+    parts = []
+    prev_score = None
+    for e in ent:
+        outs = e.get("outcomes") or []
+        if outs:
+            sc = sum(o["mean_score"] for o in outs) / len(outs)
+            unc = sum(o.get("unclosed_rate", 0.0) for o in outs) / len(outs)
+            delta = "" if prev_score is None else f" (delta {sc - prev_score:+.3f})"
+            outcome = f"measured mean score {sc:.3f}{delta}, unclosed-think rate {unc:.2f}"
+            prev_score = sc
+        else:
+            outcome = "no outcome measured yet"
+        parts.append(
+            f"--- version committed at step {e.get('step')}: {outcome}\n"
+            f"    rationale then: {(e.get('summary') or '')[:300]}\n"
+            f"    proposer guidance: {(e.get('query_guidance') or '(none)')[:800]}\n"
+            f"    generator guidance: {(e.get('generator_guidance') or '(none)')[:800]}"
+        )
+    return "\n".join(parts)
+
+
+def _save_evolve_history(state: ServerState) -> None:
+    try:
+        _atomic_write(state.evolve_history_path, json.dumps(state.evolve_history, indent=1))
+    except Exception as e:
+        logger.warning(f"could not persist evolve history: {e}")
 
 
 async def _evolve_prompts(state: ServerState, step: int, cases: list[dict]) -> dict:
@@ -1680,6 +1766,16 @@ async def _evolve_prompts(state: ServerState, step: int, cases: list[dict]) -> d
     state.gen_step = max(state.gen_step, int(step))
     n = len(cases)
     mean_score = (sum(float(c.get("total_score", 0.0)) for c in cases) / n) if n else 0.0
+    unclosed_rate = (sum(1 for c in cases if c.get("think_closed") is False) / n) if n else 0.0
+    mean_answer_chars = (sum(len(c.get("response") or "") for c in cases) / n) if n else 0.0
+
+    # Attribute this step's observed rollouts to the most recent guidance version
+    # (approximate — the sample pool lags a rewrite by up to a step or two).
+    if state.evolve_history:
+        state.evolve_history[-1].setdefault("outcomes", []).append({
+            "step": int(step), "mean_score": mean_score,
+            "unclosed_rate": unclosed_rate, "mean_answer_chars": mean_answer_chars,
+        })
 
     # 1) Per-case analysis (concurrent, bounded).
     async def analyze(c: dict) -> str:
@@ -1694,7 +1790,11 @@ async def _evolve_prompts(state: ServerState, step: int, cases: list[dict]) -> d
     cur_q = state.prompt_store.get("query_proposer_guidance")
     cur_g = state.prompt_store.get("task_rubric_generator_guidance")
     agg_user = (
-        f"Mean rubric score this step: {mean_score:.3f} over {n} cases.\n\n"
+        f"Mean rubric score this step: {mean_score:.3f} over {n} cases "
+        f"(cases are sampled failure-heavy, so this reads LOW vs the batch mean; "
+        f"unclosed-think rate {unclosed_rate:.2f}, mean answer {mean_answer_chars:.0f} chars).\n\n"
+        f"GUIDANCE HISTORY & MEASURED OUTCOMES (oldest first):\n"
+        f"{_history_block(state.evolve_history)}\n\n"
         f"CURRENT query-proposer guidance:\n{cur_q or '(none)'}\n\n"
         f"CURRENT task+rubric-generator guidance:\n{cur_g or '(none)'}\n\n"
         "PER-CASE DIAGNOSES:\n" + "\n\n".join(f"[{i+1}] {s}" for i, s in enumerate(summaries))
@@ -1720,6 +1820,15 @@ async def _evolve_prompts(state: ServerState, step: int, cases: list[dict]) -> d
                 new_g = cand_g
     except Exception as e:
         logger.warning(f"/evolve aggregate failed, keeping guidance: {type(e).__name__}: {e}")
+
+    # New history entry for this guidance version; its outcomes fill in on later
+    # /evolve calls. Record even unchanged guidance so score attribution stays
+    # continuous.
+    state.evolve_history.append({
+        "step": int(step), "query_guidance": new_q, "generator_guidance": new_g,
+        "summary": summary, "changed": bool(changed_q or changed_g), "outcomes": [],
+    })
+    _save_evolve_history(state)
 
     # 3) Snapshot + log.
     aux = {

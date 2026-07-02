@@ -733,19 +733,29 @@ class RayPPOTrainer:
 
             import requests
 
+            from verl.utils.reward_score.healthbench_pro import _strip_thinking
+
             n = len(batch)
             if n == 0:
                 return {}
             # Per-sample combined reward (for logging / picking) — same sources as reward evolution.
             scores = None
+            per_item_met = None
             for src in (reward_extra_infos_dict, batch.non_tensor_batch):
                 if src is not None and ("score" in src or "reward" in src):
                     scores = src.get("score", src.get("reward"))
+                    per_item_met = src.get("rubric_met")
                     break
             scores = [float(s) for s in scores] if scores is not None else [0.0] * n
 
+            # Failure-weighted sampling: the evolver learns most from what went wrong,
+            # so send mostly the worst rollouts plus some best ones for contrast.
             k = min(num_examples, n)
-            picked = _random.sample(range(n), k)
+            by_score = sorted(range(n), key=lambda i: scores[i] if i < len(scores) else 0.0)
+            n_low, n_high = (k + 1) // 2, k // 4
+            picked = by_score[:n_low] + (by_score[-n_high:] if n_high else [])
+            rest = [i for i in by_score[n_low: n - n_high if n_high else n]]
+            picked += _random.sample(rest, min(k - len(picked), len(rest)))
             cases = []
             for i in picked:
                 data_item = batch[i]
@@ -754,13 +764,27 @@ class RayPPOTrainer:
                 resp_ids = data_item.batch["responses"]
                 valid_resp_len = int(data_item.batch["attention_mask"][plen:].sum())
                 resp_str = self.tokenizer.decode(resp_ids[:valid_resp_len], skip_special_tokens=True)
+                # The evolver must see what the GRADER saw: the final answer with the
+                # private reasoning channel stripped (sent in full — the analyzer has
+                # a long context; truncating here previously fed it reasoning-only
+                # excerpts and derailed the whole meta-loop).
+                answer_str = _strip_thinking(resp_str)
                 ex_info = data_item.non_tensor_batch.get("extra_info", {}) or {}
                 rubric_items = ex_info.get("rubric_items") or []
+                item_results = []
+                if per_item_met is not None and i < len(per_item_met):
+                    try:
+                        item_results = json.loads(per_item_met[i])
+                    except Exception:
+                        item_results = []
                 cases.append({
                     "use_case": ex_info.get("use_case", ""),
                     "conversation": ex_info.get("conversation") or [],
-                    "response": resp_str,
+                    "response": answer_str,
+                    "think_closed": "</think>" in resp_str.lower(),
+                    "think_chars": max(0, len(resp_str) - len(answer_str)),
                     "rubric_items": list(rubric_items),
+                    "item_results": item_results,
                     "total_score": scores[i] if i < len(scores) else 0.0,
                 })
 

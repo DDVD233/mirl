@@ -35,6 +35,20 @@ logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 LENGTH_ADJ_CENTER = float(os.environ.get("HB_LENGTH_CENTER", "2000"))
 LENGTH_ADJ_PENALTY_PER_500 = float(os.environ.get("HB_LENGTH_PENALTY_PER_500", "0.0147"))
 
+# TRAINING-ONLY anti-runaway-thinking shaping. The solver always thinks (the chat
+# template opens the reasoning channel), so a response with no ``</think>`` means
+# the reasoning ate the whole token budget and there IS no answer. Analysis of run
+# ij3ccucc showed this — not answer quality — drove the val decline (unclosed items
+# score ~-0.55 length-adjusted because the raw reasoning dump got graded).
+#  - unclosed thinking -> fixed score, NO judge calls (grading a dump is meaningless);
+#  - think text beyond a free budget pays a small linear penalty, so the policy
+#    learns to bound its reasoning instead of drifting toward the cap.
+# Validation is untouched (official HealthBench-Pro protocol, comparable across runs).
+HB_UNCLOSED_THINK_SCORE = float(os.environ.get("HB_UNCLOSED_THINK_SCORE", "0.0"))
+HB_THINK_FREE_CHARS = float(os.environ.get("HB_THINK_FREE_CHARS", "10000"))
+HB_THINK_PENALTY_PER_1K = float(os.environ.get("HB_THINK_PENALTY_PER_1K", "0.02"))
+HB_THINK_PENALTY_MAX = float(os.environ.get("HB_THINK_PENALTY_MAX", "0.3"))
+
 # Probability of printing a full per-item rubric grading trace (debug).
 DEBUG_PRINT_PROB = float(os.environ.get("HB_DEBUG_PRINT_PROB", "0.0"))
 
@@ -212,8 +226,16 @@ async def compute_score(
     # Strip the thinking channel: the judge grades — and length counts — only the
     # final answer, not the reasoning.
     answer_text = _strip_thinking(response_text)
+    think_closed = "</think>" in response_text.lower()
+    think_chars = max(0, len(response_text) - len(answer_text))
 
     is_val = bool(extra_info.get("_is_validation", False))
+
+    # Runaway thinking (training only): reasoning never closed -> no answer exists.
+    # Fixed score, no judge calls. Val keeps the official grading path untouched.
+    if not is_val and not think_closed:
+        return _result(HB_UNCLOSED_THINK_SCORE, HB_UNCLOSED_THINK_SCORE, "",
+                       think_closed=False, think_chars=len(response_text))
     if is_val and val_api_base:
         eff_base, eff_key, eff_model, eff_provider = (
             val_api_base, val_api_key, val_model_name, val_provider
@@ -226,7 +248,8 @@ async def compute_score(
     # No rubric or no grader configured -> neutral, homogeneous result.
     total_pos = sum(it["points"] for it in items if it["points"] > 0)
     if not items or total_pos <= 0 or not eff_base:
-        return _result(0.0, 0.0, answer_text)
+        return _result(0.0, 0.0, answer_text,
+                       think_closed=think_closed, think_chars=think_chars)
 
     # Lazy import to avoid an import cycle (self_evolving imports us).
     from verl.utils.reward_score.self_evolving import _call_api
@@ -255,12 +278,26 @@ async def compute_score(
     graded = await asyncio.gather(*[grade(it) for it in items])
     achieved = sum(pts for pts, _met in graded)
     raw = achieved / total_pos  # may be negative if negative criteria fire
+    # Per-criterion verdicts, forwarded (as JSON) to the gen server's /evolve loop
+    # so the meta-optimizer sees WHICH criteria failed, not just the total score.
+    rubric_met = [
+        {"criterion": it["criterion"], "points": it["points"], "met": met}
+        for (_pts, met), it in zip(graded, items)
+    ]
 
     # HealthBench-Pro length adjustment on the ANSWER length (thinking stripped),
     # applied for both training and validation so longer answers pay the same
     # penalty the benchmark uses.
     chars = len(answer_text)
     length_adjusted = raw - LENGTH_ADJ_PENALTY_PER_500 * ((chars - LENGTH_ADJ_CENTER) / 500.0)
+
+    # Training-only thinking-budget penalty: reasoning beyond the free budget pays
+    # a small linear cost (capped) so bounded thinking is preferred to drift.
+    if not is_val and think_chars > HB_THINK_FREE_CHARS:
+        length_adjusted -= min(
+            HB_THINK_PENALTY_MAX,
+            HB_THINK_PENALTY_PER_1K * (think_chars - HB_THINK_FREE_CHARS) / 1000.0,
+        )
 
     if random.random() < DEBUG_PRINT_PROB:
         mode = "VAL" if is_val else "train"
@@ -274,14 +311,18 @@ async def compute_score(
               f"(resp_chars={len(response_text)})")
         print(f"{'=' * 60}\n")
 
-    return _result(raw, length_adjusted, answer_text)
+    return _result(raw, length_adjusted, answer_text,
+                   think_closed=think_closed, think_chars=think_chars,
+                   rubric_met=rubric_met)
 
 
 def _clip01(x: float) -> float:
     return max(0.0, min(1.0, float(x)))
 
 
-def _result(raw: float, length_adjusted: float, response_text: str) -> dict:
+def _result(raw: float, length_adjusted: float, response_text: str,
+            think_closed: bool = True, think_chars: int = 0,
+            rubric_met: list | None = None) -> dict:
     """Map the rubric signals onto the canonical key set shared with
     self_evolving / climb (homogeneous DataProto batches)."""
     score = _clip01(length_adjusted)
@@ -308,4 +349,10 @@ def _result(raw: float, length_adjusted: float, response_text: str) -> dict:
         "embed_sim": 0.0,
         "char_bleu": float(raw01),
         "extracted_answer": (response_text or "")[:512],
+        # Thinking telemetry (wandb: reward/think_closed/mean = closure rate) and
+        # per-criterion verdicts for the /evolve loop. Only healthbench batches
+        # carry these keys; batches in this run are healthbench-only.
+        "think_closed": 1.0 if think_closed else 0.0,
+        "think_chars": float(think_chars),
+        "rubric_met": json.dumps(rubric_met or []),
     }

@@ -25,7 +25,9 @@ set -xeuo pipefail
 
 REPO=${REPO:-/scratch/sheng/self_evolving/verl_healthbench}
 KEY=$(cat /scratch/sheng/self_evolving/.climb_teacher_key)
-EXP="${EXP:-healthbench_rubric_qwen36_27b}"
+# v2: unclosed-think penalty + think budget + small KL + fixed /evolve observation
+# (see healthbench-rubric-diagnosis). New name so v1 checkpoints are not resumed.
+EXP="${EXP:-healthbench_rubric_qwen36_27b_v2}"
 TEACHER_BASE="${TEACHER_BASE:-http://point.dd.works:18184/v1}"
 GEN_SERVER_URL="${GEN_SERVER_URL:-http://localhost:8006}"
 
@@ -62,6 +64,16 @@ export VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS="${VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS:
 export VLLM_ENGINE_ITERATION_TIMEOUT_S="${VLLM_ENGINE_ITERATION_TIMEOUT_S:-600}"
 # Per-item rubric grading debug trace (0.0-1.0 sampling probability).
 export HB_DEBUG_PRINT_PROB="${HB_DEBUG_PRINT_PROB:-0.02}"
+# Anti-runaway-thinking shaping (TRAINING only; val stays on the official protocol):
+# unclosed </think> -> fixed 0 reward, no judge calls; think chars beyond the free
+# budget pay a small linear penalty (capped).
+export HB_UNCLOSED_THINK_SCORE="${HB_UNCLOSED_THINK_SCORE:-0.0}"
+export HB_THINK_FREE_CHARS="${HB_THINK_FREE_CHARS:-10000}"
+export HB_THINK_PENALTY_PER_1K="${HB_THINK_PENALTY_PER_1K:-0.02}"
+export HB_THINK_PENALTY_MAX="${HB_THINK_PENALTY_MAX:-0.3}"
+# Small KL to the ref policy: entropy climbed 0.22->0.42 with KL off in v1 and the
+# unclosed-think runaway tracked it. low_var_kl, GRPO-style loss term.
+KL_COEF="${KL_COEF:-0.001}"
 cd "$REPO"
 
 /usr/local/bin/python -m verl.trainer.main_ppo \
@@ -113,8 +125,8 @@ cd "$REPO"
     actor_rollout_ref.ref.use_torch_compile=False \
     actor_rollout_ref.actor.clip_ratio_low=0.2 \
     actor_rollout_ref.actor.clip_ratio_high=0.28 \
-    actor_rollout_ref.actor.use_kl_loss=False \
-    actor_rollout_ref.actor.kl_loss_coef=0.0 \
+    actor_rollout_ref.actor.use_kl_loss=True \
+    actor_rollout_ref.actor.kl_loss_coef="$KL_COEF" \
     actor_rollout_ref.actor.kl_loss_type=low_var_kl \
     actor_rollout_ref.actor.loss_agg_mode=token-mean \
     actor_rollout_ref.actor.fsdp_config.param_offload=True \
