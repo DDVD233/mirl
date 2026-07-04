@@ -887,29 +887,40 @@ class AgentLoopWorker:
             "image_grid_thw": multi_modal_inputs.get("image_grid_thw"),
             "video_grid_thw": multi_modal_inputs.get("video_grid_thw"),
         }
-        # For transformers>=5.3.0, mm_token_type_ids is only used to calculate position ids.
-        if multi_modal_inputs.pop("mm_token_type_ids", None) is not None:
-            mm_token_type_ids = torch.zeros_like(input_ids)
-            image_token_id = get_processor_token_id(self.processor, "image")
-            video_token_id = get_processor_token_id(self.processor, "video")
-            if image_token_id is not None:
-                mm_token_type_ids[0][input_ids[0] == image_token_id] = 1
-            if video_token_id is not None:
-                mm_token_type_ids[0][input_ids[0] == video_token_id] = 2
-            multi_modal_kwargs["mm_token_type_ids"] = mm_token_type_ids
-
-        # Model's get_rope_index has been dynamically bind to the processor.
-        vision_position_ids, _ = self.processor.get_rope_index(
-            input_ids=input_ids,
-            attention_mask=attention_mask,
-            **multi_modal_kwargs,
-        )
-        vision_position_ids = vision_position_ids.transpose(0, 1)  # (3, 1, seq_len) => (1, 3, seq_len)
 
         valid_mask = attention_mask[0].bool()
         text_position_ids = torch.ones((1, len(input_ids[0])), dtype=torch.long)
         text_position_ids[0, valid_mask] = torch.arange(valid_mask.sum().item())
-        text_position_ids = text_position_ids.unsqueeze(0)
+        text_position_ids = text_position_ids.unsqueeze(0)  # (1, 1, seq_len)
+
+        if multi_modal_kwargs["image_grid_thw"] is None and multi_modal_kwargs["video_grid_thw"] is None:
+            # Text-only sample under a VL processor. Do NOT call get_rope_index:
+            # the policy can sample a stray image/video special token in its
+            # response (no pixel data exists), and get_rope_index would then look
+            # for a matching grid entry and crash (`next(None)` in qwen3_vl's
+            # get_rope_index). For pure text, M-RoPE degenerates to the 1D text
+            # positions on all three axes, so build them directly.
+            vision_position_ids = text_position_ids.expand(-1, 3, -1)
+        else:
+            # For transformers>=5.3.0, mm_token_type_ids is only used to calculate position ids.
+            if multi_modal_inputs.pop("mm_token_type_ids", None) is not None:
+                mm_token_type_ids = torch.zeros_like(input_ids)
+                image_token_id = get_processor_token_id(self.processor, "image")
+                video_token_id = get_processor_token_id(self.processor, "video")
+                if image_token_id is not None:
+                    mm_token_type_ids[0][input_ids[0] == image_token_id] = 1
+                if video_token_id is not None:
+                    mm_token_type_ids[0][input_ids[0] == video_token_id] = 2
+                multi_modal_kwargs["mm_token_type_ids"] = mm_token_type_ids
+
+            # Model's get_rope_index has been dynamically bind to the processor.
+            vision_position_ids, _ = self.processor.get_rope_index(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                **multi_modal_kwargs,
+            )
+            vision_position_ids = vision_position_ids.transpose(0, 1)  # (3, 1, seq_len) => (1, 3, seq_len)
+
         position_ids = torch.cat((text_position_ids, vision_position_ids), dim=1)  # (1, 4, seq_length)
         return position_ids
 
