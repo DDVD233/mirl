@@ -27,7 +27,11 @@ REPO=${REPO:-/scratch/sheng/self_evolving/verl_healthbench}
 KEY=$(cat /scratch/sheng/self_evolving/.climb_teacher_key)
 # v2: unclosed-think penalty + think budget + small KL + fixed /evolve observation
 # (see healthbench-rubric-diagnosis). New name so v1 checkpoints are not resumed.
-EXP="${EXP:-healthbench_rubric_qwen36_27b_v2}"
+# v3: v2 collapsed into single-token repetition loops by step 33 (entropy 0.7->0.18
+# ->2.08, 84% rollouts at the 8k cap, val unclosed 10->100/525) — but val PEAKED at
+# step 10 (0.511 raw, above v1's flat 0.47), so the loop works when stable.
+# Stabilize: LR back to 1e-6, KL x5 to 0.005.
+EXP="${EXP:-healthbench_rubric_qwen36_27b_v3}"
 TEACHER_BASE="${TEACHER_BASE:-http://point.dd.works:18184/v1}"
 GEN_SERVER_URL="${GEN_SERVER_URL:-http://localhost:8006}"
 
@@ -73,7 +77,8 @@ export HB_THINK_PENALTY_PER_1K="${HB_THINK_PENALTY_PER_1K:-0.02}"
 export HB_THINK_PENALTY_MAX="${HB_THINK_PENALTY_MAX:-0.3}"
 # Small KL to the ref policy: entropy climbed 0.22->0.42 with KL off in v1 and the
 # unclosed-think runaway tracked it. low_var_kl, GRPO-style loss term.
-KL_COEF="${KL_COEF:-0.001}"
+# v3: 0.001 did not prevent the v2 repetition-loop collapse; 5x it.
+KL_COEF="${KL_COEF:-0.005}"
 cd "$REPO"
 
 /usr/local/bin/python -m verl.trainer.main_ppo \
@@ -117,7 +122,7 @@ cd "$REPO"
     actor_rollout_ref.model.use_remove_padding=True \
     actor_rollout_ref.model.enable_gradient_checkpointing=True \
     actor_rollout_ref.actor.strategy=fsdp2 \
-    actor_rollout_ref.actor.optim.lr="${LR:-2e-6}" \
+    actor_rollout_ref.actor.optim.lr="${LR:-1e-6}" \
     actor_rollout_ref.actor.ppo_mini_batch_size=32 \
     actor_rollout_ref.actor.use_dynamic_bsz=True \
     actor_rollout_ref.actor.ppo_max_token_len_per_gpu=24576 \
