@@ -30,7 +30,7 @@ KEY=$(cat /scratch/sheng/self_evolving/.climb_teacher_key)
 # v3: v2 collapsed into single-token repetition loops by step 33 (entropy 0.7->0.18
 # ->2.08, 84% rollouts at the 8k cap, val unclosed 10->100/525) — but val PEAKED at
 # step 10 (0.511 raw, above v1's flat 0.47), so the loop works when stable.
-# Stabilize: LR back to 1e-6, KL x5 to 0.005.
+# Stabilize: LR back to 1e-6. KL fully off (it was numerically negligible in v2).
 EXP="${EXP:-healthbench_rubric_qwen36_27b_v3}"
 TEACHER_BASE="${TEACHER_BASE:-http://point.dd.works:18184/v1}"
 GEN_SERVER_URL="${GEN_SERVER_URL:-http://localhost:8006}"
@@ -75,10 +75,10 @@ export HB_UNCLOSED_THINK_SCORE="${HB_UNCLOSED_THINK_SCORE:-0.0}"
 export HB_THINK_FREE_CHARS="${HB_THINK_FREE_CHARS:-10000}"
 export HB_THINK_PENALTY_PER_1K="${HB_THINK_PENALTY_PER_1K:-0.02}"
 export HB_THINK_PENALTY_MAX="${HB_THINK_PENALTY_MAX:-0.3}"
-# Small KL to the ref policy: entropy climbed 0.22->0.42 with KL off in v1 and the
-# unclosed-think runaway tracked it. low_var_kl, GRPO-style loss term.
-# v3: 0.001 did not prevent the v2 repetition-loop collapse; 5x it.
-KL_COEF="${KL_COEF:-0.005}"
+# KL OFF (deliberate, matches 278e3cd7): at 0.001 the KL term was numerically
+# negligible in v2 (~2.5e-4 of a 0.126 loss) and did not prevent the collapse —
+# LR is the stabilizer that matters (1e-6). Set KL_COEF>0 to re-enable.
+KL_COEF="${KL_COEF:-0.0}"
 cd "$REPO"
 
 /usr/local/bin/python -m verl.trainer.main_ppo \
@@ -130,7 +130,7 @@ cd "$REPO"
     actor_rollout_ref.ref.use_torch_compile=False \
     actor_rollout_ref.actor.clip_ratio_low=0.2 \
     actor_rollout_ref.actor.clip_ratio_high=0.28 \
-    actor_rollout_ref.actor.use_kl_loss=True \
+    actor_rollout_ref.actor.use_kl_loss="$([ "$KL_COEF" = "0.0" ] && echo False || echo True)" \
     actor_rollout_ref.actor.kl_loss_coef="$KL_COEF" \
     actor_rollout_ref.actor.kl_loss_type=low_var_kl \
     actor_rollout_ref.actor.loss_agg_mode=token-mean \
