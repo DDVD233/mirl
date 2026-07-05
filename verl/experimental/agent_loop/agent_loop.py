@@ -887,6 +887,12 @@ class AgentLoopWorker:
             "image_grid_thw": multi_modal_inputs.get("image_grid_thw"),
             "video_grid_thw": multi_modal_inputs.get("video_grid_thw"),
         }
+        # mm_token_type_ids exists only to compute position ids (transformers>=5.3
+        # processors emit it even for plain text). ALWAYS remove it here so it never
+        # rides into the training batch: it is per-sample variable length, and the
+        # engine's torch.cat over a micro-batch crashes on it
+        # ("Failed to concatenate multi-modal input 'mm_token_type_ids'").
+        has_mm_token_type_ids = multi_modal_inputs.pop("mm_token_type_ids", None) is not None
 
         valid_mask = attention_mask[0].bool()
         text_position_ids = torch.ones((1, len(input_ids[0])), dtype=torch.long)
@@ -903,7 +909,7 @@ class AgentLoopWorker:
             vision_position_ids = text_position_ids.expand(-1, 3, -1)
         else:
             # For transformers>=5.3.0, mm_token_type_ids is only used to calculate position ids.
-            if multi_modal_inputs.pop("mm_token_type_ids", None) is not None:
+            if has_mm_token_type_ids:
                 mm_token_type_ids = torch.zeros_like(input_ids)
                 image_token_id = get_processor_token_id(self.processor, "image")
                 video_token_id = get_processor_token_id(self.processor, "video")
