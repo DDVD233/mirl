@@ -1632,6 +1632,26 @@ class RayPPOTrainer:
         )
         ppo_mini_batch_size = self.config.actor_rollout_ref.actor.ppo_mini_batch_size
         ppo_mini_batch_size = ppo_mini_batch_size * self.config.actor_rollout_ref.rollout.n
+        # The batch may be smaller than configured (trainer.filter_zero_variance_groups
+        # drops whole GRPO groups). Keep the configured NUMBER of PPO minibatches and
+        # scale the minibatch size to the actual rows so the engine's divisibility
+        # asserts (per-dp rows % per-gpu minibatch == 0) hold; fall back to a single
+        # minibatch when no divisible split exists. Without this, a filtered batch
+        # crashes update_actor (e.g. "124 % 64 != 0" at v4 step 19).
+        expected_rows = self.config.data.train_batch_size * self.config.actor_rollout_ref.rollout.n
+        actual_rows = len(batch)
+        if actual_rows != expected_rows and actual_rows > 0:
+            dp_size = self.actor_rollout_wg.world_size
+            num_mini = max(1, expected_rows // max(1, ppo_mini_batch_size))
+            if actual_rows % num_mini == 0 and (actual_rows // num_mini) % dp_size == 0:
+                ppo_mini_batch_size = actual_rows // num_mini
+            else:
+                ppo_mini_batch_size = actual_rows
+            print(
+                f"[filter_groups] update_actor: batch {actual_rows} != configured {expected_rows}; "
+                f"minibatch size scaled to {ppo_mini_batch_size}",
+                flush=True,
+            )
         ppo_epochs = self.config.actor_rollout_ref.actor.ppo_epochs
         seed = self.config.actor_rollout_ref.actor.data_loader_seed
         shuffle = self.config.actor_rollout_ref.actor.shuffle

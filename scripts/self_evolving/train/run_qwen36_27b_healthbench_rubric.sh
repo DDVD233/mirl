@@ -177,7 +177,7 @@ cd "$REPO"
     trainer.total_epochs=1 \
     trainer.total_training_steps=500 \
     trainer.test_freq=5 \
-    trainer.save_freq=20 \
+    trainer.save_freq="${SAVE_FREQ:-10}" \
     trainer.val_before_train=True \
     +trainer.max_actor_ckpt_to_keep=2 \
     trainer.resume_mode=auto \
