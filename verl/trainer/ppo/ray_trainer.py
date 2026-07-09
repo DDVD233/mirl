@@ -702,6 +702,70 @@ class RayPPOTrainer:
             _say(f"FAILED: {type(e).__name__}: {e}\n{traceback.format_exc()}")
             return {}
 
+    def _filter_zero_variance_groups(
+        self, batch: DataProto, reward_tensor, reward_extra_infos_dict: dict
+    ) -> tuple[DataProto, Any, dict, dict]:
+        """DAPO-lite: drop whole GRPO groups whose sequence rewards are (near-)identical.
+
+        Zero-variance groups produce zero advantage under group normalization, so they
+        contribute no policy gradient — only wasted forward/backward compute and diluted
+        batch statistics. Groups are identified by ``uid`` (all rollout.n samples of one
+        prompt). Safety guards: keep the batch UNCHANGED if fewer than 2 informative
+        groups remain, or if the filtered size would break DP dispatch divisibility.
+        """
+        uids = batch.non_tensor_batch.get("uid")
+        n = len(batch)
+        noop_metrics = {"batch/zero_var_groups_frac": 0.0, "batch/filtered_frac": 0.0}
+        if uids is None or n == 0:
+            return batch, reward_tensor, reward_extra_infos_dict, noop_metrics
+
+        seq_rewards = reward_tensor.sum(dim=-1).float().cpu().numpy()
+        keep_mask = np.ones(n, dtype=bool)
+        n_groups = 0
+        n_zero_var = 0
+        for uid in dict.fromkeys(uids):  # preserve order, unique
+            idx = np.nonzero(uids == uid)[0]
+            n_groups += 1
+            if seq_rewards[idx].std() < 1e-6:
+                keep_mask[idx] = False
+                n_zero_var += 1
+
+        world_size = self.actor_rollout_wg.world_size
+        kept = int(keep_mask.sum())
+        fg_metrics = {
+            "batch/zero_var_groups_frac": n_zero_var / max(1, n_groups),
+            "batch/filtered_frac": (n - kept) / max(1, n),
+        }
+        # Guards: nothing to drop; too little signal left; or DP divisibility broken.
+        if n_zero_var == 0 or (n_groups - n_zero_var) < 2 or kept % world_size != 0:
+            if n_zero_var > 0:
+                print(
+                    f"[filter_groups] skipped: kept={kept}/{n} rows "
+                    f"({n_groups - n_zero_var}/{n_groups} informative groups, world_size={world_size})",
+                    flush=True,
+                )
+            fg_metrics["batch/filtered_frac"] = 0.0
+            return batch, reward_tensor, reward_extra_infos_dict, fg_metrics
+
+        idxs = np.nonzero(keep_mask)[0]
+        batch = batch.select_idxs(idxs)
+        reward_tensor = reward_tensor[torch.from_numpy(idxs)]
+        reward_extra_infos_dict = {k: [v[i] for i in idxs] for k, v in (reward_extra_infos_dict or {}).items()}
+        # Recompute meta that was derived from the pre-filter batch.
+        batch.meta_info["global_token_num"] = torch.sum(batch.batch["attention_mask"], dim=-1).tolist()
+        if "multi_modal_inputs" in batch.non_tensor_batch:
+            images_seqlens_all = []
+            for mmi in batch.non_tensor_batch["multi_modal_inputs"]:
+                if "image_grid_thw" in mmi.keys():
+                    images_seqlens_all.extend(mmi["images_seqlens"].tolist())
+            batch.meta_info["images_seqlens"] = images_seqlens_all
+        print(
+            f"[filter_groups] dropped {n_zero_var}/{n_groups} zero-variance groups "
+            f"({n - kept}/{n} rows); batch is now {kept}",
+            flush=True,
+        )
+        return batch, reward_tensor, reward_extra_infos_dict, fg_metrics
+
     def _maybe_evolve_generation(self, batch: DataProto, reward_extra_infos_dict: dict) -> dict:
         """Optional, training-only end-of-step GENERATION-prompt evolution (rubric mode).
 
@@ -1782,6 +1846,19 @@ class RayPPOTrainer:
 
                         # extract reward_tensor and reward_extra_infos_dict for training
                         reward_tensor, reward_extra_infos_dict = extract_reward(batch)
+
+                        # Optional DAPO-lite dynamic filtering (trainer.filter_zero_variance_groups):
+                        # drop GRPO groups whose rewards have (near-)zero variance — they carry no
+                        # policy gradient (advantage 0 after group normalization) but dilute the
+                        # batch and waste old_log_prob/ref/update compute. Unlike full DAPO dynamic
+                        # sampling we do NOT regenerate; the batch just shrinks by whole groups.
+                        if bool(
+                            OmegaConf.select(self.config, "trainer.filter_zero_variance_groups") or False
+                        ):
+                            batch, reward_tensor, reward_extra_infos_dict, _fg_metrics = (
+                                self._filter_zero_variance_groups(batch, reward_tensor, reward_extra_infos_dict)
+                            )
+                            metrics.update(_fg_metrics)
 
                     # Operating Mode Selection:
                     # - Bypass mode: Sets old_log_probs = rollout_log_probs (2 policies: π_rollout, π_θ)

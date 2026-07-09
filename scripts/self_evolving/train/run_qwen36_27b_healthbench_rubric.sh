@@ -31,7 +31,12 @@ KEY=$(cat /scratch/sheng/self_evolving/.climb_teacher_key)
 # ->2.08, 84% rollouts at the 8k cap, val unclosed 10->100/525) — but val PEAKED at
 # step 10 (0.511 raw, above v1's flat 0.47), so the loop works when stable.
 # Stabilize: LR back to 1e-6. KL fully off (it was numerically negligible in v2).
-EXP="${EXP:-healthbench_rubric_qwen36_27b_v3}"
+# v4: v3 collapsed too (same attractor, slower: entropy 0.71->0.10 by ~55, closure
+# 0.99->0.16). Anti-collapse trio: (A) thinking-budget forcing at rollout (inject
+# </think> at VERL_THINK_BUDGET_TOKENS, answer decoded with remaining budget — the
+# zero-reward truncation cliff is structurally gone), (B) entropy bonus, (C) drop
+# zero-variance GRPO groups (DAPO-lite, trainer.filter_zero_variance_groups).
+EXP="${EXP:-healthbench_rubric_qwen36_27b_v4}"
 TEACHER_BASE="${TEACHER_BASE:-http://point.dd.works:18184/v1}"
 GEN_SERVER_URL="${GEN_SERVER_URL:-http://localhost:8006}"
 
@@ -79,6 +84,15 @@ export HB_THINK_PENALTY_MAX="${HB_THINK_PENALTY_MAX:-0.3}"
 # negligible in v2 (~2.5e-4 of a 0.126 loss) and did not prevent the collapse —
 # LR is the stabilizer that matters (1e-6). Set KL_COEF>0 to re-enable.
 KL_COEF="${KL_COEF:-0.0}"
+# (A) Thinking budget in tokens (0 disables). 5120 tokens ~= 20k chars: only cuts
+# true runaways (healthy mean think was ~9k chars) and leaves >=3072 tokens of
+# answer budget. Applied at rollout AND validation (same agent-loop path).
+export VERL_THINK_BUDGET_TOKENS="${VERL_THINK_BUDGET_TOKENS:-5120}"
+# (B) Entropy bonus: v2/v3 collapse was heralded by monotone entropy decay from
+# step ~10 (0.71 -> 0.10); a small bonus resists the deterministic-loop attractor.
+ENTROPY_COEFF="${ENTROPY_COEFF:-0.002}"
+# (C) DAPO-lite: drop zero-variance GRPO groups (no gradient) from each batch.
+FILTER_ZERO_VAR="${FILTER_ZERO_VAR:-True}"
 cd "$REPO"
 
 /usr/local/bin/python -m verl.trainer.main_ppo \
@@ -133,6 +147,8 @@ cd "$REPO"
     actor_rollout_ref.actor.use_kl_loss="$([ "$KL_COEF" = "0.0" ] && echo False || echo True)" \
     actor_rollout_ref.actor.kl_loss_coef="$KL_COEF" \
     actor_rollout_ref.actor.kl_loss_type=low_var_kl \
+    actor_rollout_ref.actor.entropy_coeff="$ENTROPY_COEFF" \
+    +trainer.filter_zero_variance_groups="$FILTER_ZERO_VAR" \
     actor_rollout_ref.actor.loss_agg_mode=token-mean \
     actor_rollout_ref.actor.fsdp_config.param_offload=True \
     actor_rollout_ref.actor.fsdp_config.optimizer_offload=True \
