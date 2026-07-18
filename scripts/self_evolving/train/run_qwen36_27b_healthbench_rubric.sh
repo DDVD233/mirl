@@ -36,7 +36,14 @@ KEY=$(cat /scratch/sheng/self_evolving/.climb_teacher_key)
 # </think> at VERL_THINK_BUDGET_TOKENS, answer decoded with remaining budget — the
 # zero-reward truncation cliff is structurally gone), (B) entropy bonus, (C) drop
 # zero-variance GRPO groups (DAPO-lite, trainer.filter_zero_variance_groups).
-EXP="${EXP:-healthbench_rubric_qwen36_27b_v4}"
+# v5: v4 held 40 steps and peaked 0.570 (best ever) but the repetition attractor
+# migrated to the ANSWER channel (rlen -> 8192, clip 1.0, entropy 3e-5, every group
+# zero-variance). Adopt the stable j75o3rrt recipe: START FROM THE SFT CHECKPOINT
+# and LR 2e-7 (that run did 983 mimic steps without collapse), plus a signed
+# training-reward floor (HB_SCORE_MIN=-0.5) so bad rollouts stay ordered instead
+# of all clipping to 0 (which removed the escape gradient in v4). Runs on server 1.
+EXP="${EXP:-healthbench_rubric_qwen36_27b_v5}"
+ACTOR_MODEL_PATH="${ACTOR_MODEL_PATH:-/scratch/sheng/self_evolving/checkpoints/self_evolving_medical/mimiciv_rare_qwen36_27b_sft_distill/global_step_90/actor/huggingface}"
 TEACHER_BASE="${TEACHER_BASE:-http://point.dd.works:18184/v1}"
 GEN_SERVER_URL="${GEN_SERVER_URL:-http://localhost:8006}"
 
@@ -84,6 +91,8 @@ export HB_THINK_PENALTY_MAX="${HB_THINK_PENALTY_MAX:-0.3}"
 # negligible in v2 (~2.5e-4 of a 0.126 loss) and did not prevent the collapse —
 # LR is the stabilizer that matters (1e-6). Set KL_COEF>0 to re-enable.
 KL_COEF="${KL_COEF:-0.0}"
+# v5: signed training-reward floor (see healthbench_pro.HB_SCORE_MIN).
+export HB_SCORE_MIN="${HB_SCORE_MIN:--0.5}"
 # (A) Thinking budget in tokens (0 disables). 5120 tokens ~= 20k chars: only cuts
 # true runaways (healthy mean think was ~9k chars) and leaves >=3072 tokens of
 # answer budget. Applied at rollout AND validation (same agent-loop path).
@@ -132,11 +141,11 @@ cd "$REPO"
     +reward.custom_reward_function.reward_kwargs.val_provider=trapi \
     +reward.custom_reward_function.reward_kwargs.gen_server_url="$GEN_SERVER_URL" \
     reward.reward_manager.name=dapo \
-    actor_rollout_ref.model.path=Qwen/Qwen3.6-27B \
+    actor_rollout_ref.model.path="$ACTOR_MODEL_PATH" \
     actor_rollout_ref.model.use_remove_padding=True \
     actor_rollout_ref.model.enable_gradient_checkpointing=True \
     actor_rollout_ref.actor.strategy=fsdp2 \
-    actor_rollout_ref.actor.optim.lr="${LR:-1e-6}" \
+    actor_rollout_ref.actor.optim.lr="${LR:-2e-7}" \
     actor_rollout_ref.actor.ppo_mini_batch_size=32 \
     actor_rollout_ref.actor.use_dynamic_bsz=True \
     actor_rollout_ref.actor.ppo_max_token_len_per_gpu=24576 \

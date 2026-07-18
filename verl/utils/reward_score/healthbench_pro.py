@@ -48,6 +48,14 @@ HB_UNCLOSED_THINK_SCORE = float(os.environ.get("HB_UNCLOSED_THINK_SCORE", "0.0")
 HB_THINK_FREE_CHARS = float(os.environ.get("HB_THINK_FREE_CHARS", "10000"))
 HB_THINK_PENALTY_PER_1K = float(os.environ.get("HB_THINK_PENALTY_PER_1K", "0.02"))
 HB_THINK_PENALTY_MAX = float(os.environ.get("HB_THINK_PENALTY_MAX", "0.3"))
+# TRAINING-ONLY floor of the reward ("score"). v4 post-mortem: with the floor at 0,
+# every response whose length penalty exceeds its rubric fraction scores exactly 0 —
+# "slightly bad" and "catastrophic" become indistinguishable, so once the policy
+# drifts long there is no gradient ordering to bring it back, and whole GRPO groups
+# go zero-variance (v4 ended with clip_ratio 1.0, entropy 3e-5, every group
+# identical). A negative floor (e.g. -0.5) keeps bad rollouts ORDERED. Validation
+# metrics are untouched (signed variants are already reported separately).
+HB_SCORE_MIN = float(os.environ.get("HB_SCORE_MIN", "0.0"))
 
 # Probability of printing a full per-item rubric grading trace (debug).
 DEBUG_PRINT_PROB = float(os.environ.get("HB_DEBUG_PRINT_PROB", "0.0"))
@@ -235,7 +243,7 @@ async def compute_score(
     # Fixed score, no judge calls. Val keeps the official grading path untouched.
     if not is_val and not think_closed:
         return _result(HB_UNCLOSED_THINK_SCORE, HB_UNCLOSED_THINK_SCORE, "",
-                       think_closed=False, think_chars=len(response_text))
+                       think_closed=False, think_chars=len(response_text), is_val=False)
     if is_val and val_api_base:
         eff_base, eff_key, eff_model, eff_provider = (
             val_api_base, val_api_key, val_model_name, val_provider
@@ -249,7 +257,7 @@ async def compute_score(
     total_pos = sum(it["points"] for it in items if it["points"] > 0)
     if not items or total_pos <= 0 or not eff_base:
         return _result(0.0, 0.0, answer_text,
-                       think_closed=think_closed, think_chars=think_chars)
+                       think_closed=think_closed, think_chars=think_chars, is_val=is_val)
 
     # Lazy import to avoid an import cycle (self_evolving imports us).
     from verl.utils.reward_score.self_evolving import _call_api
@@ -313,7 +321,7 @@ async def compute_score(
 
     return _result(raw, length_adjusted, answer_text,
                    think_closed=think_closed, think_chars=think_chars,
-                   rubric_met=rubric_met)
+                   rubric_met=rubric_met, is_val=is_val)
 
 
 def _clip01(x: float) -> float:
@@ -322,10 +330,13 @@ def _clip01(x: float) -> float:
 
 def _result(raw: float, length_adjusted: float, response_text: str,
             think_closed: bool = True, think_chars: int = 0,
-            rubric_met: list | None = None) -> dict:
+            rubric_met: list | None = None, is_val: bool = False) -> dict:
     """Map the rubric signals onto the canonical key set shared with
     self_evolving / climb (homogeneous DataProto batches)."""
-    score = _clip01(length_adjusted)
+    # Training reward may go below 0 (HB_SCORE_MIN) so bad rollouts stay ordered;
+    # validation keeps the benchmark's [0, 1] clip.
+    lo = 0.0 if is_val else min(0.0, HB_SCORE_MIN)
+    score = max(lo, min(1.0, float(length_adjusted)))
     raw01 = _clip01(raw)
     fmt_ok = 1.0 if (response_text or "").strip() else 0.0
     return {

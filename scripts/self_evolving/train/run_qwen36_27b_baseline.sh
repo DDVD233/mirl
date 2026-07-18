@@ -24,6 +24,10 @@ REPO=${REPO:-/root/mirl_evolve}
 DATA_DIR=/scratch/sheng/self_evolving/mimiciv_rare
 KEY=$(cat /scratch/sheng/self_evolving/.climb_teacher_key)
 EXP="${EXP:-mimiciv_rare_qwen36_27b_baseline}"
+# Scaling-figure baseline knobs: start from the SFT checkpoint (MODEL_PATH) and
+# match the j75o3rrt main line's use_kl_loss=False; both env-overridable.
+MODEL_PATH="${MODEL_PATH:-Qwen/Qwen3.6-27B}"
+USE_KL_LOSS="${USE_KL_LOSS:-True}"
 TEACHER_BASE="${TEACHER_BASE:-http://point.dd.works:18184/v1}"
 EMBED_API_BASE="${EMBED_API_BASE:-http://mib.media.mit.edu:18001/v1}"
 
@@ -73,7 +77,7 @@ cd "$REPO"
     +reward.reward_kwargs.overlong_buffer_cfg.penalty_factor=1.0 \
     +reward.reward_kwargs.overlong_buffer_cfg.log=False \
     +reward.reward_kwargs.max_resp_len=4096 \
-    actor_rollout_ref.model.path=Qwen/Qwen3.6-27B \
+    actor_rollout_ref.model.path="$MODEL_PATH" \
     actor_rollout_ref.model.use_remove_padding=True \
     actor_rollout_ref.model.enable_gradient_checkpointing=True \
     actor_rollout_ref.actor.strategy=fsdp2 \
@@ -92,7 +96,7 @@ cd "$REPO"
     actor_rollout_ref.actor.clip_ratio_low=0.2 \
     actor_rollout_ref.actor.clip_ratio_high=0.32 \
     actor_rollout_ref.actor.clip_ratio_c=10.0 \
-    actor_rollout_ref.actor.use_kl_loss=True \
+    actor_rollout_ref.actor.use_kl_loss="$USE_KL_LOSS" \
     actor_rollout_ref.actor.kl_loss_coef=0.001 \
     actor_rollout_ref.actor.kl_loss_type=low_var_kl \
     actor_rollout_ref.actor.loss_agg_mode=token-mean \

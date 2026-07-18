@@ -24,6 +24,15 @@ REPO=${REPO:-/root/mirl_evolve}
 DATA_DIR=/scratch/sheng/self_evolving/mimiciv_rare
 KEY=$(cat /scratch/sheng/self_evolving/.climb_teacher_key)
 EXP="${EXP:-mimiciv_rare_qwen36_27b_sft_distill}"
+# Student override (e.g. Qwen/Qwen3.5-9B needs USE_REMOVE_PADDING=False ATTN_SDPA=1
+# ROLLOUT_TP=2: head_dim=256 breaks FA varlen; see run_qwen35_9b_selfimprove.sh).
+MODEL_PATH="${MODEL_PATH:-Qwen/Qwen3.6-27B}"
+USE_REMOVE_PADDING="${USE_REMOVE_PADDING:-True}"
+ROLLOUT_TP="${ROLLOUT_TP:-4}"
+EXTRA_ARGS=()
+if [ -n "${ATTN_SDPA:-}" ]; then
+  EXTRA_ARGS+=("+actor_rollout_ref.model.override_config.attn_implementation=sdpa")
+fi
 TEACHER_BASE="${TEACHER_BASE:-http://point.dd.works:18184/v1}"
 EMBED_API_BASE="${EMBED_API_BASE:-http://mib.media.mit.edu:18001/v1}"
 DEFAULT_LOCAL_DIR="${DEFAULT_LOCAL_DIR:-/scratch/sheng/self_evolving/checkpoints/self_evolving_medical/$EXP}"
@@ -74,8 +83,8 @@ SFT_MAX_LENGTH="${SFT_MAX_LENGTH:-12288}"
     +reward.reward_kwargs.overlong_buffer_cfg.penalty_factor=1.0 \
     +reward.reward_kwargs.overlong_buffer_cfg.log=False \
     +reward.reward_kwargs.max_resp_len=4096 \
-    actor_rollout_ref.model.path=Qwen/Qwen3.6-27B \
-    actor_rollout_ref.model.use_remove_padding=True \
+    actor_rollout_ref.model.path="$MODEL_PATH" \
+    actor_rollout_ref.model.use_remove_padding="$USE_REMOVE_PADDING" \
     actor_rollout_ref.model.enable_gradient_checkpointing=True \
     actor_rollout_ref.actor.strategy=fsdp2 \
     actor_rollout_ref.actor.optim.lr="${LR:-1e-5}" \
@@ -93,7 +102,7 @@ SFT_MAX_LENGTH="${SFT_MAX_LENGTH:-12288}"
     actor_rollout_ref.rollout.temperature=1.0 \
     actor_rollout_ref.rollout.top_p=1.0 \
     +actor_rollout_ref.rollout.repetition_penalty=1.1 \
-    actor_rollout_ref.rollout.tensor_model_parallel_size=4 \
+    actor_rollout_ref.rollout.tensor_model_parallel_size="$ROLLOUT_TP" \
     actor_rollout_ref.rollout.gpu_memory_utilization=0.55 \
     actor_rollout_ref.rollout.max_model_len=16384 \
     actor_rollout_ref.rollout.max_num_batched_tokens=8192 \
@@ -121,4 +130,5 @@ SFT_MAX_LENGTH="${SFT_MAX_LENGTH:-12288}"
     trainer.experiment_name="$EXP" \
     'trainer.logger=["console","wandb"]' \
     +ray_init.address=local \
+    "${EXTRA_ARGS[@]}" \
     "$@"

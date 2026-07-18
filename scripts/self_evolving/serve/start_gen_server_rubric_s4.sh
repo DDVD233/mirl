@@ -33,7 +33,7 @@ GEN_WORKERS="${GEN_WORKERS:-8}"
 GEN_SERVER_PORT="${GEN_SERVER_PORT:-8006}"
 GEN_SERVER_HOST="${GEN_SERVER_HOST:-0.0.0.0}"
 
-EXP="${EXP:-healthbench_rubric_qwen36_27b_v4}"
+EXP="${EXP:-healthbench_rubric_qwen36_27b_v5}"
 LOG_DIR="${LOG_DIR:-/scratch/sheng/self_evolving/logs_healthbench_rubric/$EXP}"
 # Evolvable prompt files live here (query_proposer.txt, task_rubric_generator.txt,
 # *_guidance.txt, history/step_NNN/). Keep under the experiment dir so the trainer
