@@ -28,6 +28,14 @@ EXP="${EXP:-mimiciv_rare_qwen36_27b_baseline}"
 # match the j75o3rrt main line's use_kl_loss=False; both env-overridable.
 MODEL_PATH="${MODEL_PATH:-Qwen/Qwen3.6-27B}"
 USE_KL_LOSS="${USE_KL_LOSS:-True}"
+# Student quirks for non-27B actors (Qwen3.5-9B: USE_REMOVE_PADDING=False
+# ATTN_SDPA=1 ROLLOUT_TP=2 — head_dim=256 breaks the FA varlen kernel).
+USE_REMOVE_PADDING="${USE_REMOVE_PADDING:-True}"
+ROLLOUT_TP="${ROLLOUT_TP:-4}"
+EXTRA_ARGS=()
+if [ -n "${ATTN_SDPA:-}" ]; then
+  EXTRA_ARGS+=("+actor_rollout_ref.model.override_config.attn_implementation=sdpa")
+fi
 TEACHER_BASE="${TEACHER_BASE:-http://point.dd.works:18184/v1}"
 EMBED_API_BASE="${EMBED_API_BASE:-http://mib.media.mit.edu:18001/v1}"
 
@@ -78,7 +86,7 @@ cd "$REPO"
     +reward.reward_kwargs.overlong_buffer_cfg.log=False \
     +reward.reward_kwargs.max_resp_len=4096 \
     actor_rollout_ref.model.path="$MODEL_PATH" \
-    actor_rollout_ref.model.use_remove_padding=True \
+    actor_rollout_ref.model.use_remove_padding="$USE_REMOVE_PADDING" \
     actor_rollout_ref.model.enable_gradient_checkpointing=True \
     actor_rollout_ref.actor.strategy=fsdp2 \
     actor_rollout_ref.actor.optim.lr=2e-7 \
@@ -109,7 +117,7 @@ cd "$REPO"
     actor_rollout_ref.rollout.temperature=1.0 \
     actor_rollout_ref.rollout.top_p=1.0 \
     +actor_rollout_ref.rollout.repetition_penalty=1.1 \
-    actor_rollout_ref.rollout.tensor_model_parallel_size=4 \
+    actor_rollout_ref.rollout.tensor_model_parallel_size="$ROLLOUT_TP" \
     actor_rollout_ref.rollout.gpu_memory_utilization=0.55 \
     actor_rollout_ref.rollout.max_model_len=16384 \
     actor_rollout_ref.rollout.max_num_batched_tokens=8192 \
@@ -137,4 +145,5 @@ cd "$REPO"
     trainer.experiment_name="$EXP" \
     'trainer.logger=["console","wandb"]' \
     +ray_init.address=local \
+    "${EXTRA_ARGS[@]}" \
     "$@"

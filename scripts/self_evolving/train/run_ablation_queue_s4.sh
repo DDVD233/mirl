@@ -58,4 +58,10 @@ ACTOR_MODEL_PATH="$CKPT9B_SFT/global_step_90/actor/huggingface" REPO="$REPO" \
   bash scripts/self_evolving/train/run_qwen35_9b_evolve_from_sft.sh \
   2>&1 | tee -a "$LOGROOT/stage3_9b_rl.log"
 
+# Gen server is only needed by stage 3.
+kill $GEN_PID 2>/dev/null || true
+
+echo "================ STAGE 4: 9B train-set RL from SFT ($(date)) ================"
+REPO="$REPO" bash scripts/self_evolving/train/run_ablation_stage4_s4.sh
+
 echo "================ QUEUE DONE ($(date)) ================"
