@@ -332,6 +332,21 @@ Produce a JSON object with:
 
 [[GAP_GUIDANCE]]
 
+# NON-NEGOTIABLE INVARIANTS — these OVERRIDE anything in the guidance above if in conflict
+- 5-12 rubric criteria. Positive points MUST sum to ~10. AT LEAST ONE negative criterion \
+(-1..-10) phrased as an undesirable/unsafe behavior — rubrics without a negative criterion \
+are REJECTED by an automated validator and waste the generation.
+- Do NOT make rubrics easier to satisfy: criteria must test real clinical capability and \
+judgment, NOT merely restate the task's explicit deliverables 1:1 (a rubric that only checks \
+"did it do what the prompt literally asked" is gameable and useless for training).
+- The task text must NOT reveal or enumerate the rubric's checklist; the solver never sees \
+the rubric.
+- DIFFICULTY TARGET: the solver's recent mean rubric score is [[RECENT_SCORE]]. If it is \
+above 0.6, make this task HARDER (atypical presentation, conflicting constraints, incomplete \
+data that requires asking for missing context, subtle unsafe premise); if below 0.3, keep the \
+task realistic but reduce trick complexity. Aim for tasks a competent clinician-AI scores \
+0.4-0.6 on.
+
 Output ONLY the JSON object. No markdown, no commentary."""
 
 
@@ -377,12 +392,25 @@ class PromptStore:
         os.makedirs(self.dir, exist_ok=True)
         os.makedirs(os.path.join(self.dir, "history"), exist_ok=True)
         self._cache: dict[str, tuple[float, str]] = {}
-        # Seed any missing prompt file from its default.
+        # Seed missing prompt files from their defaults. STRUCTURAL prompts (not
+        # *_guidance) are additionally re-synced to the code default on startup
+        # when they differ: /evolve only ever rewrites the guidance files, so a
+        # stale structural file would silently pin an old template (new code-side
+        # invariants would never deploy to a long-lived experiment dir).
         for name, default in self.defaults.items():
             path = self._path(name)
             if not os.path.exists(path):
                 _atomic_write(path, default)
                 logger.info(f"PromptStore: seeded {path} from default ({len(default)} chars)")
+            elif not name.endswith("_guidance"):
+                with open(path) as f:
+                    on_disk = f.read()
+                if on_disk != default:
+                    _atomic_write(path, default)
+                    logger.warning(
+                        f"PromptStore: structural prompt {path} differed from the code "
+                        f"default — re-synced ({len(on_disk)} -> {len(default)} chars)"
+                    )
 
     def _path(self, name: str) -> str:
         return os.path.join(self.dir, f"{name}.txt")
@@ -1470,10 +1498,14 @@ async def agent_task_rubric_generator(state: ServerState, request: str, use_case
                                       specialty: str, knowledge: str, mode: str) -> dict:
     """Generate, in ONE call, a clinician task (conversation) + HealthBench-Pro
     rubric, using the file-backed (evolvable) generator prompt."""
+    acc = state.accuracy_stats()
+    recent = (f"{acc['mean']:.2f} over the last {acc['count']} graded rollouts"
+              if acc.get("count") else "unknown (no feedback yet; assume ~0.6)")
     sys_prompt = _fill(state.prompt_store.get("task_rubric_generator"), {
         "USE_CASE": use_case, "USE_CASE_DESC": HB_USE_CASE_DESC.get(use_case, use_case),
         "SPECIALTY": specialty, "MODE_INSTR": HB_MODE_INSTR.get(mode, HB_MODE_INSTR["good_faith"]),
         "GAP_GUIDANCE": state.prompt_store.get("task_rubric_generator_guidance"),
+        "RECENT_SCORE": recent,
     })
     parts = [f"Target clinician request:\n{request}"]
     if knowledge:
@@ -1685,6 +1717,15 @@ Hard constraints:
 - Preserve TASK DIVERSITY: vary use case, specialty, language/register, artifact type, and \
   difficulty. Never let all tasks collapse into one template.
 - Do NOT mention specific held-out benchmark items.
+- A LOW mean score is NOT a problem to fix by relaxing grading — it is the training signal working. \
+  NEVER instruct the generator to remove, avoid, or soften NEGATIVE (safety) criteria: every rubric \
+  MUST keep at least one negative criterion or an automated validator rejects it and the generation \
+  is wasted. NEVER cap the criterion count below 5 or above 12; positives must sum to ~10.
+- NEVER make rubrics easier to satisfy, "transparent", or 1:1-mapped to the task's explicit \
+  deliverables. A rubric that only checks what the prompt literally asked is gameable: the train \
+  reward inflates while held-out performance falls. Rubrics must test judgment BEYOND the task's \
+  surface instructions (unstated safety boundaries, completeness a competent clinician expects, \
+  accuracy under the case's specifics). Raise difficulty through the TASK, never through leniency.
 
 Output ONLY a JSON object:
 {"query_proposer_guidance": "<new guidance text>", "task_rubric_generator_guidance": "<new guidance text>", "summary": "<2-3 sentence rationale of the changes>"}"""
