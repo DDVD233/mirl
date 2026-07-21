@@ -42,7 +42,7 @@ KEY=$(cat /scratch/sheng/self_evolving/.climb_teacher_key)
 # and LR 2e-7 (that run did 983 mimic steps without collapse), plus a signed
 # training-reward floor (HB_SCORE_MIN=-0.5) so bad rollouts stay ordered instead
 # of all clipping to 0 (which removed the escape gradient in v4). Runs on server 1.
-EXP="${EXP:-healthbench_rubric_qwen36_27b_v5}"
+EXP="${EXP:-healthbench_rubric_qwen36_27b_v6}"
 ACTOR_MODEL_PATH="${ACTOR_MODEL_PATH:-/scratch/sheng/self_evolving/checkpoints/self_evolving_medical/mimiciv_rare_qwen36_27b_sft_distill/global_step_90/actor/huggingface}"
 TEACHER_BASE="${TEACHER_BASE:-http://point.dd.works:18184/v1}"
 GEN_SERVER_URL="${GEN_SERVER_URL:-http://localhost:8006}"
@@ -99,7 +99,7 @@ export HB_SCORE_MIN="${HB_SCORE_MIN:--0.5}"
 export VERL_THINK_BUDGET_TOKENS="${VERL_THINK_BUDGET_TOKENS:-5120}"
 # (B) Entropy bonus: v2/v3 collapse was heralded by monotone entropy decay from
 # step ~10 (0.71 -> 0.10); a small bonus resists the deterministic-loop attractor.
-ENTROPY_COEFF="${ENTROPY_COEFF:-0.002}"
+ENTROPY_COEFF="${ENTROPY_COEFF:-0.0005}"
 # (C) DAPO-lite: drop zero-variance GRPO groups (no gradient) from each batch.
 FILTER_ZERO_VAR="${FILTER_ZERO_VAR:-True}"
 cd "$REPO"
