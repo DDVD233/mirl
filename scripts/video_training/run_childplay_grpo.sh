@@ -66,6 +66,7 @@ python3 -m verl.trainer.main_ppo \
     trainer.default_local_dir="${RUN_DIR}/checkpoints/${PROJECT_NAME}/${RL_EXP}" \
     trainer.n_gpus_per_node="${NUM_GPUS}" \
     trainer.nnodes=1 \
+    trainer.max_ckpt_to_keep=${MAX_CKPT_KEEP:-2} \
     trainer.save_freq=${SAVE_FREQ:-20} \
     trainer.test_freq=${TEST_FREQ:-10} \
     trainer.val_before_train=${VAL_BEFORE:-True} \
