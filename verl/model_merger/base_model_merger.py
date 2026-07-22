@@ -27,6 +27,11 @@ from transformers import (
     GenerationConfig,
 )
 
+try:
+    from transformers import AutoModelForVision2Seq
+except ImportError:  # transformers >= 5.0 removed AutoModelForVision2Seq
+    from transformers import AutoModelForImageTextToText as AutoModelForVision2Seq
+
 from verl.utils import hf_processor, hf_tokenizer
 
 
