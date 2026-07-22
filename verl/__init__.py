@@ -18,6 +18,14 @@ import os
 
 from packaging.version import parse as parse_version
 
+# transformers >= 5.0 removed AutoModelForVision2Seq in favor of
+# AutoModelForImageTextToText; alias it back so the many
+# `from transformers import AutoModelForVision2Seq` sites keep working.
+import transformers as _transformers
+
+if not hasattr(_transformers, "AutoModelForVision2Seq"):
+    _transformers.AutoModelForVision2Seq = _transformers.AutoModelForImageTextToText
+
 from .protocol import DataProto
 from .utils.device import is_npu_available
 from .utils.import_utils import import_external_libs

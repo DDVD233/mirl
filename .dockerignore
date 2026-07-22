@@ -1,0 +1,13 @@
+.git
+.github
+checkpoints/
+outputs/
+wandb/
+build/
+dist/
+*.egg-info
+__pycache__
+*.log
+*.parquet
+*.jsonl
+docs/

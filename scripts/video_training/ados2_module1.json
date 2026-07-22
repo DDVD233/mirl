@@ -1,0 +1,780 @@
+[
+  {
+    "module": "A: Language and Communication",
+    "test type": "A1. Overall Level of Non-Echoed Spoken Language",
+    "description": "This item is coded for the complexity of spontaneous expressive language produced during the ADOS-2 evaluation. Ratings apply only to non-echoed words or word approximations that are used meaningfully. A routinized 'unit' such as 'go bye-bye' is treated as one word.",
+    "labels": [
+      [
+        "0",
+        "Regular use of utterances with three or more words."
+      ],
+      [
+        "1",
+        "Occasional phrases only; mostly single words."
+      ],
+      [
+        "2",
+        "Recognizable single words or word approximations only; must use at least ﬁve different words during the ADOS-2 evaluation."
+      ],
+      [
+        "3",
+        "At least one word or word approximation, but fewer than five words used during the ADOS-2 evaluation."
+      ],
+      [
+        "4",
+        "No words or word approximations used meaningfully."
+      ]
+    ]
+  },
+  {
+    "module": "A: Language and Communication",
+    "test type": "A2. Frequency of Spontaneous Vocalization Directed to Others",
+    "description": "This item is coded for the amount of socially directed vocalization; vocalizations must be spontaneous to be coded here. A pragmatic context is defined within the ADOS-2 as the purpose or intention of a given utterance (e.g., requesting, directing attention, sharing enjoyment, or seeking comfort).",
+    "labels": [
+      [
+        "0",
+        "Directs vocalizations to parent/caregiver or examiner in a variety of pragmatic contexts. Must include chatting or vocalizing to be friendly or to express interest, as well as to make needs known."
+      ],
+      [
+        "1",
+        "Directs vocalizations to parent/caregiver or examiner consistently in one pragmatic context, OR directs a limited number of vocalizations to parent/caregiver or examiner across a variety of pragmatic contexts."
+      ],
+      [
+        "2",
+        "Directs an occasional vocalization to parent/caregiver or examiner inconsistently in a limited number of pragmatic contexts. May include whining or crying due to frustration."
+      ],
+      [
+        "3",
+        "Vocalizations never or almost never appear to be directed to parent/caregiver or examiner, OR rarely or never vocalizes."
+      ]
+    ]
+  },
+  {
+    "module": "A: Language and Communication",
+    "test type": "A3. Intonation of Vocalizations or Verbalizations",
+    "description": "This is a general item that applies to all vocalizations or verbalizations, including crying and whining. Repetitive or odd nonword vocalizations should be rated here if the intonation is unusual. Do not include general loudness, but do code repeated whispering.",
+    "labels": [
+      [
+        "0",
+        "Normal, appropriately varying intonation, with no peculiar or odd intonation."
+      ],
+      [
+        "1",
+        "Little variation in pitch and tone; rather flat or exaggerated, or occasional peculiar intonation."
+      ],
+      [
+        "2",
+        "Odd intonation or inappropriate pitch and stress, AND/OR markedly flat and toneless mechanical vocalizations, OR an odd cry and few other vocalizations."
+      ],
+      [
+        "8",
+        "N/A (insufficient vocalizations for assessment of intonation; includes presence of normal cry and few other vocalizations)."
+      ]
+    ]
+  },
+  {
+    "module": "A: Language and Communication",
+    "test type": "A4. Immediate Echolalia",
+    "description": "This item pertains to the child's immediate repetition of the last statement or series of statements made by the parent/caregiver or examiner. When coding, do not include repetitions that are a lead-in to a response or that are used as a memory device in specific tasks. Beware of coding echolalia if the child has only a few words and repeats them meaningfully after others say these words to him or her. Code relative to the child’s expressive language level. If the child uses fewer than ﬁve words and DOES NOT have echoed speech, then code 8. If the child uses fewer than ﬁve words and DOES have echoed speech as described above, then use codes 1 to 3 as appropriate. The code of 0 is the only code that requires the spontaneous use of at least ﬁve words.",
+    "labels": [
+      [
+        "0",
+        "Does not repeat others' speech. (Note: Requires at least five words to code 0 rather than 8)."
+      ],
+      [
+        "1",
+        "Occasional echoing."
+      ],
+      [
+        "2",
+        "Echoing words and phrases regularly, but some spontaneous language, which can be stereotyped."
+      ],
+      [
+        "3",
+        "Speech largely consists of immediate echolalia."
+      ],
+      [
+        "8",
+        "No echolalia noted, but language too limited to judge."
+      ]
+    ]
+  },
+  {
+    "module": "A: Language and Communication",
+    "test type": "A5. Stereotyped/Idiosyncratic Use of Words or Phrases",
+    "description": "Coding for this item includes delayed echolalia or other highly repetitive utterances with consistent intonation patterns. These words or phrases can be intended meaningfully and can be appropriate to conversation at some level. The focus of the item is on the stereotyped or idiosyncratic quality of the phrasing or unusual use of words and/or their arbitrary association with a particular meaning. Neologisms and referring to oneself by name should be coded here, as well as clear evidence of a pronoun error across person (e.g., you or he or she to mean I). Beware of coding language as repetitive because the child`s language repertoire is limited, such as a child who has only two words and uses them repeatedly and appropriately. Code relative to the child`s expressive language level. Repetitive or odd nonword vocalizations should not be rated here but can be rated in `A3. Intonation of Vocalizations or Verbalizations` if the intonation is unusual. If the child uses fewer than ﬁve words and DOES NOT have stereotyped or idiosyncratic speech, then code 8. If the child uses fewer than ﬁve words and DOES have stereotyped or idiosyncratic speech, then use codes 1 to 3 as appropriate. The code of 0 is the only code that requires at least ﬁve words.",
+    "labels": [
+      [
+        "0",
+        "Rarely or never uses stereotyped or idiosyncratic words or phrases. (Requires at least five words to code 0 rather than 8)"
+      ],
+      [
+        "1",
+        "Use of words or phrases tends to be more repetitive than that of most individuals at the same level of expressive language, but not obviously odd, OR occasional stereotyped utterances or use of odd words, OR use of phrases in an unusual way, with other flexible spontaneous language as well."
+      ],
+      [
+        "2",
+        "Often uses stereotyped utterances or odd words or phrases, with some other language."
+      ],
+      [
+        "3",
+        "Frequently uses odd or stereotyped speech, and rarely uses non-stereotyped spontaneous speech"
+      ],
+      [
+        "8",
+        "Language too limited to judge."
+      ]
+    ]
+  },
+  {
+    "module": "A: Language and Communication",
+    "test type": "A6. Use of Another's Body",
+    "description": "The focus of this item is on the use of another person's body as a tool. It requires movement of a limb or a part of someone else's body without a previous or concurrent attempt to direct the person's attention using gaze.",
+    "labels": [
+      [
+        "0",
+        "No use of another person's body for a specific goal (e.g., to manipulate an object), except in situations where other strategies have not worked and in conjunction with coordinated gaze."
+      ],
+      [
+        "1",
+        "Takes another person's hand and leads him or her places without coordinated gaze, but no placement of hand on objects and no use of another person's body as a tool or for a specific goal."
+      ],
+      [
+        "2",
+        "Placement of another person's hand or other body part on object OR movement of that person's hand when it is holding an object, OR use of another person's hand or other body part as a tool or to gesture 'for' the child (such as pointing)."
+      ],
+      [
+        "8",
+        "Little or no spontaneous communication."
+      ]
+    ]
+  },
+  {
+    "module": "A: Language and Communication",
+    "test type": "A7. Pointing",
+    "description": "This item describes socially purposeful, visually directed pointing, which includes pointing for the purpose of requesting and/or for shared attention. The term distal denotes pointing that does not involve touching an object or an attempt to touch an object (e.g., the target object should be more than about 2 inches/5 cm away).",
+    "labels": [
+      [
+        "0",
+        "Points with index finger to show visually directed referencing (coordinated gaze to object and person) of distal objects in at least two activities (e.g., points to bubbles and to balloon)."
+      ],
+      [
+        "1",
+        "Uses pointing to reference objects, but without sufficient ﬂexibility or frequency to meet criteria for a rating of 0 (e.g., only one instance of pointing that ﬁts the preceding description for a rating of 0, or absence of coordinated gaze with distal pointing, though the child may vocalize); AND/OR produces an approximation of pointing (coordinated with gaze or vocalization) rather than an index ﬁnger point; AND/OR coordinates only pointing that includes touching a picture or other nearby objects with gaze or vocalization; AND/OR points with coordination (gaze or vocalization) only to a person or to himself or herself."
+      ],
+      [
+        "2",
+        "Points only when close to or actually touching an object, without coordinated gaze or vocalization. Does not have to be well-formed index ﬁnger point."
+      ],
+      [
+        "3",
+        "Does not point as described above."
+      ]
+    ]
+  },
+  {
+    "module": "A: Language and Communication",
+    "test type": "A8. Gestures",
+    "description": "This item pertains to the use of any kind of gesture other than pointing. Gestures may be conventional or idiosyncratic, but they must be communicative and cannot involve moving someone else's body or touching/holding an object. Do not include mannerisms. Gestures within routines (e.g., songs) may be coded here if they are carried out in a way that is communicative, spontaneous, and appropriate. Grabbing is not included as a gesture. If there is a clearly unusual gesture that is used appropriately (e.g., a child who consistently moves his head with his hand to indicate 'yes' or 'more'), a code of 1 should be used.",
+    "labels": [
+      [
+        "0",
+        "Spontaneous use of at least two different gestures of any type (descriptive, conventional, emotional, or instrumental, excluding pointing); at least one used more than once."
+      ],
+      [
+        "1",
+        "Spontaneous use of descriptive, conventional, instrumental, or emotional gestures, but exaggerated or limited in range and/or contexts (e.g., only one or used only once each). Communicative reaching can be coded here, but not as part of a code of 0."
+      ],
+      [
+        "2",
+        "No spontaneous use of descriptive, conventional, instrumental, or emotional gestures, OR inappropriate use only e.g., a child who signs 'more' when he wants something to stop)."
+      ],
+      [
+        "8",
+        "N/A (e.g., limited by severe motor difficulties)."
+      ]
+    ]
+  },
+  {
+    "module": "B: Reciprocal Social Interaction",
+    "test type": "B1. Unusual Eye Contact",
+    "description": "Coding for this item requires that clear, ﬂexible, socially modulated, and appropriate gaze that is used for a variety of purposes be distinguished from gaze that is limited in ﬂexibility, appropriateness, or contexts. If the child is shy initially, and his or her gaze changes markedly and consistently as he or she becomes more comfortable, do not base the code on earlier impressions. However, if eye contact never improves, coding must be based on what is observed, even if the child seems shy. Do not code eye contact that occurs between the child and individuals other than the examiner who may be in the ADOS-2 assessment room.",
+    "labels": [
+      [
+        "0",
+        "Appropriate gaze with subtle changes meshed with other communication."
+      ],
+      [
+        "2",
+        "Uses poorly modulated eye contact to initiate, terminate, or regulate social interaction."
+      ]
+    ]
+  },
+  {
+    "module": "B: Reciprocal Social Interaction",
+    "test type": "B2. Responsive Social Smile",
+    "description": "This item pertains to the child's facial response to a smile or playful verbal interaction with the examiner or parent/caregiver during the 'Responsive Social Smile' activity.",
+    "labels": [
+      [
+        "0",
+        "Smiles immediately in response to one of the first two smiles of the examiner and/or parent/caregiver. This must be a clear change from nonsmiling to a fully responsive smile that is not prompted by a specific request e.g., 'Give me a smile')."
+      ],
+      [
+        "1",
+        "Delayed or partial smile in response to one of the ﬁrst two smiles of the examiner and/or parent/caregiver, OR smiles fully or partially only after more than two smiles by the parent/caregiver, OR smiles only in response to a speciﬁc request."
+      ],
+      [
+        "2",
+        "Smiles fully or partially at the parent/caregiver only after being tickled or touched in some way OR in response to a repeated action with a physical component (even if the child is not actually touched)."
+      ],
+      [
+        "3",
+        "Does not smile in response to another person."
+      ]
+    ]
+  },
+  {
+    "module": "B: Reciprocal Social Interaction",
+    "test type": "B3. Facial Expressions Directed to Others",
+    "description": "The rating for this item should indicate whether the child's facial expressions are directed to another person for the purpose of communicating affective (e.g., enjoyment, frustration) or cognitive (e.g., puzzlement, skepticism) states. Facial expressions that are directed to objects or that are undirected are not rated here. Appropriate or slightly exaggerated facial expressions should be coded even if there are also odd expressions.",
+    "labels": [
+      [
+        "0",
+        "Directs a range of appropriate facial expressions to the examiner and/or parent/caregiver in order to communicate affective or cognitive states."
+      ],
+      [
+        "1",
+        "Some direction of facial expressions (e.g., directs only expressions indicating emotional extreme(s) to others, or occasionally directs wider range of expressions). A child with a limited range of facial expressions who directs most expressions to another person may be rated here."
+      ],
+      [
+        "2",
+        "Does not direct appropriate facial expressions to others."
+      ]
+    ]
+  },
+  {
+    "module": "B: Reciprocal Social Interaction",
+    "test type": "B4. Integration of Gaze and Other Behaviors During Social Overtures",
+    "description": "The focus of this item is on the quality of the child's attempts to initiate interaction, particularly the integration of gaze with other behaviors, not the frequency of initiations. Rate the quality of the majority of attempts, not the best attempts. Overtures to the examiner and parent/caregiver can both be considered here.",
+    "labels": [
+      [
+        "0",
+        "Uses eye contact effectively with words or vocalizations or gestures to communicate social intention."
+      ],
+      [
+        "1",
+        "Uses eye contact and other strategies independently of each other to communicate social intention (i.e., uses both eye contact and vocalization at different times, but does not coordinate them with each other)."
+      ],
+      [
+        "2",
+        "Uses either eye contact or other strategies (e.g., vocalization, gestures) to communicate social intention."
+      ],
+      [
+        "3",
+        "Uses neither eye contact nor other strategies to communicate social intention, OR no social overtures."
+      ]
+    ]
+  },
+  {
+    "module": "B: Reciprocal Social Interaction",
+    "test type": "B5. Shared Enjoyment in Interaction",
+    "description": "Rate the child's directed pleasure during any of the activities or presses. This item should not be used to indicate his or her general emotional state during the ADOS-2 evaluation. The rating applies to the child's ability to indicate pleasure to the examiner, not just to interact or respond.",
+    "labels": [
+      [
+        "0",
+        "Shows definite pleasure with the examiner that is appropriate to the context and occurs during more than one activity. Must include pleasure in at least one activity that is not purely physical in nature (e.g., not tickling)."
+      ],
+      [
+        "1",
+        "Shows some pleasure appropriate to the context during interactions with the examiner, OR shows definite pleasure directed to the examiner during one interaction (may be physical in nature)."
+      ],
+      [
+        "2",
+        "Shows little or no expressed pleasure during interaction with the examiner, but shows pleasure in his or her own actions, in interaction with a parent/caregiver, or in noninteractive components of the ADOS-2 materials or activities."
+      ],
+      [
+        "3",
+        "Little or no expressed pleasure during the ADOS-2 evaluation and little interest in toys."
+      ]
+    ]
+  },
+  {
+    "module": "B: Reciprocal Social Interaction",
+    "test type": "B6. Response to Name",
+    "description": "This item codes the child's response to hearing his or her name called during a specific press. A full response is defined as orienting to and making eye contact with the person who calls his or her name. The number of presses is specified because of the increased likelihood that the child will look if provided many opportunities. If the child verbalizes appropriately without making eye contact in response to either of the examiner’s ﬁrst two presses, the hierarchy of presses is recommenced and the coding disregards the initial press(es) (i.e., the examiner's ﬁrst press upon restarting the activity after a vocal response is considered in the ratings as the examiner's ﬁrst press).",
+    "labels": [
+      [
+        "0",
+        "Looks toward the examiner and makes eye contact immediately on at least one of the first two presses made by the examiner."
+      ],
+      [
+        "1",
+        "Looks toward the parent/caregiver and makes eye contact after first or second press of name only, OR makes eye contact with the examiner after the examiner's third or fourth press of name only."
+      ],
+      [
+        "2",
+        "Does not immediately make eye contact with either the examiner or the parent/caregiver after his or her name is called in six attempts, but shifts gaze briefly, shifts gaze after a delay, OR looks at least once when an interesting or familiar vocalization or verbalization is made (e.g., tongue clucking, 'I'm gonna get you')."
+      ],
+      [
+        "3",
+        "Does not look toward either the examiner or the parent/caregiver after any purely verbal or vocal attempt to get attention."
+      ]
+    ]
+  },
+  {
+    "module": "B: Reciprocal Social Interaction",
+    "test type": "B7. Requesting",
+    "description": "Requesting is deﬁned as a conventional indication— through gesture, eye contact, vocalization, facial expression, or other means—of the child’s desire for a particular action or object. This can include requests for a social routine, balloon, remote-controlled toy animal, bubbles, and so forth, as long as they are related to a speciﬁc event or object. It does not include a general desire to be held. When coding this item, exclude requests for snack items or to leave the room. If the child uses more than one strategy to request different objects or activities, rate the request that merits the higher rating level (i.e., closest to a rating of 0).",
+    "labels": [
+      [
+        "0",
+        "Exhibits appropriate integration of eye contact and at least one behavior (e.g., vocalization, gesture, or handing an object to the examiner or the parent/caregiver) to request bubbles, the remote-controlled toy animal, object routine, or social routine. Must include eye contact and a deﬁnite indication of wanting the other person to do or give something (e.g., by persisting in the request if the other person pauses before responding). This does not include physically pulling or placing the examiner’s hand on an object or to the child himself or herself."
+      ],
+      [
+        "1",
+        "Uses one or more behavior(s) listed above to request the remote-controlled toy animal, bubbles, and/or a routine, without integrating eye contact and other behavior(s), such as vocalization or gesture. This includes handing an object to the examiner or parent/caregiver without looking at him or her, looking at the other person without another behavior, and brief requests without persistence. It does not include physically pulling the examiner’s hand to an object or to himself or herself."
+      ],
+      [
+        "2",
+        "Does not directly request, as speciﬁed above for ratings of 0 or 1, but uses some physical means to request at least one action as part of a routine (e.g., pulls the examiner’s hand to an object or to himself or herself)."
+      ],
+      [
+        "3",
+        "May participate in routine(s) or try to activate an object by vocalizing, banging, or other actions (e.g., bouncing) without looking at another person or vocalizing for help, but does not request, as speciﬁed above."
+      ]
+    ]
+  },
+  {
+    "module": "B: Reciprocal Social Interaction",
+    "test type": "B8. Giving",
+    "description": "This item describes handing objects to another person across a range of pragmatic contexts, including sharing and getting help. It does not require eye contact, but does imply independent, spontaneous release of the object.",
+    "labels": [
+      [
+        "0",
+        "Spontaneously gives toys or objects to other people in a variety of contexts throughout the ADOS-2 evaluation, including giving toys, food, or pretend food for the purpose of sharing."
+      ],
+      [
+        "1",
+        "More than one example of giving objects to other people for the purpose of getting help (e.g., in operating toys or opening food containers) or as part of a routine. May occur in just one context, but must be repeated without a speciﬁc prompt."
+      ],
+      [
+        "2",
+        "Rarely or never gives objects to another person."
+      ]
+    ]
+  },
+  {
+    "module": "B: Reciprocal Social Interaction",
+    "test type": "B9. Showing",
+    "description": "Showing is defined as deliberately orienting or placing an object where it can be seen by another person with no identifiable purpose of getting help or participating in a routine. For full credit, this must be accompanied by eye contact, but vocalization is not required.",
+    "labels": [
+      [
+        "0",
+        "Spontaneously shows toys or objects during the ADOS-2 evaluation by holding them up or placing them in front of others, and using eye contact with or without vocalization."
+      ],
+      [
+        "1",
+        "Shows toys or objects in a partial or inconsistent manner (e.g., holds them up without coordinated eye contact, looks from an object in his or her hands to another person without clearly orienting it toward that person, or shows objects as described for rating 0 on one occasion only)."
+      ],
+      [
+        "2",
+        "Does not show objects to another person."
+      ]
+    ]
+  },
+  {
+    "module": "B: Reciprocal Social Interaction",
+    "test type": "B10. Spontaneous Initiation of Joint Attention",
+    "description": "This item codes the child's attempts to draw another person's attention to objects that neither of them is touching and are clearly out of reach. This does not include such attempts if they are for the purpose of requesting.",
+    "labels": [
+      [
+        "0",
+        "Uses clearly integrated eye contact to direct another person's attention to an object that is out of reach by looking at the object, then at the examiner or the parent/caregiver, and then back at the object OR by using a three- point gaze shift starting with the examiner or parent/caregiver. Eye contact may be coordinated with pointing and/or vocalization. One clear example is sufficient for this rating."
+      ],
+      [
+        "1",
+        "Partially references an object that is clearly out of reach in order to direct another person's attention. May spontaneously look at and point to the object and/or vocalize, but does not coordinate with looking at another person, OR may look at an object and then look at or point to the examiner or parent/caregiver, but not look back at the object."
+      ],
+      [
+        "2",
+        "No approximation of spontaneous initiation of joint attention in order to direct another person's attention to an object that is out of reach."
+      ]
+    ]
+  },
+  {
+    "module": "B: Reciprocal Social Interaction",
+    "test type": "B11. Response to Joint Attention",
+    "description": "This item codes the child's response to the examiner's use of gaze and/or pointing to direct the child's attention to a distant object. The rating should not be affected by the child's understanding of language (i.e., he or she must follow the direction of the examiner's gaze or pointing, but does not have to understand what was said).",
+    "labels": [
+      [
+        "0",
+        "Uses the orientation of the examiner's eyes and face alone as a cue to look toward the target, without the need for pointing. The child must follow the examiner's gaze and turn his or her face or eyes in the direction of the target."
+      ],
+      [
+        "1",
+        "Follows the examiner's pointing by looking at or toward the target."
+      ],
+      [
+        "2",
+        "Does not follow the examiner's gaze or pointing to orient toward the object, but looks at the target when activated."
+      ],
+      [
+        "3",
+        "Does not orient to the object even when the object is activated."
+      ]
+    ]
+  },
+  {
+    "module": "B: Reciprocal Social Interaction",
+    "test type": "B12. Quality of Social Overtures",
+    "description": "This is a summary item that focuses on the quality of the child's attempts to initiate social interaction, not on the frequency of such attempts. Special attention should be given to the form of the overtures and their appropriateness to the social context. The rating should reflect the majority of social overtures, not merely the best ones.",
+    "labels": [
+      [
+        "0",
+        "Effectively uses nonverbal and verbal means to make clear social overtures to the examiner or parent/caregiver. The overtures must be appropriate to immediate contexts."
+      ],
+      [
+        "1",
+        "Slightly unusual quality of social overtures. Assign this rating if overtures are restricted to personal demands or related to strong interests, but with some attempt to involve the examiner or parent/caregiver in those interests."
+      ],
+      [
+        "2",
+        "Overtures often lack integration into context AND/OR social quality. Assign this rating if there are some clearly inappropriate overtures, even if there are other overtures."
+      ],
+      [
+        "3",
+        "No social overtures of any kind."
+      ]
+    ]
+  },
+  {
+    "module": "B: Reciprocal Social Interaction",
+    "test type": "B13a. Amount of Social Overtures/Maintenance of Attention: EXAMINER",
+    "description": "The focus of this item is on the number of the child's attempts to get, maintain, or direct the examiner's attention, AND/OR to direct the examiner's attention to objects or actions of interest to the child. The rating for this item may include words/vocalizations or nonverbal behaviors if they are neither related to preoccupations nor aimed at getting objects, but seem to function primarily as a method of social contact. Do not include requests for help or objects when rating this item except for a code of 3.",
+    "labels": [
+      [
+        "0",
+        "Frequent attempts to get or maintain the examiner's attention AND/OR to direct the examiner's attention to objects or actions of interest to the child."
+      ],
+      [
+        "1",
+        "Some attempts at getting, maintaining, or directing the examiner's attention as described for rating 0, but reduced in frequency or the number of different activities in which they are used."
+      ],
+      [
+        "2",
+        "Makes occasional attempts to get, maintain, or direct the examiner's attention, including overtures solely for the purpose of seeking comfort."
+      ],
+      [
+        "3",
+        "Shows relatively little concern as to whether the examiner is paying attention to him or her unless he or she needs help (e.g., initiates social contact only when requesting)."
+      ],
+      [
+        "7",
+        "Unusually frequent, intense, or excessive demands for attention."
+      ]
+    ]
+  },
+  {
+    "module": "B: Reciprocal Social Interaction",
+    "test type": "B13b. Amount of Social Overtures/Maintenance of Attention: PARENT/CAREGIVER",
+    "description": "The focus of this item is on the number of the child's attempts to get, maintain, or direct the parent/caregiver's attention, AND/OR to direct the parent/caregiver's attention to objects or actions of interest to the child. Do not include requests for help or objects when rating this item except for a code of 3.",
+    "labels": [
+      [
+        "0",
+        "Frequent attempts to get or maintain the parent/caregiver's attention AND/OR to direct the parent/caregiver's attention to objects or actions of interest to the child."
+      ],
+      [
+        "1",
+        "Some attempts at getting, maintaining, or directing the parent/caregiver's attention as described for rating 0, but reduced in frequency or the number of different activities in which they are used."
+      ],
+      [
+        "2",
+        "Makes occasional attempts to get, maintain, or direct the parent/caregiver's attention, including overtures solely for the purpose of seeking comfort."
+      ],
+      [
+        "3",
+        "Shows relatively little concern as to whether the parent/caregiver is paying attention to him or her unless he or she needs help (e.g., initiates social contact only when requesting)."
+      ],
+      [
+        "7",
+        "Unusually frequent, intense, or excessive demands for attention."
+      ],
+      [
+        "8",
+        "Familiar caregiver not available for ADOS-2 administration."
+      ]
+    ]
+  },
+  {
+    "module": "B: Reciprocal Social Interaction",
+    "test type": "B14. Quality of Social Response",
+    "description": "This is a summary item that focuses on the child's social responses throughout the ADOS-2 evaluation.",
+    "labels": [
+      [
+        "0",
+        "Shows a range of appropriate responses that are varied according to immediate social situations and presses."
+      ],
+      [
+        "1",
+        "Shows responsiveness to most social contexts, but somewhat limited, socially awkward, inappropriate, inconsistent, or consistently negative."
+      ],
+      [
+        "2",
+        "Odd, stereotyped responses, or responses that are restricted in range or inappropriate to the context."
+      ],
+      [
+        "3",
+        "Minimal or no response to the examiner's attempts to engage the child."
+      ]
+    ]
+  },
+  {
+    "module": "B: Reciprocal Social Interaction",
+    "test type": "B15. Level of Engagement",
+    "description": "This item codes the degree of interest in and engagement with the activities presented as part of the ADOS-2 evaluation. The child's degree of enjoyment in the activities is not coded here.",
+    "labels": [
+      [
+        "0",
+        "Spontaneously engaged and consistently interested in activities presented by the examiner."
+      ],
+      [
+        "1",
+        "Inconsistently spontaneously engaged."
+      ],
+      [
+        "2",
+        "Engaged only when the examiner works hard to get and keep the child's interest."
+      ],
+      [
+        "3",
+        "Not engaged, even when the examiner makes efforts to attract the child's interest, OR the child is engaged only during snack or games involving physical contact."
+      ]
+    ]
+  },
+  {
+    "module": "B: Reciprocal Social Interaction",
+    "test type": "B16. Overall Quality of Rapport",
+    "description": "The code for this item is a summary rating that reflects the examiner's overall judgment of the rapport or comfort level established with the child during the ADOS-2 evaluation. The rating should take into account the degree to which the examiner had to modify his or her own behavior to maintain the interaction successfully.",
+    "labels": [
+      [
+        "0",
+        "Comfortable interaction between the child and examiner that is appropriate to the context of the ADOS-2 assessment."
+      ],
+      [
+        "1",
+        "Interaction sometimes comfortable, but not sustained (e.g., sometimes feels awkward or stilted, or the child's behavior seems mechanical or slightly inappropriate)."
+      ],
+      [
+        "2",
+        "One-sided or unusual interaction resulting in a consistently mildly uncomfortable session."
+      ],
+      [
+        "3",
+        "The child shows minimal regard for the examiner AND/OR the observation is markedly difficult or uncomfortable for a significant proportion of the time."
+      ]
+    ]
+  },
+  {
+    "module": "C: Play",
+    "test type": "C1. Functional Play With Objects",
+    "description": "This item describes appropriate use of toys or miniatures/representational items as they are intended. Exclude play that occurs in response to directions from the parent/caregiver or the examiner. Miniatures are representational toys (i.e., smaller versions of real objects). Putting candles into the birthday cake should not be coded here.",
+    "labels": [
+      [
+        "0",
+        "Spontaneously plays with a variety of toys in a conventional manner, including appropriate play with several different miniatures/representational toys. (e.g., telephone, truck, dishes, materials in the 'Birthday Party' activity). Do not include imitations, prompted actions, or pushing the car."
+      ],
+      [
+        "1",
+        "Some spontaneous functional play with at least one miniature/representational toy. Do not include imitations, responses to direct requests (e.g., 'Answer the phone'), pushing the car, or use of construction toys."
+      ],
+      [
+        "2",
+        "Plays appropriately with cause-and-effect toys and/or construction toys only, AND/OR pushing the car. This may include imitating a demonstration or imitating more representational play with other toys."
+      ],
+      [
+        "3",
+        "No play with toys or only stereotyped play."
+      ]
+    ]
+  },
+  {
+    "module": "C: Play",
+    "test type": "C2. Imagination/Creativity",
+    "description": "This item describes the flexible, creative use of objects in a representational manner that goes beyond the physical properties of the materials. Any use of the doll should be coded here, as specified.",
+    "labels": [
+      [
+        "0",
+        "Spontaneous use of a doll or other object as an independent agent, OR spontaneous use of objects to represent other objects (e.g., pretends to eat the string like spaghetti)."
+      ],
+      [
+        "1",
+        "Spontaneous pretend play with a doll (e.g., feeding, hugging, or giving a drink) or other objects, but no use of a doll or other toy as an independent agent or to represent something else."
+      ],
+      [
+        "2",
+        "Imitates pretend play as described for rating 1, OR imitation with a placeholder; no spontaneous pretend play."
+      ],
+      [
+        "3",
+        "No imitated or spontaneous pretend play."
+      ]
+    ]
+  },
+  {
+    "module": "D: Stereotyped Behaviors and Restricted Interests",
+    "test type": "D1. Unusual Sensory Interest in Play Material/Person",
+    "description": "Rate the child's interest in or unusual behaviors associated with sensory aspects of toys or surroundings (e.g., sniffing, repetitive feeling of texture, licking, biting, unusually strong interest in repetition of certain sounds, unusual or prolonged visual examination). If the child has a preoccupation that is based on a sensory interest, this may be coded here as one unusual sensory interest. For example, if he or she shows an interest in several sets of table legs, this is coded later in this section of the protocol under 'D4. Unusually Repetitive Interests or Stereotyped Behaviors.' If the child is interested in table legs and likes to look at them repeatedly, as shown by peering at them and tilting his or her head, it should be coded under 'Unusually Repetitive Interests or Stereotyped Behaviors' if it is a persistent behavior, but may also be coded here because of the sensory component involved. If the child likes to look at table legs, the corners of the room, the doors on the pop-up toy, and the slats of the window blinds, but does not become overly preoccupied with any of these objects and does not move in unusual ways as he or she does so, he or she should be coded here for unusual sensory interests but not under 'Unusually Repetitive Interests or Stereotyped Behaviors.' If the ADOS-2 assessment occurs in a room with a one-way mirror, looking into the mirror is not coded as an unusual sensory interest. Mouthing is also not coded in this module. Mouthing is not coded in this module. Sensory aversions are also not coded here.",
+    "labels": [
+      [
+        "0",
+        "No unusual sensory interests or sensory-seeking behaviors."
+      ],
+      [
+        "1",
+        "Several possible sensory interests not as clear as specified for rating 2, AND/OR only one clear occurrence of an unusual sensory interest or sensory-seeking behavior. One 'possible' sensory interest should be coded 0."
+      ],
+      [
+        "2",
+        "Definite interest in sensory elements of objects or of play materials OR sensory examination of himself or herself or others: two or more clear occurrences must be observed. May be observed during the same activity."
+      ],
+      [
+        "3",
+        "Definite unusual sensory-seeking behaviors occur during at least two different tasks or activities and may interfere with the ADOS-2 assessment."
+      ]
+    ]
+  },
+  {
+    "module": "D: Stereotyped Behaviors and Restricted Interests",
+    "test type": "D2. Hand and Finger and Other Complex Mannerisms",
+    "description": "Rate unusual and/or repetitive movements or posturing of the hands and fingers, arms, or body. Repetitive clapping is not coded in this module. Do not include body rocking unless it involves more than the torso. Finger tapping, nail biting, hair twisting, and thumb sucking are also not coded here.",
+    "labels": [
+      [
+        "0",
+        "None"
+      ],
+      [
+        "1",
+        "Unusual and/or repetitive hand and finger mannerisms or complex mannerisms not as clear as specified for rating 2."
+      ],
+      [
+        "2",
+        "Definite finger flicking or twisting, AND/OR hand or finger or complex mannerisms, stereotypies, or posturing. May be brief and/or rare if clear."
+      ],
+      [
+        "3",
+        "Mannerisms, as described above, occur frequently, during at least two different tasks or activities, and/or may interfere with the ADOS-2 assessment."
+      ]
+    ]
+  },
+  {
+    "module": "D: Stereotyped Behaviors and Restricted Interests",
+    "test type": "D3. Self-Injurious Behavior",
+    "description": "Rate behaviors that involve any kind of aggressive act to self, even if not clearly harmful.",
+    "labels": [
+      [
+        "0",
+        "No attempts to harm self."
+      ],
+      [
+        "1",
+        "Dubious or possible self-injury, and/or rare but clear self-injury (e.g., one clear example of biting at own hand or arm, pulling own hair, slapping own face, or banging own head)"
+      ],
+      [
+        "2",
+        "More than one clear example of self-injury, such as head banging, face slapping, hair pulling, or self-biting."
+      ]
+    ]
+  },
+  {
+    "module": "D: Stereotyped Behaviors and Restricted Interests",
+    "test type": "D4. Unusually Repetitive Interests or Stereotyped Behaviors",
+    "description": "Rate any unusually repetitive interests or stereotyped behaviors, including preoccupation with unusual activities or objects, such as table legs or wristwatches; repetitive nonfunctional use of toys, such as spinning wheels, lining things up, or ﬂicking the doll's eyes for more than 2 or 3 seconds; repetitive actions, such as banging objects or putting ﬁngers in ears; and insistence on unusual routines or ritualized behaviors, such as speciﬁc ways of touching or moving objects, or insistence on having the parent/caregiver or the examiner act in a speciﬁc way. Persistent aversive reactions that are unusual in form and/or intensity to sensory stimuli (e.g., the sound of the bubble toy, being touched) can be coded here as 1, 2, or 3, as appropriate. If it is necessary to remove preoccupying objects from the room or lock them in a closet (i.e., to do more than put them on the ﬂoor or under a blanket partially out of sight), the code should be a 2 or 3.",
+    "labels": [
+      [
+        "0",
+        "No repetitive or stereotyped behaviors during the ADOS-2 evaluation."
+      ],
+      [
+        "1",
+        "An interest or behavior that is repetitive or stereotyped to an unusual degree, including an intense interest in a particular toy or object, a definite interest in an unusual object or activity, an unusually routinized activity, or a clear interest in a part of an object. This interest or behavior occurs in conjunction with several other activities and does not prevent the child from completing any ADOS-2 activities."
+      ],
+      [
+        "2",
+        "Clearly repetitive or stereotyped interests and/or behaviors, as described above. These behaviors may form a substantial minority of the child's interests and spontaneous behaviors and may interfere with the child's ability to complete ADOS-2 activities, but it is possible for his or her attention to be directed to other objects or activities, at least momentarily."
+      ],
+      [
+        "3",
+        "Repetitive or stereotyped interests and/or behaviors form the majority of the child's interests, AND/OR attempts to direct his or her attention to other objects or activities are met with significant resistance and/or distress."
+      ]
+    ]
+  },
+  {
+    "module": "E: Other Abnormal Behaviors",
+    "test type": "E1. Overactivity",
+    "description": "For this item, rate whether the child remains still and/or seated when expected to do so by the examiner, based on appropriate expectations for his or her general developmental level.",
+    "labels": [
+      [
+        "0",
+        "Sits or stands still appropriately when expected to do so during the ADOS-2 assessment. May explore the room as expected for developmental level but is not obviously overactive."
+      ],
+      [
+        "1",
+        "Sits or stands still when clearly expected to do so (e.g., during the symbolic imitation task, the birthday party) for activities besides the snack, but often fidgets, moves about, or gets up out of his or her seat."
+      ],
+      [
+        "2",
+        "Fidgety; more active than other children of same developmental level."
+      ],
+      [
+        "3",
+        "Incessantly and energetically moves around the room in a way that is difficult to interrupt; the level of activity disrupts the ADOS-2 assessment."
+      ],
+      [
+        "7",
+        "Underactive"
+      ]
+    ]
+  },
+  {
+    "module": "E: Other Abnormal Behaviors",
+    "test type": "E2. Tantrums, Aggression, Negative or Disruptive Behavior",
+    "description": "This item includes any form of anger or disruption beyond communication of mild frustration or whining.",
+    "labels": [
+      [
+        "0",
+        "Not upset, disruptive, negative, destructive, or aggressive during the ADOS-2 assessment."
+      ],
+      [
+        "1",
+        "Displays an example of mild upset, anger, aggression, negativism, or intentionally disruptive behavior to the parent/caregiver or the examiner."
+      ],
+      [
+        "2",
+        "More than one intentionally disruptive (e.g., swiping toys off the table) or mildly aggressive act. Loud screaming can be coded here."
+      ],
+      [
+        "3",
+        "Shows marked or repeated negativism, temper tantrums, or more significant aggression (e.g., hitting or biting others)."
+      ]
+    ]
+  },
+  {
+    "module": "E: Other Abnormal Behaviors",
+    "test type": "E3. Anxiety",
+    "description": "Anxiety includes initial wariness, as well as more obvious signs of worry or concern.",
+    "labels": [
+      [
+        "0",
+        "No obvious anxiety (e.g., trembling or jumpiness)."
+      ],
+      [
+        "1",
+        "Mild signs of anxiety, especially at the beginning of the ADOS-2 session, OR marked anxiety only in response to a specific request or to one particular toy or task."
+      ],
+      [
+        "2",
+        "Marked anxiety in response to more than one toy or task or several times during the ADOS-2 evaluation."
+      ]
+    ]
+  }
+]

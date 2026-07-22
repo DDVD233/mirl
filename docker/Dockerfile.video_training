@@ -1,0 +1,42 @@
+# Dockerfile.video_training — ChildPlay ADOS-2 video SFT->GRPO pipeline (Qwen3-VL-8B).
+#
+# Layers the repo source over the prebuilt cu130 vllm image that already has
+# torch/vllm 0.22.1, flash-attn, apex, qwen-vl-utils and PyAV baked in (works on
+# sm_100 B200 and sm_120 RTX PRO 6000). Megatron-Bridge/TransformerEngine are
+# intentionally absent from the base image — this pipeline uses FSDP only.
+#
+# Build (from repo root):
+#   docker build -f docker/Dockerfile.video_training -t mirl-video-training:latest .
+#
+# Run (one-click pipeline; see scripts/video_training/docker_run.sh for the full wrapper):
+#   docker run --rm -it --shm-size=32g --gpus '"device=0,1,2,3"' \
+#     -v /scratch/dvdai:/scratch/dvdai \
+#     -v $HOME/.cache/huggingface:/root/.cache/huggingface \
+#     mirl-video-training:latest bash scripts/video_training/run_pipeline.sh all
+#
+# If the base image was pruned, rebuild it first from the recipe on the
+# feat/healthbench-rubric-cogen branch:
+#   git show feat/healthbench-rubric-cogen:docker/Dockerfile.self_evolving
+# (apex/flash-attn source builds take 1-2h; sshd/frpc bits are optional).
+
+ARG BASE_IMAGE=zjdavid/verl-selfevolving:cu130-vllm0.22.1
+FROM ${BASE_IMAGE}
+
+# The base image ships a stale clone of the self_evolving_medical branch at
+# /workspace/verl with PYTHONPATH pointing at it — remove so it cannot shadow
+# the source tree copied below.
+RUN rm -rf /workspace/verl
+
+# Video decoding for qwen_vl_utils: the base image's torchvision (0.26) removed
+# io.read_video, so install decord (via the maintained eva-decord wheels) plus
+# torchcodec as fallback. System ffmpeg 4.4 is already present.
+RUN pip install --no-cache-dir --no-deps eva-decord && \
+    pip install --no-cache-dir torchcodec
+
+COPY . /workspace/mirl
+ENV PYTHONPATH=/workspace/mirl
+WORKDIR /workspace/mirl
+
+# Base image's entrypoint starts sshd + an frp tunnel; not wanted for local runs.
+ENTRYPOINT []
+CMD ["bash"]

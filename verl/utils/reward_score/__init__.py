@@ -101,6 +101,10 @@ def default_compute_score(
         from . import tactile
 
         res = tactile.compute_score(solution_str, ground_truth)
+    elif data_source == "childplay_ados":
+        from . import childplay_ados
+
+        res = childplay_ados.compute_score(solution_str, ground_truth)
     elif data_source in [
         "searchR1_nq",
         "searchR1_triviaqa",
