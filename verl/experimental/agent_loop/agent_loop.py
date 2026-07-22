@@ -188,6 +188,19 @@ class DictConfigWrap:
         self.config = config
 
 
+def _chat_template_token_ids(output) -> list[int]:
+    """Normalize apply_chat_template(tokenize=True) output to a flat list[int].
+
+    transformers >= 5 returns a BatchEncoding (whose iterator yields key strings)
+    instead of a plain token id list; older versions returned list[int].
+    """
+    if hasattr(output, "keys") and "input_ids" in output:
+        output = output["input_ids"]
+    if len(output) > 0 and isinstance(output[0], list):
+        output = output[0]
+    return list(output)
+
+
 class AgentLoopBase(ABC):
     """An agent loop takes an input message, chat with OpenAI compatible LLM server and interact with various
     environments."""
@@ -294,12 +307,14 @@ class AgentLoopBase(ABC):
         else:
             prompt_ids = await self.loop.run_in_executor(
                 None,
-                lambda: self.tokenizer.apply_chat_template(
-                    messages,
-                    tools=tools,
-                    add_generation_prompt=True,
-                    tokenize=True,
-                    **self.apply_chat_template_kwargs,
+                lambda: _chat_template_token_ids(
+                    self.tokenizer.apply_chat_template(
+                        messages,
+                        tools=tools,
+                        add_generation_prompt=True,
+                        tokenize=True,
+                        **self.apply_chat_template_kwargs,
+                    )
                 ),
             )
 
@@ -331,12 +346,14 @@ class AgentLoopBase(ABC):
         """
         prompt_ids = await self.loop.run_in_executor(
             None,
-            lambda: self.tokenizer.apply_chat_template(
-                messages,
-                tools=tools,
-                add_generation_prompt=True,
-                tokenize=True,
-                **self.apply_chat_template_kwargs,
+            lambda: _chat_template_token_ids(
+                self.tokenizer.apply_chat_template(
+                    messages,
+                    tools=tools,
+                    add_generation_prompt=True,
+                    tokenize=True,
+                    **self.apply_chat_template_kwargs,
+                )
             ),
         )
 

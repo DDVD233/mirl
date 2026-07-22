@@ -13,6 +13,9 @@ RL_EXP=${RL_EXP:-qwen3vl8b_grpo}
 LOGGER=${LOGGER:-'["console","wandb"]'}
 TRAIN_BS=${TRAIN_BS:-32}
 RUN_DIR=${RUN_DIR:-/scratch/dvdai/childplay_ados}
+MAX_PROMPT_LEN=${MAX_PROMPT_LEN:-10240}
+MAX_RESP_LEN=${MAX_RESP_LEN:-1024}
+MAX_MODEL_LEN=${MAX_MODEL_LEN:-$((MAX_PROMPT_LEN + MAX_RESP_LEN))}
 
 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
@@ -20,12 +23,14 @@ python3 -m verl.trainer.main_ppo \
     data.val_files="${DATA_DIR}/${VAL_FILE:-childplay_ados_val_mini.jsonl}" \
     data.train_batch_size="${TRAIN_BS}" \
     data.val_batch_size=${VAL_BS:-128} \
-    data.max_prompt_length=${MAX_PROMPT_LEN:-10240} \
-    data.max_response_length=${MAX_RESP_LEN:-1024} \
+    data.max_prompt_length=${MAX_PROMPT_LEN} \
+    data.max_response_length=${MAX_RESP_LEN} \
     data.filter_overlong_prompts=True \
     data.truncation='left' \
     actor_rollout_ref.model.path="${MODEL_PATH}" \
     actor_rollout_ref.model.enable_gradient_checkpointing=True \
+    actor_rollout_ref.actor.strategy=${FSDP_STRATEGY:-fsdp2} \
+    actor_rollout_ref.actor.fsdp_config.offload_policy=${ACTOR_OFFLOAD:-False} \
     actor_rollout_ref.actor.optim.lr=${RL_LR:-1e-6} \
     actor_rollout_ref.actor.ppo_mini_batch_size="${TRAIN_BS}" \
     actor_rollout_ref.actor.use_dynamic_bsz=True \
@@ -42,6 +47,8 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.rollout.name=vllm \
     actor_rollout_ref.rollout.tensor_model_parallel_size=${ROLLOUT_TP:-1} \
     actor_rollout_ref.rollout.gpu_memory_utilization=${GPU_UTIL:-0.6} \
+    actor_rollout_ref.rollout.max_model_len=${MAX_MODEL_LEN} \
+    actor_rollout_ref.rollout.checkpoint_engine.update_weights_bucket_megabytes=${WEIGHT_BUCKET_MB:-4096} \
     actor_rollout_ref.rollout.n=${GRPO_N:-8} \
     actor_rollout_ref.rollout.log_prob_use_dynamic_bsz=True \
     actor_rollout_ref.rollout.log_prob_max_token_len_per_gpu=24576 \
@@ -51,7 +58,7 @@ python3 -m verl.trainer.main_ppo \
     +reward_model.reward_kwargs.overlong_buffer_cfg.len=256 \
     +reward_model.reward_kwargs.overlong_buffer_cfg.penalty_factor=1.0 \
     +reward_model.reward_kwargs.overlong_buffer_cfg.log=False \
-    +reward_model.reward_kwargs.max_resp_len=${MAX_RESP_LEN:-1024} \
+    +reward_model.reward_kwargs.max_resp_len=${MAX_RESP_LEN} \
     trainer.critic_warmup=0 \
     trainer.logger="${LOGGER}" \
     trainer.project_name="${PROJECT_NAME}" \
