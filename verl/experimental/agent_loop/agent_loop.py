@@ -707,6 +707,10 @@ class AgentLoopWorker:
         )
         multi_modal_inputs.pop("input_ids", None)
         multi_modal_inputs.pop("attention_mask", None)
+        # transformers >= 5 emits per-sample variable-length mm_token_type_ids, which
+        # cannot be batch-concatenated and is unused in training (position ids are
+        # precomputed in _compute_position_ids).
+        multi_modal_inputs.pop("mm_token_type_ids", None)
 
         # We must use dict(multi_modal_inputs) to convert BatchFeature values to a new dict
         # because np.array() only keeps the keys for BatchFeature.

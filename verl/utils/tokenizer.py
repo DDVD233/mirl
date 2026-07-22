@@ -91,9 +91,41 @@ def hf_processor(name_or_path, **kwargs):
 
                 processor.get_rope_index = types.MethodType(Qwen2_5_VLModel.get_rope_index, processor)
             case "Qwen3VLProcessor":
+                import inspect
+
                 from transformers.models.qwen3_vl import Qwen3VLModel
 
-                processor.get_rope_index = types.MethodType(Qwen3VLModel.get_rope_index, processor)
+                _mm_param = inspect.signature(Qwen3VLModel.get_rope_index).parameters.get("mm_token_type_ids")
+                if _mm_param is not None and _mm_param.default is inspect.Parameter.empty:
+                    # transformers >= 5 requires mm_token_type_ids; use verl's vendored
+                    # implementation, wrapped to keep the model-method (batched) interface.
+                    import torch
+
+                    from verl.models.transformers.qwen3_vl import get_rope_index as _qwen3vl_get_rope_index
+
+                    def _get_rope_index(
+                        self,
+                        input_ids=None,
+                        image_grid_thw=None,
+                        video_grid_thw=None,
+                        attention_mask=None,
+                        **kwargs,
+                    ):
+                        positions = [
+                            _qwen3vl_get_rope_index(
+                                self,
+                                input_ids[i],
+                                image_grid_thw,
+                                video_grid_thw,
+                                attention_mask[i] if attention_mask is not None else None,
+                            )
+                            for i in range(input_ids.shape[0])
+                        ]
+                        return torch.stack(positions, dim=1), None
+
+                    processor.get_rope_index = types.MethodType(_get_rope_index, processor)
+                else:
+                    processor.get_rope_index = types.MethodType(Qwen3VLModel.get_rope_index, processor)
             case "Glm4vImageProcessor":
                 from transformers.models.glm4v import Glm4vModel
 
