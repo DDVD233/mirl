@@ -3059,8 +3059,10 @@ async def healthz():
 
 # Max chars kept per retrieved passage in the tool response. Keeps the injected
 # tool turn small (~top_k * this) so it fits the rollout window with room for the
-# answer. text_content is VARCHAR(2000) in Milvus; 600 keeps the gist.
+# answer. Enriched wikidoc "article" rows carry compact full-text/summaries worth
+# returning in full; snippet sources (pubmed/textbook chunks) stay terse.
 _RETRIEVE_PASSAGE_CHARS = 600
+_RETRIEVE_WIKIDOC_CHARS = 1600
 
 
 @app.post("/retrieve")
@@ -3086,11 +3088,27 @@ async def retrieve(payload: RetrievePayload):
         text = (h.get("text") or h.get("answer") or h.get("question") or "").strip()
         if not text:
             continue
+        cap = _RETRIEVE_WIKIDOC_CHARS if h.get("source") == "wikidoc" else _RETRIEVE_PASSAGE_CHARS
         passages.append({
             "source": h.get("source", "?"),
-            "text": text[:_RETRIEVE_PASSAGE_CHARS],
+            "text": text[:cap],
             "score": h.get("score", 0.0),
         })
+    # Record retrieved wikidoc titles so a post-run pass can fetch + cache their
+    # full text (see wikidoc_enrich.py). Append-only; dedup happens offline.
+    wiki = [(h.get("text") or "").strip() for h in hits if h.get("source") == "wikidoc"]
+    wiki = [w for w in wiki if w]
+    if wiki:
+        try:
+            path = os.path.join(s.args.log_dir, "wikidoc_retrieved_titles.jsonl")
+            async with s.log_lock:
+                with open(path, "a") as f:
+                    for h in hits:
+                        if h.get("source") == "wikidoc" and (h.get("text") or "").strip():
+                            f.write(json.dumps({"title": h["text"].strip(),
+                                                "entry_id": h.get("entry_id", "")}) + "\n")
+        except Exception as e:
+            logger.debug(f"wikidoc title log failed: {e}")
     if passages:
         formatted = "\n\n".join(
             f"[passage {i + 1} | source={p['source']}]\n{p['text']}"
