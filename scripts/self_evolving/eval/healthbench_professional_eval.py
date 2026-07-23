@@ -331,6 +331,8 @@ def make_chat_sampler(ccs_module, *, base_url, api_key, model, provider="vllm",
 import re as _re
 
 _HERMES_TOOLCALL_RE = _re.compile(r"<tool_call>\s*(\{.*?\})\s*</tool_call>", _re.DOTALL)
+# qwen3_coder XML form: <function=name><parameter=query>...</parameter></function>
+_XML_QUERY_RE = _re.compile(r"<parameter=query>\s*(.*?)\s*</parameter>", _re.DOTALL | _re.IGNORECASE)
 
 
 def _last_user_text(message_list) -> str:
@@ -356,6 +358,9 @@ def _parse_search_query(text: str) -> str | None:
         args = obj.get("arguments", obj)
         if isinstance(args, dict) and args.get("query"):
             return str(args["query"])
+    xm = _XML_QUERY_RE.search(text or "")
+    if xm and xm.group(1).strip():
+        return xm.group(1).strip()
     return None
 
 

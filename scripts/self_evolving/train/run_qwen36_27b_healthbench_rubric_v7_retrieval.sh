@@ -37,6 +37,22 @@ export EXP="${EXP:-healthbench_rubric_qwen36_27b_v7}"
 export RETRIEVAL_URL="${RETRIEVAL_URL:-http://localhost:8006/retrieve}"
 TOOL_CONFIG="${TOOL_CONFIG:-scripts/self_evolving/train/config/medical_retrieval_tool.yaml}"
 
+# RetrievalToolAgentLoop structure: up to MAX_SEARCHES retrieval rounds (each with
+# a smaller think budget), then a GUARANTEED answer turn with an answer-budget
+# reserve so the final answer is never starved (the empty-answer bug that sank the
+# first v7 val to 0.18).
+#
+# SPEED-TUNED (2026-07-23): cold-RL with retrieval on the verbose stock model ran
+# ~1hr/step (3 long gen passes/rollout; ~8-9k think chars). Both cost drivers cut:
+#   - MAX_SEARCHES 2->1 : one search + one answer = 2 gen passes, not 3.
+#   - search think 2048->1024, answer think 5120->3072 : curb stock's verbosity
+#     (a search query needs little reasoning; 3072 is ample for a medical answer).
+# Reduces tokens generated per rollout ~2x. Re-raise if throughput allows.
+export VERL_MAX_SEARCHES="${VERL_MAX_SEARCHES:-1}"
+export VERL_SEARCH_THINK_BUDGET="${VERL_SEARCH_THINK_BUDGET:-1024}"
+export VERL_ANSWER_RESERVE_TOKENS="${VERL_ANSWER_RESERVE_TOKENS:-2500}"
+export VERL_THINK_BUDGET_TOKENS="${VERL_THINK_BUDGET_TOKENS:-3072}"
+
 # Reuse the entire v6 recipe (SFT init, lr 2e-7, think budget 5120, entropy
 # 0.0005, zero-var filter, signed floor -0.5, gpt-5.1 val judge, KL off) and add
 # the multi-turn + retrieval-agent-loop overrides on top.
@@ -44,7 +60,7 @@ exec bash scripts/self_evolving/train/run_qwen36_27b_healthbench_rubric.sh \
     actor_rollout_ref.rollout.multi_turn.enable=True \
     actor_rollout_ref.rollout.multi_turn.max_assistant_turns=2 \
     actor_rollout_ref.rollout.multi_turn.max_user_turns=1 \
-    actor_rollout_ref.rollout.multi_turn.format=hermes \
+    actor_rollout_ref.rollout.multi_turn.format=qwen3_coder \
     actor_rollout_ref.rollout.multi_turn.max_tool_response_length=4000 \
     actor_rollout_ref.rollout.multi_turn.tool_config_path="$TOOL_CONFIG" \
     actor_rollout_ref.rollout.agent.default_agent_loop=retrieval_tool_agent \

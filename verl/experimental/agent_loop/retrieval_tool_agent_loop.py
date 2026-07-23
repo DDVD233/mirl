@@ -13,43 +13,65 @@
 # limitations under the License.
 """Retrieval-augmented agent loop for the self-evolving HealthBench RL run.
 
-A ``ToolAgentLoop`` specialization that enforces a **mandatory 2-turn** structure:
+Structure enforced per rollout:
 
-    turn 1 (assistant): reason + call ``search_medical_kb``
+    turn 1 (assistant): reason + call ``search_medical_kb``   (MANDATORY)
     tool  turn         : retrieved passages (loss-masked)
-    turn 2 (assistant): reason + final answer  → terminate
+    [ up to ``max_searches`` more search rounds, budget permitting ]
+    FINAL turn (assistant): reason + answer, tools disabled     (GUARANTEED)
 
-Two additions over the base ``ToolAgentLoop``:
+Why a guaranteed final answer turn: reasoning models naturally want to issue a
+*second* refined search after seeing the first passages. A hard "turn 2 = answer"
+cap made those rollouts end on a dangling tool call with NO answer (empty → zero
+reward — this sank the first v7 val to 0.18). So we let the model search up to
+``max_searches`` times, then force one answer turn where tools are disabled and a
+budget reserve guarantees room to actually respond.
 
-1. **Thinking-budget forcing** on every assistant turn (base loop lacks it): the
-   reasoning channel is capped and force-closed so runaway thinking cannot eat
-   the response window — this is what stabilized the HealthBench v4–v6 runs.
-2. **Guaranteed retrieval**: if the model's first turn produces no parseable tool
-   call, a ``search_medical_kb`` call is synthesized from the raw user question,
-   so retrieval happens even before the policy reliably emits tool calls.
+Additions over the base ``ToolAgentLoop``:
+1. **Thinking-budget forcing** on every assistant turn (base loop lacks it) — caps
+   runaway reasoning; search turns get a smaller budget than the answer turn.
+2. **Guaranteed retrieval**: if turn 1 has no parseable tool call, one is
+   synthesized from the raw user question.
+3. **Answer-budget reserve**: a search is only taken if enough response budget
+   would remain for a full answer turn; otherwise we answer now.
 
-Set via ``actor_rollout_ref.rollout.agent.default_agent_loop=retrieval_tool_agent``
-with ``multi_turn.enable=True``, ``max_assistant_turns=2``, ``format=hermes``, and
-a ``tool_config_path`` exposing ``search_medical_kb`` (MedicalRetrievalTool).
+Config: ``agent.default_agent_loop=retrieval_tool_agent``, ``multi_turn.enable=True``,
+``multi_turn.format=qwen3_coder`` (the model's native tool-call XML), and a
+``tool_config_path`` exposing ``search_medical_kb`` (MedicalRetrievalTool). Tunables
+via env: ``VERL_MAX_SEARCHES`` (2), ``VERL_SEARCH_THINK_BUDGET`` (2048),
+``VERL_ANSWER_RESERVE_TOKENS`` (3500).
 """
 
 import json
 import logging
 import os
+from uuid import uuid4
 
-from verl.experimental.agent_loop.agent_loop import register
+from verl.experimental.agent_loop.agent_loop import AgentLoopOutput, register
 from verl.experimental.agent_loop.think_budget import generate_with_think_budget
-from verl.experimental.agent_loop.tool_agent_loop import AgentData, AgentState, ToolAgentLoop
-from verl.experimental.agent_loop.tool_parser import FunctionCall
+from verl.experimental.agent_loop.tool_agent_loop import AgentData, ToolAgentLoop
 from verl.utils.profiler import simple_timer
+from verl.utils.rollout_trace import rollout_trace_op
 from verl.workers.rollout.replica import TokenOutput
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
-# Name of the retrieval tool; the mandatory-retrieval fallback synthesizes a call
-# to it. Must match the tool_schema.function.name in the tool config yaml.
 RETRIEVAL_TOOL_NAME = os.getenv("RETRIEVAL_TOOL_NAME", "search_medical_kb")
+
+RETRIEVE_FIRST_INSTRUCTION = (
+    f"You have a medical knowledge search tool `{RETRIEVAL_TOOL_NAME}`. Before "
+    "answering ANY clinical question, you MUST first call it to retrieve supporting "
+    "evidence, then ground your final answer in the returned passages. Write a "
+    "focused query naming the key clinical entities and the specific fact you need "
+    "(drug, dose, contraindication, threshold, guideline). You may search again to "
+    "refine, but once you have enough evidence, give your final answer."
+)
+
+ANSWER_NOW_INSTRUCTION = (
+    "You now have enough retrieved evidence. Provide your FINAL answer to the user's "
+    "question, grounded in the passages above. Do NOT call any tools."
+)
 
 
 def _last_user_text(messages: list[dict]) -> str:
@@ -72,23 +94,32 @@ class RetrievalToolAgentLoop(ToolAgentLoop):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.think_budget = int(os.getenv("VERL_THINK_BUDGET_TOKENS", "0"))
+        self.search_think_budget = int(os.getenv("VERL_SEARCH_THINK_BUDGET", "2048"))
+        self.max_searches = int(os.getenv("VERL_MAX_SEARCHES", "2"))
+        self.answer_reserve = int(os.getenv("VERL_ANSWER_RESERVE_TOKENS", "3500"))
         self.think_close_ids: list[int] = (
             self.tokenizer.encode("</think>\n\n", add_special_tokens=False) if self.think_budget > 0 else []
         )
 
-    async def _handle_generating_state(
-        self, agent_data: AgentData, sampling_params: dict, ignore_termination: bool = False
-    ) -> AgentState:
-        """Generate one assistant turn (with think budget), then decide next state.
+    def _inject_instruction(self, agent_data: AgentData) -> None:
+        msgs = agent_data.messages
+        if msgs and msgs[0].get("role") == "system":
+            c = msgs[0].get("content")
+            if isinstance(c, list):
+                msgs[0] = {**msgs[0], "content": list(c) + [{"type": "text", "text": "\n\n" + RETRIEVE_FIRST_INSTRUCTION}]}
+            else:
+                msgs[0] = {**msgs[0], "content": f"{c}\n\n{RETRIEVE_FIRST_INSTRUCTION}"}
+        else:
+            msgs.insert(0, {"role": "system", "content": RETRIEVE_FIRST_INSTRUCTION})
 
-        Mirrors ``ToolAgentLoop._handle_generating_state`` but (a) routes generation
-        through the thinking-budget forcing and (b) synthesizes a retrieval call on
-        the first turn if the model produced none, so retrieval is mandatory.
-        """
-        # Inject tool parser stop tokens so generation halts after each tool call.
-        if self.tool_parser.stop_token_ids:
-            stop_token_ids = list(set((sampling_params.get("stop_token_ids") or []) + self.tool_parser.stop_token_ids))
-            sampling_params = {**sampling_params, "stop_token_ids": stop_token_ids}
+    async def _generate_turn(
+        self, agent_data: AgentData, sampling_params: dict, think_budget: int, allow_tools: bool
+    ) -> None:
+        """Generate one assistant turn (with think-budget forcing) and append it."""
+        sp = sampling_params
+        if allow_tools and self.tool_parser.stop_token_ids:
+            stop = list(set((sp.get("stop_token_ids") or []) + self.tool_parser.stop_token_ids))
+            sp = {**sp, "stop_token_ids": stop}
 
         gen_kwargs = {
             "image_data": agent_data.image_data,
@@ -98,15 +129,15 @@ class RetrievalToolAgentLoop(ToolAgentLoop):
         }
         remaining = self.response_length - len(agent_data.response_mask)
         with simple_timer("generate_sequences", agent_data.metrics):
-            if self.think_budget > 0:
+            if think_budget > 0:
                 response_ids, response_mask, response_logprobs, output = await generate_with_think_budget(
                     server_manager=self.server_manager,
                     tokenizer=self.tokenizer,
-                    think_budget=self.think_budget,
+                    think_budget=think_budget,
                     think_close_ids=self.think_close_ids,
                     response_length=self.response_length,
                     prompt_ids=agent_data.prompt_ids,
-                    sampling_params=sampling_params,
+                    sampling_params=sp,
                     gen_kwargs=gen_kwargs,
                     max_new_tokens=remaining,
                 )
@@ -114,25 +145,23 @@ class RetrievalToolAgentLoop(ToolAgentLoop):
                 output: TokenOutput = await self.server_manager.generate(
                     request_id=agent_data.request_id,
                     prompt_ids=agent_data.prompt_ids,
-                    sampling_params=sampling_params,
+                    sampling_params=sp,
                     **gen_kwargs,
                 )
                 response_ids = list(output.token_ids)
                 response_mask = [1] * len(response_ids)
                 response_logprobs = list(output.log_probs) if output.log_probs else None
 
-        # num_preempted bookkeeping (matches base loop).
         if agent_data.metrics.get("num_preempted") is None:
             agent_data.metrics["num_preempted"] = output.num_preempted if output.num_preempted is not None else -1
         else:
             agent_data.metrics["num_preempted"] += output.num_preempted if output.num_preempted is not None else 0
-
         if not agent_data.extra_fields:
             agent_data.extra_fields.update(output.extra_fields or {})
         elif output.extra_fields:
-            max_global_steps = output.extra_fields.get("max_global_steps", None)
-            if max_global_steps:
-                agent_data.extra_fields["max_global_steps"] = max_global_steps
+            mgs = output.extra_fields.get("max_global_steps", None)
+            if mgs:
+                agent_data.extra_fields["max_global_steps"] = mgs
 
         agent_data.assistant_turns += 1
         agent_data.response_ids = response_ids
@@ -143,31 +172,127 @@ class RetrievalToolAgentLoop(ToolAgentLoop):
         if output.routed_experts is not None:
             agent_data.routed_experts = output.routed_experts
 
-        # Termination checks (identical to base loop).
-        if not ignore_termination and len(agent_data.response_mask) >= self.response_length:
-            return AgentState.TERMINATED
-        if self.max_assistant_turns and agent_data.assistant_turns >= self.max_assistant_turns:
-            return AgentState.TERMINATED
-        if self.max_user_turns and agent_data.user_turns >= self.max_user_turns:
-            return AgentState.TERMINATED
+    async def _append_masked(self, agent_data: AgentData, messages: list[dict]) -> None:
+        """Tokenize non-assistant turns (tool responses / instructions) and append
+        them loss-masked (the qwen3_coder / generic tool-response path)."""
+        agent_data.messages.extend(messages)
+        response_ids = await self.apply_chat_template(messages, images=None, videos=None, remove_system_prompt=True)
+        agent_data.prompt_ids += response_ids
+        agent_data.response_mask += [0] * len(response_ids)
+        if agent_data.response_logprobs:
+            agent_data.response_logprobs += [0.0] * len(response_ids)
 
-        # Extract tool calls (use per-sample tools if routed).
-        active_tools = getattr(agent_data, "_active_tools", self.tools)
-        tools = [tool.tool_schema for tool in active_tools.values()]
-        _, agent_data.tool_calls = await self.tool_parser.extract_tool_calls(agent_data.response_ids, tools)
+    async def _run_tool_calls(self, agent_data: AgentData, tool_calls) -> None:
+        """Execute retrieval calls and append their responses (loss-masked)."""
+        import asyncio
 
-        # Mandatory retrieval: on the FIRST assistant turn, if the model produced no
-        # usable retrieval call, synthesize one from the raw user question so every
-        # rollout retrieves before answering.
-        if agent_data.assistant_turns == 1 and RETRIEVAL_TOOL_NAME in active_tools:
-            has_retrieval = any(tc.name == RETRIEVAL_TOOL_NAME for tc in agent_data.tool_calls)
-            if not has_retrieval:
-                query = _last_user_text(agent_data.messages)[:1000]
-                agent_data.tool_calls = [
-                    FunctionCall(name=RETRIEVAL_TOOL_NAME, arguments=json.dumps({"query": query}))
-                ]
+        tasks = [self._call_tool(tc, agent_data.tools_kwargs, agent_data) for tc in tool_calls[: self.max_parallel_calls]]
+        with simple_timer("tool_calls", agent_data.metrics):
+            responses = await asyncio.gather(*tasks)
+        add_messages = []
+        for tool_response, tool_reward, _ in responses:
+            add_messages.append({"role": "tool", "content": tool_response.text or ""})
+            if tool_reward is not None:
+                agent_data.tool_rewards.append(tool_reward)
+        await self._append_masked(agent_data, add_messages)
+        agent_data.user_turns += 1
 
-        if agent_data.tool_calls:
-            return AgentState.PROCESSING_TOOLS
-        else:
-            return AgentState.TERMINATED
+    @rollout_trace_op
+    async def run(self, sampling_params: dict, **kwargs) -> AgentLoopOutput:
+        messages = list(kwargs["raw_prompt"])
+        multi_modal_data = await self.process_multi_modal_info(messages)
+        images = multi_modal_data.get("images")
+        videos = multi_modal_data.get("videos")
+        audios = multi_modal_data.get("audios")
+        mm_processor_kwargs = self._get_mm_processor_kwargs(audios)
+
+        agent_data = AgentData(
+            messages=messages,
+            image_data=images,
+            video_data=videos,
+            audio_data=audios,
+            mm_processor_kwargs=mm_processor_kwargs,
+            metrics={},
+            request_id=uuid4().hex,
+            tools_kwargs=kwargs.get("tools_kwargs", {}),
+        )
+        agent_data._active_tools = self.tools
+        agent_data._active_tool_schemas = self.tool_schemas
+
+        self._inject_instruction(agent_data)
+        agent_data.prompt_ids = await self.apply_chat_template(
+            agent_data.messages,
+            tools=agent_data._active_tool_schemas,
+            images=images,
+            videos=videos,
+            audios=audios,
+            mm_processor_kwargs=mm_processor_kwargs,
+        )
+
+        tool_schemas = [t.tool_schema for t in agent_data._active_tools.values()]
+        n_search = 0
+        # Cost of one more search round we must keep budget for: its think + query + tool response.
+        search_cost = self.search_think_budget + 900
+        while True:
+            remaining = self.response_length - len(agent_data.response_mask)
+            if remaining <= 0:
+                break
+            budget_for_search = remaining - search_cost >= self.answer_reserve
+            answer_turn = (n_search >= self.max_searches) or (n_search >= 1 and not budget_for_search)
+
+            think_budget = self.think_budget if answer_turn else min(self.think_budget, self.search_think_budget) if self.think_budget > 0 else 0
+            await self._generate_turn(agent_data, sampling_params, think_budget, allow_tools=not answer_turn)
+            if answer_turn or len(agent_data.response_mask) >= self.response_length:
+                break
+
+            _, calls = await self.tool_parser.extract_tool_calls(agent_data.response_ids, tool_schemas)
+            search_calls = [c for c in calls if c.name == RETRIEVAL_TOOL_NAME]
+            # Mandatory first retrieval: synthesize from the raw question if none.
+            if n_search == 0 and not search_calls and RETRIEVAL_TOOL_NAME in agent_data._active_tools:
+                from verl.experimental.agent_loop.tool_parser import FunctionCall
+
+                q = _last_user_text(agent_data.messages)[:1000]
+                search_calls = [FunctionCall(name=RETRIEVAL_TOOL_NAME, arguments=json.dumps({"query": q}))]
+
+            if search_calls:
+                await self._run_tool_calls(agent_data, search_calls)
+                n_search += 1
+                # If the next turn will be the forced answer, tell the model so.
+                nxt_remaining = self.response_length - len(agent_data.response_mask)
+                if n_search >= self.max_searches or (nxt_remaining - search_cost < self.answer_reserve):
+                    await self._append_masked(agent_data, [{"role": "user", "content": ANSWER_NOW_INSTRUCTION}])
+                continue
+            # No search call -> the model has answered.
+            break
+
+        # Finalize (mirrors ToolAgentLoop.run).
+        response_ids = agent_data.prompt_ids[-len(agent_data.response_mask):]
+        prompt_ids = agent_data.prompt_ids[: len(agent_data.prompt_ids) - len(agent_data.response_mask)]
+        mm_data = {}
+        if agent_data.image_data is not None:
+            mm_data["images"] = agent_data.image_data
+        if agent_data.video_data is not None:
+            mm_data["videos"] = agent_data.video_data
+        if agent_data.audio_data is not None:
+            mm_data["audios"] = agent_data.audio_data
+
+        output = AgentLoopOutput(
+            prompt_ids=prompt_ids,
+            response_ids=response_ids[: self.response_length],
+            response_mask=agent_data.response_mask[: self.response_length],
+            response_logprobs=agent_data.response_logprobs[: self.response_length]
+            if agent_data.response_logprobs
+            else None,
+            multi_modal_data=mm_data,
+            mm_processor_kwargs=agent_data.mm_processor_kwargs,
+            num_turns=agent_data.user_turns + agent_data.assistant_turns + 1,
+            metrics=agent_data.metrics,
+            routed_experts=(
+                agent_data.routed_experts[: len(prompt_ids) + self.response_length]
+                if agent_data.routed_experts is not None
+                else None
+            ),
+            extra_fields=agent_data.extra_fields,
+        )
+        output.extra_fields.update({"turn_scores": agent_data.turn_scores, "tool_rewards": agent_data.tool_rewards})
+        return output
