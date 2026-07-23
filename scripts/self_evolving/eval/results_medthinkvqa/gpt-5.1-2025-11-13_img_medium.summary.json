@@ -1,0 +1,29 @@
+{
+  "model": "gpt-5.1_2025-11-13",
+  "reasoning_effort": "medium",
+  "with_images": true,
+  "max_images": null,
+  "max_output_tokens": 16000,
+  "n": 720,
+  "n_correct": 367,
+  "accuracy": 0.5097222222222222,
+  "n_parsed": 720,
+  "n_unparsed": 0,
+  "n_errors": 0,
+  "pred_letter_dist": {
+    "A": 163,
+    "B": 138,
+    "C": 149,
+    "D": 141,
+    "E": 129
+  },
+  "gt_letter_dist": {
+    "A": 182,
+    "B": 150,
+    "C": 131,
+    "D": 116,
+    "E": 141
+  },
+  "wall_seconds": 8599.6,
+  "output_jsonl": "/home/dvd/mirl/scripts/self_evolving/eval/results_medthinkvqa/gpt-5.1-2025-11-13_img_medium.jsonl"
+}
