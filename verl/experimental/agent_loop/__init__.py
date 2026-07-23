@@ -19,10 +19,11 @@ from .agent_loop import (
     AgentLoopWorker,
     get_trajectory_info,
 )
+from .retrieval_tool_agent_loop import RetrievalToolAgentLoop
 from .single_turn_agent_loop import SingleTurnAgentLoop
 from .tool_agent_loop import ToolAgentLoop
 
-_ = [SingleTurnAgentLoop, ToolAgentLoop]
+_ = [SingleTurnAgentLoop, ToolAgentLoop, RetrievalToolAgentLoop]
 
 __all__ = [
     "AgentLoopBase",

@@ -1,0 +1,33 @@
+# Tool config for the HealthBench rubric RL run's retrieval-augmented rollouts.
+# Loaded via actor_rollout_ref.rollout.multi_turn.tool_config_path. The agent
+# loop injects `search_medical_kb` into the prompt; MedicalRetrievalTool forwards
+# the query to the gen server's /retrieve endpoint (retrieval_url / RETRIEVAL_URL
+# env, default http://localhost:8006/retrieve).
+tools:
+  - class_name: verl.tools.medical_retrieval_tool.MedicalRetrievalTool
+    config:
+      type: native
+      topk: 5
+      # retrieval_url: http://localhost:8006/retrieve   # else RETRIEVAL_URL env
+    tool_schema:
+      type: function
+      function:
+        name: search_medical_kb
+        description: >-
+          Search the medical knowledge base (textbooks, PubMed, clinical wikis)
+          for evidence relevant to the clinician's request. Returns the most
+          relevant passages. Call this FIRST, before answering, to ground your
+          response in retrieved clinical evidence — especially for drug safety,
+          dosing thresholds, contraindications, procedure indications, and
+          guideline specifics.
+        parameters:
+          type: object
+          properties:
+            query:
+              type: string
+              description: >-
+                A focused natural-language search query capturing the key
+                clinical entities and the specific fact you need (e.g. drug,
+                condition, dose, contraindication, guideline).
+          required:
+            - query

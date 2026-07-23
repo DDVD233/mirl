@@ -328,6 +328,95 @@ def make_chat_sampler(ccs_module, *, base_url, api_key, model, provider="vllm",
     return _Sampler()
 
 
+import re as _re
+
+_HERMES_TOOLCALL_RE = _re.compile(r"<tool_call>\s*(\{.*?\})\s*</tool_call>", _re.DOTALL)
+
+
+def _last_user_text(message_list) -> str:
+    """Last user turn's text (handles str or multimodal-list content)."""
+    for m in reversed(message_list):
+        if m.get("role") != "user":
+            continue
+        c = m.get("content", "")
+        if isinstance(c, str):
+            return c
+        if isinstance(c, list):
+            return " ".join(p.get("text", "") for p in c if isinstance(p, dict) and p.get("type") == "text").strip()
+    return ""
+
+
+def _parse_search_query(text: str) -> str | None:
+    """Pull a `search_medical_kb` query out of a hermes <tool_call> block."""
+    for m in _HERMES_TOOLCALL_RE.finditer(text or ""):
+        try:
+            obj = json.loads(m.group(1))
+        except Exception:
+            continue
+        args = obj.get("arguments", obj)
+        if isinstance(args, dict) and args.get("query"):
+            return str(args["query"])
+    return None
+
+
+def wrap_retrieval_sampler(base_sampler, ccs_module, *, retrieval_url, top_k, tool_name="search_medical_kb"):
+    """Wrap a solver sampler in the mandatory 2-turn retrieval flow used at train
+    time: (turn 1) the model writes a `search_medical_kb` query, (tool) the KB
+    passages are injected, (turn 2) the model answers grounded in them. If the
+    model emits no parseable query, fall back to the raw user question — matching
+    RetrievalToolAgentLoop's guarantee that every rollout retrieves.
+    """
+    import requests
+
+    SamplerResponse = importlib.import_module(f"{_PKG_NAME}.types").SamplerResponse
+    query_instr = (
+        f"You have a tool `{tool_name}` that searches a medical knowledge base. "
+        f"Before answering, output a single tool call and nothing else, exactly as:\n"
+        f'<tool_call>{{"name": "{tool_name}", "arguments": {{"query": "<your focused clinical search query>"}}}}</tool_call>'
+    )
+
+    class _RetrievalSampler:
+        def __init__(self):
+            # Surface base sampler attributes HealthBenchEval may introspect.
+            self.model = getattr(base_sampler, "model", "")
+            self.system_message = getattr(base_sampler, "system_message", None)
+
+        def _pack(self, role, content):
+            return {"role": role, "content": content}
+
+        def __call__(self, message_list):
+            user_q = _last_user_text(message_list)
+            # Turn 1: elicit a search query.
+            q_msgs = list(message_list) + [self._pack("user", query_instr)]
+            try:
+                r1 = base_sampler(q_msgs)
+                query = _parse_search_query(r1.response_text) or user_q
+            except Exception:
+                query = user_q
+            # Retrieve (never fatal).
+            try:
+                resp = requests.post(retrieval_url, json={"query": query, "top_k": top_k}, timeout=30)
+                resp.raise_for_status()
+                passages = resp.json().get("text") or "No relevant passages found."
+            except Exception as e:
+                print(f"[retrieval] failed ({type(e).__name__}: {e}); answering ungrounded")
+                passages = "Retrieval unavailable; answer from your own knowledge."
+            # Turn 2: answer grounded in the retrieved passages.
+            ctx = (
+                "Retrieved medical knowledge (use it to ground your answer; it may be "
+                f"incomplete):\n\n{passages}\n\nNow answer the original request."
+            )
+            a_msgs = list(message_list) + [self._pack("user", ctx)]
+            r2 = base_sampler(a_msgs)
+            return SamplerResponse(
+                response_text=r2.response_text,
+                response_metadata=getattr(r2, "response_metadata", {"usage": None}),
+                actual_queried_message_list=a_msgs,
+            )
+
+    return _RetrievalSampler()
+
+
 def build_grader(args, ccs_module, rsp_module):
     """Construct the rubric grader sampler. Returns (sampler, description)."""
     effort = args.grader_effort or None
@@ -533,6 +622,13 @@ def parse_args():
 
     p.add_argument("--dry-run", action="store_true",
                    help="Download+convert the dataset and exit (no model/grader calls).")
+    p.add_argument("--retrieval", action="store_true",
+                   help="Wrap the solver in the mandatory 2-turn retrieval flow "
+                        "(matches RetrievalToolAgentLoop at train time).")
+    p.add_argument("--retrieval-url",
+                   default=os.environ.get("RETRIEVAL_URL", "http://localhost:8006/retrieve"),
+                   help="Gen-server /retrieve endpoint used when --retrieval is set.")
+    p.add_argument("--retrieval-topk", type=int, default=5)
     return p.parse_args()
 
 
@@ -583,6 +679,13 @@ def main():
         system_message=args.system_message,
         enable_thinking=args.enable_thinking,
     )
+    if args.retrieval:
+        model_sampler = wrap_retrieval_sampler(
+            model_sampler, ccs,
+            retrieval_url=args.retrieval_url,
+            top_k=args.retrieval_topk,
+        )
+        print(f"[retrieval] ON — 2-turn flow via {args.retrieval_url} (top_k={args.retrieval_topk})")
     grader, grader_desc = build_grader(args, ccs, rsp)
     print(f"[grader] {grader_desc}")
 

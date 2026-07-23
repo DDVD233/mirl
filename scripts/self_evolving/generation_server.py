@@ -2980,6 +2980,19 @@ class EvolvePayload(BaseModel):
     cases: list[dict]
 
 
+class RetrievePayload(BaseModel):
+    """Solver-facing retrieval request (the `search_medical_kb` rollout tool).
+
+    The RL/eval policy model, on its first conversational turn, issues a query
+    which is embedded and matched against the read-only medical knowledge DB;
+    the returned passages are injected back as a loss-masked tool turn so the
+    model can ground its final answer. Reuses the same embed+Milvus path the
+    generation pipeline already uses (`_milvus_search`)."""
+
+    query: str
+    top_k: int | None = None
+
+
 class ReplayPayload(BaseModel):
     """Push previously-accepted entries back into the pool.
 
@@ -3042,6 +3055,50 @@ app = FastAPI(lifespan=lifespan)
 @app.get("/healthz")
 async def healthz():
     return {"ok": True}
+
+
+# Max chars kept per retrieved passage in the tool response. Keeps the injected
+# tool turn small (~top_k * this) so it fits the rollout window with room for the
+# answer. text_content is VARCHAR(2000) in Milvus; 600 keeps the gist.
+_RETRIEVE_PASSAGE_CHARS = 600
+
+
+@app.post("/retrieve")
+async def retrieve(payload: RetrievePayload):
+    """Embed `query`, search the medical knowledge DB, return top-k passages.
+
+    Read-only (no STATE mutation). Returns both a structured `passages` list and
+    a pre-formatted `text` block the rollout tool can hand back to the model
+    verbatim. Never raises to the caller: on any retrieval failure it returns an
+    empty result so a rollout is never lost to a transient DB hiccup."""
+    s = STATE
+    query = (payload.query or "").strip()
+    if not query:
+        return {"passages": [], "text": "No query provided."}
+    top_k = payload.top_k or s.args.milvus_top_k
+    try:
+        hits = await _milvus_search(s, query, top_k=top_k)
+    except Exception as e:  # defensive: retrieval must never kill a rollout
+        logger.warning(f"/retrieve failed for {query[:60]!r}: {type(e).__name__}: {e!r}")
+        hits = []
+    passages = []
+    for h in hits:
+        text = (h.get("text") or h.get("answer") or h.get("question") or "").strip()
+        if not text:
+            continue
+        passages.append({
+            "source": h.get("source", "?"),
+            "text": text[:_RETRIEVE_PASSAGE_CHARS],
+            "score": h.get("score", 0.0),
+        })
+    if passages:
+        formatted = "\n\n".join(
+            f"[passage {i + 1} | source={p['source']}]\n{p['text']}"
+            for i, p in enumerate(passages)
+        )
+    else:
+        formatted = "No relevant passages found in the medical knowledge base."
+    return {"passages": passages, "text": formatted}
 
 
 @app.get("/stats")

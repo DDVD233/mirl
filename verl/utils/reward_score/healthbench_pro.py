@@ -121,13 +121,32 @@ In other words, for criteria with negative points, a good response should be cla
 Return just the json object in markdown format. Do not include any other text in the response."""
 
 
-def _strip_thinking(text: str) -> str:
-    """Return only the final answer, dropping any reasoning/thinking channel.
+# Tool-use turns (retrieval agent loop) leave ``<tool_call>``/``<tool_response>``
+# spans in the decoded response, because the reward manager decodes by
+# attention_mask (loss-masked tool tokens still appear). Strip them before the
+# thinking split so neither the retrieval query nor the retrieved passages leak
+# into the graded / length-counted answer.
+_TOOL_SPAN_RE = re.compile(
+    r"<tool_call>.*?</tool_call>|<tool_response>.*?</tool_response>",
+    re.DOTALL | re.IGNORECASE,
+)
 
-    The solver runs with thinking ENABLED, so its response is
-    ``<think> ... </think> <answer>`` (or, if the chat template streams reasoning
-    without an open tag, ``... </think> <answer>``). We grade and length-measure
-    ONLY the answer:
+
+def _strip_tool_spans(text: str) -> str:
+    """Remove ``<tool_call>...</tool_call>`` and ``<tool_response>...</tool_response>``."""
+    if not text:
+        return ""
+    return _TOOL_SPAN_RE.sub("", text)
+
+
+def _strip_thinking(text: str) -> str:
+    """Return only the final answer, dropping reasoning and tool-use turns.
+
+    The solver runs with thinking ENABLED (and, in retrieval mode, tool use), so a
+    response looks like ``<think>..</think><tool_call>..</tool_call>`` then a
+    tool turn then ``<think>..</think> <answer>``. We grade and length-measure
+    ONLY the final answer:
+      - tool-call / tool-response spans are stripped first;
       - if a ``</think>`` close tag exists, take everything after the LAST one;
       - else if an unclosed ``<think>`` exists (truncated reasoning, no answer),
         drop it (treated as an empty answer -> low score, which is correct);
@@ -135,6 +154,7 @@ def _strip_thinking(text: str) -> str:
     """
     if not text:
         return ""
+    text = _strip_tool_spans(text)
     low = text.lower()
     close = low.rfind("</think>")
     if close != -1:
@@ -235,7 +255,10 @@ async def compute_score(
     # final answer, not the reasoning.
     answer_text = _strip_thinking(response_text)
     think_closed = "</think>" in response_text.lower()
-    think_chars = max(0, len(response_text) - len(answer_text))
+    # Count only reasoning chars toward the think-length penalty — exclude
+    # tool-call/tool-response spans (retrieval mode) so retrieved passages are
+    # neither rewarded nor penalized as "thinking".
+    think_chars = max(0, len(_strip_tool_spans(response_text)) - len(answer_text))
 
     is_val = bool(extra_info.get("_is_validation", False))
 

@@ -17,6 +17,7 @@ from typing import Any
 from uuid import uuid4
 
 from verl.experimental.agent_loop.agent_loop import AgentLoopBase, AgentLoopOutput, register
+from verl.experimental.agent_loop.think_budget import generate_with_think_budget
 from verl.utils.profiler import simple_timer
 from verl.utils.rollout_trace import rollout_trace_op
 from verl.workers.rollout.replica import TokenOutput
@@ -52,48 +53,16 @@ class SingleTurnAgentLoop(AgentLoopBase):
 
         Returns (response_ids, response_mask, response_logprobs, last TokenOutput).
         """
-        budget = min(self.think_budget, self.response_length)
-        out1: TokenOutput = await self.server_manager.generate(
-            request_id=uuid4().hex,
+        return await generate_with_think_budget(
+            server_manager=self.server_manager,
+            tokenizer=self.tokenizer,
+            think_budget=self.think_budget,
+            think_close_ids=self.think_close_ids,
+            response_length=self.response_length,
             prompt_ids=vllm_prompt_ids,
-            sampling_params={**sampling_params, "max_tokens": budget},
-            **gen_kwargs,
+            sampling_params=sampling_params,
+            gen_kwargs=gen_kwargs,
         )
-        ids = list(out1.token_ids)
-        mask = [1] * len(ids)
-        logprobs = list(out1.log_probs) if out1.log_probs else None
-
-        # Finished (EOS) before the budget, or aborted: nothing to force.
-        if len(ids) < budget or out1.stop_reason == "aborted":
-            return ids, mask, logprobs, out1
-
-        # Budget hit with the reasoning channel still open -> force it closed.
-        if "</think>" not in self.tokenizer.decode(ids):
-            ids += self.think_close_ids
-            mask += [0] * len(self.think_close_ids)
-            if logprobs is not None:
-                logprobs += [0.0] * len(self.think_close_ids)
-
-        remaining = self.response_length - len(ids)
-        if remaining <= 0:
-            return ids, mask, logprobs, out1
-
-        # Phase 2: decode the answer, continuing from prompt + phase-1 tokens.
-        out2: TokenOutput = await self.server_manager.generate(
-            request_id=uuid4().hex,
-            prompt_ids=vllm_prompt_ids + ids,
-            sampling_params={**sampling_params, "max_tokens": remaining},
-            **gen_kwargs,
-        )
-        ids += list(out2.token_ids)
-        mask += [1] * len(out2.token_ids)
-        if logprobs is not None:
-            logprobs += list(out2.log_probs) if out2.log_probs else [0.0] * len(out2.token_ids)
-        merged_extra = {**(out1.extra_fields or {}), **(out2.extra_fields or {})}
-        out2.extra_fields = merged_extra
-        if out2.num_preempted is not None or out1.num_preempted is not None:
-            out2.num_preempted = (out1.num_preempted or 0) + (out2.num_preempted or 0)
-        return ids, mask, logprobs, out2
 
     @rollout_trace_op
     async def run(self, sampling_params: dict[str, Any], **kwargs) -> AgentLoopOutput:
