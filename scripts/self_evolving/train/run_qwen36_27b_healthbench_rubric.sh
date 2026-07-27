@@ -167,7 +167,7 @@ cd "$REPO"
     actor_rollout_ref.actor.optim.lr="${LR:-2e-7}" \
     actor_rollout_ref.actor.ppo_mini_batch_size=32 \
     actor_rollout_ref.actor.use_dynamic_bsz=True \
-    actor_rollout_ref.actor.ppo_max_token_len_per_gpu=24576 \
+    actor_rollout_ref.actor.ppo_max_token_len_per_gpu="${PPO_MAX_TOKEN_LEN:-24576}" \
     actor_rollout_ref.actor.use_torch_compile=False \
     actor_rollout_ref.ref.use_torch_compile=False \
     actor_rollout_ref.actor.clip_ratio_low=0.2 \
@@ -188,7 +188,7 @@ cd "$REPO"
     actor_rollout_ref.rollout.top_p=1.0 \
     +actor_rollout_ref.rollout.repetition_penalty=1.1 \
     actor_rollout_ref.rollout.tensor_model_parallel_size=4 \
-    actor_rollout_ref.rollout.gpu_memory_utilization=0.55 \
+    actor_rollout_ref.rollout.gpu_memory_utilization="${VLLM_GPU_UTIL:-0.55}" \
     actor_rollout_ref.rollout.max_model_len=16384 \
     actor_rollout_ref.rollout.max_num_batched_tokens=8192 \
     actor_rollout_ref.rollout.val_kwargs.n=1 \
@@ -196,9 +196,9 @@ cd "$REPO"
     actor_rollout_ref.rollout.val_kwargs.temperature=0 \
     +actor_rollout_ref.rollout.engine_kwargs.vllm.attention_config.flash_attn_version=2 \
     +actor_rollout_ref.rollout.engine_kwargs.vllm.attention_config.use_trtllm_attention=False \
-    actor_rollout_ref.rollout.log_prob_max_token_len_per_gpu=24576 \
+    actor_rollout_ref.rollout.log_prob_max_token_len_per_gpu="${LOGPROB_MAX_TOKEN_LEN:-24576}" \
     actor_rollout_ref.rollout.checkpoint_engine.update_weights_bucket_megabytes=2048 \
-    actor_rollout_ref.ref.log_prob_max_token_len_per_gpu=24576 \
+    actor_rollout_ref.ref.log_prob_max_token_len_per_gpu="${LOGPROB_MAX_TOKEN_LEN:-24576}" \
     critic.enable=False \
     trainer.n_gpus_per_node=4 \
     trainer.nnodes=1 \

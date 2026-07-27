@@ -53,6 +53,15 @@ export FALLBACK_JUDGE_PROVIDER="${FALLBACK_JUDGE_PROVIDER:-vllm}"
 # proxy with zero 429s.
 export REWARD_JUDGE_CONCURRENCY="${REWARD_JUDGE_CONCURRENCY:-6}"
 
+# OOM FIX (v10 crashed in update_actor backward at step 10: tried to allocate 11.8 GiB
+# with 10.9 GiB free). Retrieval rollouts are much longer than single-turn ones
+# (prompt 8192 + up to 4000 chars of retrieved passages + 8192 response), so a
+# 24576-token micro-batch blew past the activation budget left after vLLM's 0.55.
+# Halve the actor micro-batch token budget and give vLLM a little less.
+export PPO_MAX_TOKEN_LEN="${PPO_MAX_TOKEN_LEN:-12288}"
+export LOGPROB_MAX_TOKEN_LEN="${LOGPROB_MAX_TOKEN_LEN:-16384}"
+export VLLM_GPU_UTIL="${VLLM_GPU_UTIL:-0.50}"
+
 LOG="${LOG:-/scratch/sheng/self_evolving/logs_healthbench_rubric/v10_frontier_train.log}"
 mkdir -p "$(dirname "$LOG")"
 
