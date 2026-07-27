@@ -100,11 +100,24 @@ def clean_wikitext(wt: str) -> str:
     return "\n".join(lines).strip()
 
 
-async def _api(client, params):
+async def _api(client, params, max_retries=5):
+    """Polite MediaWiki GET: back off on 429/503 (honor Retry-After), small jitter.
+    WikiDoc is a small independent wiki, so we stay considerate."""
     params = {**params, "format": "json"}
-    r = await client.get(WIKI_API, params=params, timeout=30)
-    r.raise_for_status()
-    return r.json()
+    for attempt in range(max_retries):
+        try:
+            r = await client.get(WIKI_API, params=params, timeout=30)
+        except Exception:
+            await asyncio.sleep(1.0 + attempt)
+            continue
+        if r.status_code in (429, 503):
+            wait = r.headers.get("Retry-After")
+            wait = float(wait) if (wait and wait.isdigit()) else (2.0 * (attempt + 1))
+            await asyncio.sleep(min(wait, 30))
+            continue
+        r.raise_for_status()
+        return r.json()
+    raise RuntimeError("wikidoc API retries exhausted")
 
 
 async def subpage_titles(client, title, max_subpages):
@@ -167,11 +180,18 @@ async def summarize(client, args, title, text):
 
 
 async def embed(client, args, text):
-    r = await client.post(f"{args.embed_api_base.rstrip('/')}/embeddings",
-                          headers={"Authorization": f"Bearer {args.api_key}"},
-                          json={"model": args.embed_model, "input": [text[:2000]]}, timeout=60)
-    r.raise_for_status()
-    return r.json()["data"][0]["embedding"]
+    last = None
+    for attempt in range(4):
+        try:
+            r = await client.post(f"{args.embed_api_base.rstrip('/')}/embeddings",
+                                  headers={"Authorization": f"Bearer {args.api_key}"},
+                                  json={"model": args.embed_model, "input": [text[:2000]]}, timeout=60)
+            r.raise_for_status()
+            return r.json()["data"][0]["embedding"]
+        except Exception as e:
+            last = e
+            await asyncio.sleep(1.0 + attempt)
+    raise RuntimeError(f"embed failed after retries: {last}")
 
 
 def _safe_name(title):
@@ -190,8 +210,10 @@ def _clip(text, cap):
     return (s[:sp] if sp > 0 else s).rstrip()
 
 
-def load_titles(path):
-    seen, out = set(), []
+def load_titles(path, top_n=0, min_freq=1):
+    """Dedup logged titles, count retrieval frequency, return most-retrieved first
+    (long-tailed: the top titles hit many rollouts, so enrich those first)."""
+    freq, eid = {}, {}
     with open(path) as f:
         for line in f:
             try:
@@ -199,21 +221,37 @@ def load_titles(path):
             except Exception:
                 continue
             t = (d.get("title") or "").strip()
+            if not t:
+                continue
             k = t.lower()
-            if t and k not in seen:
-                seen.add(k)
-                out.append((t, d.get("entry_id", "")))
-    return out
+            freq[k] = freq.get(k, 0) + 1
+            eid.setdefault(k, (t, d.get("entry_id", "")))
+    items = sorted(eid.keys(), key=lambda k: -freq[k])
+    items = [k for k in items if freq[k] >= min_freq]
+    if top_n:
+        items = items[:top_n]
+    return [(*eid[k], freq[k]) for k in items]
 
 
 async def main_async(args):
     from pymilvus import MilvusClient
     mc = MilvusClient(uri=args.milvus_uri, token=args.milvus_token)
     os.makedirs(args.fulltext_dir, exist_ok=True)
-    titles = load_titles(args.titles_file)
-    if args.limit:
-        titles = titles[:args.limit]
-    print(f"enriching {len(titles)} unique wikidoc titles (dry_run={args.dry_run})")
+    titles = load_titles(args.titles_file, top_n=args.top_n, min_freq=args.min_freq)
+    # Resume: skip titles already enriched (an "article" row exists for them).
+    if args.resume and not args.dry_run:
+        done = set()
+        try:
+            for r in mc.query(collection_name=args.milvus_collection,
+                              filter='content_type == "article"', output_fields=["question"], limit=20000):
+                done.add((r.get("question") or "").strip().lower())
+        except Exception:
+            pass
+        before = len(titles)
+        titles = [(t, e, fr) for (t, e, fr) in titles if t.strip().lower() not in done]
+        print(f"resume: skipping {before - len(titles)} already-enriched titles")
+    print(f"enriching {len(titles)} unique wikidoc titles "
+          f"(top_n={args.top_n or 'all'}, min_freq={args.min_freq}, concurrency={args.concurrency}, dry_run={args.dry_run})")
     stats = {"fetched": 0, "empty": 0, "summarized": 0, "upserted": 0}
     sem = asyncio.Semaphore(args.concurrency)
 
@@ -234,6 +272,7 @@ async def main_async(args):
             return list(dict.fromkeys(ids))
 
         async def one(title, entry_id):
+          try:
             async with sem:
                 subs = await subpage_titles(client, title, args.max_subpages)
                 article = await build_article(client, title, subs)
@@ -243,11 +282,15 @@ async def main_async(args):
                 stats["fetched"] += 1
                 with open(os.path.join(args.fulltext_dir, _safe_name(title) + ".txt"), "w") as fo:
                     fo.write(article)
-                if len(article) > DB_TEXT_CAP:
+                if len(article) > DB_TEXT_CAP and not args.no_summary:
                     stored = _clip(await summarize(client, args, title, article), DB_TEXT_CAP)
                     stats["summarized"] += 1
                 else:
+                    # truncate to the article's opening (overview/definition first) —
+                    # avoids loading the teacher (which the RL judge is using).
                     stored = _clip(article, DB_TEXT_CAP)
+                    if len(article) > DB_TEXT_CAP:
+                        stats["truncated"] = stats.get("truncated", 0) + 1
                 if args.dry_run:
                     print(f"\n=== {title}  (full={len(article)}c stored={len(stored)}c "
                           f"{'SUMMARY' if len(article) > DB_TEXT_CAP else 'FULL'}) ===")
@@ -286,8 +329,13 @@ async def main_async(args):
                 stats["titles_removed"] += len(sib_ids)
                 if stats["upserted"] % 10 == 0:
                     print(f"  upserted {stats['upserted']}  stats={stats}")
+          except Exception as e:
+              stats["errors"] = stats.get("errors", 0) + 1
+              if stats["errors"] <= 25:
+                  print(f"  skip {title!r}: {type(e).__name__}: {e}", file=sys.stderr)
 
-        await asyncio.gather(*[one(t, e) for t, e in titles])
+        # gather with return_exceptions so no single task can kill the run
+        await asyncio.gather(*[one(t, e) for t, e, _fr in titles], return_exceptions=True)
     print(f"DONE stats={stats}")
 
 
@@ -305,7 +353,12 @@ def parse_args():
     p.add_argument("--fulltext_dir", default="/scratch/sheng/self_evolving/wikidoc_fulltext")
     p.add_argument("--max_subpages", type=int, default=40)
     p.add_argument("--concurrency", type=int, default=4)
-    p.add_argument("--limit", type=int, default=0)
+    p.add_argument("--top_n", type=int, default=0, help="Enrich the N most-retrieved titles (0=all).")
+    p.add_argument("--min_freq", type=int, default=1, help="Skip titles retrieved fewer than this many times.")
+    p.add_argument("--resume", action="store_true", help="Skip titles that already have an enriched article row.")
+    p.add_argument("--no_summary", action="store_true",
+                   help="Truncate long articles to their opening instead of LLM-summarizing "
+                        "(avoids loading the teacher, which the RL judge is using).")
     p.add_argument("--keep_titles", action="store_true",
                    help="Do NOT delete the topic's bare-title rows (default: consolidate).")
     p.add_argument("--dry_run", action="store_true")

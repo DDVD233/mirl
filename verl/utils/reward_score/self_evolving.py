@@ -254,6 +254,27 @@ def check_accuracy(solution_str: str, ground_truth: str) -> tuple[bool, str | No
     return pred == gt, extracted
 
 
+# Global concurrency cap on judge API calls, per worker process. Without it the async
+# reward loop `asyncio.gather`s over the whole batch AND over each rubric's criteria, so
+# validation fires ~(#samples x #criteria) judge calls at once and bursts past TRAPI's
+# global rate limit (~2000 req/60s shared) -> 429s / long backoff / the hang we hit.
+# The semaphore throttles concurrent calls (spreads them over time). Keyed by event loop
+# so it stays valid across a worker's loop lifecycle. Tune via REWARD_JUDGE_CONCURRENCY.
+_JUDGE_SEMS: dict = {}
+
+
+def _judge_sem() -> asyncio.Semaphore:
+    loop = asyncio.get_running_loop()
+    sem = _JUDGE_SEMS.get(loop)
+    if sem is None:
+        # Default 6 (NOT read only from driver env — Ray actors don't inherit it) so the
+        # cap holds per reward worker regardless: 6 x 8 workers = 48 concurrent judge calls.
+        n = int(os.environ.get("REWARD_JUDGE_CONCURRENCY", "6"))
+        sem = asyncio.Semaphore(n)
+        _JUDGE_SEMS[loop] = sem
+    return sem
+
+
 async def _call_api(
     api_base: str,
     api_key: str,
@@ -327,24 +348,43 @@ async def _call_api(
     timeout_total = float(os.environ.get("REWARD_JUDGE_TIMEOUT", "300"))
     timeout = aiohttp.ClientTimeout(total=timeout_total)
     last_err: Exception | None = None
-    for attempt in range(4):
-        try:
-            async with aiohttp.ClientSession(timeout=timeout) as session:
-                async with session.post(url, json=payload, headers=headers) as resp:
-                    resp.raise_for_status()
-                    data = await resp.json()
-                    msg = data["choices"][0]["message"]
-                    # With thinking disabled the answer is in `content`; we
-                    # still fall back to `reasoning_content` defensively in
-                    # case the server ignored the flag.
-                    content = msg.get("content") or msg.get("reasoning_content") or ""
-                    return content.strip()
-        except (asyncio.TimeoutError, aiohttp.ClientError) as e:
-            last_err = e
-            if attempt < 3:
-                await asyncio.sleep(2 ** attempt)
-                continue
-            raise
+    # Throttle concurrent judge calls (rate-limit safety) — only the network wait is
+    # held under the semaphore; retries/backoff happen inside so a slow call doesn't
+    # permanently occupy a slot beyond its attempts.
+    async with _judge_sem():
+        for attempt in range(4):
+            try:
+                async with aiohttp.ClientSession(timeout=timeout) as session:
+                    async with session.post(url, json=payload, headers=headers) as resp:
+                        resp.raise_for_status()
+                        data = await resp.json()
+                        # TRAPI (and other Azure-OpenAI proxies) return auth / quota /
+                        # content-filter failures as HTTP 200 with an {"error": ...} body,
+                        # which slips past raise_for_status(). Detect it explicitly so it
+                        # is retried + logged, not turned into a silent KeyError.
+                        if not isinstance(data, dict) or "choices" not in data:
+                            err = data.get("error", data) if isinstance(data, dict) else data
+                            raise RuntimeError(f"judge API error response: {str(err)[:300]}")
+                        msg = data["choices"][0]["message"]
+                        # With thinking disabled the answer is in `content`; we
+                        # still fall back to `reasoning_content` defensively in
+                        # case the server ignored the flag.
+                        content = msg.get("content") or msg.get("reasoning_content") or ""
+                        return content.strip()
+            except Exception as e:  # broadened: NEVER swallow — every failure is logged
+                last_err = e
+                # Log every failed attempt (status/type) so rate-limits (429) / auth /
+                # timeouts / error-body responses on the judge endpoint are visible.
+                status = getattr(e, "status", None)
+                logger.warning(
+                    "judge call attempt %d/4 failed (provider=%s, model=%s, base=%s): %s%s",
+                    attempt + 1, provider, model_name, api_base,
+                    f"HTTP {status} " if status is not None else "", repr(e),
+                )
+                if attempt < 3:
+                    await asyncio.sleep(2 ** attempt)
+                    continue
+                raise
     raise RuntimeError(f"unreachable, last_err={last_err}")
 
 

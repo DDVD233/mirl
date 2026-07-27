@@ -62,10 +62,11 @@ TOOL_USE_SYSTEM = (
 )
 
 TURN2_NUDGE = (
-    "Now write your final answer to my original request. Reason step by step in a "
-    "<think>...</think> block, then give a clear, clinically sound, well-structured "
-    "answer grounded in the retrieved evidence above (note where evidence is missing "
-    "or a premise is wrong). Do not call any tools."
+    "Now write your COMPLETE final answer. Reason briefly in a <think>...</think> block, "
+    "then give a clear, clinically sound answer. The passages AUGMENT your knowledge, they "
+    "do not limit it: state all well-established facts you know even if they are not in the "
+    "passages, and do NOT write disclaimers like 'the retrieved evidence does not contain...'. "
+    "No meta-commentary about formatting — just the answer. Do not call any tools."
 )
 
 

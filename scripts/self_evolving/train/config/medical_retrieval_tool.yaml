@@ -14,12 +14,13 @@ tools:
       function:
         name: search_medical_kb
         description: >-
-          Search the medical knowledge base (textbooks, PubMed, clinical wikis)
-          for evidence relevant to the clinician's request. Returns the most
-          relevant passages. Call this FIRST, before answering, to ground your
-          response in retrieved clinical evidence — especially for drug safety,
-          dosing thresholds, contraindications, procedure indications, and
-          guideline specifics.
+          Search the medical knowledge base (textbooks, PubMed, clinical wikis) for a
+          SPECIFIC clinical fact — an exact dose, threshold, contraindication, staging
+          or diagnostic criterion, guideline detail, or drug interaction — when you are
+          not fully certain of it and it materially affects the answer. Returns the most
+          relevant passages. Skip it for requests you can answer confidently from your
+          own knowledge (general management, explanations, writing/formatting notes,
+          ethics or refusal decisions, translation).
         parameters:
           type: object
           properties:

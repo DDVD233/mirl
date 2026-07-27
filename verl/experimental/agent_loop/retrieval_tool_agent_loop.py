@@ -45,6 +45,7 @@ via env: ``VERL_MAX_SEARCHES`` (2), ``VERL_SEARCH_THINK_BUDGET`` (2048),
 import json
 import logging
 import os
+import re
 from uuid import uuid4
 
 from verl.experimental.agent_loop.agent_loop import AgentLoopOutput, register
@@ -59,19 +60,60 @@ logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 RETRIEVAL_TOOL_NAME = os.getenv("RETRIEVAL_TOOL_NAME", "search_medical_kb")
 
+# Retrieval is OPTIONAL and passages AUGMENT (do not bound) the model's knowledge.
+# This fixes the two dominant regression modes found in the 90-case analysis:
+# over-anchoring (30%) — the model suppressed correct parametric knowledge because
+# it wasn't in the passages — and unnecessary retrieval distracting non-factual
+# tasks (ethics/formatting/translation). See healthbench-v7-retrieval memory.
 RETRIEVE_FIRST_INSTRUCTION = (
-    f"You have a medical knowledge search tool `{RETRIEVAL_TOOL_NAME}`. Before "
-    "answering ANY clinical question, you MUST first call it to retrieve supporting "
-    "evidence, then ground your final answer in the returned passages. Write a "
-    "focused query naming the key clinical entities and the specific fact you need "
-    "(drug, dose, contraindication, threshold, guideline). You may search again to "
-    "refine, but once you have enough evidence, give your final answer."
+    f"You are an expert physician. ANSWER DIRECTLY from your own knowledge by default — "
+    f"you have a `{RETRIEVAL_TOOL_NAME}` tool but it is a RARE last resort. The vast "
+    "majority of requests (writing or formatting notes/letters, explanations, ethics or "
+    "refusal decisions, translation, general management, anything you know) must be "
+    "answered directly WITHOUT searching. Search ONLY when you cannot recall a single "
+    "specific fact (exact dose, threshold, contraindication, code, current guideline) "
+    "AND getting it wrong would change the answer. When you do search, the passages "
+    "AUGMENT your knowledge, they do not limit it: still state well-established facts "
+    "you know even if absent from the passages, ask for missing context when ambiguous, "
+    "and refuse unsafe requests. Never say 'the retrieved evidence does not contain...' "
+    "about something you actually know."
 )
 
 ANSWER_NOW_INSTRUCTION = (
-    "You now have enough retrieved evidence. Provide your FINAL answer to the user's "
-    "question, grounded in the passages above. Do NOT call any tools."
+    "Now write your COMPLETE final answer directly — no meta-commentary about how you "
+    "will format it, just the answer itself. Use the retrieved passages where helpful, "
+    "but also state all relevant facts you know (not only what the passages mention). "
+    "Do NOT call any tools."
 )
+
+# Rescue path: ~13% of retrieval rollouts end EMPTY because on the forced answer turn the
+# tool schema is still in the prompt, so the (eager) model emits ANOTHER <tool_call> and
+# ends its turn expecting results — never writing an answer. allow_tools=False only stops
+# PARSING, not generation. Fix: re-render the prompt WITHOUT tools (question + retrieved
+# passages as context) and generate a clean prose answer. This alone recovers ~46 of the
+# 134 stock+retrieval val regressions (their no-retrieval baseline averaged 0.858).
+RESCUE_SYSTEM = (
+    "You are an expert physician. Write a COMPLETE, clinically sound, well-structured answer "
+    "to the user's request. Preserve appropriate diagnostic uncertainty and ask for missing "
+    "context when the request is ambiguous, include safety / red-flag guidance and "
+    "contraindications, and be as comprehensive as a thorough expert answer requires. The "
+    "reference passages AUGMENT your knowledge — they do not limit it; state well-established "
+    "facts you know even if the passages omit them, and never say 'the evidence does not contain'."
+)
+HARD_ANSWER_INSTRUCTION = (
+    "The search tool is now CLOSED and will return nothing further. Do NOT search and do NOT "
+    "output any tool call. Write your COMPLETE final answer to the request above now, as plain "
+    "prose, using the reference passages where helpful plus your own medical knowledge."
+)
+
+_TOOL_SPAN_RE = re.compile(r"<tool_call>.*?</tool_call>|<tool_response>.*?</tool_response>", re.DOTALL | re.IGNORECASE)
+
+
+def _final_answer_of(text: str) -> str:
+    """The graded answer: strip tool spans, then take text after the last </think>."""
+    t = _TOOL_SPAN_RE.sub("", text or "")
+    t = t.rsplit("</think>", 1)[-1] if "</think>" in t else t
+    return t.strip()
 
 
 def _last_user_text(messages: list[dict]) -> str:
@@ -197,6 +239,37 @@ class RetrievalToolAgentLoop(ToolAgentLoop):
         await self._append_masked(agent_data, add_messages)
         agent_data.user_turns += 1
 
+    async def _generate_clean_answer(self, agent_data: AgentData, sampling_params: dict, orig_messages: list[dict]) -> None:
+        """Generate the FINAL graded answer from a clean, TOOL-FREE prompt: the original
+        question + the retrieved passages (if any) as context + an answer instruction.
+        This replaces the rollout response, so the graded answer never carries tool-schema
+        overhead and can never be an empty/dangling-tool-call turn. Used for every rollout
+        (both direct and post-retrieval)."""
+        passages = "\n\n".join(
+            (m.get("content") or "") for m in agent_data.messages if m.get("role") == "tool"
+        ).strip()
+        question = _last_user_text(orig_messages)
+        ctx = f"\n\nReference passages retrieved for this question:\n{passages}" if passages else ""
+        answer_messages = [
+            {"role": "system", "content": RESCUE_SYSTEM},
+            {"role": "user", "content": f"{question}{ctx}\n\n{HARD_ANSWER_INSTRUCTION}"},
+        ]
+        prompt_ids = await self.apply_chat_template(
+            answer_messages,
+            tools=None,
+            images=agent_data.image_data,
+            videos=agent_data.video_data,
+            audios=agent_data.audio_data,
+            mm_processor_kwargs=agent_data.mm_processor_kwargs,
+        )
+        # Reset the rollout to this clean single-turn answer and regenerate (no tools).
+        agent_data.prompt_ids = prompt_ids
+        agent_data.response_mask = []
+        if agent_data.response_logprobs:
+            agent_data.response_logprobs = []
+        agent_data.metrics["retrieval_used"] = 1 if passages else 0
+        await self._generate_turn(agent_data, sampling_params, self.think_budget, allow_tools=False)
+
     @rollout_trace_op
     async def run(self, sampling_params: dict, **kwargs) -> AgentLoopOutput:
         messages = list(kwargs["raw_prompt"])
@@ -230,40 +303,32 @@ class RetrievalToolAgentLoop(ToolAgentLoop):
         )
 
         tool_schemas = [t.tool_schema for t in agent_data._active_tools.values()]
+        # ---- Phase 1: retrieval DECISION ----
+        # Let the model optionally search (up to max_searches). This turn's answer text
+        # is discarded; the graded answer is ALWAYS generated in phase 2 from a clean,
+        # tool-free prompt. This is the root-cause fix for the two dominant regression
+        # modes found in the stock+retrieval val (vs no-retrieval 0.559):
+        #   * empty answers (~13% of rollouts): the forced answer turn still had the tool
+        #     schema in-prompt, so the eager model emitted ANOTHER <tool_call> and ended
+        #     with no answer. Generating the answer tool-free makes empties impossible.
+        #   * tool-prompt overhead: the tool schema + retrieve instruction made even the
+        #     DIRECT answers terser / more over-confident / drop safety+hedging (78 of 86
+        #     regressions in the rare-retrieval config were direct answers). A clean
+        #     tool-free answer prompt removes that overhead.
         n_search = 0
-        # Cost of one more search round we must keep budget for: its think + query + tool response.
-        search_cost = self.search_think_budget + 900
-        while True:
-            remaining = self.response_length - len(agent_data.response_mask)
-            if remaining <= 0:
+        while n_search < self.max_searches:
+            if self.response_length - len(agent_data.response_mask) < self.answer_reserve:
                 break
-            budget_for_search = remaining - search_cost >= self.answer_reserve
-            answer_turn = (n_search >= self.max_searches) or (n_search >= 1 and not budget_for_search)
-
-            think_budget = self.think_budget if answer_turn else min(self.think_budget, self.search_think_budget) if self.think_budget > 0 else 0
-            await self._generate_turn(agent_data, sampling_params, think_budget, allow_tools=not answer_turn)
-            if answer_turn or len(agent_data.response_mask) >= self.response_length:
-                break
-
+            await self._generate_turn(agent_data, sampling_params, self.search_think_budget, allow_tools=True)
             _, calls = await self.tool_parser.extract_tool_calls(agent_data.response_ids, tool_schemas)
             search_calls = [c for c in calls if c.name == RETRIEVAL_TOOL_NAME]
-            # Mandatory first retrieval: synthesize from the raw question if none.
-            if n_search == 0 and not search_calls and RETRIEVAL_TOOL_NAME in agent_data._active_tools:
-                from verl.experimental.agent_loop.tool_parser import FunctionCall
+            if not search_calls:
+                break  # model chose not to (further) search
+            await self._run_tool_calls(agent_data, search_calls)
+            n_search += 1
 
-                q = _last_user_text(agent_data.messages)[:1000]
-                search_calls = [FunctionCall(name=RETRIEVAL_TOOL_NAME, arguments=json.dumps({"query": q}))]
-
-            if search_calls:
-                await self._run_tool_calls(agent_data, search_calls)
-                n_search += 1
-                # If the next turn will be the forced answer, tell the model so.
-                nxt_remaining = self.response_length - len(agent_data.response_mask)
-                if n_search >= self.max_searches or (nxt_remaining - search_cost < self.answer_reserve):
-                    await self._append_masked(agent_data, [{"role": "user", "content": ANSWER_NOW_INSTRUCTION}])
-                continue
-            # No search call -> the model has answered.
-            break
+        # ---- Phase 2: always generate the final answer from a clean tool-free prompt ----
+        await self._generate_clean_answer(agent_data, sampling_params, messages)
 
         # Finalize (mirrors ToolAgentLoop.run).
         response_ids = agent_data.prompt_ids[-len(agent_data.response_mask):]
