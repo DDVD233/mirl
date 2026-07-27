@@ -736,17 +736,24 @@ def _summarize_timings(timings: dict[str, deque[float]]) -> dict:
 # ======================================================================
 async def _api_call(state: ServerState, system_prompt: str, user_prompt: str,
                     max_tokens: int = 2048, temperature: float = 0.8,
-                    label: str = "chat", want_json: bool = False) -> str:
+                    label: str = "chat", want_json: bool = False,
+                    api_base: str = "", api_key: str = "", model_name: str = "",
+                    provider_override: str = "") -> str:
     # Provider-specific payload shape (see verl/utils/reward_score/
     # self_evolving.py for the matching judge-side code). The OpenAI HTTP
     # contract is identical; only the "control thinking" extension differs.
     # We pick thinking on/off from the caller's `temperature` so existing
     # call sites stay unchanged: creative calls (proposer/generator at
     # 0.8/0.9) get thinking enabled; the validator at 0.2 stays fast.
-    provider = os.environ.get("CHAT_PROVIDER", "vllm").lower()
+    # Per-call endpoint override lets the /evolve meta-optimizer run on an EXTERNAL
+    # model (e.g. a frontier GPT via TRAPI) while generation stays on the local
+    # teacher — the self-referential loop was narrowing the curriculum.
+    provider = (provider_override or os.environ.get("CHAT_PROVIDER", "vllm")).lower()
+    eff_model = model_name or state.args.model_name
+    eff_key = api_key or state.args.api_key
     want_thinking = temperature >= 0.5
     payload: dict = {
-        "model": state.args.model_name,
+        "model": eff_model,
         "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
@@ -792,7 +799,7 @@ async def _api_call(state: ServerState, system_prompt: str, user_prompt: str,
     # vllm without guided_json doesn't accept this field — skip it there.
     if want_json and provider in ("kimi", "openai", "trapi"):
         payload["response_format"] = {"type": "json_object"}
-    headers = {"Authorization": f"Bearer {state.args.api_key}"}
+    headers = {"Authorization": f"Bearer {eff_key}"}
     # When the chat server is saturated (e.g. heavy reward-judge traffic + 8
     # gen workers each issuing proposer/generator/validator calls with thinking
     # enabled) individual requests can queue for many minutes before they even
@@ -801,7 +808,7 @@ async def _api_call(state: ServerState, system_prompt: str, user_prompt: str,
     timeout = float(os.environ.get("GEN_CHAT_TIMEOUT", "1800"))
     async with timed(state, label):
         resp = await state.http_client.post(
-            f"{state.args.api_base}/chat/completions",
+            f"{(api_base or state.args.api_base).rstrip(chr(47))}/chat/completions",
             json=payload, headers=headers, timeout=timeout,
         )
         resp.raise_for_status()
@@ -1731,6 +1738,25 @@ Output ONLY a JSON object:
 {"query_proposer_guidance": "<new guidance text>", "task_rubric_generator_guidance": "<new guidance text>", "summary": "<2-3 sentence rationale of the changes>"}"""
 
 
+def _evolve_endpoint(state: ServerState) -> dict:
+    """Endpoint kwargs for the meta-optimizer calls.
+
+    Empty dict (=> the local teacher) unless --evolve_model_name is set. Running
+    the analyzer/meta-optimizer on an EXTERNAL model breaks the self-referential
+    loop in which the same model writes the tasks, grades them, diagnoses its own
+    failures, and rewrites its own curriculum.
+    """
+    m = getattr(state.args, "evolve_model_name", "") or ""
+    if not m:
+        return {}
+    return {
+        "api_base": getattr(state.args, "evolve_api_base", "") or state.args.api_base,
+        "api_key": getattr(state.args, "evolve_api_key", "") or state.args.api_key,
+        "model_name": m,
+        "provider_override": getattr(state.args, "evolve_provider", "") or "",
+    }
+
+
 def _format_evolve_case(c: dict) -> str:
     """Render one case for the per-case analysis prompt.
 
@@ -1822,6 +1848,7 @@ async def _evolve_prompts(state: ServerState, step: int, cases: list[dict]) -> d
     async def analyze(c: dict) -> str:
         try:
             return await _api_call(state, EVOLVE_PER_CASE_SYSTEM, _format_evolve_case(c),
+                                   **_evolve_endpoint(state),
                                    max_tokens=512, temperature=0.3, label="evolve_per_case")
         except Exception as e:
             return f"(analysis failed: {type(e).__name__})"
@@ -1844,6 +1871,7 @@ async def _evolve_prompts(state: ServerState, step: int, cases: list[dict]) -> d
     changed_q = changed_g = False
     try:
         raw = await _api_call(state, EVOLVE_AGGREGATE_SYSTEM, agg_user,
+                              **_evolve_endpoint(state),
                               max_tokens=4096, temperature=0.5, label="evolve_aggregate",
                               want_json=True)
         obj = _parse_json(raw)
@@ -3403,6 +3431,15 @@ def main():
                         help="Generate open-ended clinician TASK + co-generated "
                              "HealthBench-Professional rubric per item (no MCQ/"
                              "diagnosis). Reward is the rubric, graded by self.")
+    parser.add_argument("--evolve_api_base", default="",
+                        help="Endpoint for the /evolve meta-optimizer (defaults to --api_base). "
+                             "Set with --evolve_model_name to run curriculum evolution on an "
+                             "EXTERNAL model instead of the local teacher.")
+    parser.add_argument("--evolve_api_key", default="")
+    parser.add_argument("--evolve_model_name", default="",
+                        help="Model id for the /evolve meta-optimizer. Empty = use the local teacher.")
+    parser.add_argument("--evolve_provider", default="",
+                        help="Provider shaping for the evolve endpoint (vllm|trapi|openai|kimi).")
     parser.add_argument("--prompt_dir", default="",
                         help="Directory holding the evolvable, file-backed prompts "
                              "(query_proposer.txt, task_rubric_generator.txt). "
