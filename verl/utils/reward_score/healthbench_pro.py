@@ -31,6 +31,9 @@ import re
 logger = logging.getLogger(__name__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
+# Distinct (val/train, provider, base, model) judge configs already logged (log once each).
+_JUDGE_LOGGED: set = set()
+
 # Length-adjustment constants from the HealthBench Professional paper.
 LENGTH_ADJ_CENTER = float(os.environ.get("HB_LENGTH_CENTER", "2000"))
 LENGTH_ADJ_PENALTY_PER_500 = float(os.environ.get("HB_LENGTH_PENALTY_PER_500", "0.0147"))
@@ -222,6 +225,10 @@ async def compute_score(
     val_api_key: str = "EMPTY",
     val_model_name: str = "",
     val_provider: str = "",
+    fallback_api_base: str = "",
+    fallback_api_key: str = "EMPTY",
+    fallback_model_name: str = "",
+    fallback_provider: str = "",
     **kwargs,
 ) -> dict:
     """Score an open-ended clinician-chat response against its co-generated rubric.
@@ -260,7 +267,16 @@ async def compute_score(
     # neither rewarded nor penalized as "thinking".
     think_chars = max(0, len(_strip_tool_spans(response_text)) - len(answer_text))
 
-    is_val = bool(extra_info.get("_is_validation", False))
+    # Validation detection. The `_is_validation` meta_info flag set by the trainer does
+    # NOT reliably survive the async reward-loop's Ray dispatch (chunk -> .remote ->
+    # worker), so grading silently fell back to the TRAIN self-judge for val (bug: val
+    # graded with Qwen, never TRAPI). Route robustly by data_source instead: the REAL
+    # HealthBench-Professional eval set is always `healthbench_professional/*`; the
+    # self-generated training tasks are `healthbench_self`. So the official data always
+    # gets the official (TRAPI) judge regardless of the flag.
+    is_val = bool(extra_info.get("_is_validation", False)) or str(data_source or "").startswith(
+        "healthbench_professional"
+    )
 
     # Runaway thinking (training only): reasoning never closed -> no answer exists.
     # Fixed score, no judge calls. Val keeps the official grading path untouched.
@@ -275,6 +291,13 @@ async def compute_score(
         eff_base, eff_key, eff_model, eff_provider = (
             api_base, api_key, model_name, provider
         )
+    # Confirm WHICH judge is actually used (once per distinct config) so we can verify
+    # validation really grades with the TRAPI gpt-5.x judge and not the vllm/kimi self-judge.
+    _sig = ("VAL" if is_val else "TRAIN", eff_provider, eff_base, eff_model)
+    if _sig not in _JUDGE_LOGGED:
+        _JUDGE_LOGGED.add(_sig)
+        logger.warning("RUBRIC JUDGE [%s]: provider=%s base=%s model=%s",
+                       _sig[0], eff_provider or "(default)", eff_base, eff_model)
 
     # No rubric or no grader configured -> neutral, homogeneous result.
     total_pos = sum(it["points"] for it in items if it["points"] > 0)
@@ -299,8 +322,34 @@ async def compute_score(
                 eff_base, eff_key, eff_model, GRADER_SYSTEM, prompt,
                 max_tokens=512, provider=eff_provider,
             )
-        except Exception:
-            return 0.0, None  # unreachable grader -> treat as not met (no credit)
+        except Exception as e:
+            # DO NOT silently swallow judge failures — a struggling/misconfigured judge
+            # (e.g. TRAPI auth/rate-limit) otherwise looks like a stream of "not met"
+            # verdicts with no error. Log it loudly (with endpoint/model) so it's visible.
+            logger.warning(
+                "JUDGE CALL FAILED (%s) provider=%s base=%s model=%s: %s: %s",
+                "VAL" if is_val else "TRAIN", eff_provider, eff_base, eff_model,
+                type(e).__name__, e,
+            )
+            # FALLBACK judge (e.g. the local teacher when the primary is a remote
+            # proxy). Without this, a proxy outage silently zeroes EVERY reward in
+            # the batch — for the TRAIN judge that trains the policy on garbage,
+            # which is far worse than a blind val point. Only used on failure.
+            if fallback_api_base:
+                try:
+                    raw = await _call_api(
+                        fallback_api_base, fallback_api_key, fallback_model_name,
+                        GRADER_SYSTEM, prompt, max_tokens=512,
+                        provider=fallback_provider,
+                    )
+                    logger.warning("judge fallback OK -> %s@%s", fallback_model_name,
+                                   fallback_api_base)
+                    met = _parse_met(_strip_thinking(raw))
+                    return (it["points"] if met else 0.0), met
+                except Exception as e2:
+                    logger.warning("judge FALLBACK also failed: %s: %s",
+                                   type(e2).__name__, e2)
+            return 0.0, None  # grader unreachable -> treat as not met (no credit)
         # Defensive: if the judge itself emits a thinking channel, keep only the
         # main text before parsing the verdict JSON.
         met = _parse_met(_strip_thinking(raw))
@@ -362,6 +411,12 @@ def _result(raw: float, length_adjusted: float, response_text: str,
     score = max(lo, min(1.0, float(length_adjusted)))
     raw01 = _clip01(raw)
     fmt_ok = 1.0 if (response_text or "").strip() else 0.0
+    # HEADLINE val metric (`val-core/acc/mean`): the OFFICIAL HealthBench-Professional
+    # score — length-adjusted, negatives subtracted, UNCLIPPED (openai/simple-evals does
+    # not clip per example; the plain mean of these is the paper number). Previously this
+    # reported clipped-raw (no length penalty, negatives floored at 0), which ran ~0.18 too
+    # high. TRAINING keeps clipped-raw for the gen-server difficulty feedback (unchanged).
+    acc_headline = float(length_adjusted) if is_val else float(raw01)
     return {
         "score": float(score),               # training reward (length-adjusted, clipped [0,1])
         # Both headline numbers, reported every step so validation shows raw AND
@@ -373,7 +428,7 @@ def _result(raw: float, length_adjusted: float, response_text: str,
         # mean of these is the paper-comparable number:
         "acc_raw_signed": float(raw),
         "acc_len_adj_signed": float(length_adjusted),
-        "acc": float(raw01),                  # raw (gen-server difficulty feedback uses this)
+        "acc": acc_headline,                  # val-core/acc: official len-adj signed (val) / raw (train)
         "judge_acc_lenient": float(raw01),    # raw rubric fraction
         "judge_acc_strict": float(score),     # length-adjusted
         "exact_acc": float(raw01),

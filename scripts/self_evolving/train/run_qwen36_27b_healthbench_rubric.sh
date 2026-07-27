@@ -45,6 +45,21 @@ KEY=$(cat /scratch/sheng/self_evolving/.climb_teacher_key)
 EXP="${EXP:-healthbench_rubric_qwen36_27b_v6}"
 ACTOR_MODEL_PATH="${ACTOR_MODEL_PATH:-/scratch/sheng/self_evolving/checkpoints/self_evolving_medical/mimiciv_rare_qwen36_27b_sft_distill/global_step_90/actor/huggingface}"
 TEACHER_BASE="${TEACHER_BASE:-http://point.dd.works:18184/v1}"
+# TRAIN reward judge (defaults = the local Qwen teacher, i.e. self-judging).
+# Override to grade training rollouts with an external model, e.g.
+#   TRAIN_JUDGE_BASE=http://point.dd.works:18890/v1 \
+#   TRAIN_JUDGE_MODEL=gpt-chat-latest_2026-05-28 TRAIN_JUDGE_PROVIDER=trapi
+TRAIN_JUDGE_BASE="${TRAIN_JUDGE_BASE:-$TEACHER_BASE}"
+TRAIN_JUDGE_MODEL="${TRAIN_JUDGE_MODEL:-Qwen/Qwen3.6-27B}"
+TRAIN_JUDGE_PROVIDER="${TRAIN_JUDGE_PROVIDER:-vllm}"
+TRAIN_JUDGE_KEY="${TRAIN_JUDGE_KEY:-$KEY}"
+# FALLBACK judge, used ONLY when a primary judge call raises (e.g. the TRAPI proxy
+# dies — it did on 2026-07-27, which silently zeroed a whole validation). Points at
+# the local teacher so a remote outage degrades quality instead of destroying the
+# training signal.
+FALLBACK_JUDGE_BASE="${FALLBACK_JUDGE_BASE:-$TEACHER_BASE}"
+FALLBACK_JUDGE_MODEL="${FALLBACK_JUDGE_MODEL:-Qwen/Qwen3.6-27B}"
+FALLBACK_JUDGE_PROVIDER="${FALLBACK_JUDGE_PROVIDER:-vllm}"
 GEN_SERVER_URL="${GEN_SERVER_URL:-http://localhost:8006}"
 
 # Validation judge: gpt-chat-latest via the TRAPI proxy (the standard HealthBench
@@ -131,10 +146,14 @@ cd "$REPO"
     reward.custom_reward_function.path=verl/utils/reward_score/self_evolving.py \
     reward.custom_reward_function.name=compute_score \
     +reward.custom_reward_function.reward_kwargs.rubric_mode=True \
-    +reward.custom_reward_function.reward_kwargs.api_base="$TEACHER_BASE" \
-    +reward.custom_reward_function.reward_kwargs.api_key="$KEY" \
-    +reward.custom_reward_function.reward_kwargs.model_name=Qwen/Qwen3.6-27B \
-    +reward.custom_reward_function.reward_kwargs.provider=vllm \
+    +reward.custom_reward_function.reward_kwargs.api_base="$TRAIN_JUDGE_BASE" \
+    +reward.custom_reward_function.reward_kwargs.api_key="$TRAIN_JUDGE_KEY" \
+    +reward.custom_reward_function.reward_kwargs.model_name="$TRAIN_JUDGE_MODEL" \
+    +reward.custom_reward_function.reward_kwargs.provider="$TRAIN_JUDGE_PROVIDER" \
+    +reward.custom_reward_function.reward_kwargs.fallback_api_base="$FALLBACK_JUDGE_BASE" \
+    +reward.custom_reward_function.reward_kwargs.fallback_api_key="$KEY" \
+    +reward.custom_reward_function.reward_kwargs.fallback_model_name="$FALLBACK_JUDGE_MODEL" \
+    +reward.custom_reward_function.reward_kwargs.fallback_provider="$FALLBACK_JUDGE_PROVIDER" \
     +reward.custom_reward_function.reward_kwargs.val_api_base="$VAL_JUDGE_BASE" \
     +reward.custom_reward_function.reward_kwargs.val_api_key="$VAL_JUDGE_KEY" \
     +reward.custom_reward_function.reward_kwargs.val_model_name="$VAL_JUDGE_MODEL" \

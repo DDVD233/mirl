@@ -43,6 +43,20 @@ mkdir -p "$LOG_DIR" "$PROMPT_DIR"
 
 export CHAT_PROVIDER="${CHAT_PROVIDER:-vllm}"
 
+# Meta-optimizer (/evolve) endpoint. Empty EVOLVE_MODEL = the local teacher (old
+# behavior). Set these to run curriculum evolution on an EXTERNAL frontier model —
+# the self-referential loop (same model generating, grading, diagnosing and
+# rewriting its own curriculum) is what narrowed the curriculum in v5/v6.
+EVOLVE_MODEL="${EVOLVE_MODEL:-}"
+EVOLVE_BASE="${EVOLVE_BASE:-http://point.dd.works:18890/v1}"
+EVOLVE_PROVIDER="${EVOLVE_PROVIDER:-trapi}"
+EVOLVE_KEY="${EVOLVE_KEY:-$(cat /scratch/sheng/self_evolving/.trapi_key 2>/dev/null || echo EMPTY)}"
+EVOLVE_FLAGS=()
+if [ -n "$EVOLVE_MODEL" ]; then
+    EVOLVE_FLAGS=(--evolve_model_name "$EVOLVE_MODEL" --evolve_api_base "$EVOLVE_BASE"
+                  --evolve_api_key "$EVOLVE_KEY" --evolve_provider "$EVOLVE_PROVIDER")
+fi
+
 cd "$(dirname "$0")/../../.."
 
 exec "$PYTHON_BIN" scripts/self_evolving/generation_server.py \
@@ -65,4 +79,5 @@ exec "$PYTHON_BIN" scripts/self_evolving/generation_server.py \
     --log_dir "$LOG_DIR" \
     --host "$GEN_SERVER_HOST" \
     --port "$GEN_SERVER_PORT" \
+    "${EVOLVE_FLAGS[@]}" \
     "$@"
