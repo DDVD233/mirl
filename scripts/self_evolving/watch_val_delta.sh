@@ -10,9 +10,9 @@
 # in retrieval, so (retrieval - control) at the SAME step is the effect. Comparing
 # whatever each arm last reported is not that, since they drift out of lockstep.
 #
-# NOISE FLOOR: two step-0 evaluations of the same untrained model on the full 525
-# came out 0.2758 and 0.2970 (2026-08-05), so ~+/-0.02 is sampling noise at
-# temperature 1.0. A single-step gap under that is nothing.
+# NOISE FLOOR: THREE step-0 evaluations of the same untrained model on the full 525
+# came out 0.276 / 0.297 / 0.309 (2026-08-05) -> sd ~0.017 per eval, so a single
+# matched delta carries ~0.024. A one-step gap near that size is nothing.
 set -uo pipefail
 
 HOST=${HOST:-root@point.dd.works}
@@ -60,9 +60,21 @@ while true; do
                 b0=a[1]-b[1];
                 if(m<1){ printf "        step0 baseline %+.4f (null by construction); no trained steps matched yet\n", b0; exit }
                 mean=s/m; se=0.028/sqrt(m);
+                # Two guards beyond the 2se test, both learned the hard way:
+                #  - m>=3. At m=1 the test is one eval against one eval, so a single
+                #    downward excursion in the OTHER arm reads as an effect (the control
+                #    step-5 was the lowest point on its whole curve when this first fired).
+                #  - |step0 baseline| < mean. Step 0 is the same untrained model in
+                #    both arms, so it measures how far apart they landed by chance
+                #    (0.276/0.297/0.309 across three launches of the same thing). If
+                #    that null gap rivals the claimed effect, the effect is not
+                #    separable from where the arms happened to start.
+                verdict = "not yet significant";
+                if (mean > 2*se && m >= 3 && (b0<0?-b0:b0) < mean) verdict = "SIGNIFICANT";
+                else if (mean > 2*se && m < 3) verdict = sprintf("above 2se but only %d trained step(s) - not trusted", m);
+                else if (mean > 2*se) verdict = "above 2se but step0 baseline rivals it - not trusted";
                 printf "        trained steps=%d  mean delta=%+.4f  positive=%d/%d  (2se=%.3f) %s   [step0 baseline %+.4f]\n",
-                       m, mean, pos, m, 2*se,
-                       (mean > 2*se ? "SIGNIFICANT" : "not yet significant"), b0
+                       m, mean, pos, m, 2*se, verdict, b0
             }'
         fi
     fi
