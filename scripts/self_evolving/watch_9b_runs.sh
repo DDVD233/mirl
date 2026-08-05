@@ -19,6 +19,7 @@ set -uo pipefail
 HOST=${HOST:-root@point.dd.works}
 POLL_S=${POLL_S:-240}
 STALL_S=${STALL_S:-2700}
+PROBE=${PROBE:-/scratch/sheng/self_evolving/verl_healthbench/scripts/self_evolving/probe_run_state.sh}
 
 # name:port:logfile
 RUNS=(
@@ -43,16 +44,16 @@ while true; do
     # so a literal pgrep -f matches its own shell and the count is never 0 — DEAD
     # would then never fire, which is the one thing this watchdog exists to catch.
     # The bracket expression matches the running trainer but not this command's argv.
+    # Delegate to a probe script ON the box. Composing four nested command
+    # substitutions in one remote string silently dropped a field, which shifted the
+    # rest and made a cleanly-finished run report as a crash.
     out=$(ssh -o ConnectTimeout=15 -o BatchMode=yes -p "$port" "$HOST" \
-          "printf '%s %s %s' \"\$(pgrep -cf 'main[_]ppo' 2>/dev/null || echo 0)\" \
-                              \"\$(stat -c %s '$log' 2>/dev/null || echo 0)\" \
-                              \"\$(nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits | paste -sd+ | bc)\"" \
-          2>/dev/null)
+          "bash $PROBE '$log'" 2>/dev/null)
     if [[ -z "$out" ]]; then
       [[ "${STATE[$name]}" != UNREACHABLE ]] && emit "$name UNREACHABLE (pod down or network)"
       STATE[$name]=UNREACHABLE; continue
     fi
-    read -r nproc size gpumem <<<"$out"
+    read -r nproc size gpumem finished <<<"$out"
     now=$(date +%s)
 
     if [[ "$size" -gt "${SIZE[$name]}" ]]; then LASTGROW[$name]=$now; fi
@@ -61,15 +62,20 @@ while true; do
 
     new=OK
     if [[ "${nproc:-0}" -lt 1 ]]; then
-      new=DEAD
-      [[ "${gpumem:-0}" -gt 20000 ]] && new=DEAD_WITH_ORPHANS
+      if [[ "${finished:-RUNNING}" == DONE ]]; then
+        new=FINISHED
+      else
+        new=DEAD
+        [[ "${gpumem:-0}" -gt 20000 ]] && new=DEAD_WITH_ORPHANS
+      fi
     elif [[ "$stalled" -gt "$STALL_S" ]]; then
       new=STALLED
     fi
 
     if [[ "$new" != "${STATE[$name]}" ]]; then
       case "$new" in
-        DEAD)               emit "$name DEAD (no trainer; GPU ${gpumem}MiB)" ;;
+        FINISHED)           emit "$name FINISHED cleanly (all configured steps done; GPU ${gpumem}MiB)" ;;
+        DEAD)               emit "$name DEAD (crashed, no clean exit; GPU ${gpumem}MiB)" ;;
         DEAD_WITH_ORPHANS)  emit "$name DEAD + ORPHANS holding ${gpumem}MiB — clear before relaunch" ;;
         STALLED)            emit "$name STALLED ${stalled}s with no log growth (trainer alive)" ;;
         OK) [[ "${STATE[$name]}" == INIT ]] && emit "$name watching (trainer up)" \
