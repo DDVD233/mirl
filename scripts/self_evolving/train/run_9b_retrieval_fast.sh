@@ -154,11 +154,16 @@ curl -sf -m 180 -X POST "localhost:$GEN_PORT/retrieve" -H 'content-type: applica
          "queries":["metformin contraindication eGFR threshold",
                     "metformin lactic acidosis risk renal impairment"]}' \
   | /usr/local/bin/python -c '
+# NOTE: %-formatting, not f-strings. This is inside single shell quotes, so a
+# backslash-escaped quote stays literal and Python 3.12 rejects it in an f-string
+# expression — the gate then fails on its own SyntaxError with both services
+# perfectly healthy, which is exactly what happened on the first launch.
 import json, sys
 d = json.load(sys.stdin)
 assert d["n_merged"] >= 4, d
-assert d["summarized"] is True, f"summarizer NOT active: {d.get(\"fallback_reason\")}"
-print(f"retrieve smoke OK: {d[\"n_queries\"]}q -> {d[\"n_merged\"]} passages -> {d[\"chars\"]} chars")
+assert d["summarized"] is True, "summarizer NOT active: %s" % (d.get("fallback_reason"),)
+print("retrieve smoke OK: %sq -> %s passages -> %s chars"
+      % (d["n_queries"], d["n_merged"], d["chars"]))
 ' || { echo "FATAL: /retrieve smoke failed" >&2; exit 1; }
 
 # ------------------------------------------------------------------- trainer
