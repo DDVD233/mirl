@@ -40,6 +40,7 @@ async def generate_with_think_budget(
     sampling_params: dict[str, Any],
     gen_kwargs: dict[str, Any],
     max_new_tokens: Optional[int] = None,
+    request_id: Optional[str] = None,
 ) -> tuple[list[int], list[int], Optional[list[float]], TokenOutput]:
     """Two-phase generation with a hard cap on the thinking channel.
 
@@ -47,12 +48,19 @@ async def generate_with_think_budget(
     ``response_length``); the caller passes the remaining response budget in a
     multi-turn loop so later turns cannot overrun the window.
 
+    ``request_id`` should be the rollout's stable id. The load balancer routes by
+    request id, and phase 2's prompt is phase 1's prompt plus phase 1's tokens — so
+    minting a fresh id per phase can land the continuation on a different replica and
+    throw away the whole KV prefix, re-prefilling it. With a multi-turn trajectory
+    that penalty is paid on every turn.
+
     Returns ``(response_ids, response_mask, response_logprobs, last TokenOutput)``.
     """
     total_budget = response_length if max_new_tokens is None else min(max_new_tokens, response_length)
     budget = min(think_budget, total_budget)
+    rid = request_id or uuid4().hex
     out1: TokenOutput = await server_manager.generate(
-        request_id=uuid4().hex,
+        request_id=rid,
         prompt_ids=prompt_ids,
         sampling_params={**sampling_params, "max_tokens": budget},
         **gen_kwargs,
@@ -78,7 +86,7 @@ async def generate_with_think_budget(
 
     # Phase 2: decode the answer, continuing from prompt + phase-1 tokens.
     out2: TokenOutput = await server_manager.generate(
-        request_id=uuid4().hex,
+        request_id=rid,
         prompt_ids=prompt_ids + ids,
         sampling_params={**sampling_params, "max_tokens": remaining},
         **gen_kwargs,

@@ -777,12 +777,33 @@ async def compute_score(
             val_api_key=val_api_key,
             val_model_name=val_model_name,
             val_provider=val_provider,
+            # D1 (2026-08-04 audit): these were accepted into **kwargs and never
+            # forwarded, so the outage-rescue branch in healthbench_pro was DEAD
+            # CODE — during the 2026-08-01 server5 outage every judge failure
+            # silently scored 0.0 instead of falling back.
+            fallback_api_base=kwargs.get("fallback_api_base", ""),
+            fallback_api_key=kwargs.get("fallback_api_key", "EMPTY"),
+            fallback_model_name=kwargs.get("fallback_model_name", ""),
+            fallback_provider=kwargs.get("fallback_provider", ""),
+            # Retrieval-coverage judge (the second graded component). Defaults to
+            # the TRAIN judge when unset — deliberately not the val judge, so a
+            # val-judge outage cannot perturb training.
+            cov_api_base=kwargs.get("cov_api_base", ""),
+            cov_api_key=kwargs.get("cov_api_key", "EMPTY"),
+            cov_model_name=kwargs.get("cov_model_name", ""),
+            cov_provider=kwargs.get("cov_provider", ""),
         )
         # Feed the rubric fraction back to the gen server for difficulty
         # calibration (training only; validation rows have no gen-server entry).
         server_url = gen_server_url or os.environ.get("GEN_SERVER_URL", "")
         question_id = extra_info.get("question_id", "")
-        if server_url and question_id and not extra_info.get("_is_validation", False):
+        # _is_validation does not reliably survive Ray dispatch, so ALSO gate on
+        # data_source: real-benchmark rows must never reach /report (a 525-item
+        # val burst flushes the gen server's 64-item accuracy window and poisons
+        # its difficulty controller — observed in healthbench_diag_seeded).
+        is_benchmark_row = str(data_source or "").startswith("healthbench_professional")
+        if server_url and question_id and not extra_info.get("_is_validation", False) \
+                and not is_benchmark_row:
             await _report_to_gen_server(server_url, question_id, float(result.get("acc", 0.0)))
         return result
 
@@ -932,7 +953,17 @@ async def compute_score(
     if server_url and question_id:
         await _report_to_gen_server(server_url, question_id, accuracy)
 
+    # HOMOGENEOUS_DEFAULTS first: the trainer snapshots the reward key set from
+    # SAMPLE 0 only, so any key this branch omits that the healthbench branch returns
+    # is silently dropped batch-wide (or KeyErrors, depending on which sample is 0).
+    # This branch used to differ from healthbench_pro by 8 keys, so a genuinely mixed
+    # batch already broke.
+    # Lazy import, mirroring the convention on both sides of this pair (healthbench_pro
+    # imports `_call_api` from here lazily for the same reason).
+    from verl.utils.reward_score.healthbench_pro import HOMOGENEOUS_DEFAULTS
+
     result = {
+        **HOMOGENEOUS_DEFAULTS,
         "score": score,
         "acc": accuracy,
         "judge_acc_lenient": judge_acc_lenient,
@@ -943,10 +974,12 @@ async def compute_score(
         "embed_sim": embed_sim,
         "char_bleu": char_bleu_score,
         "extracted_answer": extracted_answer or "",
+        # ALWAYS emitted, 0.0 when the add-on is off or threw. `evolve_on` is cleared
+        # PER SAMPLE inside the exception handler above, so emitting these
+        # conditionally meant a batch where sample 0 succeeded and sample k threw
+        # raised KeyError and killed the step (and the reverse order silently dropped
+        # both metrics). Byte-identity of a dict is not worth a crash class.
+        "dynamic_judge": dynamic_judge,
+        "dynamic_function": dynamic_function,
     }
-    # Surface the add-on components only when active (keeps the OFF path byte-identical).
-    # dynamic_judge = evolvable judge-prompt score; dynamic_function = evolvable function score.
-    if evolve_on:
-        result["dynamic_judge"] = dynamic_judge
-        result["dynamic_function"] = dynamic_function
     return result

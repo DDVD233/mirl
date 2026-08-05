@@ -35,10 +35,12 @@ import base64
 import io
 import json
 import logging
+import math
 import mimetypes
 import os
 import random
 import re
+import sys
 import time
 import uuid
 from collections import defaultdict, deque
@@ -312,30 +314,35 @@ Produce a JSON object with:
 - "use_case": "[[USE_CASE]]".
 - "conversation": a list of messages [{"role":"user","content":...}] (optionally prior turns) \
   ENDING in a user (clinician) turn — the realistic, specialty-appropriate task the AI must answer.
-- "rubric_items": a list of 5-12 grading criteria, each {"criterion_text": str, "points": int}. \
-  Design the rubric to make 10 the FULL score and to target a SPECIFIC capability of the model. \
-  Rules for high-quality, gradeable rubrics (HealthBench Professional style):
-    * Span the five dimensions: accuracy, completeness, clarity of communication, instruction \
-      following, and overall impact on the user.
-    * Each criterion is OBJECTIVE and binary (clearly met or not), tied to the final assistant \
-      response, grounded in widely-agreed clinical standards — NOT subjective preference.
-    * Positive points (+1..+10) for things a good response SHOULD include (key facts, correct \
-      management, appropriate caveats, asking for missing context). Ground them in the passages \
-      when provided. The POSITIVE points MUST SUM TO ABOUT 10 (the reward divides achieved points \
-      by the total positive points).
-    * Include AT LEAST ONE negative criterion (-1..-10) phrased as an UNDESIRABLE behavior \
-      (unsafe omission, wrong dose, failing to flag a red flag, overconfident claim, fabrication).
-    * Prefer "such as"/"for example" wording where a list is illustrative.
-- "difficulty": "typical" or "difficult".
+- "rubric_items": a list of 1-5 grading criteria, each {"criterion_text": str, "points": int}. \
+  Rules (these mirror the MEASURED shape of real HealthBench-Professional rubrics; earlier \
+  versions of this generator produced 7.5 long conjunctive criteria per task against the real \
+  benchmark's 2.2 short ones, and the policy learned to cover ground rather than to be right):
+    * FEW criteria. Two or three is typical; one is common; five is the maximum. Each one names \
+      ONE checkable thing.
+    * SHORT. Aim under 130 characters. Do NOT chain several requirements with "and"/commas into \
+      a single criterion — split them or drop the less important one. A criterion the response \
+      can only half-satisfy is a broken criterion.
+    * BIG point values. Each positive criterion is worth +5..+10 (8 is typical). There is NO \
+      requirement that the positives sum to any particular total.
+    * GRADE GENEROUSLY where the real benchmark does. Use these forms often:
+        - "Mentions in some way that ..."  (about half of real criteria hedge like this)
+        - "Does at least one of the following: A, B, or C"  (about a quarter are disjunctive)
+      Avoid "such as"/"for example" illustrative lists — real rubrics do not use them.
+    * NEGATIVE criteria are worth -5..-10 and describe a specific, plausible clinical error the \
+      model actually makes here (wrong dose, missed red flag, unsafe reassurance, fabricated \
+      trial/guideline). Include one on roughly a THIRD of tasks — only where a concrete trap \
+      exists. Do not manufacture one just to have one.
+- "difficulty": "typical" or "difficult" (aim for a roughly even split overall).
 
 [[MODE_INSTR]]
 
 [[GAP_GUIDANCE]]
 
 # NON-NEGOTIABLE INVARIANTS — these OVERRIDE anything in the guidance above if in conflict
-- 5-12 rubric criteria. Positive points MUST sum to ~10. AT LEAST ONE negative criterion \
-(-1..-10) phrased as an undesirable/unsafe behavior — rubrics without a negative criterion \
-are REJECTED by an automated validator and waste the generation.
+- 1-5 rubric criteria, each under ~130 characters and testing ONE thing. Positive criteria are \
+worth +5..+10 each; there is NO required total. Include a negative criterion (-5..-10) on about \
+a third of tasks, only where a specific clinical trap genuinely exists.
 - Do NOT make rubrics easier to satisfy: criteria must test real clinical capability and \
 judgment, NOT merely restate the task's explicit deliverables 1:1 (a rubric that only checks \
 "did it do what the prompt literally asked" is gameable and useless for training).
@@ -673,6 +680,20 @@ class ServerState:
         # in-flight gauges per step (incremented at start, decremented at end)
         self.inflight: dict[str, int] = defaultdict(int)
 
+        # ---- /retrieve (RL rollout hot path) ----
+        # Bound concurrency explicitly: the endpoint fans out to Milvus AND the
+        # summarizer, and a whole training batch's rollouts hit it at once.
+        self.retrieve_sem = asyncio.Semaphore(
+            int(os.environ.get("RETRIEVE_CONCURRENCY", str(max(args.workers * 4, 32))))
+        )
+        self.summary_sem = asyncio.Semaphore(
+            int(os.environ.get("SUMMARY_CONCURRENCY", "32"))
+        )
+        # wikidoc title telemetry, drained off the request path (see _queue_wikidoc_titles)
+        self.wikidoc_q: asyncio.Queue = asyncio.Queue(maxsize=20000)
+        self.wikidoc_seen: set = set()
+        self.summarizer_warned = False
+
     def _load_seeds(self, path: str) -> list[dict]:
         if not os.path.isfile(path):
             raise FileNotFoundError(f"seeds_path not found: {path}")
@@ -776,7 +797,14 @@ async def _api_call(state: ServerState, system_prompt: str, user_prompt: str,
         payload.pop("max_tokens", None)
         payload["max_completion_tokens"] = max_tokens
         if not want_thinking:
-            payload["reasoning_effort"] = "none"
+            # Not every TRAPI deployment accepts "none": gpt-chat-latest_2026-05-28
+            # 400s with 'does not support none with this model. Supported values
+            # are: medium'. Any non-thinking call to such a model would then fail
+            # every time (for the retrieval summarizer that means silently serving
+            # raw passages for a whole run). Empty string omits the field entirely.
+            _eff = os.environ.get("TRAPI_NO_THINK_EFFORT", "none")
+            if _eff:
+                payload["reasoning_effort"] = _eff
     elif provider == "deepseek":
         # DeepSeek-V4-Pro thinking knob differs from Qwen's enable_thinking:
         # chat_template_kwargs {"thinking": bool, "reasoning_effort": ...}.
@@ -822,8 +850,9 @@ async def _api_call(state: ServerState, system_prompt: str, user_prompt: str,
         return content
 
 
-async def _embed_text(state: ServerState, text: str) -> list[float]:
-    payload = {"model": state.args.embed_model, "input": [text[:2000]]}
+async def _embed_texts(state: ServerState, texts: list[str]) -> list[list[float]]:
+    """Batch-embed. One HTTP round trip for a whole multi-query plan."""
+    payload = {"model": state.args.embed_model, "input": [t[:2000] for t in texts]}
     headers = {"Authorization": f"Bearer {state.args.api_key}"}
     async with timed(state, "embed"):
         resp = await state.http_client.post(
@@ -831,7 +860,11 @@ async def _embed_text(state: ServerState, text: str) -> list[float]:
             json=payload, headers=headers, timeout=60,
         )
         resp.raise_for_status()
-        return resp.json()["data"][0]["embedding"]
+        return [d["embedding"] for d in resp.json()["data"]]
+
+
+async def _embed_text(state: ServerState, text: str) -> list[float]:
+    return (await _embed_texts(state, [text]))[0]
 
 
 def _milvus_search_sync(state: ServerState, embedding: list[float], top_k: int,
@@ -917,6 +950,36 @@ async def _milvus_search(state: ServerState, query_text: str, top_k: int,
         return []
     async with timed(state, "milvus_search"):
         return await asyncio.to_thread(_milvus_search_sync, state, embedding, top_k, filter_expr)
+
+
+def _milvus_search_many_sync(state: ServerState, embeddings: list[list[float]], top_k: int,
+                             filter_expr: str = "") -> list[list[dict]]:
+    """Multi-vector Milvus search that PRESERVES per-query grouping.
+
+    `_milvus_search_sync` flattens every result list into one, which is fine for a
+    single query and destroys the information the multi-query merge needs (it merges
+    round-robin by rank depth, so it must know which passage came from which query).
+    """
+    out: list[list[dict]] = []
+    for emb in embeddings:
+        out.append(_milvus_search_sync(state, emb, top_k, filter_expr))
+    return out
+
+
+async def _milvus_search_multi(state: ServerState, queries: list[str], top_k: int,
+                               filter_expr: str = "") -> list[list[dict]]:
+    """Embed a whole query plan in one call, then search each vector separately."""
+    if not queries:
+        return []
+    try:
+        embeddings = await _embed_texts(state, queries)
+    except Exception as e:
+        logger.warning(f"embed failed for {len(queries)} queries: {type(e).__name__}: {e!r}")
+        return []
+    async with timed(state, "milvus_search"):
+        return await asyncio.to_thread(
+            _milvus_search_many_sync, state, embeddings, top_k, filter_expr
+        )
 
 
 # Milvus boolean filter selecting CLIMB train-split multimodal rows only. The
@@ -1391,11 +1454,17 @@ async def agent_validator(state: ServerState, generated: dict) -> tuple[bool, st
 # Rubric-mode agents (HealthBench-Professional task + rubric co-generation)
 # ======================================================================
 def _valid_rubric(items) -> bool:
-    """3-20 objective items, points in [-10,10]\\{0}, >=1 positive and >=1 negative.
-    Mirrors scripts/self_evolving/healthbench_gen.py:_valid_rubric."""
-    if not isinstance(items, list) or not (3 <= len(items) <= 20):
+    """1-6 objective items, points in [-10,10]\\{0}, >=1 positive.
+
+    Shaped to real HealthBench-Professional rubrics (measured on the 525-item val
+    set: mean 2.16 criteria, 36% carrying a negative, modal +8 points). The old
+    gate required 3-20 items AND at least one negative, which forced 100% negative
+    coverage and ~7.5 criteria per task — the generator could not have produced a
+    benchmark-shaped rubric even if asked to. A negative is now optional, so do NOT
+    reintroduce a has_neg requirement here."""
+    if not isinstance(items, list) or not (1 <= len(items) <= 6):
         return False
-    has_pos = has_neg = False
+    has_pos = False
     for it in items:
         if not isinstance(it, dict):
             return False
@@ -1404,8 +1473,7 @@ def _valid_rubric(items) -> bool:
         if not isinstance(pts, (int, float)) or not crit or abs(pts) > 10 or pts == 0:
             return False
         has_pos = has_pos or pts > 0
-        has_neg = has_neg or pts < 0
-    return has_pos and has_neg
+    return has_pos
 
 
 def _valid_conversation(conv) -> bool:
@@ -1477,9 +1545,170 @@ def _normalize_conversation(conv):
     return norm if (norm and norm[-1]["role"] == "user") else None
 
 
-async def agent_task_proposer(state: ServerState, use_case: str, specialty: str) -> list[str]:
+# --- Training-task diversity -----------------------------------------------
+# The seed space used to be 3 use_cases x ~20 specialties = ~60 combinations, and
+# it showed: across 866 generated tasks, "journal club" appeared in 12% and
+# "year woman" 157 times. Thin seeds mean the policy sees the same few scaffolds
+# every step, which is consistent with the flat training reward (0.46-0.61, no
+# trend). Two independent fixes, both sampled per iteration:
+#
+#  1. KB ANCHOR — draw a real passage from the curated sources (~19k distinct
+#     anchors: 9.6k StatPearls articles, 6.6k drug labels, 1.9k ICD categories,
+#     1k patient topics) and make the proposed request depend on its specific
+#     facts. Besides diversity this guarantees the task is one where a lookup can
+#     actually help, which is the only condition under which the retrieve-or-not
+#     decision is learnable.
+#  2. LANGUAGE — val is ~10% non-English (52/525: Danish, Spanish, Polish,
+#     Estonian, Amharic...) while generated tasks were 100% English. That gap has
+#     a measured cost: an Amharic val case fell 0.95 -> -0.07 across v9 training
+#     with the model looping a warning phrase, a failure nothing pushes back on
+#     when every training rollout is English.
+# Stratified, NOT proportional to row count: sampling a random direction over all
+# curated rows returns StatPearls ~5x out of every 6 draws simply because it has
+# the most rows, and the small sources are exactly the ones covering the axes we
+# under-generate (exact dosing, codes, patient-facing register). Val rewards those
+# — it contains "R-ICE protocol including dosing", an antibiotic regimen "including
+# the dosage and duration", and discharge handouts.
+_KB_ANCHOR_WEIGHTS = {
+    "statpearls": 0.45,   # management / differential / workup
+    "dailymed": 0.30,     # exact doses, contraindications, interactions
+    "medlineplus": 0.15,  # patient-facing explanation
+    "icd10cm": 0.10,      # coding
+}
+_KB_ANCHOR_CHARS = 1200
+# Roughly matched to the val mix; English keeps the majority.
+HB_LANGUAGES = {
+    "Spanish": 0.22, "French": 0.12, "Portuguese": 0.10, "German": 0.08,
+    "Danish": 0.08, "Polish": 0.08, "Italian": 0.06, "Dutch": 0.05,
+    "Estonian": 0.05, "Amharic": 0.05, "Swahili": 0.04, "Hindi": 0.04,
+    "Arabic": 0.03,
+}
+
+
+def _hb_nonenglish_share() -> float:
+    try:
+        return float(os.environ.get("HB_NONENGLISH_SHARE", "0.10"))
+    except ValueError:
+        return 0.10
+
+
+def _hb_anchor_share() -> float:
+    # 0.40, not 0.70: anchoring every task on a specific KB passage makes the rubric
+    # demand facts that essentially require retrieving that same passage, and measured
+    # training score fell to ~0.07 (v9/v10 ran 0.38-0.61). Keeping most of the task
+    # pool unanchored preserves the diversity win without turning the curriculum into
+    # "guess the passage I sampled".
+    try:
+        return float(os.environ.get("HB_KB_ANCHOR_SHARE", "0.40"))
+    except ValueError:
+        return 0.40
+
+
+# --- Style seeds (public corpora) -------------------------------------------
+# Real HealthBench-Pro prompts are terse clinician/patient messages (median 258
+# chars, 61% under 200, 28% lowercase-start, 22% multi-turn). Our generated tasks
+# were polished vignettes (median 761 chars, 0% short, 0% informal). These seeds —
+# K-QA, HealthSearchQA, MedQuAD, augmented-clinical-notes — carry that register.
+#
+# THEY ARE STYLE DONORS, NEVER TRAINING QUESTIONS. The proposer is told to imitate
+# the register and invent an unrelated scenario, and `_seed_leak` below rejects any
+# task that reuses the seed's actual content. Both halves matter: the instruction
+# alone would leak, and the guard alone would waste generations.
+_SEED_POOL: list[dict] | None = None
+_SEED_POOL_PATH = os.environ.get(
+    "SEED_EXEMPLARS_PATH", "/scratch/sheng/self_evolving/seed_corpora/style_exemplars.jsonl")
+
+
+def _load_seed_pool() -> list[dict]:
+    global _SEED_POOL
+    if _SEED_POOL is not None:
+        return _SEED_POOL
+    pool: list[dict] = []
+    try:
+        with open(_SEED_POOL_PATH, encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    try:
+                        pool.append(json.loads(line))
+                    except Exception:
+                        pass
+        logger.info(f"style-seed pool: {len(pool):,} exemplars from {_SEED_POOL_PATH}")
+    except Exception as e:
+        logger.warning(f"style-seed pool unavailable ({e}); generating unseeded")
+    _SEED_POOL = pool
+    return pool
+
+
+def _sample_style_seed() -> dict | None:
+    pool = _load_seed_pool()
+    if not pool or random.random() >= _hb_style_seed_share():
+        return None
+    return random.choice(pool)
+
+
+def _hb_style_seed_share() -> float:
+    try:
+        return float(os.environ.get("HB_STYLE_SEED_SHARE", "0.70"))
+    except ValueError:
+        return 0.70
+
+
+_WORD_RE = re.compile(r"[a-z0-9]+")
+
+
+def _trigrams(text: str) -> set:
+    w = _WORD_RE.findall((text or "").lower())
+    return {tuple(w[i:i + 3]) for i in range(max(0, len(w) - 2))}
+
+
+def _seed_leak(seed_text: str, task_text: str, thresh: float = 0.12) -> bool:
+    """True if the generated task reuses the seed's content rather than its style.
+
+    Word-trigram Jaccard. This is the structural half of the "seeds are never
+    training questions" rule — an instruction not to copy is not enforcement, and a
+    leaked seed would put a public benchmark item directly into the training stream."""
+    a, b = _trigrams(seed_text), _trigrams(task_text)
+    if not a or not b:
+        return False
+    return len(a & b) / len(a | b) >= thresh
+
+
+async def _random_kb_anchor(state: ServerState) -> str:
+    """Sample a random curated-KB passage to anchor a proposed task.
+
+    Uses a random unit vector rather than a text query: any fixed query text would
+    bias every worker toward the same neighbourhood, whereas a random direction in
+    the embedding space lands somewhere arbitrary. Best-effort — returns "" so a
+    Milvus hiccup degrades to the old ungrounded behaviour instead of stalling
+    generation."""
+    try:
+        dim = int(getattr(state.args, "milvus_embedding_dim", 2048) or 2048)
+        vec = [random.gauss(0.0, 1.0) for _ in range(dim)]
+        norm = math.sqrt(sum(v * v for v in vec)) or 1.0
+        vec = [v / norm for v in vec]
+        source = _weighted_choice(_KB_ANCHOR_WEIGHTS)
+        hits = await asyncio.to_thread(
+            _milvus_search_sync, state, vec, 3, f'source_dataset == "{source}"')
+        hits = [h for h in hits if (h.get("text") or "").strip()]
+        if not hits:
+            return ""
+        h = random.choice(hits)
+        return f"[source={h.get('source', '?')}]\n{h['text'][:_KB_ANCHOR_CHARS]}"
+    except Exception as e:
+        logger.debug(f"kb anchor sampling failed (continuing unanchored): {e}")
+        return ""
+
+
+async def agent_task_proposer(state: ServerState, use_case: str, specialty: str,
+                              anchor: str = "", language: str = "",
+                              style_seed: dict | None = None) -> list[str]:
     """Propose diverse clinician REQUESTS (which double as retrieval queries)
-    for a use_case x specialty, using the file-backed (evolvable) proposer."""
+    for a use_case x specialty, using the file-backed (evolvable) proposer.
+
+    `anchor` and `language` are appended to the USER turn only, never to the
+    evolvable system prompt, so curriculum evolution keeps rewriting the prompt
+    it owns without these interacting with it."""
     sys_prompt = _fill(state.prompt_store.get("query_proposer"), {
         "K": state.args.n_queries, "USE_CASE": use_case,
         "USE_CASE_DESC": HB_USE_CASE_DESC.get(use_case, use_case), "SPECIALTY": specialty,
@@ -1490,6 +1719,31 @@ async def agent_task_proposer(state: ServerState, use_case: str, specialty: str)
         f"Specialty: {specialty}.\n"
         f"Propose {state.args.n_queries} diverse clinician requests."
     )
+    if anchor:
+        user_prompt += (
+            f"\n\nGround these requests in the following real reference material. Write "
+            f"requests a clinician would plausibly send that genuinely DEPEND on the "
+            f"specific facts here (doses, thresholds, codes, criteria, management steps) "
+            f"— do not quote it, and do not mention that you were given it:\n{anchor}"
+        )
+    if language:
+        user_prompt += (
+            f"\n\nWrite ALL {state.args.n_queries} requests in {language}, as a "
+            f"{language}-speaking clinician would actually write them (natural clinical "
+            f"register and abbreviations, not translated English)."
+        )
+    if style_seed and style_seed.get("text"):
+        ex = style_seed["text"][:600]
+        user_prompt += (
+            "\n\nMATCH THE WRITING STYLE of this real example — its length, tone, "
+            "punctuation and level of polish. Real clinician messages are short and "
+            "unpolished: they run to a sentence or two, often skip capitalisation, "
+            "contain typos and abbreviations, and state the situation without preamble.\n"
+            f"STYLE EXAMPLE (copy the STYLE, never the CONTENT):\n\"\"\"{ex}\"\"\"\n"
+            "Your requests must be about COMPLETELY DIFFERENT clinical situations than "
+            "the example: different condition, different drug, different specialty focus. "
+            "Reusing its topic or any of its specifics makes the request unusable."
+        )
     response = await _api_call(state, sys_prompt, user_prompt, max_tokens=4096,
                                temperature=0.9, label="chat_task_proposer", want_json=False)
     queries = _parse_json(response, expect_array=True)
@@ -1517,6 +1771,15 @@ async def agent_task_rubric_generator(state: ServerState, request: str, use_case
     parts = [f"Target clinician request:\n{request}"]
     if knowledge:
         parts.append(f"Retrieved reference passages:\n{knowledge}")
+    # Real-benchmark rubric style exemplars (from the style-seed pool, which for
+    # seeded runs carries the REAL val rubric criteria). Previously written by
+    # the seed builder but never read by anyone.
+    _seed = _sample_style_seed()
+    _crits = (_seed or {}).get("criterion_exemplars") or []
+    if _crits:
+        parts.append("Real benchmark rubric criteria — match their leniency, length and "
+                     "phrasing style (note the hedged 'in some way' / 'at least one of' forms):\n"
+                     + "\n".join(f"- {c}" for c in _crits[:4]))
     parts.append("Produce the JSON object (conversation + rubric_items).")
     user_prompt = "\n\n".join(parts)
     response = await _api_call(state, sys_prompt, user_prompt, max_tokens=12288,
@@ -1540,8 +1803,49 @@ async def agent_task_rubric_generator(state: ServerState, request: str, use_case
             repr(obj.get("conversation"))[:200],
         )
         raise ValueError("invalid conversation (no usable clinician/user turn)")
+    # Drop sign-inverted or grader-meta NEGATIVE criteria: the official grader
+    # marks "Does not assert X" as met when the answer correctly avoids X, so a
+    # negative phrased that way punishes CORRECT answers (39% of generated
+    # negatives in the seeded diag; capped those tasks at ~0.50 max score).
+    _INVERTED = re.compile(
+        r"^\s*(does not|doesn'?t|do not|avoids?|refrains?|never\b|advises against|"
+        r"warns against|recommends against|penali[sz]e)", re.I)
+    # The ^-anchored form misses inversions wrapped in a disjunction, e.g.
+    # "Does at least one of the following: does not recommend X, ...".
+    _INVERTED_WRAPPED = re.compile(
+        r"(?::\s*|,\s*|\bor\b\s+)(does not|doesn'?t|do not|avoids?|refrains? from|"
+        r"never\b|advises against|warns against|recommends against)\s", re.I)
+    # A criterion must describe a property of the RESPONSE, not instruct the
+    # grader — applies to BOTH signs. (Measured: drops 0/1135 real criteria.)
+    _GRADER_META = re.compile(
+        r"^\s*(penali[sz]e|deduct|subtract|award|give (?:credit|points)|score|mark\b|"
+        r"the (?:response|answer|model|assistant|ai)\b)", re.I)
+    if isinstance(items, list):
+        kept = []
+        for it in items:
+            txt = (it.get("criterion_text") or it.get("criterion") or "") if isinstance(it, dict) else ""
+            pts = it.get("points") if isinstance(it, dict) else None
+            if _GRADER_META.match(str(txt)):
+                logger.info(f"~ dropped grader-meta criterion: {str(txt)[:80]!r}")
+                continue
+            if isinstance(pts, (int, float)) and pts < 0 and (
+                    _INVERTED.match(str(txt)) or _INVERTED_WRAPPED.search(str(txt))):
+                logger.info(f"~ dropped inverted negative criterion: {str(txt)[:80]!r}")
+                continue
+            kept.append(it)
+        items = kept
+    # Negative-share enforcement (prompt guidance alone is ignored: measured 70%
+    # of tasks carrying a negative vs the real benchmark's 36%): probabilistically
+    # drop the negatives from ~55% of tasks that have them -> ~32% land with one.
+    if isinstance(items, list) and any(
+            isinstance(it, dict) and isinstance(it.get("points"), (int, float)) and it["points"] < 0
+            for it in items):
+        if random.random() < float(os.environ.get("HB_NEG_DROP_PROB", "0.55")):
+            items = [it for it in items
+                     if not (isinstance(it, dict) and isinstance(it.get("points"), (int, float))
+                             and it["points"] < 0)]
     if not _valid_rubric(items):
-        raise ValueError("invalid rubric (need 3-20 items, >=1 pos & >=1 neg, points in [-10,10])")
+        raise ValueError("invalid rubric (need 1-6 items, >=1 positive, points in [-10,10])")
     # Normalize each item to {criterion_text, points}.
     norm_items = [{"criterion_text": (it.get("criterion_text") or it.get("criterion")),
                    "points": float(it["points"])} for it in items]
@@ -1606,9 +1910,20 @@ async def _rubric_iteration(state: ServerState, worker_id: int) -> None:
     use_case = _weighted_choice(HB_USE_CASES)
     specialty = seed["extra_info"]["specialty"]
     mode = "red_teaming" if random.random() < HB_REDTEAM_SHARE else "good_faith"
+    # Diversity sampling (see _random_kb_anchor). The use_case marginal is left
+    # alone on purpose: it already matches val (45/28/27), so only the axes that
+    # were degenerate — topic and language — are widened here.
+    anchor = ""
+    if random.random() < _hb_anchor_share():
+        anchor = await _random_kb_anchor(state)
+    language = ""
+    if random.random() < _hb_nonenglish_share():
+        language = _weighted_choice(HB_LANGUAGES)
+    style_seed = _sample_style_seed()
 
     try:
-        requests = await agent_task_proposer(state, use_case, specialty)
+        requests = await agent_task_proposer(
+            state, use_case, specialty, anchor, language, style_seed)
     except Exception as e:
         logger.warning(f"worker {worker_id}: task proposer failed: {type(e).__name__}: {e!r}")
         return
@@ -1619,6 +1934,14 @@ async def _rubric_iteration(state: ServerState, worker_id: int) -> None:
     for request in requests:
         if state.pool.full():
             break
+        # Enforce "style seeds are never training questions". The proposer is told to
+        # copy register and invent a new scenario; this rejects the cases where it
+        # paraphrased the seed instead. Dropping the request is the cheap outcome —
+        # letting a public benchmark item into the training stream is not.
+        if style_seed and _seed_leak(style_seed.get("text", ""), request):
+            state.stats["seed_leak_rejected"] = state.stats.get("seed_leak_rejected", 0) + 1
+            logger.info(f"seed-leak reject: {request[:80]!r}")
+            continue
         # Optional Milvus grounding (best-effort).
         knowledge = ""
         try:
@@ -1638,6 +1961,13 @@ async def _rubric_iteration(state: ServerState, worker_id: int) -> None:
             state.stats["total_rejected"] += 1
             continue
         entry = _build_entry_rubric(state, gen, knowledge, request)
+        # SFT mode: the trainer needs a gold `reference_response`. Rubric mode
+        # never had this hook (rubric + sft had not been combined before), so
+        # entries were accepted target-less and the SFT dataset saw none.
+        if state.args.sft_mode and not await _attach_sft_target(state, entry):
+            state.stats["total_rejected"] += 1
+            state.stats["sft_gold_failed"] = state.stats.get("sft_gold_failed", 0) + 1
+            continue
         async with state.log_lock:
             with open(state.accepted_log, "a") as f:
                 f.write(json.dumps({
@@ -1653,7 +1983,8 @@ async def _rubric_iteration(state: ServerState, worker_id: int) -> None:
         await state.pool.put(entry)
         _maybe_log_sample(entry, "gen_task")
         logger.info(
-            f"+ gen_task[{use_case}/{specialty}/{mode}] "
+            f"+ gen_task[{use_case}/{specialty}/{mode}"
+            f"{'/' + language if language else ''}{'/anchored' if anchor else ''}] "
             f"qid={entry['extra_info']['question_id']} n_rubric={len(gen['rubric_items'])} "
             f"pool=({state.pool.qsize()}/{state.args.max_pool_size}) "
             f"generated={state.stats['total_generated']}"
@@ -1725,9 +2056,11 @@ Hard constraints:
   difficulty. Never let all tasks collapse into one template.
 - Do NOT mention specific held-out benchmark items.
 - A LOW mean score is NOT a problem to fix by relaxing grading — it is the training signal working. \
-  NEVER instruct the generator to remove, avoid, or soften NEGATIVE (safety) criteria: every rubric \
-  MUST keep at least one negative criterion or an automated validator rejects it and the generation \
-  is wasted. NEVER cap the criterion count below 5 or above 12; positives must sum to ~10.
+  Do not instruct the generator to drop negative (safety) criteria wholesale; they belong on roughly \
+  a third of tasks, wherever a concrete clinical trap exists. \
+  Rubrics are 1-5 SHORT single-fact criteria worth +5..+10 each, matching the real benchmark's \
+  measured shape (2.2 criteria, modal +8). Never push the generator back toward many long \
+  conjunctive criteria or a fixed points total — that rewards covering ground over being correct.
 - NEVER make rubrics easier to satisfy, "transparent", or 1:1-mapped to the task's explicit \
   deliverables. A rubric that only checks what the prompt literally asked is gameable: the train \
   reward inflates while held-out performance falls. Rubrics must test judgment BEYOND the task's \
@@ -1869,6 +2202,15 @@ async def _evolve_prompts(state: ServerState, step: int, cases: list[dict]) -> d
     )
     new_q, new_g, summary = cur_q, cur_g, ""
     changed_q = changed_g = False
+    # Loud-failure plumbing: a dead evolver must never masquerade as a running
+    # experiment (v15 trained 95 steps on frozen guidance because a TRAPI 404
+    # was logged once per step at WARNING and swallowed). Failures now log at
+    # ERROR with a consecutive count and drop an EVOLVE_FAILING marker file in
+    # log_dir for the job monitor; success removes it.
+    _fail_marker = os.path.join(state.args.log_dir, "EVOLVE_FAILING")
+    n_case_fail = sum(1 for s in summaries if s.startswith("(analysis failed"))
+    if summaries and n_case_fail == len(summaries):
+        logger.error(f"/evolve: ALL {n_case_fail} per-case analyses failed — evolve model unreachable?")
     try:
         raw = await _api_call(state, EVOLVE_AGGREGATE_SYSTEM, agg_user,
                               **_evolve_endpoint(state),
@@ -1887,8 +2229,22 @@ async def _evolve_prompts(state: ServerState, step: int, cases: list[dict]) -> d
                 state.prompt_store.set("task_rubric_generator_guidance", cand_g)
                 changed_g = cand_g != cur_g
                 new_g = cand_g
+        state.evolve_consec_failures = 0
+        try:
+            os.remove(_fail_marker)
+        except FileNotFoundError:
+            pass
     except Exception as e:
-        logger.warning(f"/evolve aggregate failed, keeping guidance: {type(e).__name__}: {e}")
+        state.evolve_consec_failures = getattr(state, "evolve_consec_failures", 0) + 1
+        logger.error(
+            f"/evolve aggregate FAILED ({state.evolve_consec_failures} consecutive), keeping guidance: "
+            f"{type(e).__name__}: {e}")
+        try:
+            with open(_fail_marker, "a") as f:
+                f.write(f"{datetime.now().isoformat()} step={step} "
+                        f"consec={state.evolve_consec_failures} {type(e).__name__}: {e}\n")
+        except OSError:
+            pass
 
     # New history entry for this guidance version; its outcomes fill in on later
     # /evolve calls. Record even unchanged guidance so score attribution stays
@@ -2620,6 +2976,159 @@ async def _build_teacher_content(entry: dict, user_text: str, knowledge: str):
     return content
 
 
+async def _attach_sft_target(state: ServerState, entry: dict) -> bool:
+    """Pick the right SFT-target generator for this entry.
+
+    rubric entries (healthbench, no ground_truth) -> gold answer written against
+    the rubric; labeled entries (mcq/free with a ground truth) -> the original
+    boxed-and-verified teacher trace.
+    """
+    style = (entry.get("reward_model") or {}).get("style", "")
+    gt = (entry.get("reward_model") or {}).get("ground_truth", "")
+    if style == "rubric" or (not gt and (entry.get("extra_info") or {}).get("rubric_items")):
+        return await attach_rubric_gold_trace(state, entry)
+    return await attach_teacher_trace(state, entry)
+
+
+# Teacher-refusal detector. Matches the standard decline openers; deliberately
+# anchored to the START of the answer so a legitimate clinical "I cannot
+# recommend X for this patient" mid-answer is NOT caught.
+_REFUSAL_RE = re.compile(
+    r"^\W{0,10}(i\s*(?:'|\u2019)?\s*m sorry|i am sorry|sorry[,.]|i can\s*(?:'|\u2019)?\s*t\s+"
+    r"(?:help|assist|provide|write|comply|do that)|i cannot\s+(?:help|assist|provide|write|comply)|"
+    r"i\s*(?:'|\u2019)?\s*m not able to|i am unable to|as an ai\b|i won\s*(?:'|\u2019)?\s*t be able)",
+    re.I)
+
+
+RUBRIC_GOLD_SYSTEM_PROMPT = (
+    "You are a senior physician writing the IDEAL response to a clinician's request, "
+    "for use as a teaching example. You are shown the grading rubric that will be used "
+    "to score responses. Write the response that earns EVERY positive criterion and "
+    "triggers NONE of the negative ones.\n"
+    "Rules:\n"
+    "- First write your clinical reasoning inside <think>...</think>: what the request "
+    "actually asks, what matters clinically, what could go wrong. Several sentences.\n"
+    "- Then, after </think>, write the FINAL RESPONSE the clinician should receive.\n"
+    "- The final response must read as a natural expert answer, NOT as a checklist of "
+    "the rubric. Never mention the rubric, the criteria, or that you are being graded.\n"
+    "- Be complete but not padded: the benchmark penalizes length beyond what the "
+    "content needs. Aim for roughly 1500-2500 characters in the final response.\n"
+    "- Answer in the SAME LANGUAGE as the clinician's request.\n"
+    "- If the request rests on a false or unsafe premise, correct it plainly.\n"
+    "- If key information is missing, ask for it as part of a useful answer."
+)
+
+
+def _format_rubric_for_teacher(items: list) -> str:
+    lines = []
+    for it in items or []:
+        pts = it.get("points")
+        txt = it.get("criterion_text") or it.get("criterion") or ""
+        if txt:
+            lines.append(f"[{pts:+g}] {txt}")
+    return "\n".join(lines)
+
+
+async def attach_rubric_gold_trace(state: ServerState, entry: dict) -> bool:
+    """Rubric-mode SFT target: have the teacher write the IDEAL answer for the
+    task, conditioned on the rubric, then self-grade it and keep it only if it
+    actually earns most of the rubric.
+
+    Unlike `attach_teacher_trace` (labeled tasks, verified by \boxed{} match),
+    rubric tasks have no ground_truth — the rubric IS the specification, so the
+    verification is "does the gold answer score well against its own rubric".
+    Sets entry["reference_response"] on success.
+    """
+    items = (entry.get("extra_info") or {}).get("rubric_items") or []
+    if not items:
+        return False
+    conv = (entry.get("extra_info") or {}).get("conversation") or entry.get("prompt") or []
+    task_text = _render_conversation_user(conv) if conv else ""
+    if not task_text.strip():
+        return False
+
+    rubric_block = _format_rubric_for_teacher(items)
+    user_prompt = (
+        f"Clinician request:\n{task_text}\n\n"
+        f"Grading rubric (positive points must be earned, negative points must be avoided):\n"
+        f"{rubric_block}\n\n"
+        "Write <think>reasoning</think> then the final response."
+    )
+    min_score = float(os.environ.get("HB_GOLD_MIN_SCORE", "0.8"))
+
+    for _ in range(state.args.teacher_retries + 1):
+        try:
+            raw = await _api_call(state, RUBRIC_GOLD_SYSTEM_PROMPT, user_prompt,
+                                  max_tokens=state.args.teacher_max_tokens,
+                                  temperature=0.6, label="rubric_gold")
+        except Exception as e:
+            logger.warning(f"rubric gold teacher failed: {type(e).__name__}: {e!r}")
+            continue
+        if not raw or "</think>" not in raw:
+            # require the think/answer structure the student is trained to emit
+            continue
+        answer = raw.split("</think>")[-1].strip()
+        if len(answer) < 200:
+            continue
+        # Refusal guard (dvd 2026-08-04): the teacher occasionally declines
+        # ("I can't help with that", "I'm sorry, ...") — especially on red-team
+        # tasks. A refusal is a fluent, high-confidence string that would train
+        # the student to refuse, so drop it and retry rather than distill it.
+        if _REFUSAL_RE.search(answer[:400]) or _REFUSAL_RE.search(raw[:200]):
+            logger.info(f"~ rubric gold REFUSAL dropped: {answer[:90]!r}")
+            state.stats["sft_gold_refusal"] = state.stats.get("sft_gold_refusal", 0) + 1
+            continue
+        # Self-verify: grade the gold answer with its own rubric; keep only if it
+        # earns >= HB_GOLD_MIN_SCORE. This is the rubric analogue of the labeled
+        # path's boxed-answer check — a gold target that fails its own rubric
+        # would teach the student the wrong thing.
+        try:
+            score = await _grade_answer_with_rubric(state, task_text, answer, items)
+        except Exception as e:
+            logger.warning(f"rubric gold self-grade failed: {type(e).__name__}: {e!r}")
+            score = None
+        # STRICT (dvd 2026-08-04): reject unless the gold answer PROVABLY earns
+        # its own rubric. An ungradable trace (score None) is rejected too — an
+        # unverified target is exactly what this gate exists to prevent.
+        if score is None or score < min_score:
+            state.stats["sft_gold_lowscore"] = state.stats.get("sft_gold_lowscore", 0) + 1
+            logger.info(f"~ rubric gold rejected (self-score {score} < {min_score})")
+            continue
+        entry["reference_response"] = raw.strip()
+        entry.setdefault("extra_info", {})["gold_self_score"] = score
+        return True
+    return False
+
+
+async def _grade_answer_with_rubric(state: ServerState, task_text: str, answer: str,
+                                    items: list) -> float:
+    """Grade `answer` against `items` with the same criterion-by-criterion
+    contract the training reward uses. Returns achieved/total_positive."""
+    conv_block = f"user: {task_text}\n\nassistant: {answer}"
+
+    async def one(it):
+        pts = float(it.get("points", 0))
+        txt = it.get("criterion_text") or it.get("criterion") or ""
+        prompt = (
+            "Does the assistant's response meet this rubric criterion?\n\n"
+            f"# Conversation\n{conv_block}\n\n# Rubric item\n[{pts:+g}] {txt}\n\n"
+            'Return JSON: {"criteria_met": true or false}'
+        )
+        # temperature >= 0.5 keeps _api_call from adding reasoning_effort="none",
+        # which gpt-chat-latest rejects with 400 (chat models don't take it).
+        # The trapi branch strips temperature itself, so this only sets that flag.
+        raw = await _api_call(state, "You are a careful grader. Return only JSON.",
+                              prompt, max_tokens=512, temperature=0.6, label="gold_grade",
+                              want_json=True)
+        obj = _parse_json(raw) or {}
+        return pts, bool(obj.get("criteria_met"))
+
+    graded = await asyncio.gather(*[one(it) for it in items])
+    total_pos = sum(p for p, _ in graded if p > 0) or 1.0
+    achieved = sum(p for p, met in graded if met)
+    return achieved / total_pos
+
+
 async def attach_teacher_trace(state: ServerState, entry: dict) -> bool:
     """Solve the entry's question with the teacher and attach a verified trace.
 
@@ -2768,7 +3277,7 @@ async def worker_loop(state: ServerState, worker_id: int):
                 # the trainer's tokenizer.
                 if state.args.sft_mode and not _entry_images_present(entry):
                     continue
-                if state.args.sft_mode and not await attach_teacher_trace(state, entry):
+                if state.args.sft_mode and not await _attach_sft_target(state, entry):
                     state.stats["sft_traces_skipped"] += 1
                     continue
                 async with state.log_lock:
@@ -2858,7 +3367,7 @@ async def worker_loop(state: ServerState, worker_id: int):
                     if state.args.sft_mode and not _entry_images_present(entry):
                         state.stats["served_missing_image_skipped"] += 1
                         continue
-                    if state.args.sft_mode and not await attach_teacher_trace(state, entry):
+                    if state.args.sft_mode and not await _attach_sft_target(state, entry):
                         state.stats["sft_traces_skipped"] += 1
                         continue
                     async with state.log_lock:
@@ -2942,7 +3451,7 @@ async def worker_loop(state: ServerState, worker_id: int):
             for gen, passage, query in accepted_pairs:
                 entry = _build_entry(state, gen, target, passage, query,
                                      cur_target_idx, cur_cycle)
-                if state.args.sft_mode and not await attach_teacher_trace(state, entry):
+                if state.args.sft_mode and not await _attach_sft_target(state, entry):
                     state.stats["sft_traces_skipped"] += 1
                     continue
                 async with state.log_lock:
@@ -3011,14 +3520,22 @@ class EvolvePayload(BaseModel):
 class RetrievePayload(BaseModel):
     """Solver-facing retrieval request (the `search_medical_kb` rollout tool).
 
-    The RL/eval policy model, on its first conversational turn, issues a query
-    which is embedded and matched against the read-only medical knowledge DB;
-    the returned passages are injected back as a loss-masked tool turn so the
-    model can ground its final answer. Reuses the same embed+Milvus path the
-    generation pipeline already uses (`_milvus_search`)."""
+    The RL/eval policy issues a QUERY PLAN — up to `RETRIEVE_MAX_QUERIES` sub-queries
+    covering different facets of the request — which is batch-embedded, matched
+    against the read-only medical knowledge DB, merged round-robin, and (by default)
+    compressed by the summarizer into a question-conditioned evidence brief. The
+    result is injected back as a loss-masked tool turn.
 
-    query: str
-    top_k: int | None = None
+    `query` (single string) is kept for the eval harness and the GPT-5.6 warm-start
+    traces, which emit `<parameter=query>`; dropping it would invalidate that SFT set.
+    """
+
+    query: str | None = None            # legacy single-query form
+    queries: list[str] | None = None    # query plan (preferred)
+    question: str | None = None         # the clinician request, for question-conditioning
+    top_k: int | None = None            # depth PER sub-query
+    total: int | None = None            # merged passage budget
+    summarize: bool | None = None       # None -> server default
 
 
 class ReplayPayload(BaseModel):
@@ -3067,6 +3584,12 @@ async def lifespan(app: FastAPI):
     workers = [
         asyncio.create_task(worker_loop(STATE, i)) for i in range(args.workers)
     ]
+    # Drain wikidoc telemetry off the /retrieve request path (batched, in a thread).
+    workers.append(asyncio.create_task(_wikidoc_writer(STATE)))
+    # Probe the summarizer ONCE at startup: a whole run silently training on the
+    # raw-passage fallback distribution is the failure this warning exists to prevent.
+    if args.summarizer_api_base:
+        asyncio.create_task(_probe_summarizer(STATE))
     logger.info(f"started {args.workers} workers; pool max={args.max_pool_size}")
     try:
         yield
@@ -3085,66 +3608,242 @@ async def healthz():
     return {"ok": True}
 
 
-# Max chars kept per retrieved passage in the tool response. Keeps the injected
-# tool turn small (~top_k * this) so it fits the rollout window with room for the
-# answer. Enriched wikidoc "article" rows carry compact full-text/summaries worth
-# returning in full; snippet sources (pubmed/textbook chunks) stay terse.
-_RETRIEVE_PASSAGE_CHARS = 600
-_RETRIEVE_WIKIDOC_CHARS = 1600
+# Retrieval ranking policy (source priors, junk exclusion, per-passage caps)
+# lives in kb/retrieval.py so the offline trace generator builds SFT traces from
+# exactly the passages a rollout would see. sys.path[0] is this file's directory
+# when the server is launched as a script; be explicit so it also works under
+# uvicorn/module launchers.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from kb.retrieval import (  # noqa: E402
+    MAX_QUERIES, MERGE_PER_SOURCE, MERGE_TOTAL, PER_QUERY_K,
+    RetrieveConfig, format_passages, merge_ranked, rank_hits,
+)
+
+
+# ---------------------------------------------------------------------------
+# Retrieval summarization
+# ---------------------------------------------------------------------------
+# Runs SERVER-SIDE, inside /retrieve, on purpose: offline SFT-trace generation and
+# RL rollouts then see byte-identical evidence briefs. If the summarizer lived in
+# the agent loop instead, the warm start would teach a passage distribution that
+# does not exist at train time — the invariant kb/retrieval.py exists to protect.
+SUMMARY_SYSTEM = (
+    "You are a clinical evidence summarizer. You are given a clinician's request and "
+    "reference passages retrieved from a medical knowledge base. Write a compact "
+    "EVIDENCE BRIEF that a physician will use to answer the request.\n"
+    "RULES:\n"
+    "- Copy every number VERBATIM: doses, units, frequencies, thresholds, cutoffs, "
+    "ages, durations, percentages, codes, trial names. Never round, convert, infer or "
+    "combine numbers.\n"
+    "- Include ONLY facts stated in the passages. Add nothing from your own knowledge. "
+    "If the passages do not address part of the request, write one line: "
+    "'Not covered: <topic>'.\n"
+    "- Group by topic as short bullets. Tag each bullet with its passage number, e.g. [p3].\n"
+    "- Drop passages that are off-topic, table-of-contents fragments, or duplicates.\n"
+    "- Max 400 words. No preamble, no advice, and do NOT answer the request yourself."
+)
+SUMMARY_USER = "# Clinician request\n{question}\n\n# Retrieved passages\n{passages}\n\n# Evidence brief"
+
+
+async def _probe_summarizer(s: ServerState) -> None:
+    """One-shot startup reachability check; logs loudly if /retrieve will fall back."""
+    try:
+        r = await s.http_client.get(
+            f"{s.args.summarizer_api_base.rstrip('/')}/models",
+            headers={"Authorization": f"Bearer {s.args.summarizer_api_key}"}, timeout=20,
+        )
+        r.raise_for_status()
+        logger.warning("summarizer OK: %s @ %s", s.args.summarizer_model,
+                       s.args.summarizer_api_base)
+    except Exception as e:
+        s.summarizer_warned = True
+        logger.error(
+            "SUMMARIZER UNREACHABLE (%s: %s) at %s -- /retrieve will serve RAW passages "
+            "for the whole run. Check the service before trusting these results.",
+            type(e).__name__, e, s.args.summarizer_api_base,
+        )
+
+
+async def _summarize_passages(s: ServerState, question: str, passages: list[dict],
+                              raw_text: str) -> tuple[str, bool, str | None]:
+    """Compress merged passages into a question-conditioned evidence brief.
+
+    Returns (text, summarized, fallback_reason). Falls back to the raw formatted
+    passages on ANY failure — a summarizer outage must degrade context quality, never
+    lose a rollout."""
+    timeout = float(os.environ.get("RETRIEVE_SUMMARY_TIMEOUT", "45"))
+    min_chars = int(os.environ.get("RETRIEVE_SUMMARY_MIN_CHARS", "200"))
+    try:
+        async with s.summary_sem, timed(s, "summarize"):
+            brief = await asyncio.wait_for(
+                _api_call(
+                    s, SUMMARY_SYSTEM,
+                    SUMMARY_USER.format(question=(question or "")[:4000], passages=raw_text),
+                    max_tokens=int(os.environ.get("RETRIEVE_SUMMARY_MAX_TOKENS", "700")),
+                    # >=0.5 would request a thinking channel; a thinking summarizer on
+                    # the generation critical path blows the latency budget.
+                    temperature=0.2, label="summarize",
+                    api_base=s.args.summarizer_api_base,
+                    api_key=s.args.summarizer_api_key,
+                    model_name=s.args.summarizer_model,
+                    provider_override=s.args.summarizer_provider,
+                ),
+                timeout=timeout,
+            )
+        brief = (brief or "").strip()
+        if len(brief) < min_chars:
+            raise ValueError(f"degenerate summary ({len(brief)} chars)")
+        return brief, True, None
+    except Exception as e:
+        s.stats["summarizer_fail"] = s.stats.get("summarizer_fail", 0) + 1
+        if not s.summarizer_warned:
+            s.summarizer_warned = True
+            logger.error("SUMMARIZER FAILING (%s: %s) -- serving raw passages",
+                         type(e).__name__, e)
+        return raw_text, False, type(e).__name__
+
+
+async def _wikidoc_writer(s: ServerState) -> None:
+    """Batched background drain for the wikidoc title queue (never on the hot path)."""
+    path = os.path.join(s.args.log_dir, "wikidoc_retrieved_titles.jsonl")
+
+    def _append(rows: list[dict]) -> None:
+        with open(path, "a") as f:
+            for r in rows:
+                f.write(json.dumps(r) + "\n")
+
+    while True:
+        try:
+            batch = [await s.wikidoc_q.get()]
+            while not s.wikidoc_q.empty() and len(batch) < 500:
+                batch.append(s.wikidoc_q.get_nowait())
+            await asyncio.to_thread(_append, batch)
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            logger.debug(f"wikidoc writer: {type(e).__name__}: {e}")
+            await asyncio.sleep(5)
+
+
+def _queue_wikidoc_titles(s: ServerState, hits: list[dict]) -> None:
+    """Hand retrieved wikidoc titles to the background writer. NON-BLOCKING.
+
+    This used to do a blocking open()/write() on the event loop while holding the
+    PROCESS-WIDE `log_lock` (shared with /report and the generation workers), once
+    per retrieval, iterating the whole raw over-fetch. Under concurrent rollouts
+    every retrieval serialized behind every other retrieval's file IO — and the
+    over-fetch grows from ~40 rows to ~320 under a 4-query plan. Telemetry is never
+    worth a rollout: on a full queue we drop.
+    """
+    q = getattr(s, "wikidoc_q", None)
+    if q is None:
+        return
+    seen = s.wikidoc_seen
+    for h in hits:
+        if h.get("source") != "wikidoc":
+            continue
+        title = (h.get("text") or "").strip()
+        if not title:
+            continue
+        eid = h.get("entry_id", "") or title[:120]
+        if eid in seen:
+            continue
+        if len(seen) > 200_000:
+            seen.clear()
+        seen.add(eid)
+        try:
+            q.put_nowait({"title": title, "entry_id": h.get("entry_id", "")})
+        except asyncio.QueueFull:
+            return
 
 
 @app.post("/retrieve")
 async def retrieve(payload: RetrievePayload):
-    """Embed `query`, search the medical knowledge DB, return top-k passages.
+    """Run a query PLAN against the medical knowledge DB and return grounded context.
 
-    Read-only (no STATE mutation). Returns both a structured `passages` list and
-    a pre-formatted `text` block the rollout tool can hand back to the model
-    verbatim. Never raises to the caller: on any retrieval failure it returns an
-    empty result so a rollout is never lost to a transient DB hiccup."""
+    Pipeline: batch-embed 1..MAX_QUERIES sub-queries -> per-query Milvus search with
+    the junk rows excluded in-query -> per-query re-rank by cosine * source prior ->
+    round-robin merge with exact/near dedup and a global source cap -> optional
+    question-conditioned summarization into an evidence brief.
+
+    Read-only (no STATE mutation beyond telemetry). NEVER raises to the caller: every
+    failure degrades (summarizer down -> raw passages; DB down -> empty result) so a
+    rollout is never lost to a transient hiccup."""
     s = STATE
-    query = (payload.query or "").strip()
-    if not query:
-        return {"passages": [], "text": "No query provided."}
-    top_k = payload.top_k or s.args.milvus_top_k
-    try:
-        hits = await _milvus_search(s, query, top_k=top_k)
-    except Exception as e:  # defensive: retrieval must never kill a rollout
-        logger.warning(f"/retrieve failed for {query[:60]!r}: {type(e).__name__}: {e!r}")
-        hits = []
-    passages = []
-    for h in hits:
-        text = (h.get("text") or h.get("answer") or h.get("question") or "").strip()
-        if not text:
-            continue
-        cap = _RETRIEVE_WIKIDOC_CHARS if h.get("source") == "wikidoc" else _RETRIEVE_PASSAGE_CHARS
-        passages.append({
-            "source": h.get("source", "?"),
-            "text": text[:cap],
-            "score": h.get("score", 0.0),
-        })
-    # Record retrieved wikidoc titles so a post-run pass can fetch + cache their
-    # full text (see wikidoc_enrich.py). Append-only; dedup happens offline.
-    wiki = [(h.get("text") or "").strip() for h in hits if h.get("source") == "wikidoc"]
-    wiki = [w for w in wiki if w]
-    if wiki:
+    queries = _coerce_query_plan(payload)
+    if not queries:
+        return {"passages": [], "text": "No query provided.", "summarized": False,
+                "n_queries": 0, "n_merged": 0, "merge_stats": {}, "chars": 0,
+                "fallback_reason": "empty_query"}
+
+    top_k = int(payload.top_k or s.args.retrieve_top_k or PER_QUERY_K)
+    total = int(payload.total or s.args.retrieve_total or MERGE_TOTAL)
+    cfg = RetrieveConfig()
+
+    async with s.retrieve_sem:
         try:
-            path = os.path.join(s.args.log_dir, "wikidoc_retrieved_titles.jsonl")
-            async with s.log_lock:
-                with open(path, "a") as f:
-                    for h in hits:
-                        if h.get("source") == "wikidoc" and (h.get("text") or "").strip():
-                            f.write(json.dumps({"title": h["text"].strip(),
-                                                "entry_id": h.get("entry_id", "")}) + "\n")
-        except Exception as e:
-            logger.debug(f"wikidoc title log failed: {e}")
-    if passages:
-        formatted = "\n\n".join(
-            f"[passage {i + 1} | source={p['source']}]\n{p['text']}"
-            for i, p in enumerate(passages)
+            per_query_hits = await _milvus_search_multi(
+                s, queries, top_k=top_k * cfg.fetch_mult, filter_expr=cfg.exclude_expr
+            )
+        except Exception as e:  # defensive: retrieval must never kill a rollout
+            logger.warning(f"/retrieve failed for {queries[0][:60]!r}: {type(e).__name__}: {e!r}")
+            per_query_hits = []
+
+        # Rank WITHIN each sub-query first, so the merge sees each facet's own best
+        # passages rather than one global list dominated by the strongest query.
+        per_query = [rank_hits(h, top_k, cfg) for h in per_query_hits]
+        passages, merge_stats = merge_ranked(
+            per_query, total=total, per_source_cap=MERGE_PER_SOURCE
         )
-    else:
-        formatted = "No relevant passages found in the medical knowledge base."
-    return {"passages": passages, "text": formatted}
+        for h in per_query_hits:
+            _queue_wikidoc_titles(s, h)
+
+        raw_text = format_passages(passages)
+        text, summarized, reason = raw_text, False, None
+        want_summary = s.args.summarizer_api_base and (
+            payload.summarize if payload.summarize is not None else True
+        )
+        if want_summary and passages:
+            text, summarized, reason = await _summarize_passages(
+                s, payload.question or queries[0], passages, raw_text
+            )
+
+    return {
+        "passages": passages,
+        "text": text,
+        "raw_text": raw_text,
+        "summarized": summarized,
+        "queries": queries,
+        "n_queries": len(queries),
+        "n_merged": len(passages),
+        "merge_stats": merge_stats,
+        "chars": len(text),
+        "fallback_reason": reason,
+    }
+
+
+def _coerce_query_plan(payload: RetrievePayload) -> list[str]:
+    """Accept a query plan in every shape a model or caller might send it."""
+    raw: list = []
+    if payload.queries:
+        raw = list(payload.queries)
+    elif payload.query:
+        q = payload.query.strip()
+        if q.startswith("["):
+            try:
+                parsed = json.loads(q)
+                raw = parsed if isinstance(parsed, list) else [q]
+            except Exception:
+                raw = q.splitlines()
+        else:
+            raw = q.splitlines()
+    out, seen = [], set()
+    for q in raw:
+        q = str(q).strip().lstrip("-*0123456789. ").strip('"').strip()
+        if len(q) >= 4 and q.lower() not in seen:
+            seen.add(q.lower())
+            out.append(q)
+    return out[:MAX_QUERIES]
 
 
 @app.get("/stats")
@@ -3216,6 +3915,8 @@ async def _finalize_served(s, entry: dict, source: str):
     cannot produce a verified trace the entry is rejected rather than served
     incomplete.
     """
+    if (entry.get("extra_info") or {}).get("question_id") in STATE.__dict__.get("dead_qids", set()):
+        return None
     # Backstop: never serve an SFT image row whose files are missing on this
     # pod (would crash the trainer's multimodal tokenizer). Covers replay /
     # history / cold-start-seed sources that bypass the worker's direct-mode gate.
@@ -3225,7 +3926,7 @@ async def _finalize_served(s, entry: dict, source: str):
     missing = _missing_fields(s, entry)
     if missing == ["reference_response"] and getattr(s.args, "sft_mode", False):
         try:
-            if await attach_teacher_trace(s, entry):
+            if await _attach_sft_target(s, entry):
                 s.stats["served_repaired_inline"] += 1
         except Exception as e:
             logger.warning(
@@ -3314,6 +4015,25 @@ async def report(payload: ReportPayload):
     s.accuracy_by_id[payload.question_id] = acc
     s.accuracy_history.append(acc)
     s.stats["reports"] += 1
+    # Solvability filter (2026-08-03 seeded-diag post-mortem): a task whose
+    # first >=8 graded rollouts show no variance or an extreme mean gives GRPO
+    # no gradient (measured: 30% of groups all-zero, 17 tasks never scored >0).
+    # Evict such tasks so they are never served again.
+    _accs = s.__dict__.setdefault("report_accs", {})
+    _dead = s.__dict__.setdefault("dead_qids", set())
+    lst = _accs.setdefault(payload.question_id, [])
+    lst.append(acc)
+    if len(lst) >= 8 and payload.question_id not in _dead:
+        m = sum(lst) / len(lst)
+        var = sum((a - m) ** 2 for a in lst) / len(lst)
+        if var < 1e-9 or m < 0.05 or m > 0.95:
+            _dead.add(payload.question_id)
+            before = len(s.history)
+            s.history[:] = [e for e in s.history
+                            if (e.get("extra_info") or {}).get("question_id") != payload.question_id]
+            s.stats["evicted_unsolvable"] = s.stats.get("evicted_unsolvable", 0) + 1
+            logger.info(f"~ evicted qid={payload.question_id} (n={len(lst)} mean={m:.3f} "
+                        f"var={var:.4f}); history {before}->{len(s.history)}")
     recent_mean = sum(s.accuracy_history) / len(s.accuracy_history)
     logger.info(
         f"! feedback qid={payload.question_id} acc={acc:.2f} "
@@ -3490,7 +4210,23 @@ def main():
         help="How many neighbor questions to retrieve from history when seeding the "
              "proposer.",
     )
+    # NOTE: --milvus_top_k belongs to the GENERATION pipeline (question proposal,
+    # knowledge grounding). The rollout-facing /retrieve endpoint has its own depth
+    # knobs below; the two were previously conflated, so an omitted `top_k` from the
+    # rollout tool silently got the generation pipeline's 16 instead of the tuned 5.
     parser.add_argument("--milvus_top_k", type=int, default=16)
+    # ---- /retrieve (RL rollout tool) ----
+    parser.add_argument("--retrieve_top_k", type=int, default=None,
+                        help="Passages fetched PER sub-query (default kb.retrieval.PER_QUERY_K=5).")
+    parser.add_argument("--retrieve_total", type=int, default=None,
+                        help="Merged passage budget across all sub-queries (default 16).")
+    parser.add_argument("--summarizer_api_base", default=os.environ.get("SUMMARIZER_API_BASE", ""),
+                        help="OpenAI-compatible base URL of the FROZEN summarizer serving the "
+                             "same checkpoint the SFT traces were built from. Empty disables "
+                             "summarization and /retrieve returns raw passages.")
+    parser.add_argument("--summarizer_api_key", default=os.environ.get("SUMMARIZER_API_KEY", "EMPTY"))
+    parser.add_argument("--summarizer_model", default=os.environ.get("SUMMARIZER_MODEL", ""))
+    parser.add_argument("--summarizer_provider", default=os.environ.get("SUMMARIZER_PROVIDER", "vllm"))
     parser.add_argument("--n_queries", type=int, default=10)
     parser.add_argument("--questions_per_query", type=int, default=1)
     parser.add_argument("--no_label", action="store_true")

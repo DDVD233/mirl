@@ -33,6 +33,13 @@ cd "$REPO"
 # single-turn, so this is a clean A/B, not a resume).
 export EXP="${EXP:-healthbench_rubric_qwen36_27b_v7}"
 
+# NOTE (2026-08-05): RetrievalToolAgentLoop is now a SINGLE CONTINUOUS trajectory
+# (query turns + masked evidence + answer in one sequence, all model tokens trained).
+# multi_turn.max_assistant_turns / max_user_turns were removed from this script: the
+# loop owns its own run() and never read them, so they implied a cap that did not
+# exist. The real budget knobs are VERL_MAX_SEARCHES / VERL_ANSWER_RESERVE_TOKENS.
+# Val numbers from this script are NOT comparable to its own pre-2026-08-05 history
+# (the graded text moved from a rebuilt prompt to the in-trajectory answer).
 # Retrieval wiring shared by the agent loop and the tool.
 export RETRIEVAL_URL="${RETRIEVAL_URL:-http://localhost:8006/retrieve}"
 TOOL_CONFIG="${TOOL_CONFIG:-scripts/self_evolving/train/config/medical_retrieval_tool.yaml}"
@@ -58,8 +65,7 @@ export VERL_THINK_BUDGET_TOKENS="${VERL_THINK_BUDGET_TOKENS:-3072}"
 # the multi-turn + retrieval-agent-loop overrides on top.
 exec bash scripts/self_evolving/train/run_qwen36_27b_healthbench_rubric.sh \
     actor_rollout_ref.rollout.multi_turn.enable=True \
-    actor_rollout_ref.rollout.multi_turn.max_assistant_turns=2 \
-    actor_rollout_ref.rollout.multi_turn.max_user_turns=1 \
+    actor_rollout_ref.rollout.multi_turn.tool_response_truncate_side=right \
     actor_rollout_ref.rollout.multi_turn.format=qwen3_coder \
     actor_rollout_ref.rollout.multi_turn.max_tool_response_length=4000 \
     actor_rollout_ref.rollout.multi_turn.tool_config_path="$TOOL_CONFIG" \

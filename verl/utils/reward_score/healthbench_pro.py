@@ -14,9 +14,21 @@ training row in ``extra_info["rubric_items"]`` (list of {criterion_text|criterio
 points}); they are produced by ``scripts/self_evolving/healthbench_gen.py``.
 
 This module is dispatched from ``self_evolving.compute_score`` for any
-``data_source`` starting with "healthbench" and returns the SAME key set as
-``self_evolving`` / ``climb`` so mixed training batches stay homogeneous for
-DataProto. It does NOT affect any other data source.
+``data_source`` starting with "healthbench". It does NOT affect any other data
+source.
+
+KEY-SET HOMOGENEITY (read before adding a return key). The trainer snapshots
+``reward_extra_keys`` from **sample 0 only** (reward_loop.py / agent_loop.py:
+``keys = list(infos[0].keys())`` then ``[info[k] for info in infos]``). So a key
+present on sample 0 but missing on sample k is a ``KeyError`` that kills the step,
+and a key missing on sample 0 is silently dropped for the whole batch. The rule
+that makes this structural rather than reviewed:
+
+    **Never build a result dict outside ``_result()``. New keys are added as
+    ``_result`` parameters with defaults.**
+
+``HOMOGENEOUS_DEFAULTS`` below is the shared floor spliced into the other
+``self_evolving`` branches so genuinely mixed batches stack.
 """
 
 from __future__ import annotations
@@ -34,6 +46,46 @@ logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 # Distinct (val/train, provider, base, model) judge configs already logged (log once each).
 _JUDGE_LOGGED: set = set()
 
+# Cumulative count of criteria that could not be graded at all (see D3). Kept for
+# the log line; the ACTIONABLE signal is the per-sample `judge_fail` reward key,
+# because a process-global counter never reaches wandb and a judge outage is
+# otherwise indistinguishable from a batch of genuinely bad answers.
+_JUDGE_FAILURES = [0]
+
+# Every numeric key any branch of self_evolving.compute_score may return, with a
+# neutral default. Splice into the branches that do not go through `_result` so a
+# mixed batch (healthbench + mimic/climb rows) stacks instead of raising KeyError
+# on the sample-0 key snapshot. See the module docstring.
+HOMOGENEOUS_DEFAULTS: dict = {
+    "acc_raw": 0.0,
+    "acc_len_adj": 0.0,
+    "acc_raw_signed": 0.0,
+    "acc_len_adj_signed": 0.0,
+    "exact_acc": 0.0,
+    "think_closed": 1.0,
+    "think_chars": 0.0,
+    "rubric_met": "[]",
+    "judge_fail": 0.0,
+    # Retrieval telemetry / reward (populated by the retrieval agent loop; 0 when
+    # the rollout did not retrieve or the run has retrieval disabled).
+    "retrieval_used": 0.0,
+    "retrieval_coverage": 0.0,
+    "retrieval_judged": 0.0,
+    "retrieval_bonus": 0.0,
+    "n_search": 0.0,
+    "n_queries": 0.0,
+    "retrieval_hits": 0.0,
+    "retrieval_error": 0.0,
+    "retrieval_truncated": 0.0,
+    "answer_rescued": 0.0,
+    "budget_exhausted": 0.0,
+    "retrieval_ctx_chars": 0.0,
+    # self_evolving evolve add-on (returned only when evolve_on, which is decided
+    # PER SAMPLE inside an exception handler -> same latent KeyError class).
+    "dynamic_judge": 0.0,
+    "dynamic_function": 0.0,
+}
+
 # Length-adjustment constants from the HealthBench Professional paper.
 LENGTH_ADJ_CENTER = float(os.environ.get("HB_LENGTH_CENTER", "2000"))
 LENGTH_ADJ_PENALTY_PER_500 = float(os.environ.get("HB_LENGTH_PENALTY_PER_500", "0.0147"))
@@ -47,6 +99,26 @@ LENGTH_ADJ_PENALTY_PER_500 = float(os.environ.get("HB_LENGTH_PENALTY_PER_500", "
 #  - think text beyond a free budget pays a small linear penalty, so the policy
 #    learns to bound its reasoning instead of drifting toward the cap.
 # Validation is untouched (official HealthBench-Pro protocol, comparable across runs).
+# ---- retrieval-quality reward (TRAINING ONLY) ----
+# Weight of the second graded component. The bonus is ADDITIVE and CENTERED, never
+# a normalized weighted sum: with norm_adv_by_std_in_grpo=False (Dr.GRPO) dividing
+# by (1+w) would silently scale every advantage by 1/(1+w) — a learning-rate cut
+# that would be misread as "the retrieval term hurt".
+HB_RETRIEVAL_WEIGHT = float(os.environ.get("HB_RETRIEVAL_WEIGHT", "0.0"))
+# 1 = center each rollout's coverage on the mean coverage of the OTHER searching
+# rollouts in its GRPO group (folded in the trainer, where uid exists). That makes
+# the deltas sum to ~0 within the group, so the search/no-search decision stays
+# arbitrated by the answer reward alone and coverage only ranks QUERY QUALITY among
+# rollouts that did search. 0 = fold here against the fixed counterfactual below,
+# for paths with no groups.
+HB_RETRIEVAL_GROUP_BASELINE = os.environ.get("HB_RETRIEVAL_GROUP_BASELINE", "1") == "1"
+# Counterfactual coverage attributed to NOT searching. Only used as the fallback
+# baseline when a group has fewer than 2 searching rollouts. Set it near the
+# observed reward/retrieval_coverage/mean; too high trains the model away from
+# searching on exactly the hard-knowledge tasks retrieval exists for (~26% of
+# criteria are facts the KB simply does not hold, where even a perfect query scores 0).
+HB_RETRIEVAL_NOSEARCH_COVERAGE = float(os.environ.get("HB_RETRIEVAL_NOSEARCH_COVERAGE", "0.35"))
+
 HB_UNCLOSED_THINK_SCORE = float(os.environ.get("HB_UNCLOSED_THINK_SCORE", "0.0"))
 HB_THINK_FREE_CHARS = float(os.environ.get("HB_THINK_FREE_CHARS", "10000"))
 HB_THINK_PENALTY_PER_1K = float(os.environ.get("HB_THINK_PENALTY_PER_1K", "0.02"))
@@ -59,6 +131,13 @@ HB_THINK_PENALTY_MAX = float(os.environ.get("HB_THINK_PENALTY_MAX", "0.3"))
 # identical). A negative floor (e.g. -0.5) keeps bad rollouts ORDERED. Validation
 # metrics are untouched (signed variants are already reported separately).
 HB_SCORE_MIN = float(os.environ.get("HB_SCORE_MIN", "0.0"))
+
+# Repetition penalty (training only; see the v16 note in compute_score).
+# `dup fraction` = share of 8-gram positions that repeat an earlier 8-gram.
+HB_REP_FREE_FRAC = float(os.environ.get("HB_REP_FREE_FRAC", "0.15"))
+HB_REP_PENALTY_SLOPE = float(os.environ.get("HB_REP_PENALTY_SLOPE", "1.0"))
+HB_REP_PENALTY_MAX = float(os.environ.get("HB_REP_PENALTY_MAX", "0.5"))
+HB_REP_LOOP_FRAC = float(os.environ.get("HB_REP_LOOP_FRAC", "0.5"))
 
 # Probability of printing a full per-item rubric grading trace (debug).
 DEBUG_PRINT_PROB = float(os.environ.get("HB_DEBUG_PRINT_PROB", "0.0"))
@@ -129,8 +208,15 @@ Return just the json object in markdown format. Do not include any other text in
 # attention_mask (loss-masked tool tokens still appear). Strip them before the
 # thinking split so neither the retrieval query nor the retrieved passages leak
 # into the graded / length-counted answer.
+# The closing tag is OPTIONAL (``|\Z``). A rollout that hits the response cap
+# mid-``<tool_response>`` leaves an unterminated span; requiring the close tag left
+# the entire raw passage block in the "answer", where it was counted as thinking
+# chars, fed to the repetition penalty (retrieved passages share 8-grams across
+# sources, so `_dup_ngram_frac` could exceed HB_REP_LOOP_FRAC and floor the reward),
+# and — with no later ``</think>`` — could be graded AS the answer. Single
+# continuous retrieval trajectories make truncation mid-span routine.
 _TOOL_SPAN_RE = re.compile(
-    r"<tool_call>.*?</tool_call>|<tool_response>.*?</tool_response>",
+    r"<tool_call>.*?(?:</tool_call>|\Z)|<tool_response>.*?(?:</tool_response>|\Z)",
     re.DOTALL | re.IGNORECASE,
 )
 
@@ -199,6 +285,18 @@ def _conversation_text(extra_info: dict, solution_str: str) -> str:
     return "\n\n".join(lines)
 
 
+def _task_text(extra_info: dict) -> str:
+    """The clinician request alone (no model response) — what the coverage judge
+    needs to decide whether the retrieved evidence is on target."""
+    conv = extra_info.get("conversation")
+    if isinstance(conv, list) and conv:
+        parts = [str(m.get("content") or "") for m in conv
+                 if isinstance(m, dict) and m.get("role") == "user"]
+        if parts:
+            return "\n\n".join(parts)
+    return str(extra_info.get("question") or extra_info.get("prompt") or "")
+
+
 def _parse_met(text: str) -> bool | None:
     cleaned = re.sub(r"^```json\s*|\s*```$", "", (text or "").strip())
     try:
@@ -229,6 +327,10 @@ async def compute_score(
     fallback_api_key: str = "EMPTY",
     fallback_model_name: str = "",
     fallback_provider: str = "",
+    cov_api_base: str = "",
+    cov_api_key: str = "EMPTY",
+    cov_model_name: str = "",
+    cov_provider: str = "",
     **kwargs,
 ) -> dict:
     """Score an open-ended clinician-chat response against its co-generated rubric.
@@ -262,6 +364,19 @@ async def compute_score(
     # final answer, not the reasoning.
     answer_text = _strip_thinking(response_text)
     think_closed = "</think>" in response_text.lower()
+    # The trained trajectory is not always the graded one. The retrieval agent loop
+    # trains a fraction of rollouts on the phase-1 retrieval DECISION (a tool call),
+    # while the thing worth scoring is still the answer that decision led to; the
+    # loop passes that answer through `graded_answer`.
+    #
+    # Only the ANSWER is overridden. think_closed / think_chars stay derived from the
+    # generated response, because they describe what the policy actually produced —
+    # and because `graded_answer` arrives already think-stripped, using it here would
+    # mark every decision sample as unclosed-think and hand it the fixed penalty
+    # score, teaching the model that searching is always wrong.
+    graded_answer = extra_info.get("graded_answer")
+    if isinstance(graded_answer, str) and graded_answer.strip():
+        answer_text = graded_answer
     # Count only reasoning chars toward the think-length penalty — exclude
     # tool-call/tool-response spans (retrieval mode) so retrieved passages are
     # neither rewarded nor penalized as "thinking".
@@ -277,12 +392,32 @@ async def compute_score(
     is_val = bool(extra_info.get("_is_validation", False)) or str(data_source or "").startswith(
         "healthbench_professional"
     )
+    # `is_val` above is the GRADING-PROTOCOL switch (judge routing, length
+    # adjustment, benchmark clip) and must keep exactly that meaning. It is NOT a
+    # usable "is this a validation rollout?" test: on a train-on-val run
+    # (train_files == val_files == healthbench_professional/*) it is True for every
+    # TRAINING row too. Anything training-only — the retrieval reward, the coverage
+    # judge — must gate on `is_train`, which reads the real trainer flag (now
+    # delivered via meta_info, see agent_loop._compute_score).
+    is_train = not bool(extra_info.get("_is_validation", False))
+
+    # Retrieval telemetry from the agent loop. These arrive only inside the
+    # `tool_extra_fields` object column and are copied into extra_info by the reward
+    # manager; they are pure passthrough here so every sample carries every key.
+    rtel = {k: _as_float(extra_info.get(k)) for k in (
+        "n_search", "n_queries", "retrieval_hits", "retrieval_error",
+        "retrieval_truncated", "answer_rescued", "budget_exhausted",
+    )}
+    retrieval_context = extra_info.get("retrieval_context") or ""
+    rtel["retrieval_used"] = 1.0 if str(retrieval_context).strip() else 0.0
+    rtel["retrieval_ctx_chars"] = float(len(str(retrieval_context)))
 
     # Runaway thinking (training only): reasoning never closed -> no answer exists.
     # Fixed score, no judge calls. Val keeps the official grading path untouched.
     if not is_val and not think_closed:
         return _result(HB_UNCLOSED_THINK_SCORE, HB_UNCLOSED_THINK_SCORE, "",
-                       think_closed=False, think_chars=len(response_text), is_val=False)
+                       think_closed=False, think_chars=len(response_text), is_val=False,
+                       **rtel)
     if is_val and val_api_base:
         eff_base, eff_key, eff_model, eff_provider = (
             val_api_base, val_api_key, val_model_name, val_provider
@@ -303,12 +438,18 @@ async def compute_score(
     total_pos = sum(it["points"] for it in items if it["points"] > 0)
     if not items or total_pos <= 0 or not eff_base:
         return _result(0.0, 0.0, answer_text,
-                       think_closed=think_closed, think_chars=think_chars, is_val=is_val)
+                       think_closed=think_closed, think_chars=think_chars, is_val=is_val,
+                       **rtel)
 
     # Lazy import to avoid an import cycle (self_evolving imports us).
     from verl.utils.reward_score.self_evolving import _call_api
 
     conversation = _conversation_text(extra_info, answer_text)
+
+    # Per-SAMPLE ungradable-criterion count. Exported as the `judge_fail` reward key
+    # so `reward/judge_fail/mean` makes a judge outage one glance instead of a log
+    # grep; the module-global _JUDGE_FAILURES never reaches wandb.
+    fails = [0]
 
     async def grade(it: dict) -> tuple[float, bool | None]:
         # Render exactly like official simple-evals: replace <<conversation>> and
@@ -349,13 +490,59 @@ async def compute_score(
                 except Exception as e2:
                     logger.warning("judge FALLBACK also failed: %s: %s",
                                    type(e2).__name__, e2)
+            # D3 (2026-08-04 audit): an ungradable criterion is indistinguishable
+            # from a genuine "not met" in the reward, so a judge outage looks like
+            # a batch of bad answers. Count it loudly so the rate is checkable.
+            _JUDGE_FAILURES[0] += 1
+            fails[0] += 1
+            logger.error("judge UNGRADABLE (cumulative=%d) -> scoring 0 points",
+                         _JUDGE_FAILURES[0])
             return 0.0, None  # grader unreachable -> treat as not met (no credit)
         # Defensive: if the judge itself emits a thinking channel, keep only the
         # main text before parsing the verdict JSON.
         met = _parse_met(_strip_thinking(raw))
+        if met is None:
+            # The judge answered but unparseably — also an ungradable criterion,
+            # and previously uncounted, so even the log undercounted the failure rate.
+            _JUDGE_FAILURES[0] += 1
+            fails[0] += 1
         return (it["points"] if met else 0.0), met
 
-    graded = await asyncio.gather(*[grade(it) for it in items])
+    # Majority-vote grading (D1 noise study, 2026-08-03): a single grading call
+    # flips on 2.65% of criteria; because rubrics average only ~2.5 items, one
+    # flip moves the reward by ~0.6 (~2 group SDs), so ~40% of GRPO groups carry
+    # a rollout with a wrong-signed advantage. 3-vote majority cuts residual
+    # criterion error 0.89% -> 0.024% (noise SD 0.111 -> ~0.018). Raising n per
+    # group does NOT help — each rollout is still graded once.
+    # HB_JUDGE_VOTES=1 (default) keeps the old single-call behavior.
+    # HB_JUDGE_VOTES_ADAPTIVE=1 spends the extra votes ONLY on the criterion
+    # profile the study found noisy (>110 chars or multi-clause disjunctions:
+    # ~35% of items, ~65% of the flips) — ~1.4x cost instead of 3x.
+    _votes = max(1, int(os.environ.get("HB_JUDGE_VOTES", "1")))
+    _adaptive = os.environ.get("HB_JUDGE_VOTES_ADAPTIVE", "1") == "1"
+
+    def _is_noisy_item(it) -> bool:
+        # `_rubric_items` normalizes the row to {"criterion", "points"}, so reading
+        # only "criterion_text" here made t always "" -> never noisy -> with the
+        # default HB_JUDGE_VOTES_ADAPTIVE=1 every item collapsed to n=1 and
+        # HB_JUDGE_VOTES was silently a no-op. Accept both spellings.
+        t = str(it.get("criterion") or it.get("criterion_text") or "")
+        return len(t) > 110 or "at least one of" in t.lower()
+
+    async def grade_voted(it):
+        n = _votes
+        if _votes > 1 and _adaptive and not _is_noisy_item(it):
+            n = 1
+        if n == 1:
+            return await grade(it)
+        results = await asyncio.gather(*[grade(it) for _ in range(n)])
+        mets = [m for _pts, m in results if m is not None]
+        if not mets:
+            return results[0]
+        met = sum(mets) > len(mets) / 2.0
+        return (it["points"] if met else 0.0), met
+
+    graded = await asyncio.gather(*[grade_voted(it) for it in items])
     achieved = sum(pts for pts, _met in graded)
     raw = achieved / total_pos  # may be negative if negative criteria fire
     # Per-criterion verdicts, forwarded (as JSON) to the gen server's /evolve loop
@@ -365,11 +552,17 @@ async def compute_score(
         for (_pts, met), it in zip(graded, items)
     ]
 
-    # HealthBench-Pro length adjustment on the ANSWER length (thinking stripped),
-    # applied for both training and validation so longer answers pay the same
-    # penalty the benchmark uses.
+    # HealthBench-Pro length adjustment on the ANSWER length (thinking stripped).
+    # Applied on VALIDATION always (it IS the benchmark metric). On TRAINING it
+    # is now opt-in (HB_TRAIN_LENGTH_ADJ=1): the unclamped linear term is the
+    # only deterministic part of the training reward, so under judge-noise GRPO
+    # the policy learns "shorter" first — v15's over-compression fingerprint —
+    # and below the 2000-char center the "penalty" is a length BONUS.
     chars = len(answer_text)
-    length_adjusted = raw - LENGTH_ADJ_PENALTY_PER_500 * ((chars - LENGTH_ADJ_CENTER) / 500.0)
+    if is_val or os.environ.get("HB_TRAIN_LENGTH_ADJ", "0") == "1":
+        length_adjusted = raw - LENGTH_ADJ_PENALTY_PER_500 * ((chars - LENGTH_ADJ_CENTER) / 500.0)
+    else:
+        length_adjusted = raw
 
     # Training-only thinking-budget penalty: reasoning beyond the free budget pays
     # a small linear cost (capped) so bounded thinking is preferred to drift.
@@ -378,6 +571,51 @@ async def compute_score(
             HB_THINK_PENALTY_MAX,
             HB_THINK_PENALTY_PER_1K * (think_chars - HB_THINK_FREE_CHARS) / 1000.0,
         )
+
+    # Training-only repetition penalty (v16). v15's dominant val failure was
+    # n-gram repetition loops (answers repeating one sentence to the token cap:
+    # 62/525 val answers, mean score 0.118) that greedy decoding amplifies but
+    # sampled training rollouts only hint at — so the reward must catch the
+    # attractor early. Penalize when the answer's or thinking's duplicated-8gram
+    # fraction exceeds a free threshold; a hard floor for outright loops.
+    if not is_val and HB_REP_PENALTY_MAX > 0.0:
+        rep = max(_dup_ngram_frac(answer_text), _dup_ngram_frac(_strip_tool_spans(response_text)))
+        if rep > HB_REP_FREE_FRAC:
+            length_adjusted -= min(
+                HB_REP_PENALTY_MAX,
+                HB_REP_PENALTY_SLOPE * (rep - HB_REP_FREE_FRAC),
+            )
+        if rep >= HB_REP_LOOP_FRAC:  # unambiguous loop: floor the reward
+            length_adjusted = min(length_adjusted, HB_SCORE_MIN)
+
+    # ---- second graded component: retrieval quality ----------------------------
+    # Points-weighted fraction of THIS task's rubric that the retrieved evidence
+    # actually supplies, graded independently of whether the answer used it. Gated
+    # on `is_train` (NOT `is_val`): on a train-on-val run every row's data_source is
+    # `healthbench_professional/*`, so `is_val` is True for training rollouts too and
+    # gating on it would silently disable the whole component.
+    #
+    # The bonus itself is applied group-relative in the trainer, where the GRPO group
+    # (uid) exists — the reward manager is strictly per-sample. With
+    # HB_RETRIEVAL_GROUP_BASELINE=0 we fold it here instead, against a fixed
+    # counterfactual, for paths that have no groups (e.g. the SFT-loss trainer).
+    retrieval_coverage, retrieval_judged, retrieval_bonus = 0.0, 0.0, 0.0
+    if is_train and HB_RETRIEVAL_WEIGHT > 0.0 and str(retrieval_context).strip():
+        from verl.utils.reward_score.retrieval_coverage import score_coverage
+        cov, judged = await score_coverage(
+            items,
+            _task_text(extra_info),
+            str(retrieval_context),
+            cov_api_base or eff_base,
+            cov_api_key if cov_api_base else eff_key,
+            cov_model_name or eff_model,
+            cov_provider if cov_api_base else eff_provider,
+        )
+        retrieval_coverage, retrieval_judged = cov, (1.0 if judged else 0.0)
+        # A judge failure must degrade to "retrieval reward temporarily off", never
+        # to "this rollout retrieved nothing useful".
+        if judged and not HB_RETRIEVAL_GROUP_BASELINE:
+            retrieval_bonus = HB_RETRIEVAL_WEIGHT * (cov - HB_RETRIEVAL_NOSEARCH_COVERAGE)
 
     if random.random() < DEBUG_PRINT_PROB:
         mode = "VAL" if is_val else "train"
@@ -393,22 +631,60 @@ async def compute_score(
 
     return _result(raw, length_adjusted, answer_text,
                    think_closed=think_closed, think_chars=think_chars,
-                   rubric_met=rubric_met, is_val=is_val)
+                   rubric_met=rubric_met, is_val=is_val,
+                   judge_fail=fails[0] / max(1, len(items)),
+                   retrieval_coverage=retrieval_coverage,
+                   retrieval_judged=retrieval_judged,
+                   retrieval_bonus=retrieval_bonus, **rtel)
+
+
+def _dup_ngram_frac(text: str, n: int = 8) -> float:
+    """Fraction of word n-gram positions that duplicate an earlier n-gram.
+    ~0 for healthy prose; approaches 1 for sentence-repetition loops."""
+    words = (text or "").split()
+    if len(words) < 2 * n:
+        return 0.0
+    grams = [" ".join(words[i:i + n]) for i in range(len(words) - n + 1)]
+    return 1.0 - len(set(grams)) / len(grams)
 
 
 def _clip01(x: float) -> float:
     return max(0.0, min(1.0, float(x)))
 
 
+def _as_float(x, default: float = 0.0) -> float:
+    """Best-effort numeric coercion for passthrough telemetry (None / str / bool)."""
+    try:
+        if x is None or isinstance(x, str) and not x.strip():
+            return default
+        return float(x)
+    except (TypeError, ValueError):
+        return default
+
+
 def _result(raw: float, length_adjusted: float, response_text: str,
             think_closed: bool = True, think_chars: int = 0,
-            rubric_met: list | None = None, is_val: bool = False) -> dict:
-    """Map the rubric signals onto the canonical key set shared with
-    self_evolving / climb (homogeneous DataProto batches)."""
+            rubric_met: list | None = None, is_val: bool = False,
+            judge_fail: float = 0.0,
+            retrieval_bonus: float = 0.0,
+            retrieval_coverage: float = 0.0, retrieval_judged: float = 0.0,
+            retrieval_used: float = 0.0, retrieval_ctx_chars: float = 0.0,
+            n_search: float = 0.0, n_queries: float = 0.0,
+            retrieval_hits: float = 0.0, retrieval_error: float = 0.0,
+            retrieval_truncated: float = 0.0, answer_rescued: float = 0.0,
+            budget_exhausted: float = 0.0) -> dict:
+    """Map the rubric signals onto the canonical key set (homogeneous DataProto
+    batches). EVERY return path in this module goes through here — see the module
+    docstring on why that is a hard rule and not a style preference.
+
+    `retrieval_bonus` is the ONLY thing that may move the training scalar; it is
+    added to `score` and never to `length_adjusted`, so every `acc*` metric — and
+    therefore the whole validation curve — keeps its exact prior definition.
+    """
     # Training reward may go below 0 (HB_SCORE_MIN) so bad rollouts stay ordered;
     # validation keeps the benchmark's [0, 1] clip.
     lo = 0.0 if is_val else min(0.0, HB_SCORE_MIN)
-    score = max(lo, min(1.0, float(length_adjusted)))
+    score = max(lo, min(1.0, float(length_adjusted) + float(retrieval_bonus)))
     raw01 = _clip01(raw)
     fmt_ok = 1.0 if (response_text or "").strip() else 0.0
     # HEADLINE val metric (`val-core/acc/mean`): the OFFICIAL HealthBench-Professional
@@ -417,7 +693,11 @@ def _result(raw: float, length_adjusted: float, response_text: str,
     # reported clipped-raw (no length penalty, negatives floored at 0), which ran ~0.18 too
     # high. TRAINING keeps clipped-raw for the gen-server difficulty feedback (unchanged).
     acc_headline = float(length_adjusted) if is_val else float(raw01)
+    # Splicing the shared floor FIRST is what makes homogeneity structural: this dict
+    # is a superset of HOMOGENEOUS_DEFAULTS by construction, so adding a key there can
+    # never leave this branch short of it.
     return {
+        **HOMOGENEOUS_DEFAULTS,
         "score": float(score),               # training reward (length-adjusted, clipped [0,1])
         # Both headline numbers, reported every step so validation shows raw AND
         # length-adjusted accuracy side by side:
@@ -444,4 +724,23 @@ def _result(raw: float, length_adjusted: float, response_text: str,
         "think_closed": 1.0 if think_closed else 0.0,
         "think_chars": float(think_chars),
         "rubric_met": json.dumps(rubric_met or []),
+        # Fraction of this sample's criteria the judge could not grade at all. A
+        # nonzero mean here means the reward is measuring the judge, not the policy.
+        "judge_fail": float(judge_fail),
+        # ---- retrieval: telemetry + the separately-graded second component ----
+        # `retrieval_coverage` is the points-weighted fraction of this task's rubric
+        # criteria that the RETRIEVED CONTEXT factually supplies — graded independently
+        # of whether the answer then used them, so query quality has its own signal.
+        "retrieval_used": float(retrieval_used),
+        "retrieval_coverage": float(retrieval_coverage),
+        "retrieval_judged": float(retrieval_judged),   # 0 => coverage judge gave no verdict
+        "retrieval_bonus": float(retrieval_bonus),
+        "retrieval_ctx_chars": float(retrieval_ctx_chars),
+        "n_search": float(n_search),
+        "n_queries": float(n_queries),
+        "retrieval_hits": float(retrieval_hits),
+        "retrieval_error": float(retrieval_error),
+        "retrieval_truncated": float(retrieval_truncated),
+        "answer_rescued": float(answer_rescued),
+        "budget_exhausted": float(budget_exhausted),
     }

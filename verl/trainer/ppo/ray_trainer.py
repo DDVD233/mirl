@@ -182,6 +182,137 @@ def compute_spec_decode_metrics(
     }
 
 
+def compute_trained_span_metrics(data: DataProto, tokenizer) -> dict:
+    """Metrics that distinguish "the query tokens are TRAINED" from "they are not".
+
+    In a multi-turn retrieval trajectory the tool responses are loss-masked while the
+    model's own turns are not, so `trained_token_frac` sits well below 1 and the
+    tool-call markers appear inside the trained span. The previous two-phase loop
+    emitted a rebuilt single-turn answer instead, which has no masked spans and no
+    tool call at all — it reads as exactly 1.0 and 0.0. That difference is the whole
+    point of the rewrite, and without these two numbers it is invisible in wandb.
+
+    Cheap: one decode of the trained tokens for a small sample of rows.
+    """
+    if "response_mask" not in data.batch:
+        return {}
+    mask = data.batch["response_mask"]
+    resp_len = mask.shape[-1]
+    attn = data.batch["attention_mask"][:, -resp_len:]
+    denom = attn.sum().clamp(min=1)
+    out = {"batch/trained_token_frac": float((mask.sum() / denom).item())}
+    try:
+        n = min(int(os.environ.get("VERL_TRAINED_SPAN_SAMPLE", "16")), mask.shape[0])
+        if n > 0:
+            resp = data.batch["responses"]
+            hits = 0
+            for i in range(n):
+                ids = resp[i][mask[i].bool()[: resp.shape[1]]]
+                if "<tool_call>" in tokenizer.decode(ids, skip_special_tokens=True):
+                    hits += 1
+            out["batch/tool_call_in_trained_frac"] = hits / n
+    except Exception as e:  # telemetry must never break a step
+        print(f"[trained_span_metrics] skipped: {type(e).__name__}: {e}", flush=True)
+    return out
+
+
+def _fold_retrieval_group_bonus(data: DataProto, reward_tensor, reward_extra_infos_dict: dict):
+    """Add the group-relative retrieval-quality bonus to the token-level reward.
+
+    Second graded component of the retrieval RL run. `retrieval_coverage` measures
+    whether the evidence a rollout RETRIEVED supplies what the rubric grades —
+    independent of whether the answer used it — so the query tokens get a signal of
+    their own instead of inheriting only the answer's.
+
+    Why group-relative, and why it must live here: the reward manager is strictly
+    per-sample (`run_single` slices to one row, and the n rollouts of a group are
+    dispatched to different workers), so the group only exists at this point, where
+    `uid` is available. Centering each searching rollout's coverage on the mean of
+    the OTHER searching rollouts in its group makes the deltas sum to ~0 within the
+    group. That matters: it leaves the group mean — and therefore every non-searching
+    rollout's GRPO advantage — untouched, so the decision to search at all stays
+    arbitrated by the answer reward alone (the unbiased signal), while coverage only
+    ranks QUERY QUALITY among the rollouts that did search. Paying a flat bonus for
+    searching would instead make searching dominant, including on the ~26% of
+    criteria whose facts the KB does not hold, where even a perfect query scores 0.
+
+    Only rollouts that actually searched are adjusted. A rollout whose coverage judge
+    failed (`retrieval_judged` == 0) is left alone — a judge outage degrades to
+    "retrieval reward off", never to "this rollout retrieved nothing".
+    """
+    import os as _os
+
+    w = float(_os.environ.get("HB_RETRIEVAL_WEIGHT", "0.0"))
+    if w <= 0.0 or _os.environ.get("HB_RETRIEVAL_GROUP_BASELINE", "1") != "1":
+        return reward_tensor, {}
+    if "retrieval_coverage" not in reward_extra_infos_dict:
+        return reward_tensor, {}
+    uids = data.non_tensor_batch.get("uid")
+    if uids is None:
+        return reward_tensor, {}
+
+    c0 = float(_os.environ.get("HB_RETRIEVAL_NOSEARCH_COVERAGE", "0.35"))
+    lo = min(0.0, float(_os.environ.get("HB_SCORE_MIN", "0.0")))
+    cov = np.asarray(reward_extra_infos_dict["retrieval_coverage"], dtype=np.float64)
+    judged = np.asarray(
+        reward_extra_infos_dict.get("retrieval_judged", np.zeros_like(cov)), dtype=np.float64
+    )
+    used = np.asarray(
+        reward_extra_infos_dict.get("retrieval_used", np.zeros_like(cov)), dtype=np.float64
+    )
+    uids = np.asarray(uids)
+    if len(cov) != len(uids):
+        # This module has no module-level logger (the `logger` inside the training
+        # loop is a Tracking object), and silence here would hide a disabled reward
+        # component for a whole run.
+        print(
+            f"[retrieval_bonus] SKIPPED: coverage len {len(cov)} != batch len {len(uids)}",
+            flush=True,
+        )
+        return reward_tensor, {}
+
+    # The scalar reward lives at the LAST valid response token of each row (that is
+    # where the reward manager writes it), so the bonus has to land on the same index.
+    resp_len = reward_tensor.shape[-1]
+    valid = data.batch["attention_mask"][:, -resp_len:].sum(dim=-1).to(torch.int64)
+
+    eligible = (used > 0.5) & (judged > 0.5)
+    n_adj, n_clipped, deltas = 0, 0, []
+    for uid in dict.fromkeys(uids.tolist()):
+        idx = np.nonzero(uids == uid)[0]
+        sel = idx[eligible[idx]]
+        if len(sel) == 0:
+            continue
+        base = float(cov[sel].mean()) if len(sel) >= 2 else c0
+        for i in sel:
+            pos = int(valid[i].item()) - 1
+            if pos < 0:
+                continue
+            delta = w * (float(cov[i]) - base)
+            before = float(reward_tensor[i, pos])
+            after = float(np.clip(before + delta, lo, 1.0))
+            reward_tensor[i, pos] = after
+            # Clipping breaks the sum-to-zero property, and it is ASYMMETRIC: a
+            # negative delta on an already-floored rollout is swallowed while a
+            # positive one is kept, which biases the policy toward searching. Give
+            # the floor at least `w` of headroom (HB_SCORE_MIN <= -HB_RETRIEVAL_WEIGHT)
+            # and watch this rate — a high one means the bonus is one-sided.
+            if abs(after - before - delta) > 1e-9:
+                n_clipped += 1
+            deltas.append(after - before)
+            n_adj += 1
+
+    m = {"reward/retrieval_bonus/n_adjusted": float(n_adj),
+         "reward/retrieval_bonus/clipped_frac": float(n_clipped) / max(1, n_adj)}
+    if deltas:
+        d = np.asarray(deltas)
+        m["reward/retrieval_bonus/mean"] = float(d.mean())
+        m["reward/retrieval_bonus/absmean"] = float(np.abs(d).mean())
+        m["reward/retrieval_bonus/max"] = float(d.max())
+        m["reward/retrieval_bonus/min"] = float(d.min())
+    return reward_tensor, m
+
+
 def compute_advantage(
     data: DataProto,
     adv_estimator: AdvantageEstimator,
@@ -1842,6 +1973,11 @@ class RayPPOTrainer:
 
                     if "response_mask" not in batch.batch.keys():
                         batch.batch["response_mask"] = compute_response_mask(batch)
+                    # Is the multi-turn structure actually reaching the optimizer?
+                    # (trained_token_frac == 1.0 and tool_call_in_trained_frac == 0.0
+                    # means the trajectory carries no masked tool spans and no query
+                    # tokens — i.e. retrieval is not being trained.)
+                    metrics.update(compute_trained_span_metrics(batch, self.tokenizer))
                     # Balance the number of valid tokens across DP ranks.
                     # NOTE: This usually changes the order of data in the `batch`,
                     # which won't affect the advantage calculation (since it's based on uid),
@@ -1866,6 +2002,14 @@ class RayPPOTrainer:
 
                         # extract reward_tensor and reward_extra_infos_dict for training
                         reward_tensor, reward_extra_infos_dict = extract_reward(batch)
+
+                        # Retrieval-quality component, folded GROUP-RELATIVELY. Must
+                        # run before zero-variance filtering, since it can create the
+                        # variance that keeps a group alive.
+                        reward_tensor, _rq_metrics = _fold_retrieval_group_bonus(
+                            batch, reward_tensor, reward_extra_infos_dict
+                        )
+                        metrics.update(_rq_metrics)
 
                         # Optional DAPO-lite dynamic filtering (trainer.filter_zero_variance_groups):
                         # drop GRPO groups whose rewards have (near-)zero variance — they carry no

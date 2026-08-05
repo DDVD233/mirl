@@ -93,7 +93,28 @@ class DAPORewardManager(AbstractRewardManager):
 
             data_source = data_item.non_tensor_batch[self.reward_fn_key]
 
-            extra_info = data_item.non_tensor_batch.get("extra_info", {})
+            extra_info = dict(data_item.non_tensor_batch.get("extra_info", {}) or {})
+            # Agent loops may grade something other than the trained response, and
+            # carry per-rollout retrieval metadata the reward needs. Both arrive in
+            # the `tool_extra_fields` object column, NOT as top-level columns — the
+            # top-level-only read this used to do silently no-ops. (This manager is
+            # dead while the async reward loop is enabled, but it must stay correct:
+            # the async path is selected by config, not by code.)
+            tef = data_item.non_tensor_batch.get("tool_extra_fields")
+            tef = tef if isinstance(tef, dict) else {}
+            graded = data_item.non_tensor_batch.get("graded_answer")
+            if not isinstance(graded, str) or not graded.strip():
+                graded = tef.get("graded_answer")
+            if isinstance(graded, str) and graded.strip():
+                extra_info["graded_answer"] = graded
+            for _k in (
+                "retrieval_context", "search_queries", "n_search", "n_queries",
+                "retrieval_hits", "retrieval_error", "retrieval_truncated",
+                "answer_rescued", "budget_exhausted",
+            ):
+                _v = tef.get(_k)
+                if _v is not None:
+                    extra_info.setdefault(_k, _v)
 
             rollout_reward_scores = data_item.non_tensor_batch.get("reward_scores", {})
 

@@ -535,7 +535,11 @@ class AgentLoopWorker:
             temperature=config.temperature,
             top_p=config.top_p,
             top_k=config.top_k,
-            repetition_penalty=1.0,
+            # Honor the configured rollout repetition_penalty. This was hardcoded
+            # to 1.0, which silently discarded +rollout.repetition_penalty=1.1
+            # from every run since v6 (the server-side setdefault never fires
+            # because this key is always present in the request).
+            repetition_penalty=float(config.get("repetition_penalty", 1.0)),
             logprobs=config.calculate_log_probs,
         )
 
@@ -549,6 +553,9 @@ class AgentLoopWorker:
             sampling_params["top_p"] = config.val_kwargs.top_p
             sampling_params["top_k"] = config.val_kwargs.top_k
             sampling_params["temperature"] = config.val_kwargs.temperature
+            # validation stays on the official benchmark protocol: no rollout
+            # repetition penalty even when training uses one
+            sampling_params["repetition_penalty"] = 1.0
 
         # by default, we assume it's a single turn agent
         if "agent_name" not in batch.non_tensor_batch:
@@ -634,7 +641,15 @@ class AgentLoopWorker:
                 data_config=DictConfigWrap(self.config.data),
                 tools=ToolListWrap(self.tools),
             )
-            output: AgentLoopOutput = await agent_loop.run(sampling_params, **kwargs)
+            # Pass the REAL train/val flag to the loop. Loops previously had to infer
+            # it from `sampling_params["temperature"] > 0`, which reports "training"
+            # during validation whenever val uses sampled decoding (VAL_TEMP=1.0).
+            # Every registered run() takes **kwargs, so an extra keyword is inert for
+            # loops that ignore it. Deliberately NOT added to `kwargs`: agent_loop
+            # turns every kwarg into a non_tensor column.
+            output: AgentLoopOutput = await agent_loop.run(
+                sampling_params, validate=trajectory["validate"], **kwargs
+            )
             return await self._agent_loop_postprocess(output, trajectory["validate"], **kwargs)
 
     def _pad_token_ids(
@@ -753,7 +768,7 @@ class AgentLoopWorker:
                 output.multi_modal_data.get("audios") if output.multi_modal_data else None
             ),
         )
-        await self._compute_score([output], kwargs=kwargs)
+        await self._compute_score([output], kwargs=kwargs, validate=validate)
         await self._compute_teacher_logprobs(
             output,
             prompt_ids=output.prompt_ids,
@@ -930,8 +945,16 @@ class AgentLoopWorker:
         position_ids = torch.cat((text_position_ids, vision_position_ids), dim=1)  # (1, 4, seq_length)
         return position_ids
 
-    async def _compute_score(self, outputs: list[AgentLoopOutput], kwargs: dict) -> None:
-        """Compute reward score for all outputs in a trajectory; assigns result to outputs[-1]."""
+    async def _compute_score(self, outputs: list[AgentLoopOutput], kwargs: dict, validate: bool = False) -> None:
+        """Compute reward score for all outputs in a trajectory; assigns result to outputs[-1].
+
+        `validate` MUST be forwarded into the reward DataProto's meta_info: this
+        DataProto is constructed here from scratch, so without it every reward
+        manager sees `meta_info.get("validate") == False` for validation rollouts
+        too. That is why healthbench_pro had to sniff validation from `data_source`
+        instead, which in turn makes every row of a train-on-val run look like
+        validation to the reward.
+        """
         enable_async_reward = self.reward_loop_worker_handles is not None
 
         final_output = outputs[-1]
@@ -987,6 +1010,7 @@ class AgentLoopWorker:
                 data = DataProto(
                     batch=batch,
                     non_tensor_batch=non_tensor_batch,
+                    meta_info={"validate": bool(validate)},
                 )
                 selected_reward_loop_worker_handle = random.choice(self.reward_loop_worker_handles)
                 result = await selected_reward_loop_worker_handle.compute_score.remote(data)

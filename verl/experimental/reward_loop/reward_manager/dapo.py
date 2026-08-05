@@ -63,6 +63,42 @@ class DAPORewardManager(RewardManagerBase):
         # compute_score (reward-evolution mode is training-only and reads _is_validation).
         extra_info = dict(data_item.non_tensor_batch.get("extra_info", {}) or {})
         extra_info["_is_validation"] = bool(data.meta_info.get("validate", False))
+        # The trained trajectory is not always the one worth grading. The retrieval
+        # agent loop trains a fraction of rollouts on the phase-1 retrieval DECISION,
+        # whose tokens are a tool call, and passes the answer that decision led to via
+        # `graded_answer`. Without this, those rollouts get graded on the tool call —
+        # empty answer, format_ok=0, score pinned at the 0/N constant — which teaches
+        # the model that searching is always wrong, the exact opposite of the intent.
+        #
+        # NOTE the lookup path. agent_loop.py builds the reward DataProto with a FIXED
+        # key set and packs every AgentLoopOutput.extra_fields into the single column
+        # `tool_extra_fields`; a top-level "graded_answer" column never exists. Reading
+        # only the top level silently no-ops, which is exactly how this bug survived a
+        # previous "fix" and left ~25% of each batch ungraded for a whole run.
+        #
+        # The retrieval telemetry below (queries issued, the evidence the model
+        # actually saw, per-rollout counters) reaches the reward through the SAME
+        # column, and would hit the same trap read any other way. The reward needs
+        # `retrieval_context` in particular because it is deliberately stripped out
+        # of `solution_str` before grading — the answer grader must not see the
+        # passages, but the retrieval-coverage grader must.
+        tef = data_item.non_tensor_batch.get("tool_extra_fields")
+        tef = tef if isinstance(tef, dict) else {}
+
+        graded_answer = data_item.non_tensor_batch.get("graded_answer")
+        if not isinstance(graded_answer, str) or not graded_answer.strip():
+            graded_answer = tef.get("graded_answer")
+        if isinstance(graded_answer, str) and graded_answer.strip():
+            extra_info["graded_answer"] = graded_answer
+
+        for _k in (
+            "retrieval_context", "search_queries", "n_search", "n_queries",
+            "retrieval_hits", "retrieval_error", "retrieval_truncated",
+            "answer_rescued", "budget_exhausted",
+        ):
+            _v = tef.get(_k)
+            if _v is not None:
+                extra_info.setdefault(_k, _v)
 
         response_str = await self.loop.run_in_executor(
             None, lambda: self.tokenizer.decode(valid_response_ids, skip_special_tokens=True)
