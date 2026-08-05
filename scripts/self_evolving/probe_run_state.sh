@@ -19,6 +19,17 @@ n_train=${n_train:-0}
 log_bytes=$(stat -c %s "$LOG" 2>/dev/null || echo 0)
 gpu_mib=$(nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits 2>/dev/null \
           | awk '{s+=$1} END {print s+0}')
-if tail -60 "$LOG" 2>/dev/null | grep -qE '^\+ exit 0'; then done=DONE; else done=RUNNING; fi
+# Completion, checked two ways. The `+ exit 0` trace only exists in wrappers that end
+# with an explicit exit (the retrieval launcher does; the plain trainval recipe does
+# not), so relying on it alone reported a run that finished all 60 steps as a crash.
+# The step-count check is script-shape independent.
+total=$(grep -oE "'total_training_steps': [0-9]+" "$LOG" 2>/dev/null | tail -1 | grep -oE '[0-9]+')
+last=$(grep -oE 'step:[0-9]+ ' "$LOG" 2>/dev/null | tail -1 | grep -oE '[0-9]+')
+done=RUNNING
+if [ -n "${total:-}" ] && [ -n "${last:-}" ] && [ "$last" -ge "$total" ]; then
+    done=DONE
+elif tail -60 "$LOG" 2>/dev/null | grep -qE '^\+ exit 0'; then
+    done=DONE
+fi
 
 printf '%s %s %s %s\n' "${n_train:-0}" "${log_bytes:-0}" "${gpu_mib:-0}" "$done"
