@@ -682,13 +682,21 @@ class ServerState:
 
         # ---- /retrieve (RL rollout hot path) ----
         # Bound concurrency explicitly: the endpoint fans out to Milvus AND the
-        # summarizer, and a whole training batch's rollouts hit it at once.
+        # summarizer, and a whole training batch's rollouts hit it AT ONCE —
+        # ~800 calls/step at batch 32 x rollout.n 8 x ~1.6 searches. The first
+        # defaults (32/32) throttled that to ~2.5 calls/s against ~13s of work each,
+        # so requests sat in the semaphore queue past the tool's client-side timeout
+        # and ~60% of retrievals returned an error string to the model. The server's
+        # own timings hid it: `timed()` starts AFTER the semaphore is acquired.
         self.retrieve_sem = asyncio.Semaphore(
-            int(os.environ.get("RETRIEVE_CONCURRENCY", str(max(args.workers * 4, 32))))
+            int(os.environ.get("RETRIEVE_CONCURRENCY", str(max(args.workers * 16, 128))))
         )
         self.summary_sem = asyncio.Semaphore(
-            int(os.environ.get("SUMMARY_CONCURRENCY", "32"))
+            int(os.environ.get("SUMMARY_CONCURRENCY", "96"))
         )
+        # Queue depth + wait, so saturation is visible on /stats instead of only
+        # showing up as client-side timeouts.
+        self.retrieve_waiting = 0
         # wikidoc title telemetry, drained off the request path (see _queue_wikidoc_titles)
         self.wikidoc_q: asyncio.Queue = asyncio.Queue(maxsize=20000)
         self.wikidoc_seen: set = set()
@@ -3780,7 +3788,17 @@ async def retrieve(payload: RetrievePayload):
     total = int(payload.total or s.args.retrieve_total or MERGE_TOTAL)
     cfg = RetrieveConfig()
 
-    async with s.retrieve_sem:
+    # Measure the QUEUE wait separately from the work: a request that waits 90s for
+    # a semaphore slot and then completes in 12s looks perfectly healthy in the
+    # work-only timings, which is exactly how the client-side timeouts went unnoticed.
+    s.retrieve_waiting += 1
+    _q0 = time.monotonic()
+    try:
+        await s.retrieve_sem.acquire()
+    finally:
+        s.retrieve_waiting -= 1
+    s.timings["retrieve_queue_wait"].append(time.monotonic() - _q0)
+    try:
         try:
             per_query_hits = await _milvus_search_multi(
                 s, queries, top_k=top_k * cfg.fetch_mult, filter_expr=cfg.exclude_expr
@@ -3807,6 +3825,8 @@ async def retrieve(payload: RetrievePayload):
             text, summarized, reason = await _summarize_passages(
                 s, payload.question or queries[0], passages, raw_text
             )
+    finally:
+        s.retrieve_sem.release()
 
     return {
         "passages": passages,
@@ -3865,6 +3885,10 @@ async def stats():
         "seeds": len(s.seeds),
         "timings": _summarize_timings(s.timings),
         "inflight": dict(s.inflight),
+        # Requests parked on the /retrieve semaphore. A nonzero steady-state value
+        # means the endpoint is the rollout bottleneck and clients are at risk of
+        # timing out on queue wait alone (see retrieve_queue_wait in timings).
+        "retrieve_waiting": getattr(s, "retrieve_waiting", 0),
         **s.stats,
     }
 
@@ -4029,8 +4053,14 @@ async def report(payload: ReportPayload):
         if var < 1e-9 or m < 0.05 or m > 0.95:
             _dead.add(payload.question_id)
             before = len(s.history)
-            s.history[:] = [e for e in s.history
-                            if (e.get("extra_info") or {}).get("question_id") != payload.question_id]
+            # s.history is a deque (maxlen-bounded), and deques reject slice
+            # assignment — `s.history[:] = [...]` raises TypeError, which turned
+            # every eviction into a 500 on /report and left the unsolvable task in
+            # the pool anyway. Rebuild in place instead.
+            _keep = [e for e in s.history
+                     if (e.get("extra_info") or {}).get("question_id") != payload.question_id]
+            s.history.clear()
+            s.history.extend(_keep)
             s.stats["evicted_unsolvable"] = s.stats.get("evicted_unsolvable", 0) + 1
             logger.info(f"~ evicted qid={payload.question_id} (n={len(lst)} mean={m:.3f} "
                         f"var={var:.4f}); history {before}->{len(s.history)}")

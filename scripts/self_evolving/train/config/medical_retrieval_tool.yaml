@@ -12,9 +12,14 @@ tools:
       # (--retrieve_top_k / --retrieve_total), so one knob configures rollouts,
       # offline trace generation and the eval harness identically.
       max_queries: 4
-      # Must exceed the server's RETRIEVE_SUMMARY_TIMEOUT (45s) or every
-      # summarized call times out client-side and falls back to "unavailable".
-      timeout: 60
+      # Must exceed the server's RETRIEVE_SUMMARY_TIMEOUT (45s) PLUS the time a
+      # request can spend QUEUED behind the server's concurrency semaphore. A whole
+      # training batch fires its retrievals at once (~800 calls/step at rollout.n=8),
+      # so with 60s here ~60% of calls timed out client-side and the model was
+      # trained on "Retrieval is temporarily unavailable" instead of evidence — while
+      # the server's own timings looked healthy, because they only measure work that
+      # already got past the semaphore.
+      timeout: 240
       # retrieval_url: http://localhost:8006/retrieve   # else RETRIEVAL_URL env
     tool_schema:
       type: function
