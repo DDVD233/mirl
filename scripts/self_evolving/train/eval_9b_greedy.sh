@@ -24,10 +24,23 @@ cd "$REPO"
 # holds only config + tokenizer, no weights — so there is nothing for model.path to
 # load. resume_mode=auto picks up the latest step, and val_only runs one validation
 # pass and exits without training.
-RUN_DIR="${RUN_DIR:?set RUN_DIR to the run checkpoint dir, e.g. .../checkpoints/hb9b/hb9b_gen_control}"
-[ -f "$RUN_DIR/latest_checkpointed_iteration.txt" ] || { echo "FATAL: no checkpoint under $RUN_DIR" >&2; exit 1; }
-echo "resuming step $(cat "$RUN_DIR/latest_checkpointed_iteration.txt") from $RUN_DIR"
+# RUN_DIR=NONE evaluates the UNTRAINED base model. That baseline is not optional:
+# a trained greedy score is uninterpretable without it, and greedy cannot be assumed
+# to shift like sampled — the control scored 0.352 greedy vs 0.388 sampled at the
+# same checkpoint, i.e. greedy was LOWER, so borrowing the sampled baseline would
+# understate or overstate the gain by an unknown amount.
+RUN_DIR="${RUN_DIR:?set RUN_DIR to the run checkpoint dir, or NONE for the base model}"
 BASE_MODEL="${BASE_MODEL:-Qwen/Qwen3.5-9B}"
+RESUME_ARGS=()
+if [ "$RUN_DIR" = "NONE" ]; then
+    echo "evaluating UNTRAINED base model: $BASE_MODEL"
+    RESUME_ARGS=(trainer.resume_mode=disable
+                 trainer.default_local_dir="$S/checkpoints/hb9b/_greedy_scratch")
+else
+    [ -f "$RUN_DIR/latest_checkpointed_iteration.txt" ] || { echo "FATAL: no checkpoint under $RUN_DIR" >&2; exit 1; }
+    echo "resuming step $(cat "$RUN_DIR/latest_checkpointed_iteration.txt") from $RUN_DIR"
+    RESUME_ARGS=(trainer.resume_mode=auto trainer.default_local_dir="$RUN_DIR")
+fi
 EXP="${EXP:-hb9b_greedy_eval}"
 LOGDIR=$S/logs_hb9b; mkdir -p "$LOGDIR"
 VAL=$S/healthbench_pro_val.parquet
@@ -97,8 +110,6 @@ export REWARD_JUDGE_CONCURRENCY="${REWARD_JUDGE_CONCURRENCY:-10}"
     trainer.n_gpus_per_node=4 \
     trainer.nnodes=1 \
     trainer.val_only=True \
-    trainer.resume_mode=auto \
-    trainer.default_local_dir="$RUN_DIR" \
     trainer.val_before_train=True \
     trainer.total_training_steps=1 \
     +trainer.validation_data_dir="$LOGDIR/val_generations/$EXP" \
@@ -106,4 +117,5 @@ export REWARD_JUDGE_CONCURRENCY="${REWARD_JUDGE_CONCURRENCY:-10}"
     trainer.experiment_name="$EXP" \
     'trainer.logger=["console","wandb"]' \
     +ray_init.address=local \
+    "${RESUME_ARGS[@]}" \
     "$@"
