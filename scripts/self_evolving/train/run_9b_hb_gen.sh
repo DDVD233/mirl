@@ -20,6 +20,14 @@
 # retrieval effect on generated data, and the v13-v16 diagnosis showed the evolver
 # collapsing task diversity, which would be a second moving part.
 #
+# VALIDATION USES ALL 525 TASKS (val_max_samples=-1). The fast-iteration script
+# subsampled to 200 for speed, which was fine when val was a progress gauge trained
+# on anyway — it is not fine now: this is the held-out benchmark number, and
+# subsampling both makes it non-comparable and widens the per-eval noise band by
+# sqrt(525/200) ~ 1.6x, which is most of the +/-0.05 uncertainty that kept forcing
+# caveats onto the earlier deltas. Full val costs ~2.6x more per eval; that is the
+# right trade for the number the whole experiment exists to produce.
+#
 # 9B quirks: head_dim=256 breaks the FlashAttention varlen kernel -> use_remove_padding
 # =False + sdpa (same as run_9b_trainval_fast.sh).
 set -xeuo pipefail
@@ -199,7 +207,7 @@ fi
     data.max_response_length="$MAX_RESP_LEN" \
     +data.apply_chat_template_kwargs.enable_thinking=True \
     data.shuffle=True \
-    ++data.val_max_samples="${VAL_MAX:-200}" \
+    ++data.val_max_samples="${VAL_MAX:--1}" \
     data.truncation=left \
     data.return_raw_chat=True \
     data.dataloader_num_workers=8 \
