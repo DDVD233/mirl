@@ -90,8 +90,10 @@ while true; do
         DEAD)               emit "$name DEAD (crashed, no clean exit; GPU ${gpumem}MiB)" ;;
         DEAD_WITH_ORPHANS)  emit "$name DEAD + ORPHANS holding ${gpumem}MiB — clear before relaunch" ;;
         STALLED)            emit "$name STALLED ${stalled}s with no log growth (trainer alive)" ;;
-        OK) [[ "${STATE[$name]}" == INIT ]] && emit "$name watching (trainer up)" \
-                                            || emit "$name BACK (recovered)" ;;
+        OK) case "${STATE[$name]}" in
+              INIT|STARTING) emit "$name trainer up" ;;
+              *)             emit "$name BACK (recovered from ${STATE[$name]})" ;;
+            esac ;;
         UNREACHABLE)        emit "$name UNREACHABLE" ;;
       esac
       STATE[$name]=$new
