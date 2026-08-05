@@ -21,15 +21,19 @@ POLL_S=${POLL_S:-240}
 STALL_S=${STALL_S:-2700}
 PROBE=${PROBE:-/scratch/sheng/self_evolving/verl_healthbench/scripts/self_evolving/probe_run_state.sh}
 
-# name:port:logfile
-RUNS=(
-  "retrieval:2335:/scratch/sheng/self_evolving/logs_hb9b/retrieval_launch.out"
-  "control:2336:/scratch/sheng/self_evolving/logs_hb9b/ctrl_len8192.out"
-)
+# name:port:logfile — override with RUNS="name:port:log name:port:log"
+if [[ -n "${RUNS:-}" ]]; then
+  read -r -a RUNS <<<"$RUNS"
+else
+  RUNS=(
+    "gen_retrieval:2335:/scratch/sheng/self_evolving/logs_hb9b/gen_retrieval.out"
+    "gen_control:2336:/scratch/sheng/self_evolving/logs_hb9b/gen_control.out"
+  )
+fi
 
-declare -A STATE SIZE LASTGROW
+declare -A STATE SIZE LASTGROW SEEN
 for r in "${RUNS[@]}"; do
-  n=${r%%:*}; STATE[$n]=INIT; SIZE[$n]=-1; LASTGROW[$n]=$(date +%s)
+  n=${r%%:*}; STATE[$n]=INIT; SIZE[$n]=-1; LASTGROW[$n]=$(date +%s); SEEN[$n]=0
 done
 
 emit() { echo "[$(date -u +%H:%M:%SZ)] $*"; }
@@ -60,10 +64,17 @@ while true; do
     SIZE[$name]=$size
     stalled=$(( now - LASTGROW[$name] ))
 
+    [[ "${nproc:-0}" -ge 1 ]] && SEEN[$name]=1
+
     new=OK
     if [[ "${nproc:-0}" -lt 1 ]]; then
       if [[ "${finished:-RUNNING}" == DONE ]]; then
         new=FINISHED
+      elif [[ "${SEEN[$name]}" -eq 0 ]]; then
+        # No trainer YET and we have never seen one: this is startup (the retrieval
+        # arm waits on a vLLM summarizer for several minutes, holding GPU memory the
+        # whole time — which otherwise reads exactly like "dead with orphans").
+        new=STARTING
       else
         new=DEAD
         [[ "${gpumem:-0}" -gt 20000 ]] && new=DEAD_WITH_ORPHANS
@@ -74,6 +85,7 @@ while true; do
 
     if [[ "$new" != "${STATE[$name]}" ]]; then
       case "$new" in
+        STARTING)           emit "$name starting (services loading, no trainer yet)" ;;
         FINISHED)           emit "$name FINISHED cleanly (all configured steps done; GPU ${gpumem}MiB)" ;;
         DEAD)               emit "$name DEAD (crashed, no clean exit; GPU ${gpumem}MiB)" ;;
         DEAD_WITH_ORPHANS)  emit "$name DEAD + ORPHANS holding ${gpumem}MiB — clear before relaunch" ;;
