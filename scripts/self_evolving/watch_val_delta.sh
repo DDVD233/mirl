@@ -44,11 +44,25 @@ while true; do
         read -r -a r <<<"${CURVE[RET]}"; read -r -a c <<<"${CURVE[CTL]}"
         k=$(( ${#r[@]} < ${#c[@]} ? ${#r[@]} : ${#c[@]} ))
         if [[ "$k" -ge 2 ]]; then
+            # The effect is estimated over TRAINED steps only. Index 1 is step 0,
+            # where both arms are the same untrained model — a pre-training baseline
+            # whose true value was measured at +0.00005 on the full 525. It carries
+            # noise like any other eval (+0.0211 on a rerun) but no signal, so
+            # averaging it in only dilutes and inflates.
+            #
+            # Significance uses the noise of a DELTA, not of an eval: two independent
+            # evals at ~0.02 each give a difference at ~0.028, and a mean of m
+            # deltas at ~0.028/sqrt(m). Requiring 2 sigma keeps this from calling a
+            # result off one lucky pair.
             awk -v k="$k" -v R="${CURVE[RET]}" -v C="${CURVE[CTL]}" 'BEGIN{
-                nr=split(R,a," "); nc=split(C,b," "); s=0; pos=0;
-                for(i=1;i<=k;i++){d=a[i]-b[i]; s+=d; if(d>0) pos++}
-                printf "        matched steps=%d  mean delta=%+.4f  positive=%d/%d%s\n",
-                       k, s/k, pos, k, (s/k > 0.02 ? "  (> noise floor)" : "  (within noise)")
+                split(R,a," "); split(C,b," "); s=0; pos=0; m=0;
+                for(i=2;i<=k;i++){d=a[i]-b[i]; s+=d; m++; if(d>0) pos++}
+                b0=a[1]-b[1];
+                if(m<1){ printf "        step0 baseline %+.4f (null by construction); no trained steps matched yet\n", b0; exit }
+                mean=s/m; se=0.028/sqrt(m);
+                printf "        trained steps=%d  mean delta=%+.4f  positive=%d/%d  (2se=%.3f) %s   [step0 baseline %+.4f]\n",
+                       m, mean, pos, m, 2*se,
+                       (mean > 2*se ? "SIGNIFICANT" : "not yet significant"), b0
             }'
         fi
     fi
