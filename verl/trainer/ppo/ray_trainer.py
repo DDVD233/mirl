@@ -905,6 +905,30 @@ class RayPPOTrainer:
         )
         return batch, reward_tensor, reward_extra_infos_dict, fg_metrics
 
+    def _record_val_score(self, val_metrics: dict) -> None:
+        """Remember the headline held-out score for the generation-evolution loop.
+
+        Evolution runs BEFORE validation within a step, so what it reports is the
+        previous evaluation — which is correct: that is the score measured under
+        the guidance version currently in force. Falls back across metric names so
+        a reward-manager rename cannot silently turn the signal off; leaves the
+        previous value in place if nothing matches.
+        """
+        for key in ("val-core/overall/acc/mean", "val-core/overall/acc_len_adj/mean"):
+            if key in val_metrics:
+                try:
+                    self._last_val_score = float(val_metrics[key])
+                    return
+                except (TypeError, ValueError):
+                    pass
+        cand = [v for k, v in val_metrics.items()
+                if k.startswith("val-core/") and k.endswith("/acc/mean")]
+        if cand:
+            try:
+                self._last_val_score = float(sum(cand) / len(cand))
+            except (TypeError, ValueError):
+                pass
+
     def _maybe_evolve_generation(self, batch: DataProto, reward_extra_infos_dict: dict) -> dict:
         """Optional, training-only end-of-step GENERATION-prompt evolution (rubric mode).
 
@@ -991,10 +1015,17 @@ class RayPPOTrainer:
                     "total_score": scores[i] if i < len(scores) else 0.0,
                 })
 
-            _say(f"posting {len(cases)} cases -> {gen_server_url}/evolve")
+            # The most recent HELD-OUT validation score. The evolver's own train
+            # mean is the solver's score on tasks the curriculum wrote, so it
+            # rises whenever the curriculum gets easier; this is the only outcome
+            # signal it gets that cannot be gamed from inside the loop. None
+            # before the first validation, which the server renders as such.
+            val_score = getattr(self, "_last_val_score", None)
+            _say(f"posting {len(cases)} cases (val={val_score}) -> {gen_server_url}/evolve")
             r = requests.post(
                 f"{gen_server_url.rstrip('/')}/evolve",
-                json={"step": int(self.global_steps), "cases": cases},
+                json={"step": int(self.global_steps), "cases": cases,
+                      "val_score": val_score},
                 timeout=float(se_cfg.get("evolve_timeout", 1200)),
             )
             r.raise_for_status()
@@ -1877,6 +1908,7 @@ class RayPPOTrainer:
         if self.config.trainer.get("val_before_train", True):
             val_metrics = self._validate()
             assert val_metrics, f"{val_metrics=}"
+            self._record_val_score(val_metrics)
             pprint(f"Initial validation metrics: {val_metrics}")
             logger.log(data=val_metrics, step=self.global_steps)
             if self.config.trainer.get("val_only", False):
@@ -2224,6 +2256,7 @@ class RayPPOTrainer:
                 ):
                     with marked_timer("testing", timing_raw, color="green"):
                         val_metrics: dict = self._validate()
+                        self._record_val_score(val_metrics)
                         if is_last_step:
                             last_val_metrics = val_metrics
                     metrics.update(val_metrics)

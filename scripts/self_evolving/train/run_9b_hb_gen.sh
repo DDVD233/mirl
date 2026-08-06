@@ -16,9 +16,28 @@
 #   RETRIEVAL=1 bash scripts/self_evolving/train/run_9b_hb_gen.sh   # retrieval arm
 #   RETRIEVAL=0 bash scripts/self_evolving/train/run_9b_hb_gen.sh   # control arm
 #
-# Generation-prompt evolution is OFF (EVOLVE_GENERATION=False): this run measures the
-# retrieval effect on generated data, and the v13-v16 diagnosis showed the evolver
-# collapsing task diversity, which would be a second moving part.
+# TWO FURTHER SWITCHES, each isolating one question against the SAME baseline
+# (RETRIEVAL=0 EVOLVE=0 SELF_JUDGE=0 — the arm that produced the completed
+# held-out result of 0.121 -> 0.352). Each new arm moves exactly one factor, so
+# its delta is attributable:
+#
+#   EVOLVE=1      generation-prompt evolution ON. The gen server's /evolve loop
+#                 rewrites the proposer and task+rubric-generator guidance from a
+#                 structured error analysis of each step's rollouts.
+#                 EVOLVE_EVERY defaults to 5 to MATCH test_freq. Evolution runs
+#                 just before validation within a step, so on this cadence each
+#                 guidance version is measured by exactly one held-out evaluation
+#                 and the val deltas in the evolver's history are attributable to
+#                 a single rewrite. Evolving every step instead would stack five
+#                 rewrites between two val points and make the outcome signal --
+#                 the only ungameable one the loop has -- uninterpretable.
+#   SELF_JUDGE=1  the TRAINING reward is graded by a frozen local 9B (the model
+#                 judging itself) instead of gpt-chat-latest. VALIDATION always
+#                 stays on gpt-chat-latest, so held-out numbers remain comparable
+#                 across every arm — this measures how much of the gain came from
+#                 the judge's quality rather than from the self-evolving loop.
+#
+# Do not set both at once: the point of each is a single-factor delta.
 #
 # VALIDATION USES ALL 525 TASKS (val_max_samples=-1). The fast-iteration script
 # subsampled to 200 for speed, which was fine when val was a progress gauge trained
@@ -37,7 +56,16 @@ REPO=${REPO:-$S/verl_healthbench}
 cd "$REPO"
 
 RETRIEVAL="${RETRIEVAL:?set RETRIEVAL=1 (retrieval arm) or RETRIEVAL=0 (control arm)}"
-EXP="${EXP:-hb9b_gen_$([ "$RETRIEVAL" = 1 ] && echo retrieval || echo control)}"
+EVOLVE="${EVOLVE:-0}"
+SELF_JUDGE="${SELF_JUDGE:-0}"
+if [ "$EVOLVE" = 1 ] && [ "$SELF_JUDGE" = 1 ]; then
+    echo "FATAL: EVOLVE and SELF_JUDGE together confound both deltas; run them as separate arms" >&2
+    exit 1
+fi
+_ARM=$([ "$RETRIEVAL" = 1 ] && echo retrieval || echo control)
+[ "$EVOLVE" = 1 ] && _ARM="${_ARM}_evolve"
+[ "$SELF_JUDGE" = 1 ] && _ARM="${_ARM}_selfjudge"
+EXP="${EXP:-hb9b_gen_$_ARM}"
 LOGDIR=$S/logs_hb9b; mkdir -p "$LOGDIR"
 
 TRAPI_BASE=http://point.dd.works:18890/v1
@@ -45,6 +73,33 @@ TRAPI_KEY=$(cat $S/.trapi_key)
 JUDGE=gpt-chat-latest_2026-05-28
 GEN_PORT="${GEN_PORT:-8041}"
 SUMM_PORT="${SUMM_PORT:-8199}"
+SJUDGE_PORT="${SJUDGE_PORT:-8198}"
+SJUDGE_BASE="${SJUDGE_BASE:-http://localhost:$SJUDGE_PORT/v1}"
+SJUDGE_MODEL="${SJUDGE_MODEL:-Qwen/Qwen3.5-9B}"
+
+# Judge routing. VAL is pinned to gpt-chat-latest in EVERY arm so the held-out
+# number stays one comparable series; only the TRAINING judge moves.
+TRAIN_JUDGE_BASE="$TRAPI_BASE"; TRAIN_JUDGE_KEY="$TRAPI_KEY"
+TRAIN_JUDGE_MODEL="$JUDGE";     TRAIN_JUDGE_PROVIDER=trapi
+# The fallback fires only when the primary judge call raises. It deliberately
+# points at the SAME endpoint as the primary rather than at TRAPI: routing the
+# self-judge arm's failures to gpt-chat-latest would silently grade part of the
+# batch with the judge this arm exists to do without. Watch reward/judge_fail/mean
+# instead -- an outage should be visible, not quietly repaired.
+FALLBACK_JUDGE_BASE="$TRAPI_BASE"; FALLBACK_JUDGE_KEY="$TRAPI_KEY"
+FALLBACK_JUDGE_MODEL="$JUDGE";     FALLBACK_JUDGE_PROVIDER=trapi
+if [ "$SELF_JUDGE" = 1 ]; then
+    TRAIN_JUDGE_BASE="$SJUDGE_BASE"; TRAIN_JUDGE_KEY=EMPTY
+    TRAIN_JUDGE_MODEL="$SJUDGE_MODEL"; TRAIN_JUDGE_PROVIDER=vllm
+    FALLBACK_JUDGE_BASE="$SJUDGE_BASE"; FALLBACK_JUDGE_KEY=EMPTY
+    FALLBACK_JUDGE_MODEL="$SJUDGE_MODEL"; FALLBACK_JUDGE_PROVIDER=vllm
+    # provider=vllm sets chat_template_kwargs.enable_thinking=False and temp 0 in
+    # _call_api, so the 9B answers the grader template directly. Without that it
+    # would spend all 512 max_tokens reasoning and never emit a verdict, which
+    # parses as "not met" and would look like a terrible model rather than a
+    # misconfigured judge.
+    REWARD_JUDGE_CONCURRENCY="${REWARD_JUDGE_CONCURRENCY:-48}"
+fi
 SUMM_BASE="${SUMM_BASE:-http://localhost:$SUMM_PORT/v1}"
 SUMM_MODEL="${SUMM_MODEL:-Qwen/Qwen3.5-9B}"
 EMBED_BASE="${EMBED_BASE:-http://mib.media.mit.edu:18001/v1}"
@@ -87,7 +142,7 @@ ROLLOUT_MAX_LEN="${ROLLOUT_MAX_LEN:-14336}"      # 6144 prompt + 8192 response
 PPO_MAX_TOKEN_LEN="${PPO_MAX_TOKEN_LEN:-14336}"
 LOGPROB_MAX_TOKEN_LEN="${LOGPROB_MAX_TOKEN_LEN:-14336}"
 
-cleanup() { kill ${GEN_PID:-} ${SUMM_PID:-} 2>/dev/null || true; }
+cleanup() { kill ${GEN_PID:-} ${SUMM_PID:-} ${SJUDGE_PID:-} 2>/dev/null || true; }
 trap cleanup EXIT INT TERM
 
 curl -sf -m 10 "$EMBED_BASE/models" >/dev/null \
@@ -138,6 +193,43 @@ if [ "$RETRIEVAL" = 1 ]; then
 else
     export HB_SCORE_MIN="${HB_SCORE_MIN:-0.0}"
     VLLM_GPU_UTIL="${VLLM_GPU_UTIL:-0.45}"
+fi
+
+# ---- self-judge: a FROZEN 9B grading the training reward -------------------------
+# Same base checkpoint the actor started from, never the actor's live weights: a
+# judge that tracks the policy makes the reward non-stationary, and the score
+# would drift for reasons that have nothing to do with the answers.
+# One judge call is issued PER RUBRIC CRITERION (~2.2 per rollout, so ~560 per
+# training step at batch 32 x n 8), which is why concurrency goes to 48 above.
+if [ "$SELF_JUDGE" = 1 ]; then
+    VLLM_GPU_UTIL="${VLLM_GPU_UTIL_SELFJUDGE:-0.35}"   # judge shares a GPU with rollout
+    if ! curl -sf -m 5 "$SJUDGE_BASE/models" >/dev/null 2>&1; then
+        CUDA_VISIBLE_DEVICES="${SJUDGE_GPU:-3}" MODEL="$SJUDGE_MODEL" PORT="$SJUDGE_PORT" \
+        TP=1 MEM="${SJUDGE_MEM:-0.25}" MAXSEQS=256 MAXLEN=16384 \
+            bash scripts/self_evolving/serve/serve_summarizer.sh \
+            > "$LOGDIR/selfjudge_${EXP}.log" 2>&1 &
+        SJUDGE_PID=$!
+        start=$SECONDS
+        until curl -sf -m 5 "$SJUDGE_BASE/models" >/dev/null; do
+            kill -0 "$SJUDGE_PID" 2>/dev/null || { echo "FATAL: self-judge died" >&2; tail -40 "$LOGDIR/selfjudge_${EXP}.log"; exit 1; }
+            (( SECONDS - start > 1800 )) && { echo "FATAL: self-judge unhealthy" >&2; exit 1; }
+            sleep 5
+        done
+    fi
+    # Prove it actually returns a gradable verdict before spending a step. A judge
+    # that 200s but answers with reasoning prose parses as "not met" for every
+    # criterion, which is indistinguishable from a model that cannot answer.
+    curl -sf -m 120 "$SJUDGE_BASE/chat/completions" -H 'content-type: application/json' \
+        -d "{\"model\":\"$SJUDGE_MODEL\",\"max_tokens\":64,\"temperature\":0,
+             \"chat_template_kwargs\":{\"enable_thinking\":false},
+             \"messages\":[{\"role\":\"user\",\"content\":\"Reply with exactly the word: true\"}]}" \
+      | /usr/local/bin/python -c '
+import json, sys
+d = json.load(sys.stdin)
+t = d["choices"][0]["message"]["content"] or ""
+assert "true" in t.lower(), "self-judge did not answer directly: %r" % (t[:200],)
+print("self-judge smoke OK:", t.strip()[:60])
+' || { echo "FATAL: self-judge smoke failed" >&2; exit 1; }
 fi
 
 # ---- gen server: co-generates the TRAINING tasks + rubrics (both arms) ------------
@@ -200,7 +292,9 @@ fi
     data.custom_cls.path=scripts/self_evolving/self_evolving_dataset.py \
     data.custom_cls.name=SelfEvolvingDataset \
     +data.self_evolving.gen_server_url="http://localhost:$GEN_PORT" \
-    +data.self_evolving.evolve_generation=False \
+    +data.self_evolving.evolve_generation=$([ "$EVOLVE" = 1 ] && echo True || echo False) \
+    +data.self_evolving.evolve_every_n_steps="${EVOLVE_EVERY:-5}" \
+    +data.self_evolving.evolve_num_examples="${EVOLVE_N:-24}" \
     data.val_files="$VAL" \
     data.train_batch_size="${TRAIN_BS:-32}" \
     data.max_prompt_length=6144 \
@@ -214,14 +308,14 @@ fi
     reward.custom_reward_function.path=verl/utils/reward_score/self_evolving.py \
     reward.custom_reward_function.name=compute_score \
     +reward.custom_reward_function.reward_kwargs.rubric_mode=True \
-    +reward.custom_reward_function.reward_kwargs.api_base="$TRAPI_BASE" \
-    +reward.custom_reward_function.reward_kwargs.api_key="$TRAPI_KEY" \
-    +reward.custom_reward_function.reward_kwargs.model_name="$JUDGE" \
-    +reward.custom_reward_function.reward_kwargs.provider=trapi \
-    +reward.custom_reward_function.reward_kwargs.fallback_api_base="$TRAPI_BASE" \
-    +reward.custom_reward_function.reward_kwargs.fallback_api_key="$TRAPI_KEY" \
-    +reward.custom_reward_function.reward_kwargs.fallback_model_name="$JUDGE" \
-    +reward.custom_reward_function.reward_kwargs.fallback_provider=trapi \
+    +reward.custom_reward_function.reward_kwargs.api_base="$TRAIN_JUDGE_BASE" \
+    +reward.custom_reward_function.reward_kwargs.api_key="$TRAIN_JUDGE_KEY" \
+    +reward.custom_reward_function.reward_kwargs.model_name="$TRAIN_JUDGE_MODEL" \
+    +reward.custom_reward_function.reward_kwargs.provider="$TRAIN_JUDGE_PROVIDER" \
+    +reward.custom_reward_function.reward_kwargs.fallback_api_base="$FALLBACK_JUDGE_BASE" \
+    +reward.custom_reward_function.reward_kwargs.fallback_api_key="$FALLBACK_JUDGE_KEY" \
+    +reward.custom_reward_function.reward_kwargs.fallback_model_name="$FALLBACK_JUDGE_MODEL" \
+    +reward.custom_reward_function.reward_kwargs.fallback_provider="$FALLBACK_JUDGE_PROVIDER" \
     +reward.custom_reward_function.reward_kwargs.val_api_base="$TRAPI_BASE" \
     +reward.custom_reward_function.reward_kwargs.val_api_key="$TRAPI_KEY" \
     +reward.custom_reward_function.reward_kwargs.val_model_name="$JUDGE" \

@@ -140,7 +140,14 @@ if curl -sf -m 5 "localhost:$GEN_PORT/healthz" >/dev/null 2>&1; then
     echo "FATAL: port $GEN_PORT already serving (orphan?)" >&2; exit 1
 fi
 LOGDIR=$S/logs_healthbench_rubric/$EXP; mkdir -p "$LOGDIR/prompts"
-"${RUN_CPU[@]}" bash -lc "cd $MSR/verl_healthbench && python scripts/self_evolving/generation_server.py \
+# TRAPI rejects reasoning_effort=none on gpt-chat-latest, and generation_server
+# defaults that env var to "none" -- so every summarizer call 400s and /retrieve
+# silently serves RAW passages for the whole run. This MUST be set before the
+# server starts (attempt 1 exported it afterwards and the smoke gate caught it),
+# and it is set INSIDE the command string because the server runs through
+# `apptainer exec` + `bash -lc`, either of which can drop an outer export.
+export TRAPI_NO_THINK_EFFORT=""
+"${RUN_CPU[@]}" bash -lc "export TRAPI_NO_THINK_EFFORT='' && cd $MSR/verl_healthbench && python scripts/self_evolving/generation_server.py \
     --rubric_mode --prompt_dir $MSR/logs_healthbench_rubric/$EXP/prompts \
     --api_base '$TRAPI_BASE' --api_key '$TRAPI_KEY_' --model_name '$JUDGE' \
     --embed_api_base '$EMBED_BASE' --embed_model Qwen/Qwen3-VL-Embedding-2B \
@@ -161,10 +168,6 @@ until curl -sf -m 5 "localhost:$GEN_PORT/healthz" >/dev/null; do
     sleep 5
 done
 echo "gen server healthy on :$GEN_PORT"
-
-# TRAPI rejects reasoning_effort=none on gpt-chat-latest, which would make every
-# summarizer call 400 and silently serve RAW passages for the whole run.
-export TRAPI_NO_THINK_EFFORT=""
 
 # Prove retrieval works before spending a step.
 curl -sf -m 240 -X POST "localhost:$GEN_PORT/retrieve" -H 'content-type: application/json' \

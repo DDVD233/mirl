@@ -2009,74 +2009,206 @@ def _weighted_choice(weights: dict[str, float]) -> str:
 # aggregate -> rewrite the GAP_GUIDANCE of both evolvable generation prompts.
 # Mirrors verl/utils/reward_score/reward_evolution.py but targets the GENERATION
 # prompts (proposer + task/rubric generator) instead of the reward.
+#
+# The loop is steered against FOUR objectives, because every past failure of this
+# meta-loop was one of them going unmeasured:
+#   1. DISTRIBUTION - generated tasks must match HealthBench-Professional's
+#      measured shape (v13-v16 drifted to 7.5 long conjunctive criteria against
+#      the benchmark's measured 2.16 short ones).
+#   2. DIVERSITY - collapse of every task into one template was invisible to the
+#      evolver for all 57 steps of ij3ccucc.
+#   3. QUALITY - rubrics must be non-gameable and testable; the evolver used to
+#      "improve" the score by trivialising tasks, which is the same number going
+#      up for the opposite reason.
+#   4. SOLVER NEED - guidance must target what the solver actually fails, which
+#      needs a real error taxonomy rather than 20 blobs of prose.
+# Objectives 1-3 are measured arithmetically (_corpus_stats) and 4 is COUNTED in
+# code from structured per-case diagnoses (_aggregate_diagnoses). The
+# meta-optimizer is handed evidence; it is never asked to introspect on its own
+# output, and no number it sees is an LLM's opinion.
 # ======================================================================
+
+# Measured on the real healthbench_pro_val.parquet: 525 tasks / 1128 criteria.
+# This is the distribution the generated curriculum must imitate; it is the
+# reference side of every comparison shown to the meta-optimizer.
+HB_REF_STATS = {
+    "use_case_mix": {"consult": 0.45, "research": 0.28, "writing": 0.27},
+    "criteria_per_task_mean": 2.16,
+    "criteria_per_task_median": 2.0,
+    "criteria_per_task_max": 5,
+    "criterion_chars_mean": 135,
+    "criterion_chars_median": 111,
+    "modal_positive_points": 8,
+    "frac_tasks_with_negative": 0.364,
+}
+
+# The exact reward the solver is optimised against. The meta-optimizer is shown
+# this verbatim: without it, it cannot tell that a lone +9 criterion makes a task
+# all-or-nothing, or that a 6000-char answer is taxed 0.118 before grading.
+HB_SCORE_FORMULA = """\
+raw            = (sum of points over MET criteria) / (sum of points over POSITIVE criteria)
+                 -- a met NEGATIVE criterion subtracts from the numerator, so raw can go below 0
+length_adjusted = raw - 0.0147 * ((answer_chars - 2000) / 500)
+Consequences you must design around:
+- Only the RATIO matters, never the point total. A task with one +9 criterion is all-or-nothing
+  (score 0 or 1); a task with three criteria has partial credit. Prefer 2-3 so the reward is
+  graded rather than binary -- single-criterion tasks give a near-useless learning signal.
+- The private reasoning channel is stripped before grading and is NOT counted in answer_chars.
+- Verbosity is taxed continuously: 4000 chars costs 0.059, 6000 costs 0.118. Rubrics that demand
+  exhaustive coverage push the solver straight into that tax, so it can lose more to length than
+  it gains from the extra criterion it satisfied."""
+
+# Fixed error taxonomy. Closed-vocabulary so it can be COUNTED; the categories
+# are the failure modes actually observed in val error reviews (translation and
+# dose-fidelity errors, calculator miscounts, hallucinated specifics, verbosity
+# growth), not an invented list.
+EVOLVE_FAILURE_MODES = [
+    "knowledge_factual",       # wrong/absent clinical fact, dose, threshold, guideline
+    "knowledge_specificity",   # right topic, too coarse (e.g. ICD category not sub-code)
+    "hallucinated_specifics",  # fabricated trial, citation, guideline, or number
+    "safety_miss",             # missed red flag, contraindication, unsafe reassurance
+    "premise_uncaught",        # went along with a false/contradictory premise (red-team)
+    "incompleteness",          # omitted a required element it plainly knew
+    "calculation",             # arithmetic, score, staging, or unit error
+    "instruction_format",      # ignored requested format, length, or artifact type
+    "language_fidelity",       # translation, register, or terminology error
+    "verbosity",               # substantively right but bloated -- loses on length adjustment
+    "non_answer",              # empty, truncated, or unclosed reasoning
+    "none",                    # model succeeded
+]
+EVOLVE_RUBRIC_DEFECTS = [
+    "none",
+    "gameable_restates_task",   # only checks what the prompt literally asked for
+    "untestable_vague",         # cannot be judged from the answer alone
+    "conjunctive_overloaded",   # several requirements welded into one criterion
+    "off_domain",               # not a HealthBench-Pro capability
+    "targets_format_not_medicine",
+    "missing_safety_negative",  # a concrete clinical trap existed and went unpenalised
+    "mis_scaled_points",
+]
+EVOLVE_TASK_DEFECTS = [
+    "none",
+    "unrealistic",              # no clinician would send this
+    "ambiguous_underspecified",
+    "template_generic",         # interchangeable with every other generated task
+    "reveals_rubric",           # task text enumerates the checklist
+    "too_easy",
+    "wrong_use_case",           # does not exercise its stated domain
+]
+
 EVOLVE_PER_CASE_SYSTEM = """\
-You are improving an automatic curriculum that trains a medical AI for HealthBench Professional \
-(domains: care consult, writing & documentation, medical research). You are shown ONE training \
-case: the clinician task, the model's FINAL ANSWER, the rubric used to grade it, which criteria \
-were met, and the resulting score (0-1).
+You are the ERROR ANALYST for an automatic curriculum that trains a medical AI for HealthBench \
+Professional (domains: care consult, writing & documentation, medical research). You are shown ONE \
+training case: the clinician task, the model's FINAL ANSWER, the rubric, which criteria were met, \
+and the score.
 
-IMPORTANT context about the harness (do not re-diagnose it):
-- The model reasons in a private thinking channel that is ALREADY REMOVED from the answer shown \
-  to you, and is NEVER graded. Reasoning presence is not a failure and rubrics must not target it.
-- THINK_STATS tells you whether the reasoning finished. If it did not (think_closed=false), the \
-  answer is empty and the score is a fixed 0 from a training-side penalty that already handles \
-  this; do not propose rubric or task changes for it.
+Your job is to separate TWO different things that look identical in the score:
+  (a) the task and rubric were fair and the MODEL genuinely failed -> that is a capability gap the
+      curriculum should target more;
+  (b) the task or rubric was DEFECTIVE -> that is a generator bug, and training on more of it
+      actively harms the model.
+Conflating these is how this loop has failed before: a curriculum that gets "harder" by getting
+more broken reads exactly like one that gets harder by getting better.
 
-In <=120 words, diagnose:
-1. CAPABILITY GAP: what clinical/communication capability did the model most lack here \
-   (medical accuracy, safety, completeness, terminology, language fidelity, calculation, \
-   instruction following, concision)?
-2. RUBRIC QUALITY: was the rubric well-targeted to a real HealthBench-Pro capability, or was it \
-   gameable / off-domain / mis-calibrated (e.g. positives not summing to ~10, missing a safety \
-   negative, not tied to the response, or wasting points on formatting/meta constraints)?
-3. TASK FIT: did the task genuinely exercise its stated use-case domain, and is it the kind of \
-   realistic request a clinician would actually send?
-Be specific and terse. Output plain prose, no preamble."""
+Harness facts -- these are settled, do not re-diagnose them:
+- The model reasons in a private channel that is ALREADY REMOVED from the answer you see and is
+  NEVER graded. Reasoning is not a failure and rubrics must never target its presence, absence,
+  or length.
+- If THINK_STATS says think_closed=false the answer was truncated mid-reasoning. That is an
+  optimizer/budget problem with its own handling; label failure_mode "non_answer" and every
+  defect field "none". Never propose task or rubric changes from such a case.
+
+Output ONLY a JSON object, no markdown:
+{
+  "failure_mode": one of %(modes)s,
+  "gap": "<=15 words naming the SPECIFIC missing capability or fact, e.g. 'eGFR threshold for
+          metformin discontinuation' -- never a generic label like 'medical accuracy'",
+  "rubric_defect": one of %(rdefects)s,
+  "task_defect": one of %(tdefects)s,
+  "verdict": "model_failed_fair_task" | "generator_at_fault" | "model_succeeded"
+}
+Choose the SINGLE most decisive value for each field. "gap" is the field the curriculum is
+actually steered by, so make it concrete enough that a task author could write a new task
+targeting it."""% {
+    "modes": EVOLVE_FAILURE_MODES,
+    "rdefects": EVOLVE_RUBRIC_DEFECTS,
+    "tdefects": EVOLVE_TASK_DEFECTS,
+}
 
 EVOLVE_AGGREGATE_SYSTEM = """\
 You are the meta-optimizer for a self-evolving curriculum that trains a medical AI for HealthBench \
-Professional (care consult, writing & documentation, medical research — NOT diagnosis). You are \
-given ~20 per-case diagnoses, the CURRENT extra guidance for two generation prompts, and a HISTORY \
-of previous guidance versions with the mean rubric score measured under each:
-  (A) the QUERY PROPOSER (proposes clinician task requests / retrieval queries), and
-  (B) the TASK+RUBRIC GENERATOR (writes the clinician task and its grading rubric).
+Professional (care consult, writing & documentation, medical research — NOT diagnosis). You rewrite \
+the appended guidance of two generation prompts:
+  (A) the QUERY PROPOSER — proposes the clinician requests that become tasks, and
+  (B) the TASK+RUBRIC GENERATOR — writes each clinician task and its grading rubric.
 
-Use the HISTORY as evidence: directions whose scores improved are working — keep and extend them; \
-directions that repeatedly failed to move the score, or that every recent version already repeats, \
-are exhausted — drop them and try something genuinely different. Do not oscillate between two \
-alternatives the history shows have both been tried. (Mean score also moves when tasks get harder \
-— judge a direction by its per-case diagnoses too, not the score alone.)
+You are given: the reward formula the solver is optimised against; MEASURED statistics of the tasks \
+your last guidance actually produced, against the real benchmark's measured statistics; a COUNTED \
+error analysis over this step's rollouts; the concrete capability gaps behind those errors; and a \
+history of previous guidance versions with the HELD-OUT validation score measured under each.
 
-Find the common patterns across the cases (recurring capability gaps the model fails on; recurring \
-rubric/targeting weaknesses) and REWRITE the extra guidance for BOTH prompts so the NEXT round of \
-generated tasks+rubrics targets those gaps and fixes those rubric weaknesses. The guidance is \
-appended into each prompt, so write concrete, imperative instructions (what task types, sub-topics, \
-difficulty, formats to emphasize; how to make rubrics objective, safety-aware, well-calibrated to \
-sum positives to ~10, and aimed at the specific failing capabilities). Each guidance block <= 300 \
-words. Keep what still works; replace what doesn't.
+=== HOW TO READ THE EVIDENCE (in priority order) ===
 
-Hard constraints:
-- The model's private reasoning channel is stripped before grading and NEVER graded. Guidance and \
-  rubrics must NOT target chain-of-thought suppression, "no reasoning traces", word caps, or exact \
-  header echoes — those criteria are dead weight. Spend rubric points on medical substance.
-- Preserve TASK DIVERSITY: vary use case, specialty, language/register, artifact type, and \
-  difficulty. Never let all tasks collapse into one template.
-- Do NOT mention specific held-out benchmark items.
-- A LOW mean score is NOT a problem to fix by relaxing grading — it is the training signal working. \
-  Do not instruct the generator to drop negative (safety) criteria wholesale; they belong on roughly \
-  a third of tasks, wherever a concrete clinical trap exists. \
-  Rubrics are 1-5 SHORT single-fact criteria worth +5..+10 each, matching the real benchmark's \
-  measured shape (2.2 criteria, modal +8). Never push the generator back toward many long \
-  conjunctive criteria or a fixed points total — that rewards covering ground over being correct.
-- NEVER make rubrics easier to satisfy, "transparent", or 1:1-mapped to the task's explicit \
-  deliverables. A rubric that only checks what the prompt literally asked is gameable: the train \
-  reward inflates while held-out performance falls. Rubrics must test judgment BEYOND the task's \
-  surface instructions (unstated safety boundaries, completeness a competent clinician expects, \
-  accuracy under the case's specifics). Raise difficulty through the TASK, never through leniency.
+1. HELD-OUT VALIDATION SCORE is the only outcome that counts. It is measured on the real, untouched \
+benchmark, so it cannot be gamed by changing your own tasks. Directions under which it rose are \
+working — keep and extend them. Directions under which it fell or stalled are wrong, whatever else \
+looked good.
+
+2. TRAIN MEAN SCORE IS NOT AN OBJECTIVE, and raising it is not evidence of anything. It is the \
+solver's score on tasks YOU wrote, so you can raise it at will by making tasks easier or rubrics \
+looser — and every past failure of this loop did exactly that while held-out performance fell. Read \
+it only as a difficulty gauge: roughly 0.4-0.6 means the tasks are pitched about right; near 0.9 \
+means they are too easy to teach anything; near 0.1 means they are too hard to give gradient.
+
+3. DISTRIBUTION and DIVERSITY statistics are arithmetic, not opinion. Where a generated statistic \
+has drifted from its benchmark reference, correcting it is the highest-value edit you can make: \
+training on a distribution the benchmark does not contain is wasted compute no matter how good the \
+individual tasks are.
+
+4. The ERROR TAXONOMY tells you what the solver actually lacks. Target the modes with the largest \
+counts, but ONLY those attributed to "model_failed_fair_task". Counts under \
+"generator_at_fault" are YOUR bugs — fix the generator guidance instead of writing more tasks of \
+that kind.
+
+=== WHAT YOUR REWRITE MUST ACHIEVE (all four, simultaneously) ===
+
+(1) DISTRIBUTION ALIGNMENT — generated tasks must look like the benchmark on every measured axis: \
+use-case mix, criteria per task, criterion length, point scale, and share of tasks carrying a \
+negative criterion. Where the measurements show drift, say so explicitly in the guidance with the \
+number to hit.
+
+(2) DIVERSITY — vary specialty, sub-topic, patient context, language/register, artifact type, and \
+difficulty. Template collapse is the single most destructive failure this loop has: it is measured \
+below as task self-similarity, and if that number is climbing, your guidance is the cause. Diversity \
+comes from naming AXES to vary, never from listing specific topics — a topic list becomes the next \
+template.
+
+(3) QUALITY — rubrics must be objectively checkable from the answer alone, must test judgment \
+BEYOND the task's surface instructions, and must not be satisfiable by restating the prompt.
+
+(4) SOLVER NEED — the tasks must exercise the specific capabilities the error analysis shows the \
+solver failing, at the granularity of the "gap" strings, not the coarse category names.
+
+Guidance is appended verbatim into each prompt, so write concrete imperative instructions. Keep what \
+the evidence shows is working; replace what it does not. Each block <= 300 words.
+
+=== HARD CONSTRAINTS (these override anything the evidence seems to suggest) ===
+- The solver's private reasoning channel is stripped before grading and NEVER graded. Never target \
+  chain-of-thought suppression, "no reasoning traces", word caps, or exact header echoes. Those \
+  criteria are dead weight that grade as free points.
+- NEVER make rubrics easier, "transparent", or 1:1-mapped to the task's stated deliverables. Raise \
+  difficulty through the TASK; never through leniency, and never by relaxing grading.
+- Rubrics stay 1-5 SHORT single-fact criteria at +5..+10 each (modal +8), with NO required point \
+  total. Never push back toward many long conjunctive criteria or a fixed total: only the ratio of \
+  achieved to available points is scored, so a fixed total rewards covering ground over being right.
+- Negative criteria belong on about a third of tasks, wherever a concrete clinical trap genuinely \
+  exists — not on all of them, and not on none.
+- Do NOT name or paraphrase specific held-out benchmark items.
+- Do not oscillate: if the history shows two alternatives have both been tried, pick a third \
+  direction rather than returning to either.
 
 Output ONLY a JSON object:
-{"query_proposer_guidance": "<new guidance text>", "task_rubric_generator_guidance": "<new guidance text>", "summary": "<2-3 sentence rationale of the changes>"}"""
+{"query_proposer_guidance": "<new guidance text>", "task_rubric_generator_guidance": "<new guidance text>", "summary": "<2-3 sentences: what the evidence showed and what you changed because of it>"}"""
 
 
 def _evolve_endpoint(state: ServerState) -> dict:
@@ -2096,6 +2228,234 @@ def _evolve_endpoint(state: ServerState) -> dict:
         "model_name": m,
         "provider_override": getattr(state.args, "evolve_provider", "") or "",
     }
+
+
+def _task_shingles(text: str, n: int = 5) -> set:
+    """Word 5-grams of a task, for the self-similarity (template-collapse) metric."""
+    w = re.findall(r"[a-z0-9]+", (text or "").lower())
+    return {tuple(w[i:i + n]) for i in range(max(0, len(w) - n + 1))}
+
+
+def _corpus_stats(state: "ServerState", sample: int = 150) -> dict:
+    """Measure the curriculum the generator is CURRENTLY producing.
+
+    Reads the ring of entries actually pushed into the pool, so it reflects what
+    the solver is being trained on right now, including whatever the last
+    guidance rewrite changed. Every number here is arithmetic over real generated
+    tasks -- none of it is a model's opinion of its own output, which is the
+    whole point: the two failures this loop has had (rubric-shape drift and
+    template collapse) were both invisible precisely because nothing counted.
+    """
+    ents = list(state.history)[-sample:]
+    out: dict = {"n": len(ents)}
+    if not ents:
+        return out
+
+    uc: dict = defaultdict(int)
+    spec: dict = defaultdict(int)
+    diff: dict = defaultdict(int)
+    ncrit: list = []
+    clen: list = []
+    pos_pts: list = []
+    n_with_neg = 0
+    texts: list = []
+    for e in ents:
+        ei = e.get("extra_info", {}) or {}
+        uc[str(ei.get("use_case", "?"))] += 1
+        spec[str(ei.get("specialty", "?"))] += 1
+        diff[str(ei.get("difficulty", "?"))] += 1
+        items = list(ei.get("rubric_items") or [])
+        ncrit.append(len(items))
+        has_neg = False
+        for it in items:
+            t = str((it or {}).get("criterion_text") or (it or {}).get("criterion") or "")
+            clen.append(len(t))
+            try:
+                p = float((it or {}).get("points", 0))
+            except (TypeError, ValueError):
+                continue
+            if p > 0:
+                pos_pts.append(p)
+            elif p < 0:
+                has_neg = True
+        n_with_neg += bool(has_neg)
+        texts.append(str(ei.get("question", "") or ""))
+
+    def _mean(xs):
+        return (sum(xs) / len(xs)) if xs else 0.0
+
+    def _median(xs):
+        if not xs:
+            return 0.0
+        s = sorted(xs)
+        m = len(s) // 2
+        return float(s[m]) if len(s) % 2 else (s[m - 1] + s[m]) / 2.0
+
+    n = len(ents)
+    out.update({
+        "use_case_mix": {k: round(v / n, 3) for k, v in sorted(uc.items(), key=lambda kv: -kv[1])},
+        "criteria_per_task_mean": round(_mean(ncrit), 2),
+        "criteria_per_task_median": _median(ncrit),
+        "criteria_per_task_max": max(ncrit) if ncrit else 0,
+        "criterion_chars_mean": round(_mean(clen)),
+        "criterion_chars_median": round(_median(clen)),
+        "positive_points_mean": round(_mean(pos_pts), 1),
+        "frac_tasks_with_negative": round(n_with_neg / n, 3),
+        "difficulty_mix": {k: round(v / n, 3) for k, v in sorted(diff.items(), key=lambda kv: -kv[1])},
+        "distinct_specialties": len(spec),
+        "task_chars_median": round(_median([len(t) for t in texts])),
+    })
+
+    # Template collapse: mean pairwise Jaccard of task 5-grams over a bounded
+    # random sample of pairs. Two independently written clinician requests share
+    # almost no 5-grams (~0.01); one filled-in template drives this toward 0.3+.
+    # Gate on WORD count, not characters: a 5-gram needs 5 words, and gating on
+    # characters silently dropped the whole metric for terse curricula -- i.e. it
+    # went blind exactly when tasks had collapsed into short stereotyped stubs,
+    # which is the case it exists to catch. Unmeasurable is reported as such
+    # (None) rather than omitted.
+    shs = [s for s in (_task_shingles(t) for t in texts) if len(s) >= 8]
+    out["task_self_similarity"] = None
+    if len(shs) >= 4:
+        rnd = random.Random(0)          # deterministic so the number is comparable across steps
+        pairs = min(200, len(shs) * (len(shs) - 1) // 2)
+        sims = []
+        for _ in range(pairs):
+            a, b = rnd.sample(range(len(shs)), 2)
+            u = len(shs[a] | shs[b])
+            sims.append((len(shs[a] & shs[b]) / u) if u else 0.0)
+        out["task_self_similarity"] = round(_mean(sims), 3)
+    return out
+
+
+def _format_corpus_block(cur: dict) -> str:
+    """Render generated-vs-benchmark statistics side by side, flagging drift.
+
+    Presenting the reference next to the measurement (rather than asking the
+    meta-optimizer to remember the target) is what makes objectives 1-2
+    actionable: it can only correct drift it can see.
+    """
+    if not cur.get("n"):
+        return "(no generated tasks measured yet)"
+    ref = HB_REF_STATS
+    rows = []
+
+    def _row(label, got, want, bad=None):
+        flag = "   <-- DRIFT" if (bad is not None and bad) else ""
+        rows.append(f"  {label:<34} generated={got!s:<22} benchmark={want!s}{flag}")
+
+    gm = cur.get("use_case_mix", {})
+    _row("use-case mix", gm, ref["use_case_mix"],
+         any(abs(gm.get(k, 0.0) - v) > 0.10 for k, v in ref["use_case_mix"].items()))
+    _row("criteria per task (mean)", cur.get("criteria_per_task_mean"), ref["criteria_per_task_mean"],
+         abs((cur.get("criteria_per_task_mean") or 0) - ref["criteria_per_task_mean"]) > 0.8)
+    _row("criteria per task (median/max)",
+         f"{cur.get('criteria_per_task_median')}/{cur.get('criteria_per_task_max')}",
+         f"{ref['criteria_per_task_median']}/{ref['criteria_per_task_max']}")
+    _row("criterion chars (mean)", cur.get("criterion_chars_mean"), ref["criterion_chars_mean"],
+         abs((cur.get("criterion_chars_mean") or 0) - ref["criterion_chars_mean"]) > 60)
+    _row("criterion chars (median)", cur.get("criterion_chars_median"), ref["criterion_chars_median"])
+    _row("positive points (mean)", cur.get("positive_points_mean"), ref["modal_positive_points"])
+    _row("tasks with a negative criterion", cur.get("frac_tasks_with_negative"),
+         ref["frac_tasks_with_negative"],
+         abs((cur.get("frac_tasks_with_negative") or 0) - ref["frac_tasks_with_negative"]) > 0.20)
+    rows.append(f"  {'difficulty mix':<34} generated={cur.get('difficulty_mix')}")
+    rows.append(f"  {'distinct specialties':<34} generated={cur.get('distinct_specialties')} "
+                f"(of {len(HB_SPECIALTIES)} available)")
+    sim = cur.get("task_self_similarity")
+    if sim is None:
+        rows.append(f"  {'task self-similarity (5-gram)':<34} generated=NOT MEASURABLE "
+                    f"(tasks too short to form 5-grams -- itself a sign the tasks have "
+                    f"become terse stubs)")
+    else:
+        note = ("   <-- TEMPLATE COLLAPSE: tasks are near-duplicates of each other"
+                if sim > 0.15 else ("   (mild templating)" if sim > 0.07 else "   (healthy)"))
+        rows.append(f"  {'task self-similarity (5-gram)':<34} generated={sim}{note}")
+    return (f"Measured over the last {cur['n']} generated tasks, against the real benchmark "
+            f"(525 tasks / 1128 criteria):\n" + "\n".join(rows))
+
+
+def _parse_diagnosis(raw: str) -> dict | None:
+    """Parse one per-case error-analysis JSON, keeping only in-vocabulary values.
+
+    Out-of-vocabulary labels are dropped rather than counted: a taxonomy the
+    analyst can silently extend is a taxonomy that cannot be aggregated.
+    """
+    # _parse_json RAISES on unparseable input, and the per-case analyzer's own
+    # failure path returns the plain string "(analysis failed: ...)". Letting that
+    # propagate would abort the entire evolution round because one of 24 analyses
+    # timed out, so a dropped case must stay a dropped case.
+    try:
+        obj = _parse_json(raw)
+    except Exception:
+        return None
+    if not isinstance(obj, dict):
+        return None
+
+    def _pick(key, vocab):
+        v = str(obj.get(key, "") or "").strip().lower()
+        return v if v in vocab else None
+
+    return {
+        "failure_mode": _pick("failure_mode", EVOLVE_FAILURE_MODES),
+        "rubric_defect": _pick("rubric_defect", EVOLVE_RUBRIC_DEFECTS),
+        "task_defect": _pick("task_defect", EVOLVE_TASK_DEFECTS),
+        "verdict": _pick("verdict", ["model_failed_fair_task", "generator_at_fault", "model_succeeded"]),
+        "gap": str(obj.get("gap", "") or "").strip()[:160],
+    }
+
+
+def _aggregate_diagnoses(diags: list[dict]) -> tuple[str, dict]:
+    """Count the taxonomy in CODE and render it for the meta-optimizer.
+
+    Returns (rendered_block, metrics). Counting here rather than asking the
+    aggregate model to tally 20 prose blobs is the difference between "the model
+    sometimes struggles with dosing" and "knowledge_factual 9/20" -- only the
+    second can be compared against the next step's number.
+    """
+    ok = [d for d in diags if d]
+    if not ok:
+        return "(no parseable diagnoses this step)", {}
+    n = len(ok)
+
+    def _count(key):
+        c: dict = defaultdict(int)
+        for d in ok:
+            if d.get(key):
+                c[d[key]] += 1
+        return dict(sorted(c.items(), key=lambda kv: -kv[1]))
+
+    verdicts = _count("verdict")
+    fair = [d for d in ok if d.get("verdict") == "model_failed_fair_task"]
+    modes_fair: dict = defaultdict(int)
+    for d in fair:
+        if d.get("failure_mode") and d["failure_mode"] != "none":
+            modes_fair[d["failure_mode"]] += 1
+    modes_fair = dict(sorted(modes_fair.items(), key=lambda kv: -kv[1]))
+    rdef = {k: v for k, v in _count("rubric_defect").items() if k != "none"}
+    tdef = {k: v for k, v in _count("task_defect").items() if k != "none"}
+    gaps = [d["gap"] for d in fair if d.get("gap")][:15]
+
+    n_fault = verdicts.get("generator_at_fault", 0)
+    block = (
+        f"Structured error analysis over {n} sampled rollouts (sampling is FAILURE-HEAVY by "
+        f"design, so these proportions are worse than the batch as a whole):\n"
+        f"  verdict split: {verdicts}\n"
+        f"  FAILURE MODES on fair tasks ({len(fair)} cases -- target these): {modes_fair or '(none)'}\n"
+        f"  RUBRIC defects ({n_fault} cases blamed the generator -- fix these in guidance (B)): "
+        f"{rdef or '(none)'}\n"
+        f"  TASK defects: {tdef or '(none)'}\n"
+        f"  Specific capability gaps behind the fair-task failures:\n"
+        + ("\n".join(f"    - {g}" for g in gaps) if gaps else "    (none reported)")
+    )
+    metrics = {
+        "diag/n_parsed": float(n),
+        "diag/frac_generator_at_fault": round(n_fault / n, 3),
+        "diag/frac_model_failed_fair": round(len(fair) / n, 3),
+        "diag/n_rubric_defects": float(sum(rdef.values())),
+        "diag/n_task_defects": float(sum(tdef.values())),
+    }
+    return block, metrics
 
 
 def _format_evolve_case(c: dict) -> str:
@@ -2136,21 +2496,38 @@ def _format_evolve_case(c: dict) -> str:
 
 
 def _history_block(history: list[dict], max_entries: int = 8) -> str:
-    """Render the last guidance versions + their measured outcomes for the
-    aggregate meta-prompt, oldest first, with score deltas between versions."""
+    """Render past guidance versions and their measured outcomes, oldest first.
+
+    HELD-OUT VAL leads and TRAIN score is explicitly labelled as non-objective.
+    That ordering is the point: the earlier version of this block reported only
+    the train mean and told the meta-optimizer to prefer directions that raised
+    it, which rewards trivialising the curriculum -- the exact failure seen in
+    v2/v3, where the evolver responded to a hard step by writing easier tasks and
+    the train score duly improved while held-out performance did not.
+    """
     ent = history[-max_entries:]
     if not ent:
         return "(no previous guidance versions)"
     parts = []
-    prev_score = None
+    prev_val = None
+    prev_train = None
     for e in ent:
         outs = e.get("outcomes") or []
         if outs:
-            sc = sum(o["mean_score"] for o in outs) / len(outs)
+            tr = sum(o.get("mean_score", 0.0) for o in outs) / len(outs)
             unc = sum(o.get("unclosed_rate", 0.0) for o in outs) / len(outs)
-            delta = "" if prev_score is None else f" (delta {sc - prev_score:+.3f})"
-            outcome = f"measured mean score {sc:.3f}{delta}, unclosed-think rate {unc:.2f}"
-            prev_score = sc
+            vals = [o["val_score"] for o in outs if o.get("val_score") is not None]
+            if vals:
+                v = sum(vals) / len(vals)
+                vd = "" if prev_val is None else f" (delta {v - prev_val:+.3f})"
+                val_s = f"HELD-OUT VAL {v:.3f}{vd}"
+                prev_val = v
+            else:
+                val_s = "HELD-OUT VAL not yet measured under this version"
+            td = "" if prev_train is None else f" (delta {tr - prev_train:+.3f})"
+            prev_train = tr
+            outcome = (f"{val_s}; train mean {tr:.3f}{td} [difficulty gauge only, not an "
+                       f"objective]; unclosed-think {unc:.2f}")
         else:
             outcome = "no outcome measured yet"
         parts.append(
@@ -2169,8 +2546,14 @@ def _save_evolve_history(state: ServerState) -> None:
         logger.warning(f"could not persist evolve history: {e}")
 
 
-async def _evolve_prompts(state: ServerState, step: int, cases: list[dict]) -> dict:
-    """Run one generation-prompt evolution round from ~20 sampled rollouts."""
+async def _evolve_prompts(state: ServerState, step: int, cases: list[dict],
+                          val_score: float | None = None) -> dict:
+    """Run one generation-prompt evolution round from ~20 sampled rollouts.
+
+    Three stages: structured per-case ERROR ANALYSIS -> code-side aggregation of
+    the taxonomy and of the generated corpus's distribution -> one meta-optimizer
+    call that rewrites both guidance blocks against measured evidence.
+    """
     state.gen_step = max(state.gen_step, int(step))
     n = len(cases)
     mean_score = (sum(float(c.get("total_score", 0.0)) for c in cases) / n) if n else 0.0
@@ -2179,34 +2562,48 @@ async def _evolve_prompts(state: ServerState, step: int, cases: list[dict]) -> d
 
     # Attribute this step's observed rollouts to the most recent guidance version
     # (approximate — the sample pool lags a rewrite by up to a step or two).
+    # val_score is the trainer's LAST held-out evaluation, which is what makes the
+    # history a real outcome signal rather than a self-graded one.
     if state.evolve_history:
         state.evolve_history[-1].setdefault("outcomes", []).append({
             "step": int(step), "mean_score": mean_score,
             "unclosed_rate": unclosed_rate, "mean_answer_chars": mean_answer_chars,
+            "val_score": (float(val_score) if val_score is not None else None),
         })
 
-    # 1) Per-case analysis (concurrent, bounded).
+    # 1) Per-case structured error analysis (concurrent, bounded).
     async def analyze(c: dict) -> str:
         try:
             return await _api_call(state, EVOLVE_PER_CASE_SYSTEM, _format_evolve_case(c),
                                    **_evolve_endpoint(state),
-                                   max_tokens=512, temperature=0.3, label="evolve_per_case")
+                                   max_tokens=512, temperature=0.3, label="evolve_per_case",
+                                   want_json=True)
         except Exception as e:
             return f"(analysis failed: {type(e).__name__})"
     summaries = await asyncio.gather(*[analyze(c) for c in cases]) if cases else []
+    diags = [_parse_diagnosis(s) for s in summaries]
+    diag_block, diag_metrics = _aggregate_diagnoses(diags)
 
-    # 2) Aggregate -> new guidance for both prompts.
+    # 2) Measure what the generator is currently producing, then aggregate.
+    corpus = _corpus_stats(state)
     cur_q = state.prompt_store.get("query_proposer_guidance")
     cur_g = state.prompt_store.get("task_rubric_generator_guidance")
+    val_s = (f"{val_score:.3f}" if val_score is not None else "not yet measured")
     agg_user = (
-        f"Mean rubric score this step: {mean_score:.3f} over {n} cases "
-        f"(cases are sampled failure-heavy, so this reads LOW vs the batch mean; "
-        f"unclosed-think rate {unclosed_rate:.2f}, mean answer {mean_answer_chars:.0f} chars).\n\n"
-        f"GUIDANCE HISTORY & MEASURED OUTCOMES (oldest first):\n"
+        f"=== REWARD FORMULA THE SOLVER IS OPTIMISED AGAINST ===\n{HB_SCORE_FORMULA}\n\n"
+        f"=== OUTCOME THIS STEP ===\n"
+        f"HELD-OUT VALIDATION SCORE (the objective): {val_s}\n"
+        f"Train mean over {n} failure-heavy sampled rollouts: {mean_score:.3f} "
+        f"(difficulty gauge only — NOT an objective; reads low vs the batch mean by design). "
+        f"Unclosed-think rate {unclosed_rate:.2f}; mean answer {mean_answer_chars:.0f} chars "
+        f"(length adjustment is neutral at 2000).\n\n"
+        f"=== OBJECTIVES 1-2: DISTRIBUTION & DIVERSITY OF WHAT YOU ARE GENERATING ===\n"
+        f"{_format_corpus_block(corpus)}\n\n"
+        f"=== OBJECTIVES 3-4: QUALITY & SOLVER NEED ===\n{diag_block}\n\n"
+        f"=== GUIDANCE HISTORY & MEASURED OUTCOMES (oldest first) ===\n"
         f"{_history_block(state.evolve_history)}\n\n"
-        f"CURRENT query-proposer guidance:\n{cur_q or '(none)'}\n\n"
-        f"CURRENT task+rubric-generator guidance:\n{cur_g or '(none)'}\n\n"
-        "PER-CASE DIAGNOSES:\n" + "\n\n".join(f"[{i+1}] {s}" for i, s in enumerate(summaries))
+        f"=== CURRENT query-proposer guidance ===\n{cur_q or '(none)'}\n\n"
+        f"=== CURRENT task+rubric-generator guidance ===\n{cur_g or '(none)'}"
     )
     new_q, new_g, summary = cur_q, cur_g, ""
     changed_q = changed_g = False
@@ -2263,10 +2660,15 @@ async def _evolve_prompts(state: ServerState, step: int, cases: list[dict]) -> d
     })
     _save_evolve_history(state)
 
-    # 3) Snapshot + log.
+    # 3) Snapshot + log. The full meta-prompt is snapshotted too: when a run goes
+    # wrong the first question is always "what did the evolver actually see?", and
+    # reconstructing it from the pieces after the fact is guesswork.
     aux = {
         "error_summary.txt": summary,
         "case_summaries.txt": "\n\n".join(summaries),
+        "error_analysis.txt": diag_block,
+        "corpus_stats.json": json.dumps(corpus, indent=1),
+        "aggregate_prompt.txt": agg_user,
         "query_proposer_guidance.txt": new_q,
         "task_rubric_generator_guidance.txt": new_g,
     }
@@ -2275,6 +2677,16 @@ async def _evolve_prompts(state: ServerState, step: int, cases: list[dict]) -> d
         "step": int(step), "n_cases": n, "mean_score": mean_score,
         "changed_query_guidance": changed_q, "changed_generator_guidance": changed_g,
         "snapshot": sdir,
+        **diag_metrics,
+        "corpus/criteria_per_task": corpus.get("criteria_per_task_mean", 0.0),
+        "corpus/criterion_chars": corpus.get("criterion_chars_mean", 0.0),
+        "corpus/frac_with_negative": corpus.get("frac_tasks_with_negative", 0.0),
+        "corpus/distinct_specialties": float(corpus.get("distinct_specialties", 0)),
+        # -1 means "not measurable", which must stay distinguishable from 0.0
+        # ("measured, and perfectly diverse") in the logged series.
+        "corpus/task_self_similarity": (
+            corpus["task_self_similarity"] if corpus.get("task_self_similarity") is not None
+            else -1.0),
     }
     # Caller (/evolve endpoint) already holds evolve_lock, so write directly.
     with open(state.evolve_log, "a") as f:
@@ -3523,6 +3935,11 @@ class EvolvePayload(BaseModel):
 
     step: int
     cases: list[dict]
+    # The trainer's most recent HELD-OUT validation score. This is the only
+    # ungameable outcome signal the meta-optimizer gets: the train mean is the
+    # solver's score on tasks the curriculum itself wrote, so it rises whenever
+    # the curriculum gets easier. Optional so an older trainer still works.
+    val_score: float | None = None
 
 
 class RetrievePayload(BaseModel):
@@ -4125,7 +4542,7 @@ async def evolve(payload: EvolvePayload):
     if not payload.cases:
         return {"step": payload.step, "n_cases": 0, "skipped": "no cases"}
     async with s.evolve_lock:
-        return await _evolve_prompts(s, payload.step, payload.cases)
+        return await _evolve_prompts(s, payload.step, payload.cases, payload.val_score)
 
 
 @app.post("/replay")
