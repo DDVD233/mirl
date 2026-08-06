@@ -56,7 +56,13 @@ while true; do
             # result off one lucky pair.
             awk -v k="$k" -v R="${CURVE[RET]}" -v C="${CURVE[CTL]}" 'BEGIN{
                 split(R,a," "); split(C,b," "); s=0; pos=0; m=0;
-                for(i=2;i<=k;i++){d=a[i]-b[i]; s+=d; m++; if(d>0) pos++; if(m==1) df=d; dl=d}
+                for(i=2;i<=k;i++){d=a[i]-b[i]; s+=d; m++; if(d>0) pos++; if(m==1) df=d; dl=d; dv[m]=d}
+                # Mean over ALL trained steps is the wrong summary for a DECAYING
+                # effect: it keeps crediting an early transient boost long after the
+                # arms have converged. Report the recent window too — for a stable
+                # effect the two agree, and for a decaying (or growing) one they
+                # separate, which is precisely the information the mean hides.
+                rn=(m<3?m:3); rs=0; for(i=m-rn+1;i<=m;i++) rs+=dv[i]; recent=rs/rn;
                 b0=a[1]-b[1];
                 if(m<1){ printf "        step0 baseline %+.4f (null by construction); no trained steps matched yet\n", b0; exit }
                 mean=s/m; se=0.028/sqrt(m);
@@ -80,8 +86,8 @@ while true; do
                 trend = (m >= 3) ? (dl - df) / (m - 1) : 0;
                 printf "        trained steps=%d  mean delta=%+.4f  positive=%d/%d  (2se=%.3f) %s   [step0 baseline %+.4f]%s\n",
                        m, mean, pos, m, 2*se, verdict, b0,
-                       (m >= 3 ? sprintf("  trend %+.4f/step%s", trend,
-                                         (trend < -0.005 ? " DECAYING - treat verdict with suspicion" : "")) : "")
+                       (m >= 3 ? sprintf("  last%d=%+.4f  trend %+.4f/step%s", rn, recent, trend,
+                                         (trend < -0.005 ? " DECAYING - mean is propped up by early steps" : "")) : "")
             }'
         fi
     fi
