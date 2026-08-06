@@ -279,6 +279,29 @@ HB_REDTEAM_SHARE = 0.33
 HB_N_CRITERIA_DIST = [(1, 104), (2, 269), (3, 117), (4, 33), (5, 2)]
 
 
+# Share of benchmark tasks carrying at least one negative criterion. Sampled
+# independently of the count and stated as a fact about THIS task: after the count
+# became a hard number, "include a negative on about a third of tasks" started
+# losing to it -- with N=1 or 2 the generator spent every slot on positives and the
+# negative share collapsed from 0.29 to 0.049. Negative criteria are what train
+# away from unsafe answers, so that is the more damaging of the two gaps.
+HB_NEGATIVE_SHARE = 0.364
+
+
+def _sample_wants_negative(n_criteria: int) -> bool:
+    """Whether this task gets a negative criterion, conditioned on having room.
+
+    Never on a 1-criterion task: the score is achieved_points / POSITIVE_points, so
+    a lone negative leaves total_pos == 0 and the reward returns a neutral result --
+    the task would be graded as nothing at all. Restricting to n>=2 (80.2% of the
+    benchmark's mass) means the conditional rate must be 0.364/0.802 to land on the
+    0.364 marginal.
+    """
+    if n_criteria < 2:
+        return False
+    return random.random() < (HB_NEGATIVE_SHARE / 0.802)
+
+
 def _sample_n_criteria() -> int:
     total = sum(w for _, w in HB_N_CRITERIA_DIST)
     r = random.random() * total
@@ -369,27 +392,58 @@ the real benchmark this generator drifted to 4.0 criteria per task where the ben
 at partial credit, so rubrics of four easy criteria push almost every response to a near-perfect \
 score, the GRPO group goes zero-variance, and the task teaches nothing. If you are about to \
 write a fourth criterion, the honest move is almost always three good ones instead.
-- Each criterion tests ONE thing and runs roughly 90-160 characters — about the length of a \
+- Each criterion tests ONE thing and runs roughly 90-150 characters (the benchmark averages 135) — about the length of a \
 full clinical sentence naming a specific fact and its condition. Do not compress to a terse \
 fragment: the generated corpus drifted to 83 characters against the benchmark's 135, which \
 means criteria that are too vague to grade consistently. Length comes from SPECIFICITY (the \
 value, the threshold, the population it applies to), never from welding several requirements \
 together with "and".
-- Positive criteria are worth +5..+10 each; there is NO required total. Include a negative \
-criterion (-5..-10) on about a third of tasks, only where a specific clinical trap genuinely \
-exists.
+- Positive criteria are worth +5..+10 each; there is NO required total.
+- [[NEGATIVE_INSTR]]
 - Do NOT make rubrics easier to satisfy: criteria must test real clinical capability and \
 judgment, NOT merely restate the task's explicit deliverables 1:1 (a rubric that only checks \
 "did it do what the prompt literally asked" is gameable and useless for training).
 - The task text must NOT reveal or enumerate the rubric's checklist; the solver never sees \
 the rubric.
-- DIFFICULTY TARGET: the solver's recent mean rubric score is [[RECENT_SCORE]]. If it is \
-above 0.6, make this task HARDER (atypical presentation, conflicting constraints, incomplete \
-data that requires asking for missing context, subtle unsafe premise); if below 0.3, keep the \
-task realistic but reduce trick complexity. Aim for tasks a competent clinician-AI scores \
-0.4-0.6 on.
+- DIFFICULTY TARGET: the solver's recent mean rubric score is [[RECENT_SCORE]]. Target 0.4-0.6. \
+A task the solver scores near 1.0 is WORTHLESS for training, not a success: the policy is \
+trained by comparing rollouts of the same task against each other, so when they all score the \
+same the task contributes exactly zero learning signal. Recent curricula ran at 0.88 with 65% \
+of rollouts scoring a perfect 1.0, which is most of the compute wasted.
+  Difficulty must come from the CRITERIA being genuinely hard to satisfy, not from the task \
+prose sounding complicated. Do NOT reach for length, rare diseases, or baroque scenarios — \
+those produce long answers that still satisfy a vague rubric. Make criteria that demand:
+    * a SPECIFIC value the model must actually know — an exact threshold, dose, interval, \
+      cutoff, or staging boundary, with the units and the population it applies to. Vague \
+      criteria ("discusses renal dosing") are satisfied by any competent-sounding paragraph; \
+      "states the eGFR threshold below which metformin is contraindicated (30 mL/min/1.73m2)" \
+      is not.
+    * a fact the model is likely to get WRONG rather than merely omit — a common \
+      misconception, a value frequently confused with a neighbouring one, a guideline that \
+      changed recently.
+    * a required QUALIFICATION or contraindication that a fluent but shallow answer omits.
+    * correct handling of a detail stated in the case that changes the standard answer.
+  A useful check before you finish: could a well-written but generic answer that never \
+commits to a specific number satisfy this rubric? If yes, the rubric is too easy — rewrite it \
+so it cannot.
 
 Output ONLY the JSON object. No markdown, no commentary."""
+
+
+def _criteria_spec() -> dict:
+    """Per-task rubric shape: how many criteria, and whether one is a negative.
+    Both drawn from the benchmark's measured distributions so the curriculum
+    matches it in aggregate without relying on the generator to self-regulate."""
+    n = _sample_n_criteria()
+    if _sample_wants_negative(n):
+        neg = (f"EXACTLY ONE of your {n} criteria must be a NEGATIVE criterion worth -5..-10, "
+               f"naming a specific, plausible clinical error a model could actually make on THIS "
+               f"case (a wrong dose, a missed red flag, unsafe reassurance, a fabricated trial or "
+               f"guideline). The remaining {n - 1} are positive. If no concrete trap genuinely "
+               f"exists in this case, redesign the task so that one does.")
+    else:
+        neg = f"All {n} criteria are POSITIVE. Do not add a negative criterion to this task."
+    return {"N_CRITERIA": n, "NEGATIVE_INSTR": neg}
 
 
 def _fill(template: str, mapping: dict[str, str]) -> str:
@@ -1809,7 +1863,7 @@ async def agent_task_rubric_generator(state: ServerState, request: str, use_case
         "USE_CASE": use_case, "USE_CASE_DESC": HB_USE_CASE_DESC.get(use_case, use_case),
         "SPECIALTY": specialty, "MODE_INSTR": HB_MODE_INSTR.get(mode, HB_MODE_INSTR["good_faith"]),
         "GAP_GUIDANCE": state.prompt_store.get("task_rubric_generator_guidance"),
-        "RECENT_SCORE": recent, "N_CRITERIA": _sample_n_criteria(),
+        "RECENT_SCORE": recent, **_criteria_spec(),
     })
     parts = [f"Target clinician request:\n{request}"]
     if knowledge:
@@ -4921,10 +4975,21 @@ async def report(payload: ReportPayload):
     _dead = s.__dict__.setdefault("dead_qids", set())
     lst = _accs.setdefault(payload.question_id, [])
     lst.append(acc)
-    if len(lst) >= 8 and payload.question_id not in _dead:
+    # Thresholds are deliberately tighter than the original (>=8 reports, mean
+    # outside [0.05, 0.95]). That version only caught tasks that were PERFECTLY
+    # saturated, so a task every rollout scored ~0.90 on survived indefinitely
+    # while contributing almost no gradient -- and the audit measured 65% of
+    # rollouts at exactly 1.0 with 28% of groups at zero variance. Acting at 4
+    # reports rather than 8 also stops a dead task from burning a second full
+    # group before it is recognised. `var` is over a [0,1] score, so 1e-4 is
+    # still "every rollout scored the same to within 1%".
+    _n_evict = int(os.environ.get("HB_EVICT_MIN_REPORTS", "4"))
+    _hi = float(os.environ.get("HB_EVICT_MAX_MEAN", "0.88"))
+    _lo = float(os.environ.get("HB_EVICT_MIN_MEAN", "0.05"))
+    if len(lst) >= _n_evict and payload.question_id not in _dead:
         m = sum(lst) / len(lst)
         var = sum((a - m) ** 2 for a in lst) / len(lst)
-        if var < 1e-9 or m < 0.05 or m > 0.95:
+        if var < 1e-4 or m < _lo or m > _hi:
             _dead.add(payload.question_id)
             before = len(s.history)
             # s.history is a deque (maxlen-bounded), and deques reject slice
