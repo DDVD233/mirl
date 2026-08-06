@@ -270,6 +270,25 @@ HB_SPECIALTIES = [
 ]
 HB_REDTEAM_SHARE = 0.33
 
+# Rubric-size distribution measured on healthbench_pro_val.parquet (525 tasks):
+# 1 crit x104, 2 x269, 3 x117, 4 x33, 5 x2  -> mean 2.16. A target count is drawn
+# from this per task and named in the generator prompt. Instruction alone did not
+# hold: with a byte-identical prompt the SFT-phase generator averaged 2.28 while
+# the gen-RL generator drifted to 3.9, sitting at the top of the stated "1-5"
+# range. Naming a concrete number removes the range to drift within.
+HB_N_CRITERIA_DIST = [(1, 104), (2, 269), (3, 117), (4, 33), (5, 2)]
+
+
+def _sample_n_criteria() -> int:
+    total = sum(w for _, w in HB_N_CRITERIA_DIST)
+    r = random.random() * total
+    acc = 0
+    for n, w in HB_N_CRITERIA_DIST:
+        acc += w
+        if r <= acc:
+            return n
+    return 2
+
 HB_MODE_INSTR = {
     "good_faith": "MODE: good faith. A physician using the AI normally for accurate, useful help.",
     "red_teaming": (
@@ -340,7 +359,10 @@ Produce a JSON object with:
 [[GAP_GUIDANCE]]
 
 # NON-NEGOTIABLE INVARIANTS — these OVERRIDE anything in the guidance above if in conflict
-- EXACTLY TWO OR THREE criteria on the large majority of tasks. One is acceptable; four is \
+- WRITE EXACTLY [[N_CRITERIA]] CRITERIA for this task. That number was drawn from the real \
+benchmark's own distribution of rubric sizes, so honouring it per-task is what makes the \
+curriculum match the benchmark in aggregate. Do not add "one more to be safe".
+- Two or three criteria is the norm. One is acceptable; four is \
 already unusual and five is reserved for a genuinely multi-part deliverable. Measured against \
 the real benchmark this generator drifted to 4.0 criteria per task where the benchmark averages \
 2.16, and that drift is not cosmetic: each extra short criterion is another independent chance \
@@ -1787,7 +1809,7 @@ async def agent_task_rubric_generator(state: ServerState, request: str, use_case
         "USE_CASE": use_case, "USE_CASE_DESC": HB_USE_CASE_DESC.get(use_case, use_case),
         "SPECIALTY": specialty, "MODE_INSTR": HB_MODE_INSTR.get(mode, HB_MODE_INSTR["good_faith"]),
         "GAP_GUIDANCE": state.prompt_store.get("task_rubric_generator_guidance"),
-        "RECENT_SCORE": recent,
+        "RECENT_SCORE": recent, "N_CRITERIA": _sample_n_criteria(),
     })
     parts = [f"Target clinician request:\n{request}"]
     if knowledge:
@@ -2738,9 +2760,15 @@ def _history_block(history: list[dict], max_entries: int = 8) -> str:
     prev_train = None
     for e in ent:
         outs = e.get("outcomes") or []
+        # Two record shapes share this list: train telemetry (mean_score, stamped
+        # `step`) and held-out val (val_score, stamped `val_step`), which are
+        # attached at different times to different versions. Average each over its
+        # OWN records — dividing the train sum by len(outs) would dilute it by the
+        # val entries and quietly understate every version's difficulty gauge.
+        tr_recs = [o for o in outs if o.get("mean_score") is not None]
         if outs:
-            tr = sum(o.get("mean_score", 0.0) for o in outs) / len(outs)
-            unc = sum(o.get("unclosed_rate", 0.0) for o in outs) / len(outs)
+            tr = (sum(o["mean_score"] for o in tr_recs) / len(tr_recs)) if tr_recs else 0.0
+            unc = (sum(o.get("unclosed_rate", 0.0) for o in tr_recs) / len(tr_recs)) if tr_recs else 0.0
             vals = [o["val_score"] for o in outs if o.get("val_score") is not None]
             if vals:
                 v = sum(vals) / len(vals)
@@ -2771,8 +2799,40 @@ def _save_evolve_history(state: ServerState) -> None:
         logger.warning(f"could not persist evolve history: {e}")
 
 
+def _attach_val_outcome(hist: list[dict], val_score: float | None,
+                        val_step: int | None) -> str:
+    """Credit a held-out val measurement to the guidance version that EARNED it.
+
+    Off-by-one-interval trap: evolution runs just BEFORE validation within a step,
+    so the version committed at step S has influenced nothing by the time val runs
+    at step S. val@S measures a model trained entirely under the version committed
+    at the PREVIOUS evolve step. Attaching it to hist[-1] -- the version just
+    committed -- shifts the whole delta chain by one interval and, since the
+    meta-prompt makes held-out val the sole criterion, systematically credits every
+    rewrite with its predecessor's result.
+
+    So: attach to the last entry committed STRICTLY BEFORE val_step. A val that
+    predates every entry belongs to the seed guidance, which has no entry; report
+    that rather than misfiling it.
+    """
+    if val_score is None or not hist:
+        return "no val to attach"
+    if val_step is None:
+        return "val_step unknown; not attached (cannot verify which version earned it)"
+    owner = None
+    for e in hist:
+        if int(e.get("step", -1)) < int(val_step):
+            owner = e
+    if owner is None:
+        return f"val@{val_step} predates every guidance version (belongs to the seed); not attached"
+    owner.setdefault("outcomes", []).append({
+        "val_step": int(val_step), "val_score": float(val_score)})
+    return f"val@{val_step}={val_score:.4f} -> version committed at step {owner.get('step')}"
+
+
 async def _evolve_prompts(state: ServerState, step: int, cases: list[dict],
-                          val_score: float | None = None) -> dict:
+                          val_score: float | None = None,
+                          val_step: int | None = None) -> dict:
     """Run one generation-prompt evolution round from ~20 sampled rollouts.
 
     Three stages: structured per-case ERROR ANALYSIS -> code-side aggregation of
@@ -2785,16 +2845,17 @@ async def _evolve_prompts(state: ServerState, step: int, cases: list[dict],
     unclosed_rate = (sum(1 for c in cases if c.get("think_closed") is False) / n) if n else 0.0
     mean_answer_chars = (sum(len(c.get("response") or "") for c in cases) / n) if n else 0.0
 
-    # Attribute this step's observed rollouts to the most recent guidance version
-    # (approximate — the sample pool lags a rewrite by up to a step or two).
-    # val_score is the trainer's LAST held-out evaluation, which is what makes the
-    # history a real outcome signal rather than a self-graded one.
+    # Train-side telemetry belongs to the most recent version (approximate — the
+    # sample pool lags a rewrite by a step or two). The HELD-OUT val score does
+    # NOT: it is credited to whichever version actually earned it, which is an
+    # interval earlier. See _attach_val_outcome.
     if state.evolve_history:
         state.evolve_history[-1].setdefault("outcomes", []).append({
             "step": int(step), "mean_score": mean_score,
             "unclosed_rate": unclosed_rate, "mean_answer_chars": mean_answer_chars,
-            "val_score": (float(val_score) if val_score is not None else None),
         })
+    _val_note = _attach_val_outcome(state.evolve_history, val_score, val_step)
+    logger.info(f"/evolve val attribution: {_val_note}")
 
     # 1) Per-case structured error analysis (concurrent, bounded).
     async def analyze(c: dict) -> str:
@@ -2997,6 +3058,7 @@ async def _evolve_retrieval_reward(state: ServerState, step: int, cases: list[di
             "within_group_spread": stats.get("within_group_spread"),
             "coverage_mean": stats.get("coverage_mean"),
         })
+
 
     hist_lines = []
     for e in hist[-6:]:
@@ -4323,6 +4385,10 @@ class EvolvePayload(BaseModel):
     # solver's score on tasks the curriculum itself wrote, so it rises whenever
     # the curriculum gets easier. Optional so an older trainer still works.
     val_score: float | None = None
+    # The step val_score was measured at. Needed to credit it to the version that
+    # EARNED it: evolution runs just before validation, so the score arriving with
+    # a round was earned by the version committed one interval earlier.
+    val_step: int | None = None
 
 
 class RetrievePayload(BaseModel):
@@ -4487,7 +4553,15 @@ async def _summarize_passages(s: ServerState, question: str, passages: list[dict
                 _api_call(
                     s, SUMMARY_SYSTEM,
                     SUMMARY_USER.format(question=(question or "")[:4000], passages=raw_text),
-                    max_tokens=int(os.environ.get("RETRIEVE_SUMMARY_MAX_TOKENS", "700")),
+                    # 1024, not 700: at 700 roughly a fifth of briefs stopped
+                    # exactly at the cap, and because the "Not covered:" gap block
+                    # is emitted LAST it was the part amputated -- it survived in
+                    # 91% of complete briefs but only ~28% of truncated ones. The
+                    # policy was being told what the KB holds while the statement
+                    # of what it does NOT hold was silently cut, and nothing
+                    # counted it: _summarize_passages only tracks outright failure,
+                    # so a truncated brief logs as a success.
+                    max_tokens=int(os.environ.get("RETRIEVE_SUMMARY_MAX_TOKENS", "1024")),
                     # >=0.5 would request a thinking channel; a thinking summarizer on
                     # the generation critical path blows the latency budget.
                     temperature=0.2, label="summarize",
@@ -4925,7 +4999,8 @@ async def evolve(payload: EvolvePayload):
     if not payload.cases:
         return {"step": payload.step, "n_cases": 0, "skipped": "no cases"}
     async with s.evolve_lock:
-        return await _evolve_prompts(s, payload.step, payload.cases, payload.val_score)
+        return await _evolve_prompts(s, payload.step, payload.cases,
+                                     payload.val_score, payload.val_step)
 
 
 class EvolveRetrievalPayload(BaseModel):
