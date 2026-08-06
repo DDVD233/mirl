@@ -437,6 +437,36 @@ so it cannot.
 Output ONLY the JSON object. No markdown, no commentary."""
 
 
+def _note_criteria_outcome(state, requested_n: int, delivered_n: int) -> None:
+    """Steer the REQUESTED criterion count so the DELIVERED count hits the anchor.
+
+    Requesting the benchmark's mean does not deliver it, and the gap is not
+    noise: when a task is told to carry a negative and phrases it as an absence,
+    the inverted-negative filter discards that criterion and the task arrives one
+    short. Measured, that is 0.924 request rate x 0.802 eligible x (1 - 0.491
+    compliance) = 0.377 criteria lost per task, predicting 2.16 - 0.377 = 1.78
+    against an observed 1.77.
+
+    Same direct solve as the negative share: measure the deficit the pipeline
+    actually loses and request the target plus that deficit, rather than servoing
+    on the output.
+    """
+    rq = state.__dict__.setdefault("_crit_req_window", deque(maxlen=400))
+    dl = state.__dict__.setdefault("_crit_got_window", deque(maxlen=400))
+    rq.append(float(requested_n)); dl.append(float(delivered_n))
+    if len(rq) < 80 or len(rq) % 25:
+        return
+    deficit = (sum(rq) / len(rq)) - (sum(dl) / len(dl))
+    # Clamped: a large offset would push every task to the 5-criterion tail and
+    # break the SHAPE of the distribution while fixing its mean.
+    off = max(0.0, min(1.0, deficit))
+    state.__dict__["_crit_offset"] = off
+    state.stats["crit_offset"] = round(off, 3)
+    state.stats["crit_delivered_mean"] = round(sum(dl) / len(dl), 2)
+    logger.info(f"~ criteria-count control: delivered {sum(dl)/len(dl):.2f} "
+                f"target {HB_REF_STATS['criteria_per_task_mean']} -> request offset +{off:.2f}")
+
+
 def _note_negative_outcome(state, requested: bool, got: bool) -> None:
     """Feed the observed negative-criterion share back into the request rate.
 
@@ -488,6 +518,9 @@ def _criteria_spec(state=None) -> dict:
     Both drawn from the benchmark's measured distributions so the curriculum
     matches it in aggregate without relying on the generator to self-regulate."""
     n = _sample_n_criteria()
+    off = 0.0 if state is None else state.__dict__.get("_crit_offset", 0.0)
+    if off > 0 and random.random() < off:
+        n = min(5, n + 1)      # stochastic, so the shape is preserved, not just the mean
     p = None if state is None else state.__dict__.get("_neg_request_p")
     wants = _sample_wants_negative(n, p)
     if wants:
@@ -2030,6 +2063,7 @@ async def agent_task_rubric_generator(state: ServerState, request: str, use_case
     # measured 0.14 against a requested 0.364 -- while looking like enforcement.
     _note_negative_outcome(state, bool(_spec.get("wants_negative")),
                            any(float(it["points"]) < 0 for it in items))
+    _note_criteria_outcome(state, int(_spec.get("N_CRITERIA", 0)), len(items))
     # Normalize each item to {criterion_text, points}.
     norm_items = [{"criterion_text": (it.get("criterion_text") or it.get("criterion")),
                    "points": float(it["points"])} for it in items]
