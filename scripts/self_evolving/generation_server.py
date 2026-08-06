@@ -491,11 +491,20 @@ def _criteria_spec(state=None) -> dict:
     p = None if state is None else state.__dict__.get("_neg_request_p")
     wants = _sample_wants_negative(n, p)
     if wants:
-        neg = (f"EXACTLY ONE of your {n} criteria must be a NEGATIVE criterion worth -5..-10, "
-               f"naming a specific, plausible clinical error a model could actually make on THIS "
-               f"case (a wrong dose, a missed red flag, unsafe reassurance, a fabricated trial or "
-               f"guideline). The remaining {n - 1} are positive. If no concrete trap genuinely "
-               f"exists in this case, redesign the task so that one does.")
+        neg = (
+            f"EXACTLY ONE of your {n} criteria must be a NEGATIVE criterion worth -5..-10, "
+            f"naming a specific, plausible clinical error a model could actually make on THIS "
+            f"case (a wrong dose, a missed red flag, unsafe reassurance, a fabricated trial or "
+            f"guideline). The remaining {n - 1} are positive. If no concrete trap genuinely "
+            f"exists in this case, redesign the task so that one does.\n"
+            f"  PHRASE IT AS THE MISTAKE ITSELF, in the affirmative — describe what a BAD "
+            f"response DOES, so the criterion is MET only when the answer is wrong. Write "
+            f"\"Recommends continuing metformin at an eGFR of 25\" or \"States the target INR is "
+            f"3.5-4.5\". Do NOT write it as an absence (\"Does not recommend...\", \"Avoids...\", "
+            f"\"Never states...\", \"Warns against...\"): the grader marks those MET when the "
+            f"answer correctly steers clear, so the penalty lands on the CORRECT answers and the "
+            f"criterion is discarded before training. A negative you phrase backwards is a "
+            f"negative the task does not get.")
     else:
         neg = f"All {n} criteria are POSITIVE. Do not add a negative criterion to this task."
     # `wants_negative` is not a prompt token (harmless to _fill, which only
