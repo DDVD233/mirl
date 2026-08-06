@@ -276,7 +276,21 @@ HB_REDTEAM_SHARE = 0.33
 # hold: with a byte-identical prompt the SFT-phase generator averaged 2.28 while
 # the gen-RL generator drifted to 3.9, sitting at the top of the stated "1-5"
 # range. Naming a concrete number removes the range to drift within.
-HB_N_CRITERIA_DIST = [(1, 104), (2, 269), (3, 117), (4, 33), (5, 2)]
+# The benchmark's own rubric-size histogram, kept for reference:
+#   1 crit x104, 2 x269, 3 x117, 4 x33, 5 x2  -> mean 2.16 over 525 tasks.
+HB_BENCH_N_CRITERIA_DIST = [(1, 104), (2, 269), (3, 117), (4, 33), (5, 2)]
+
+# TRAINING TARGET: 3 positives plus a negative, i.e. ~4 criteria — a DELIBERATE
+# departure from the benchmark's 2.16, made because the two want different things.
+# Matching the benchmark's shape optimises resemblance to the EVALUATION set; the
+# training signal wants GRANULARITY. The reward is achieved/available positive
+# points, so a 1-2 criterion task is nearly binary: every rollout in a GRPO group
+# lands on the same one or two values, the group goes zero-variance and teaches
+# nothing. Measured at 2.10 criteria/task: 31% of groups had zero variance, with
+# 8 of those 10 all scoring exactly 1.0. Three positives give up to 8 distinct
+# achievable scores, so rollouts of the same task can actually be ranked against
+# each other, which is the only thing GRPO learns from.
+HB_N_POSITIVE_DIST = [(2, 15), (3, 70), (4, 15)]
 
 
 # Share of benchmark tasks carrying at least one negative criterion. Sampled
@@ -285,10 +299,15 @@ HB_N_CRITERIA_DIST = [(1, 104), (2, 269), (3, 117), (4, 33), (5, 2)]
 # losing to it -- with N=1 or 2 the generator spent every slot on positives and the
 # negative share collapsed from 0.29 to 0.049. Negative criteria are what train
 # away from unsafe answers, so that is the more damaging of the two gaps.
-HB_NEGATIVE_SHARE = 0.364
+# Raised from the benchmark's measured 0.364 for the same reason: a negative
+# criterion both trains away from unsafe answers AND widens the achievable score
+# range below zero, which adds ranking room inside the group. The controller
+# solves for the request rate needed to deliver this; if generator compliance
+# cannot reach it, the ceiling is logged rather than silently absorbed.
+HB_NEGATIVE_SHARE = float(os.environ.get("HB_NEGATIVE_SHARE", "0.75"))
 
 
-def _sample_wants_negative(n_criteria: int, request_p: float | None = None) -> bool:
+def _sample_wants_negative(n_positive: int, request_p: float | None = None) -> bool:
     """Whether this task gets a negative criterion, conditioned on having room.
 
     Never on a 1-criterion task: the score is achieved_points / POSITIVE_points, so
@@ -297,20 +316,26 @@ def _sample_wants_negative(n_criteria: int, request_p: float | None = None) -> b
     benchmark's mass) means the conditional rate must be 0.364/0.802 to land on the
     0.364 marginal.
     """
-    if n_criteria < 2:
+    # The negative is now ADDITIONAL to the positives rather than one of them, so
+    # total_pos can never be zeroed by it and there is no eligibility gate: every
+    # task can carry one. (Previously it took a slot, which is what made a
+    # 1-criterion task with a negative grade as nothing at all.)
+    if n_positive < 1:
         return False
-    return random.random() < (HB_NEGATIVE_SHARE / 0.802 if request_p is None else request_p)
+    return random.random() < (HB_NEGATIVE_SHARE if request_p is None else request_p)
 
 
-def _sample_n_criteria() -> int:
-    total = sum(w for _, w in HB_N_CRITERIA_DIST)
+def _sample_n_positive() -> int:
+    """Number of POSITIVE criteria. Sampled with spread rather than fixed at 3 so
+    the curriculum keeps some variety in rubric size."""
+    total = sum(w for _, w in HB_N_POSITIVE_DIST)
     r = random.random() * total
     acc = 0
-    for n, w in HB_N_CRITERIA_DIST:
+    for n, w in HB_N_POSITIVE_DIST:
         acc += w
         if r <= acc:
             return n
-    return 2
+    return 3
 
 HB_MODE_INSTR = {
     "good_faith": "MODE: good faith. A physician using the AI normally for accurate, useful help.",
@@ -360,8 +385,8 @@ Produce a JSON object with:
   Rules (these mirror the MEASURED shape of real HealthBench-Professional rubrics; earlier \
   versions of this generator produced 7.5 long conjunctive criteria per task against the real \
   benchmark's 2.2 short ones, and the policy learned to cover ground rather than to be right):
-    * HOW MANY, and whether one is negative, is fixed per task below — see N_CRITERIA and the \
-      negative-criterion line in the INVARIANTS. Those are drawn from the real benchmark's own \
+    * HOW MANY POSITIVES, and whether a negative is added on top, is fixed per task below — \
+      see N_POSITIVE and the negative-criterion line in the INVARIANTS. Those are drawn from the real benchmark's own \
       distribution and are not yours to adjust. Each criterion names ONE checkable thing.
     * LENGTH about 90-150 characters (the benchmark averages 135). Do NOT chain several \
       requirements with "and"/commas into a single criterion — split them or drop the less \
@@ -389,10 +414,14 @@ Produce a JSON object with:
 [[GAP_GUIDANCE]]
 
 # NON-NEGOTIABLE INVARIANTS — these OVERRIDE anything in the guidance above if in conflict
-- WRITE EXACTLY [[N_CRITERIA]] CRITERIA for this task. That number was drawn from the real \
-benchmark's own distribution of rubric sizes, so honouring it per-task is what makes the \
-curriculum match the benchmark in aggregate. Do not add "one more to be safe".
-- Two or three criteria is the norm. One is acceptable; four is \
+- WRITE EXACTLY [[N_POSITIVE]] POSITIVE CRITERIA for this task, plus whatever the \
+negative-criterion line below specifies. Honour that number exactly — do not round it down \
+because the task feels simple, and do not add "one more to be safe".
+- Three positives is the norm, and the reason is mechanical: the score is the fraction of \
+available positive points the answer earns, so with one or two criteria almost every response \
+lands on the same handful of values, several answers of visibly different quality receive \
+IDENTICAL scores, and the training step learns nothing from that task. Three positives of \
+differing weight let genuinely better answers score higher than merely adequate ones. One is acceptable; four is \
 already unusual and five is reserved for a genuinely multi-part deliverable. Measured against \
 the real benchmark this generator drifted to 4.0 criteria per task where the benchmark averages \
 2.16, and that drift is not cosmetic: each extra short criterion is another independent chance \
@@ -456,6 +485,8 @@ def _note_criteria_outcome(state, requested_n: int, delivered_n: int) -> None:
     rq.append(float(requested_n)); dl.append(float(delivered_n))
     if len(rq) < 80 or len(rq) % 25:
         return
+    # Both windows count POSITIVE criteria, so the target here is the positive
+    # count (3), not the total including the negative.
     deficit = (sum(rq) / len(rq)) - (sum(dl) / len(dl))
     # Clamped: a large offset would push every task to the 5-criterion tail and
     # break the SHAPE of the distribution while fixing its mean.
@@ -463,8 +494,8 @@ def _note_criteria_outcome(state, requested_n: int, delivered_n: int) -> None:
     state.__dict__["_crit_offset"] = off
     state.stats["crit_offset"] = round(off, 3)
     state.stats["crit_delivered_mean"] = round(sum(dl) / len(dl), 2)
-    logger.info(f"~ criteria-count control: delivered {sum(dl)/len(dl):.2f} "
-                f"target {HB_REF_STATS['criteria_per_task_mean']} -> request offset +{off:.2f}")
+    logger.info(f"~ positive-criteria control: delivered {sum(dl)/len(dl):.2f} "
+                f"target {HB_REF_STATS['criteria_per_task_mean']:.2f} -> request offset +{off:.2f}")
 
 
 def _note_negative_outcome(state, requested: bool, got: bool) -> None:
@@ -488,14 +519,17 @@ def _note_negative_outcome(state, requested: bool, got: bool) -> None:
     if len(req) < 80 or len(req) % 25:
         return
     # Solve for the request rate directly rather than servoing toward it. The
-    # delivered share is P(n>=2) * p * compliance = 0.802 * p * c, and c is
-    # observable as delivered/requested, so p = target / (0.802 * c) exactly. A
-    # proportional loop on the delivered share instead overshoots and oscillates
-    # between "every task carries a negative" and "none do", which averages to the
-    # right marginal while making it wrong in every individual batch.
+    # negative is now ADDITIONAL to the positives, so every task is eligible and
+    # the delivered share is simply p * compliance -- c observable as
+    # delivered/requested, hence p = target / c exactly. (This previously carried
+    # a P(n>=2)=0.802 eligibility factor from when the negative occupied one of
+    # the criterion slots; leaving it in over-requested by 1/0.802 and delivered
+    # 0.911 against a 0.75 target at high compliance.) A proportional loop on the
+    # delivered share was tried instead and rejected: it reaches the right mean by
+    # oscillating between "every task carries a negative" and "none do".
     n_req = sum(req)
     c = (sum(got_w) / n_req) if n_req >= 20 else 1.0
-    p = max(0.05, min(1.0, HB_NEGATIVE_SHARE / (0.802 * max(c, 0.05))))
+    p = max(0.05, min(1.0, HB_NEGATIVE_SHARE / max(c, 0.05)))
     state.__dict__["_neg_request_p"] = p
     observed = sum(got_w) / len(got_w)
     state.stats["neg_request_p"] = round(p, 3)
@@ -514,21 +548,32 @@ def _note_negative_outcome(state, requested: bool, got: bool) -> None:
 
 
 def _criteria_spec(state=None) -> dict:
-    """Per-task rubric shape: how many criteria, and whether one is a negative.
-    Both drawn from the benchmark's measured distributions so the curriculum
-    matches it in aggregate without relying on the generator to self-regulate."""
-    n = _sample_n_criteria()
+    """Per-task rubric shape: how many POSITIVE criteria, plus whether a negative.
+
+    Positives and the negative are sampled INDEPENDENTLY and the negative is
+    additional, not one of the positives. That separation matters: while the
+    negative took a slot, requesting one shrank the positive count (so the score
+    got coarser exactly when a safety criterion was added), and on a 1-criterion
+    task it left total_pos == 0, which grades as nothing at all.
+    """
+    n_pos = _sample_n_positive()
     off = 0.0 if state is None else state.__dict__.get("_crit_offset", 0.0)
     if off > 0 and random.random() < off:
-        n = min(5, n + 1)      # stochastic, so the shape is preserved, not just the mean
+        # Cap at 4 POSITIVES so the total stays <= 5 once the negative is added:
+        # _valid_rubric rejects more than 6 items, and a 6-criterion rubric is
+        # past the point where extra granularity buys anything -- it just makes
+        # each criterion cheaper and the task longer to grade.
+        n_pos = min(4, n_pos + 1)   # stochastic, so spread survives, not just the mean
     p = None if state is None else state.__dict__.get("_neg_request_p")
-    wants = _sample_wants_negative(n, p)
+    wants = _sample_wants_negative(n_pos, p)
+    n = n_pos + (1 if wants else 0)
     if wants:
         neg = (
-            f"EXACTLY ONE of your {n} criteria must be a NEGATIVE criterion worth -5..-10, "
-            f"naming a specific, plausible clinical error a model could actually make on THIS "
-            f"case (a wrong dose, a missed red flag, unsafe reassurance, a fabricated trial or "
-            f"guideline). The remaining {n - 1} are positive. If no concrete trap genuinely "
+            f"IN ADDITION to those {n_pos} positive criteria, add EXACTLY ONE NEGATIVE "
+            f"criterion worth -5..-10 ({n} criteria in total), naming a specific, plausible "
+            f"clinical error a model could actually make on THIS case (a wrong dose, a missed "
+            f"red flag, unsafe reassurance, a fabricated trial or guideline). It is an EXTRA "
+            f"criterion — do not drop a positive to make room. If no concrete trap genuinely "
             f"exists in this case, redesign the task so that one does.\n"
             f"  PHRASE IT AS THE MISTAKE ITSELF, in the affirmative — describe what a BAD "
             f"response DOES, so the criterion is MET only when the answer is wrong. Write "
@@ -539,11 +584,12 @@ def _criteria_spec(state=None) -> dict:
             f"criterion is discarded before training. A negative you phrase backwards is a "
             f"negative the task does not get.")
     else:
-        neg = f"All {n} criteria are POSITIVE. Do not add a negative criterion to this task."
+        neg = (f"All {n} criteria are POSITIVE. Do not add a negative criterion to this task.")
     # `wants_negative` is not a prompt token (harmless to _fill, which only
     # substitutes [[TOKEN]] matches) — it is carried so the returned rubric can be
     # checked against what was asked for.
-    return {"N_CRITERIA": n, "NEGATIVE_INSTR": neg, "wants_negative": wants}
+    return {"N_CRITERIA": n, "N_POSITIVE": n_pos, "NEGATIVE_INSTR": neg,
+            "wants_negative": wants}
 
 
 def _fill(template: str, mapping: dict[str, str]) -> str:
@@ -2063,7 +2109,12 @@ async def agent_task_rubric_generator(state: ServerState, request: str, use_case
     # measured 0.14 against a requested 0.364 -- while looking like enforcement.
     _note_negative_outcome(state, bool(_spec.get("wants_negative")),
                            any(float(it["points"]) < 0 for it in items))
-    _note_criteria_outcome(state, int(_spec.get("N_CRITERIA", 0)), len(items))
+    # POSITIVES on both sides. Counting totals instead would fold the negative's
+    # own compliance rate into the positive-count controller, and the two are
+    # steered separately for a reason: a filtered negative must not cause the
+    # positive count to be over-requested.
+    _note_criteria_outcome(state, int(_spec.get("N_POSITIVE", 0)),
+                           sum(1 for it in items if float(it["points"]) > 0))
     # Normalize each item to {criterion_text, points}.
     norm_items = [{"criterion_text": (it.get("criterion_text") or it.get("criterion")),
                    "points": float(it["points"])} for it in items]
@@ -2251,13 +2302,20 @@ HB_REF_STATS = {
     # prompt evolution, to keep "fixing" a distribution that was never off.
     "use_case_mix": {"care_consult": 0.45, "medical_research": 0.28,
                      "writing_documentation": 0.27},
-    "criteria_per_task_mean": 2.16,
-    "criteria_per_task_median": 2.0,
+    # DELIBERATE DEVIATION from the benchmark on this axis, and the reference is
+    # set to the TARGET rather than to the benchmark on purpose. These numbers
+    # drive the DRIFT flags shown to the curriculum meta-optimizer, so leaving
+    # them at the benchmark's 2.16 while the sampler aims for ~3.75 would report
+    # permanent drift and push the evolver to undo the change every round — the
+    # same stuck-flag failure as the use_case label mismatch.
+    # Benchmark truth, for the record: mean 2.16, median 2, max 5.
+    "criteria_per_task_mean": 3.75,     # 3 positives + a negative on most tasks
+    "criteria_per_task_median": 4.0,
     "criteria_per_task_max": 5,
     "criterion_chars_mean": 135,
     "criterion_chars_median": 111,
     "modal_positive_points": 8,
-    "frac_tasks_with_negative": 0.364,
+    "frac_tasks_with_negative": 0.75,   # benchmark truth: 0.364; raised for gradient
 }
 
 # Fail at import if the reference labels ever drift from the ones the generator
