@@ -80,12 +80,17 @@ TRAPI_KEY=$(cat $S/.trapi_key)
 JUDGE=gpt-chat-latest_2026-05-28
 GEN_PORT="${GEN_PORT:-8041}"
 SUMM_PORT="${SUMM_PORT:-8199}"
-# The self-judge IS the frozen-9B server (same model, same weights, one process).
+
+SUMM_BASE="${SUMM_BASE:-http://localhost:$SUMM_PORT/v1}"
+SUMM_MODEL="${SUMM_MODEL:-Qwen/Qwen3.5-9B}"
+# The self-judge IS the frozen-9B server: same model, same frozen weights, one
+# process serving both roles.
 SJUDGE_BASE="$SUMM_BASE"
 SJUDGE_MODEL="$SUMM_MODEL"
 
-# Judge routing. VAL is pinned to gpt-chat-latest in EVERY arm so the held-out
-# number stays one comparable series; only the TRAINING judge moves.
+# Judge routing, AFTER the endpoints above exist. VAL is pinned to gpt-chat-latest
+# in EVERY arm so the held-out number stays one comparable series; only the
+# TRAINING judge moves.
 TRAIN_JUDGE_BASE="$TRAPI_BASE"; TRAIN_JUDGE_KEY="$TRAPI_KEY"
 TRAIN_JUDGE_MODEL="$JUDGE";     TRAIN_JUDGE_PROVIDER=trapi
 # The fallback fires only when the primary judge call raises. It deliberately
@@ -107,8 +112,6 @@ if [ "$SELF_JUDGE" = 1 ]; then
     # misconfigured judge.
     REWARD_JUDGE_CONCURRENCY="${REWARD_JUDGE_CONCURRENCY:-48}"
 fi
-SUMM_BASE="${SUMM_BASE:-http://localhost:$SUMM_PORT/v1}"
-SUMM_MODEL="${SUMM_MODEL:-Qwen/Qwen3.5-9B}"
 EMBED_BASE="${EMBED_BASE:-http://mib.media.mit.edu:18001/v1}"
 MILVUS_URI="${MILVUS_URI:-http://mib.media.mit.edu:19531}"
 VAL=$S/healthbench_pro_val.parquet
