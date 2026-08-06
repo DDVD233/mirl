@@ -2358,7 +2358,7 @@ def _coverage_evidence(cases: list[dict]) -> tuple[str, dict]:
                     disc += 1
                 # Keep the pairs where the judge most clearly contradicted the
                 # answer: those are what a rewrite has to explain.
-                if abs(da) >= 0.15 and (dc == 0 or (da > 0) != (dc > 0)):
+                if abs(da) >= 0.15 and (abs(dc) < 1e-9 or (da > 0) != (dc > 0)):
                     better, worse = (a, b) if da > 0 else (b, a)
                     informative.append({
                         "better_answer": round(float(better["answer_score"]), 3),
@@ -2946,8 +2946,13 @@ async def _evolve_retrieval_reward(state: ServerState, step: int, cases: list[di
     if hist is None:
         hist = state.coverage_history = []
     if hist:
+        # -1.0 is the "not measurable" sentinel (no within-group pair had a large
+        # enough answer-score gap to rank). Record it as None so the history's
+        # averages cannot be dragged below zero by a step that measured nothing.
+        _cc = stats.get("concordance")
         hist[-1].setdefault("outcomes", []).append({
-            "step": int(step), "concordance": stats.get("concordance"),
+            "step": int(step),
+            "concordance": (None if _cc is None or _cc < 0 else _cc),
             "within_group_spread": stats.get("within_group_spread"),
             "coverage_mean": stats.get("coverage_mean"),
         })

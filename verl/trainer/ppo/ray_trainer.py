@@ -216,6 +216,26 @@ def compute_trained_span_metrics(data: DataProto, tokenizer) -> dict:
     return out
 
 
+def _as_list(v) -> list:
+    """Coerce a possibly-numpy, possibly-None sequence to a plain list.
+
+    `x or []` is the natural way to write this and it is WRONG here: batch fields
+    reach the trainer as numpy arrays (reward extras are built with np.array, and
+    collated non-tensor fields such as `rubric_items` arrive the same way), and
+    `arr or []` raises "truth value of an array with more than one element is
+    ambiguous". Both evolution hooks swallow exceptions so they can never break
+    training, so that ValueError does not crash anything — it just turns the whole
+    evolution round into a silent no-op while the config still says it is on.
+    """
+    if v is None:
+        return []
+    if isinstance(v, np.ndarray):
+        return v.tolist()
+    if isinstance(v, (list, tuple)):
+        return list(v)
+    return [v]
+
+
 def _fold_retrieval_group_bonus(data: DataProto, reward_tensor, reward_extra_infos_dict: dict):
     """Add the group-relative retrieval-quality bonus to the token-level reward.
 
@@ -940,14 +960,24 @@ class RayPPOTrainer:
         try:
             import requests
 
-            src = reward_extra_infos_dict or {}
+            src = reward_extra_infos_dict if reward_extra_infos_dict is not None else {}
+            # NEVER use `or` to default these: the reward extras arrive as numpy
+            # ARRAYS (reward_loop builds them with np.array), and `arr or default`
+            # raises "truth value of an array is ambiguous" for any batch > 1.
+            # Since the whole hook is wrapped in a try/except, that would have made
+            # reward evolution a silent no-op for the entire run.
             cov = src.get("retrieval_coverage")
             if cov is None:
                 _say("no retrieval_coverage in reward extras; skipping")
                 return {}
-            judged = src.get("retrieval_judged") or []
-            used = src.get("retrieval_used") or []
-            scores = src.get("score") or src.get("reward") or []
+            judged = src.get("retrieval_judged")
+            used = src.get("retrieval_used")
+            scores = src.get("score")
+            if scores is None:
+                scores = src.get("reward")
+            if scores is None:
+                _say(f"no per-sample score in reward extras (keys={list(src.keys())[:12]}); skipping")
+                return {}
             uids = batch.non_tensor_batch.get("uid")
             if uids is None:
                 _say("no uid on the batch; cannot form groups, skipping")
@@ -972,15 +1002,14 @@ class RayPPOTrainer:
                 tef = ntb.get("tool_extra_fields")
                 if not isinstance(tef, dict):
                     tef = {}
-                q = tef.get("search_queries") or []
+                q = tef.get("search_queries")
                 if isinstance(q, str):
                     try:
                         q = json.loads(q)
                     except Exception:
-                        q = [q] if q else []
-                if not isinstance(q, (list, tuple)):
-                    q = []
-                items = list(ex.get("rubric_items") or [])
+                        q = [q] if q.strip() else []
+                q = _as_list(q)
+                items = _as_list(ex.get("rubric_items"))
                 cases.append({
                     "uid": str(uids[i]),
                     "coverage": float(_at(cov, i)),
@@ -1119,7 +1148,7 @@ class RayPPOTrainer:
                 # excerpts and derailed the whole meta-loop).
                 answer_str = _strip_thinking(resp_str)
                 ex_info = data_item.non_tensor_batch.get("extra_info", {}) or {}
-                rubric_items = ex_info.get("rubric_items") or []
+                rubric_items = _as_list(ex_info.get("rubric_items"))
                 item_results = []
                 if per_item_met is not None and i < len(per_item_met):
                     try:
@@ -1128,7 +1157,7 @@ class RayPPOTrainer:
                         item_results = []
                 cases.append({
                     "use_case": ex_info.get("use_case", ""),
-                    "conversation": ex_info.get("conversation") or [],
+                    "conversation": _as_list(ex_info.get("conversation")),
                     "response": answer_str,
                     "think_closed": "</think>" in resp_str.lower(),
                     "think_chars": max(0, len(resp_str) - len(answer_str)),
