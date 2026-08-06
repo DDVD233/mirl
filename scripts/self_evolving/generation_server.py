@@ -288,7 +288,7 @@ HB_N_CRITERIA_DIST = [(1, 104), (2, 269), (3, 117), (4, 33), (5, 2)]
 HB_NEGATIVE_SHARE = 0.364
 
 
-def _sample_wants_negative(n_criteria: int) -> bool:
+def _sample_wants_negative(n_criteria: int, request_p: float | None = None) -> bool:
     """Whether this task gets a negative criterion, conditioned on having room.
 
     Never on a 1-criterion task: the score is achieved_points / POSITIVE_points, so
@@ -299,7 +299,7 @@ def _sample_wants_negative(n_criteria: int) -> bool:
     """
     if n_criteria < 2:
         return False
-    return random.random() < (HB_NEGATIVE_SHARE / 0.802)
+    return random.random() < (HB_NEGATIVE_SHARE / 0.802 if request_p is None else request_p)
 
 
 def _sample_n_criteria() -> int:
@@ -437,12 +437,59 @@ so it cannot.
 Output ONLY the JSON object. No markdown, no commentary."""
 
 
-def _criteria_spec() -> dict:
+def _note_negative_outcome(state, requested: bool, got: bool) -> None:
+    """Feed the observed negative-criterion share back into the request rate.
+
+    The generator complies with "this task must carry a negative" only some of the
+    time, and an upstream filter drops sign-inverted negatives besides, so asking
+    at the target rate lands well under it. Rather than fight that with rejection
+    (which resamples and makes it worse), ask MORE often until what actually comes
+    out matches the benchmark. Proportional control on a rolling window, clamped:
+    if compliance is c, the fixed point is request = target/c, and the clamp at
+    1.0 means a target simply cannot be met when c < target -- which is then
+    visible in /stats rather than silently absorbed.
+    """
+    req = state.__dict__.setdefault("_neg_req_window", deque(maxlen=400))
+    got_w = state.__dict__.setdefault("_neg_got_window", deque(maxlen=400))
+    req.append(1.0 if requested else 0.0)
+    got_w.append(1.0 if got else 0.0)
+    state.stats["neg_requested"] = state.stats.get("neg_requested", 0) + int(requested)
+    state.stats["neg_delivered"] = state.stats.get("neg_delivered", 0) + int(got)
+    if len(req) < 80 or len(req) % 25:
+        return
+    # Solve for the request rate directly rather than servoing toward it. The
+    # delivered share is P(n>=2) * p * compliance = 0.802 * p * c, and c is
+    # observable as delivered/requested, so p = target / (0.802 * c) exactly. A
+    # proportional loop on the delivered share instead overshoots and oscillates
+    # between "every task carries a negative" and "none do", which averages to the
+    # right marginal while making it wrong in every individual batch.
+    n_req = sum(req)
+    c = (sum(got_w) / n_req) if n_req >= 20 else 1.0
+    p = max(0.05, min(1.0, HB_NEGATIVE_SHARE / (0.802 * max(c, 0.05))))
+    state.__dict__["_neg_request_p"] = p
+    observed = sum(got_w) / len(got_w)
+    state.stats["neg_request_p"] = round(p, 3)
+    state.stats["neg_compliance"] = round(c, 3)
+    state.stats["neg_observed_share"] = round(observed, 3)
+    if p >= 0.999 and observed < HB_NEGATIVE_SHARE * 0.9:
+        # Ceiling: even asking on every eligible task cannot reach the target,
+        # because the generator will not comply that often. Say so — the marginal
+        # is then a property of the model, not a setting, and silently absorbing
+        # it would misreport the curriculum as benchmark-matched.
+        logger.warning(f"~ negative-criterion share CAPPED at {observed:.3f} "
+                       f"(target {HB_NEGATIVE_SHARE:.3f}); compliance {c:.2f} is the ceiling")
+    else:
+        logger.info(f"~ negative-criterion control: observed {observed:.3f} "
+                    f"compliance {c:.2f} -> request p={p:.3f}")
+
+
+def _criteria_spec(state=None) -> dict:
     """Per-task rubric shape: how many criteria, and whether one is a negative.
     Both drawn from the benchmark's measured distributions so the curriculum
     matches it in aggregate without relying on the generator to self-regulate."""
     n = _sample_n_criteria()
-    wants = _sample_wants_negative(n)
+    p = None if state is None else state.__dict__.get("_neg_request_p")
+    wants = _sample_wants_negative(n, p)
     if wants:
         neg = (f"EXACTLY ONE of your {n} criteria must be a NEGATIVE criterion worth -5..-10, "
                f"naming a specific, plausible clinical error a model could actually make on THIS "
@@ -1875,12 +1922,12 @@ async def agent_task_rubric_generator(state: ServerState, request: str, use_case
     # instruction alone the negative-criterion share came back at 0.15 against a
     # requested 0.364, because a rubric that quietly drops its negative still
     # looks like a perfectly good rubric downstream.
-    _spec = _criteria_spec()
+    _spec = _criteria_spec(state)
     sys_prompt = _fill(state.prompt_store.get("task_rubric_generator"), {
         "USE_CASE": use_case, "USE_CASE_DESC": HB_USE_CASE_DESC.get(use_case, use_case),
         "SPECIALTY": specialty, "MODE_INSTR": HB_MODE_INSTR.get(mode, HB_MODE_INSTR["good_faith"]),
         "GAP_GUIDANCE": state.prompt_store.get("task_rubric_generator_guidance"),
-        "RECENT_SCORE": recent, **_spec,
+        "RECENT_SCORE": recent, **{k: v for k, v in _spec.items() if k != "wants_negative"},
     })
     parts = [f"Target clinician request:\n{request}"]
     if knowledge:
@@ -1965,17 +2012,15 @@ async def agent_task_rubric_generator(state: ServerState, request: str, use_case
     # the marginal: the benchmark's 36.4% negative share exists to train away from
     # unsafe answers, and a curriculum that drifts to 15% is training that
     # capability less than half as often as intended.
-    # ONE-DIRECTIONAL on purpose. Rejecting an UNREQUESTED negative would also
-    # waste a generation, and it pushes the share down when the measured problem
-    # is that it is too low. Note the interaction with the inverted-negative
-    # filter above: it drops roughly a third of generated negatives, so a rubric
-    # can lose its negative on the way here and land in this branch — which is
-    # correct (the task really has no usable negative) but means the rejection
-    # rate for negative-requiring tasks is meaningfully above zero. Counted so
-    # that shows up as a number rather than as unexplained slow generation.
-    if _spec.get("wants_negative") and not any(float(it["points"]) < 0 for it in items):
-        state.stats["rejected_missing_negative"] = state.stats.get("rejected_missing_negative", 0) + 1
-        raise ValueError("rubric omitted the REQUIRED negative criterion")
+    # Record what was ASKED FOR against what came back, so the request rate can be
+    # steered onto the target marginal (see _note_negative_outcome). Rejecting a
+    # non-compliant rubric here was the obvious move and it is WRONG: the worker
+    # regenerates from scratch, drawing a FRESH spec, so a task that demanded a
+    # negative is retried until a draw that does not demand one happens to
+    # succeed. That drives the observed marginal down to the compliance rate --
+    # measured 0.14 against a requested 0.364 -- while looking like enforcement.
+    _note_negative_outcome(state, bool(_spec.get("wants_negative")),
+                           any(float(it["points"]) < 0 for it in items))
     # Normalize each item to {criterion_text, points}.
     norm_items = [{"criterion_text": (it.get("criterion_text") or it.get("criterion")),
                    "points": float(it["points"])} for it in items]
