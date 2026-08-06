@@ -2230,6 +2230,190 @@ def _evolve_endpoint(state: ServerState) -> dict:
     }
 
 
+# ======================================================================
+# RETRIEVAL-REWARD EVOLUTION.
+#
+# The coverage judge defines what "good retrieval" MEANS, so it is the thing to
+# evolve when the goal is teaching the policy to retrieve better. Evolving it
+# needs an objective, and "make coverage higher" is not one -- the judge would
+# simply become more generous, the bonus would go to every rollout equally, and
+# the group-relative fold would cancel it to nothing.
+#
+# The objective used here is DISCRIMINATION: coverage is a useful reward exactly
+# to the extent that, among rollouts of the same task, the one whose retrieval
+# scored higher also ANSWERED better. That is measurable in code (pairwise
+# concordance against the answer score), it is not controllable by the judge
+# (the judge does not grade answers), and it is zero-sum-proof: a judge that
+# says 1.0 for everything scores 0.5 concordance, i.e. no information.
+#
+# The second measured property is SPREAD. A judge whose verdicts are constant
+# within a group produces deltas of exactly zero under the group-relative fold,
+# so the query tokens get no gradient at all -- the reward is off while every
+# log says it is on.
+# ======================================================================
+
+COVERAGE_EVOLVE_SYSTEM = """\
+You tune the COVERAGE JUDGE that provides the retrieval-quality reward in a medical RL run.
+
+Setup you are tuning inside of. A policy answers a clinician task and may issue up to two
+retrieval calls against a medical knowledge base first. Its reward has two separately-graded
+parts: an ANSWER score from a rubric grader, and a RETRIEVAL score -- your judge -- which asks
+whether the passages the policy retrieved actually SUPPLY what the task's rubric criteria
+reward, independently of whether the answer then used them. The retrieval score is folded in
+GROUP-RELATIVE: each rollout's coverage is centred on the mean coverage of the other rollouts
+of the SAME task that also searched. Two consequences follow, and they drive everything:
+
+  1. Only DIFFERENCES WITHIN A GROUP matter. Raising every verdict raises the baseline
+     identically and changes no reward at all. Making the judge more generous, or more
+     harsh, accomplishes exactly nothing on its own.
+  2. If your verdicts are identical across a group, every delta is zero and the query tokens
+     receive NO gradient. A judge that cannot separate a good query plan from a bad one on
+     the same task is not a strict judge; it is an absent one.
+
+So your objective is DISCRIMINATION, and it is measured for you: among rollout pairs on the
+same task where one answered better than the other, how often did your judge also score its
+retrieval higher? 0.50 means your verdicts carry no information about retrieval quality.
+Above 0.50 means the reward is pointing the policy somewhere real.
+
+You are given: the current judge prompt, its measured discrimination and verdict spread, and
+CASES chosen because they are informative -- pairs where the answer scores clearly differed,
+plus rollouts where your verdict and the answer disagreed most. Diagnose why the judge failed
+to separate them, then rewrite it.
+
+What actually tends to be wrong, in rough order:
+- The judge scores TOPICALITY rather than SUPPLY: passages about the right disease all look
+  alike, so a precise query and a vague one on the same topic get the same verdict.
+- It ignores SPECIFICITY: the criterion rewards a number, threshold, dose, or named
+  guideline, and a passage that discusses the concept without stating the value is counted
+  as supplying it. Distinguishing these is usually the single biggest win, because it is
+  exactly where a better query plan differs from a worse one.
+- It is inconsistent on criteria retrieval cannot help with (pure behaviour, tone, asking a
+  follow-up), adding noise that swamps the real differences.
+- It rewards passage COUNT or length instead of whether the specific fact is present.
+
+HARD CONSTRAINTS -- the reward breaks, silently, if you violate any of these:
+- The template MUST keep the fields {task}, {passages} and {criteria}, spelled exactly, each
+  appearing at least once. They are substituted by str.format.
+- The template MUST keep the output contract: one object per criterion, each carrying "idx"
+  (the criterion's integer index) and "supplied" (a boolean), returned under {"results": [...]}.
+  The parser reads nothing else, and a prompt that changes this scores every rollout zero.
+- Use no other single braces anywhere; write literal braces as {{ }}.
+- Keep it a per-criterion factual-supply judgement. Do not turn it into an answer grader, a
+  query-plan critic, or a relevance ranker.
+- Output must stay compact JSON: this runs on every searching rollout of every step.
+
+Output ONLY a JSON object:
+{"system": "<new system prompt>", "template": "<new template>", "summary": "<2-3 sentences: what the evidence showed and what you changed>"}"""
+
+
+def _coverage_evidence(cases: list[dict]) -> tuple[str, dict]:
+    """Measure how well the coverage judge DISCRIMINATES, and render the evidence.
+
+    `cases` are searching rollouts carrying (uid, coverage, answer_score, queries).
+    Concordance is computed over within-group pairs whose answer scores differ by a
+    margin, so ties -- which carry no information about ordering -- cannot inflate
+    it. This is the number the meta-optimizer is steered by, and it is deliberately
+    one the judge cannot move by being kinder or stricter.
+    """
+    ok = [c for c in cases if c.get("judged")]
+    out: dict = {"n_cases": len(cases), "n_judged": len(ok)}
+    if not ok:
+        return "(no judged retrieval cases this step)", out
+
+    covs = [float(c["coverage"]) for c in ok]
+    n = len(covs)
+    mean = sum(covs) / n
+    var = sum((c - mean) ** 2 for c in covs) / n
+    out.update({
+        "coverage_mean": round(mean, 3),
+        "coverage_sd": round(var ** 0.5, 3),
+        "frac_zero": round(sum(1 for c in covs if c <= 1e-9) / n, 3),
+        "frac_one": round(sum(1 for c in covs if c >= 1 - 1e-9) / n, 3),
+    })
+
+    groups: dict = defaultdict(list)
+    for c in ok:
+        groups[c.get("uid", "?")].append(c)
+
+    MARGIN = 0.05          # below this the two answers are not meaningfully different
+    conc = disc = tie = 0
+    within_group_spread = []
+    informative: list = []
+    for g in groups.values():
+        if len(g) >= 2:
+            gc = [float(x["coverage"]) for x in g]
+            within_group_spread.append(max(gc) - min(gc))
+        for i in range(len(g)):
+            for j in range(i + 1, len(g)):
+                a, b = g[i], g[j]
+                da = float(a["answer_score"]) - float(b["answer_score"])
+                if abs(da) < MARGIN:
+                    continue
+                dc = float(a["coverage"]) - float(b["coverage"])
+                if abs(dc) < 1e-9:
+                    tie += 1
+                elif (da > 0) == (dc > 0):
+                    conc += 1
+                else:
+                    disc += 1
+                # Keep the pairs where the judge most clearly contradicted the
+                # answer: those are what a rewrite has to explain.
+                if abs(da) >= 0.15 and (dc == 0 or (da > 0) != (dc > 0)):
+                    better, worse = (a, b) if da > 0 else (b, a)
+                    informative.append({
+                        "better_answer": round(float(better["answer_score"]), 3),
+                        "better_cov": round(float(better["coverage"]), 3),
+                        "better_queries": better.get("queries") or [],
+                        "worse_answer": round(float(worse["answer_score"]), 3),
+                        "worse_cov": round(float(worse["coverage"]), 3),
+                        "worse_queries": worse.get("queries") or [],
+                        "task": (better.get("task") or "")[:400],
+                        "criteria": (better.get("criteria") or [])[:5],
+                    })
+    ranked = conc + disc
+    concordance = (conc / ranked) if ranked else None
+    out["concordance"] = round(concordance, 3) if concordance is not None else -1.0
+    out["n_ranked_pairs"] = float(ranked)
+    out["ties"] = float(tie)
+    spread = (sum(within_group_spread) / len(within_group_spread)) if within_group_spread else 0.0
+    out["within_group_spread"] = round(spread, 3)
+
+    verdict = (
+        "NO INFORMATION: the judge's ordering is no better than chance"
+        if concordance is None or abs(concordance - 0.5) < 0.05 else
+        ("INVERTED: the judge systematically prefers the retrieval of the WORSE answer, "
+         "which actively trains the policy toward bad query plans"
+         if concordance < 0.45 else
+         "informative: the judge's ordering tracks answer quality")
+    )
+    lines = [
+        f"Judged retrieval rollouts this step: {len(ok)} of {len(cases)}.",
+        f"  DISCRIMINATION (the objective): concordance {out['concordance']} over "
+        f"{ranked} within-task pairs whose answer scores differed by >= {MARGIN}. "
+        f"0.50 = no information. --> {verdict}",
+        f"  Ties (equal coverage on a pair that differed in answer quality): {tie}"
+        + ("   <-- each of these is a pair the judge could not separate at all" if tie else ""),
+        f"  SPREAD: mean within-group coverage range {out['within_group_spread']}"
+        + ("   <-- NEAR ZERO: the group-relative fold turns this into no gradient at all "
+           "on the query tokens" if spread < 0.05 else ""),
+        f"  Verdict distribution: mean {out['coverage_mean']}, sd {out['coverage_sd']}, "
+        f"all-false {out['frac_zero']}, all-true {out['frac_one']}"
+        + ("   <-- SATURATED" if out["frac_one"] > 0.5 or out["frac_zero"] > 0.5 else ""),
+    ]
+    if informative:
+        lines.append("\n  CASES WHERE THE JUDGE DISAGREED WITH THE ANSWER (what a rewrite must fix):")
+        for k, c in enumerate(informative[:6], 1):
+            lines.append(
+                f"    [{k}] task: {c['task'][:220]}\n"
+                f"        criteria: {c['criteria']}\n"
+                f"        BETTER answer {c['better_answer']} but judge gave its retrieval "
+                f"{c['better_cov']}  queries={c['better_queries']}\n"
+                f"        WORSE  answer {c['worse_answer']} and judge gave its retrieval "
+                f"{c['worse_cov']}  queries={c['worse_queries']}"
+            )
+    return "\n".join(lines), out
+
+
 def _task_shingles(text: str, n: int = 5) -> set:
     """Word 5-grams of a task, for the self-similarity (template-collapse) metric."""
     w = re.findall(r"[a-z0-9]+", (text or "").lower())
@@ -2698,6 +2882,159 @@ async def _evolve_prompts(state: ServerState, step: int, cases: list[dict],
     )
     if summary:
         logger.info(f"  evolve summary: {summary[:400]}")
+    return metrics
+
+
+_COV_REQUIRED_FIELDS = ("{task}", "{passages}", "{criteria}")
+_COV_CONTRACT_TOKENS = ("results", "idx", "supplied")
+
+
+def validate_coverage_prompt(system: str, template: str) -> str:
+    """Return "" if usable, else the reason. Mirrors the identical check in
+    verl/utils/reward_score/retrieval_coverage.py ON PURPOSE: this one refuses to
+    COMMIT a broken rewrite, that one refuses to LOAD a broken file. They guard
+    different events, and a coverage prompt that fails silently scores every
+    rollout zero, which is indistinguishable from a policy that cannot retrieve."""
+    if not (system or "").strip():
+        return "empty system prompt"
+    if not (template or "").strip():
+        return "empty template"
+    missing = [f for f in _COV_REQUIRED_FIELDS if f not in template]
+    if missing:
+        return f"template is missing required field(s): {', '.join(missing)}"
+    absent = [t for t in _COV_CONTRACT_TOKENS if t not in template]
+    if absent:
+        return f"template dropped the JSON output contract (missing {', '.join(absent)})"
+    try:
+        template.format(task="x", passages="y", criteria="z")
+    except Exception as e:  # noqa: BLE001
+        return f"template does not format cleanly: {type(e).__name__}: {e}"
+    return ""
+
+
+async def _evolve_retrieval_reward(state: ServerState, step: int, cases: list[dict]) -> dict:
+    """Rewrite the coverage judge from measured discrimination evidence.
+
+    Never raises into the trainer: on any failure the current prompt stands, the
+    failure is logged at ERROR with a consecutive count, and a marker file is
+    dropped so a monitor can see that the experiment stopped running.
+    """
+    state.gen_step = max(state.gen_step, int(step))
+    evidence, stats = _coverage_evidence(cases)
+
+    path = getattr(state.args, "coverage_prompt_file", "") or os.path.join(
+        state.args.prompt_dir, "coverage_prompt.json")
+    try:
+        with open(path) as f:
+            cur = json.load(f)
+        cur_sys, cur_tpl = str(cur.get("system") or ""), str(cur.get("template") or "")
+        cur_ver = int(cur.get("version") or 0)
+    except Exception:
+        # No file yet: the reward is running on its built-in default, which the
+        # trainer sends us so the first rewrite edits the prompt actually in use
+        # rather than an empty string.
+        cur_sys = str((cases[0] if cases else {}).get("current_system") or "")
+        cur_tpl = str((cases[0] if cases else {}).get("current_template") or "")
+        cur_ver = 0
+    if not cur_tpl:
+        logger.error("/evolve_retrieval: no current coverage template available; skipping")
+        return {"skipped": "no_current_template", **stats}
+
+    # Attribute the measured outcome to the version that produced it, before any
+    # rewrite, so the history reads as version -> what it achieved.
+    hist = getattr(state, "coverage_history", None)
+    if hist is None:
+        hist = state.coverage_history = []
+    if hist:
+        hist[-1].setdefault("outcomes", []).append({
+            "step": int(step), "concordance": stats.get("concordance"),
+            "within_group_spread": stats.get("within_group_spread"),
+            "coverage_mean": stats.get("coverage_mean"),
+        })
+
+    hist_lines = []
+    for e in hist[-6:]:
+        outs = e.get("outcomes") or []
+        if outs:
+            cc = [o["concordance"] for o in outs if o.get("concordance") is not None]
+            sp = [o["within_group_spread"] for o in outs if o.get("within_group_spread") is not None]
+            res = (f"concordance {sum(cc)/len(cc):.3f}" if cc else "concordance not measured")
+            res += (f", spread {sum(sp)/len(sp):.3f}" if sp else "")
+        else:
+            res = "no outcome measured yet"
+        hist_lines.append(f"--- v{e.get('version')} committed at step {e.get('step')}: {res}\n"
+                          f"    rationale: {(e.get('summary') or '')[:240]}")
+    hist_block = "\n".join(hist_lines) or "(no previous versions)"
+
+    user = (
+        f"=== MEASURED PERFORMANCE OF THE CURRENT JUDGE ===\n{evidence}\n\n"
+        f"=== VERSION HISTORY (oldest first) ===\n{hist_block}\n\n"
+        f"=== CURRENT system prompt ===\n{cur_sys}\n\n"
+        f"=== CURRENT template ===\n{cur_tpl}"
+    )
+
+    _marker = os.path.join(state.args.log_dir, "COVERAGE_EVOLVE_FAILING")
+    changed, summary, new_ver = False, "", cur_ver
+    try:
+        raw = await _api_call(state, COVERAGE_EVOLVE_SYSTEM, user,
+                              **_evolve_endpoint(state),
+                              max_tokens=4096, temperature=0.5,
+                              label="evolve_coverage", want_json=True)
+        obj = _parse_json(raw)
+        if not isinstance(obj, dict):
+            raise ValueError("meta-optimizer did not return a JSON object")
+        cand_sys = str(obj.get("system") or "").strip()
+        cand_tpl = str(obj.get("template") or "").strip()
+        summary = str(obj.get("summary") or "").strip()
+        reason = validate_coverage_prompt(cand_sys, cand_tpl)
+        if reason:
+            # Rejected, not applied. This is a normal outcome, not an outage: the
+            # meta-optimizer proposed something that would have broken the parser.
+            logger.error("/evolve_retrieval: REJECTED proposed prompt (%s); keeping v%d",
+                         reason, cur_ver)
+            summary = f"[rejected: {reason}] {summary}"
+        elif cand_sys == cur_sys and cand_tpl == cur_tpl:
+            logger.info("/evolve_retrieval: proposal identical to v%d, nothing to commit", cur_ver)
+        else:
+            new_ver = cur_ver + 1
+            _atomic_write(path, json.dumps(
+                {"version": new_ver, "system": cand_sys, "template": cand_tpl,
+                 "summary": summary, "step": int(step)}, indent=1))
+            changed = True
+            hist.append({"version": new_ver, "step": int(step), "summary": summary,
+                         "system": cand_sys, "template": cand_tpl, "outcomes": []})
+            logger.warning("/evolve_retrieval: committed coverage prompt v%d -> %s",
+                           new_ver, path)
+        state.coverage_consec_failures = 0
+        try:
+            os.remove(_marker)
+        except FileNotFoundError:
+            pass
+    except Exception as e:  # noqa: BLE001 — never break training
+        state.coverage_consec_failures = getattr(state, "coverage_consec_failures", 0) + 1
+        logger.error("/evolve_retrieval FAILED (%d consecutive), keeping v%d: %s: %s",
+                     state.coverage_consec_failures, cur_ver, type(e).__name__, e)
+        try:
+            with open(_marker, "a") as f:
+                f.write(f"{datetime.now().isoformat()} step={step} "
+                        f"consec={state.coverage_consec_failures} {type(e).__name__}: {e}\n")
+        except OSError:
+            pass
+
+    try:
+        _atomic_write(os.path.join(state.args.log_dir, "coverage_evolve_history.json"),
+                      json.dumps(hist, indent=1))
+    except Exception as e:  # noqa: BLE001
+        logger.warning("could not persist coverage history: {}".format(e))
+
+    metrics = {"step": int(step), "version": new_ver, "changed": changed, **stats}
+    with open(state.evolve_log, "a") as f:
+        f.write(json.dumps({"ts": datetime.now().isoformat(),
+                            "kind": "coverage", **metrics, "summary": summary}) + "\n")
+    logger.info(f"~ evolve_retrieval step={step} v={new_ver} changed={changed} "
+                f"concordance={stats.get('concordance')} spread={stats.get('within_group_spread')}")
+    if summary:
+        logger.info(f"  coverage evolve summary: {summary[:400]}")
     return metrics
 
 
@@ -4545,6 +4882,30 @@ async def evolve(payload: EvolvePayload):
         return await _evolve_prompts(s, payload.step, payload.cases, payload.val_score)
 
 
+class EvolveRetrievalPayload(BaseModel):
+    """End-of-step retrieval-REWARD evolution request.
+
+    `cases` are this step's SEARCHING rollouts, each carrying the group id, the
+    coverage verdict, the ANSWER score, and the query plan. The answer score is
+    the pre-bonus one, which is what makes the concordance measurement honest:
+    the judge under evaluation contributed nothing to it.
+    """
+
+    step: int
+    cases: list[dict]
+
+
+@app.post("/evolve_retrieval")
+async def evolve_retrieval(payload: EvolveRetrievalPayload):
+    """Rewrite the coverage judge from measured discrimination. Serialised on the
+    same lock as /evolve so two rewrites cannot interleave."""
+    s: ServerState = app.state.server
+    if not s.args.rubric_mode:
+        raise HTTPException(status_code=400, detail="evolve_retrieval requires --rubric_mode")
+    async with s.evolve_lock:
+        return await _evolve_retrieval_reward(s, payload.step, payload.cases)
+
+
 @app.post("/replay")
 async def replay(payload: ReplayPayload):
     """Re-push entries from an accepted_log file into the replay buffer.
@@ -4598,6 +4959,11 @@ def main():
                         help="Generate open-ended clinician TASK + co-generated "
                              "HealthBench-Professional rubric per item (no MCQ/"
                              "diagnosis). Reward is the rubric, graded by self.")
+    parser.add_argument("--coverage_prompt_file", default="",
+                        help="Where /evolve_retrieval writes the evolved coverage-judge "
+                             "prompt. The reward reads the SAME path via "
+                             "HB_COVERAGE_PROMPT_FILE and reloads it on mtime change. "
+                             "Defaults to <prompt_dir>/coverage_prompt.json.")
     parser.add_argument("--evolve_api_base", default="",
                         help="Endpoint for the /evolve meta-optimizer (defaults to --api_base). "
                              "Set with --evolve_model_name to run curriculum evolution on an "

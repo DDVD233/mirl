@@ -67,6 +67,103 @@ Return {{"results": [...]}}"""
 CTX_CHARS = int(os.environ.get("HB_COVERAGE_CTX_CHARS", "12000"))
 MAX_TOKENS = int(os.environ.get("HB_COVERAGE_MAX_TOKENS", "900"))
 
+# ---------------------------------------------------------------------------
+# EVOLVABLE COVERAGE PROMPT
+#
+# The coverage judge defines what "good retrieval" means, so it is the natural
+# thing to evolve when the goal is to teach the policy to retrieve better. The
+# gen server's /evolve_retrieval rewrites this file; the reward re-reads it on
+# mtime change, exactly like the generation prompts.
+#
+# EVERY evolved prompt is validated on BOTH sides — the server refuses to commit
+# one that fails, and this module refuses to load one that fails. That is not
+# redundant: they guard different events (a bad rewrite vs. a hand-edited or
+# truncated file), and the cost of getting it wrong is a reward that silently
+# returns 0 coverage for every rollout, which is indistinguishable from a policy
+# that cannot retrieve.
+# ---------------------------------------------------------------------------
+COVERAGE_PROMPT_FILE = os.environ.get("HB_COVERAGE_PROMPT_FILE", "")
+
+# The template is str.format-ed with exactly these fields, and the parser reads
+# results[].idx/.supplied. An evolved prompt that drops any of them is not a
+# worse prompt, it is a broken one.
+REQUIRED_TEMPLATE_FIELDS = ("{task}", "{passages}", "{criteria}")
+REQUIRED_CONTRACT_TOKENS = ("results", "idx", "supplied")
+
+
+def validate_coverage_prompt(system: str, template: str) -> str:
+    """Return "" if the prompt is usable, else a human-readable reason."""
+    if not (system or "").strip():
+        return "empty system prompt"
+    if not (template or "").strip():
+        return "empty template"
+    missing = [f for f in REQUIRED_TEMPLATE_FIELDS if f not in template]
+    if missing:
+        return f"template is missing required field(s): {', '.join(missing)}"
+    absent = [t for t in REQUIRED_CONTRACT_TOKENS if t not in template]
+    if absent:
+        return (f"template no longer states the JSON output contract "
+                f"(missing {', '.join(absent)}) — the parser would reject every verdict")
+    try:
+        # Catches stray single braces, which raise at format() time and would
+        # otherwise take down the reward for the whole run.
+        template.format(task="x", passages="y", criteria="z")
+    except Exception as e:  # noqa: BLE001
+        return f"template does not format cleanly: {type(e).__name__}: {e}"
+    return ""
+
+
+_PROMPT_CACHE: dict = {"raw": None, "system": COVERAGE_SYSTEM,
+                       "template": COVERAGE_TEMPLATE, "version": 0}
+_PROMPT_WARNED: set = set()
+
+
+def current_coverage_prompt() -> tuple[str, str, int]:
+    """(system, template, version). Falls back to the built-in default whenever
+    the file is missing, unreadable, or invalid.
+
+    Change detection compares the file's CONTENT, not its mtime. mtime looked
+    like the obvious cache key and is what the generation prompts use, but it is
+    only reliable when writes are far apart: filesystems with coarse timestamp
+    granularity report the same mtime for two writes in the same second, and a
+    freshly-evolved prompt would then be ignored for the rest of the run with
+    nothing in the logs to say so. The file is a few KB and every read here
+    precedes an LLM call, so re-reading it costs nothing worth measuring.
+    """
+    path = COVERAGE_PROMPT_FILE
+    if not path:
+        return _PROMPT_CACHE["system"], _PROMPT_CACHE["template"], 0
+    try:
+        with open(path) as f:
+            raw = f.read()
+    except OSError:
+        return COVERAGE_SYSTEM, COVERAGE_TEMPLATE, 0
+    if raw == _PROMPT_CACHE["raw"]:
+        return _PROMPT_CACHE["system"], _PROMPT_CACHE["template"], _PROMPT_CACHE["version"]
+    try:
+        obj = json.loads(raw)
+        system = str(obj.get("system") or "")
+        template = str(obj.get("template") or "")
+        version = int(obj.get("version") or 0)
+    except Exception as e:  # noqa: BLE001
+        if path not in _PROMPT_WARNED:
+            _PROMPT_WARNED.add(path)
+            logger.error("coverage prompt %s unreadable, keeping default: %s: %s",
+                         path, type(e).__name__, e)
+        _PROMPT_CACHE["raw"] = raw          # don't re-parse the same bad file every call
+        return _PROMPT_CACHE["system"], _PROMPT_CACHE["template"], _PROMPT_CACHE["version"]
+    reason = validate_coverage_prompt(system, template)
+    if reason:
+        # Loud: a silently-rejected evolved prompt means the reward-evolution
+        # experiment is not running even though every log says it is.
+        logger.error("coverage prompt v%d REJECTED (%s); keeping previous", version, reason)
+        _PROMPT_CACHE["raw"] = raw
+        return _PROMPT_CACHE["system"], _PROMPT_CACHE["template"], _PROMPT_CACHE["version"]
+    _PROMPT_CACHE.update({"raw": raw, "system": system,
+                          "template": template, "version": version})
+    logger.warning("coverage prompt reloaded: v%d from %s", version, path)
+    return system, template, version
+
 
 def _parse(raw: str) -> dict[int, bool] | None:
     t = re.sub(r"^```json\s*|\s*```$", "", (raw or "").strip())
@@ -118,14 +215,25 @@ async def score_coverage(
     criteria = "\n".join(
         f"{i}. [{it['points']:+g} pts] {it['criterion']}" for i, it in enumerate(items)
     )
-    prompt = COVERAGE_TEMPLATE.format(
-        task=(task_text or "")[:4000],
-        passages=(context or "")[:CTX_CHARS],
-        criteria=criteria,
-    )
+    system, template, _version = current_coverage_prompt()
+    try:
+        prompt = template.format(
+            task=(task_text or "")[:4000],
+            passages=(context or "")[:CTX_CHARS],
+            criteria=criteria,
+        )
+    except Exception as e:  # noqa: BLE001 — validation should make this unreachable
+        logger.error("coverage template failed to format, using built-in: %s: %s",
+                     type(e).__name__, e)
+        system, template = COVERAGE_SYSTEM, COVERAGE_TEMPLATE
+        prompt = template.format(
+            task=(task_text or "")[:4000],
+            passages=(context or "")[:CTX_CHARS],
+            criteria=criteria,
+        )
     try:
         raw = await _call_api(
-            api_base, api_key, model_name, COVERAGE_SYSTEM, prompt,
+            api_base, api_key, model_name, system, prompt,
             max_tokens=MAX_TOKENS, provider=provider,
         )
     except Exception as e:

@@ -254,26 +254,26 @@ async def _generate_one(session, args, use_case, specialty, mode) -> dict | None
 
 
 async def retrieve(session, args, query: str) -> list[str]:
-    """Optional: top-k passages from Milvus via an embedding endpoint.
-    Best-effort — returns [] if pymilvus / embed endpoint is unavailable so the
-    generator still runs ungrounded. Mirrors the gen server's retriever."""
+    """Optional: top-k passages from Milvus, using the SAME source-aware ranking
+    the rollout's /retrieve uses (kb/retrieval.py), so generated tasks are grounded
+    in the same evidence the trained model will be able to look up.
+
+    Best-effort — returns [] if pymilvus / the embed endpoint is unavailable, so
+    the generator still runs ungrounded rather than dying."""
     if not (args.embed_api_base and args.milvus_uri):
         return []
     try:
-        from pymilvus import MilvusClient  # type: ignore
-    except Exception:
-        return []
-    try:
-        url = f"{args.embed_api_base.rstrip('/')}/embeddings"
-        headers = {"Authorization": f"Bearer {args.embed_api_key}", "Content-Type": "application/json"}
-        async with session.post(url, headers=headers,
-                                json={"model": args.embed_model, "input": query}) as r:
-            r.raise_for_status()
-            vec = (await r.json())["data"][0]["embedding"]
-        client = MilvusClient(uri=args.milvus_uri)
-        hits = client.search(collection_name=args.milvus_collection, data=[vec],
-                             limit=args.retrieve_k, output_fields=["text"])
-        return [h["entity"].get("text", "") for h in (hits[0] if hits else []) if h["entity"].get("text")]
+        import asyncio as _asyncio
+        import os as _os
+        import sys as _sys
+        _sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
+        from kb.retrieval import local_search
+
+        passages, _ = await _asyncio.to_thread(
+            local_search, query, args.retrieve_k, args.milvus_uri, args.milvus_token,
+            args.milvus_collection, args.embed_api_base, args.embed_api_key,
+            args.embed_model)
+        return [p["text"] for p in passages if p.get("text")]
     except Exception:
         return []
 
@@ -346,6 +346,7 @@ def parse_args():
     p.add_argument("--embed_api_key", default=os.environ.get("EMBED_API_KEY", "EMPTY"))
     p.add_argument("--embed_model", default=os.environ.get("EMBED_MODEL", "Qwen/Qwen3-VL-Embedding-2B"))
     p.add_argument("--milvus_uri", default=os.environ.get("MILVUS_URI", ""))
+    p.add_argument("--milvus_token", default=os.environ.get("MILVUS_TOKEN", "root:Milvus"))
     p.add_argument("--milvus_collection", default=os.environ.get("MILVUS_COLLECTION", "medical_knowledge_v2"))
     p.add_argument("--retrieve_k", type=int, default=5)
     return p.parse_args()

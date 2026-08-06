@@ -103,6 +103,40 @@ def apply_chat_template(
     except Exception:
         # Qwen3.5 apply_chat_template needs messages with at least one user message
         dummy_user_message = [{"role": "user", "content": [{"type": "text", "text": ""}]}]
+
+        if messages and messages[0].get("role") == "system":
+            # A lone system message fails BOTH ways: the raw call reports "No user
+            # query found in messages", and prepending the dummy user produces
+            # [user, system] -> "System message must be at the beginning". The dummy
+            # must go AFTER the system message, so it lands at the tail and we trim
+            # it there. Its length is measured by rendering it twice and
+            # differencing (same trick as initialize_system_prompt) because the
+            # system-only rendering we are trying to produce is exactly what the
+            # template refuses to emit on its own.
+            one = processor.apply_chat_template(
+                messages + dummy_user_message,
+                tokenize=tokenize, add_generation_prompt=False, tools=tools,
+                return_dict=return_dict, **kwargs,
+            )
+            two = processor.apply_chat_template(
+                messages + dummy_user_message * 2,
+                tokenize=tokenize, add_generation_prompt=False, tools=tools,
+                return_dict=return_dict, **kwargs,
+            )
+            if not tokenize:
+                return one[: len(one) - (len(two) - len(one))]
+            elif not return_dict:
+                if isinstance(one[0], list):  # transformers>=5
+                    one, two = one[0], two[0]
+                return one[: len(one) - (len(two) - len(one))]
+            else:
+                one, two = dict(one), dict(two)
+                keep = one["input_ids"].shape[1] - (two["input_ids"].shape[1] - one["input_ids"].shape[1])
+                one["input_ids"] = one["input_ids"][:, :keep]
+                one["attention_mask"] = one["attention_mask"][:, :keep]
+                if "mm_token_type_ids" in one:
+                    one["mm_token_type_ids"] = one["mm_token_type_ids"][:, :keep]
+                return one
         dummy_user_prefix = processor.apply_chat_template(
             dummy_user_message,
             tokenize=tokenize,

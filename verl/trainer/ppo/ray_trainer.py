@@ -905,6 +905,128 @@ class RayPPOTrainer:
         )
         return batch, reward_tensor, reward_extra_infos_dict, fg_metrics
 
+    def _maybe_evolve_retrieval_reward(self, batch: DataProto, reward_extra_infos_dict: dict) -> dict:
+        """Optional end-of-step evolution of the RETRIEVAL reward (coverage judge).
+
+        Sends this step's SEARCHING rollouts — group id, coverage verdict, the
+        answer score, and the query plan — to the gen server, which measures how
+        well coverage ordering predicts answer ordering within a group and
+        rewrites the judge to sharpen it.
+
+        The answer score forwarded here is the PRE-BONUS one from the reward
+        manager: `_fold_retrieval_group_bonus` adds the coverage delta to the
+        reward tensor only, never to `reward_extra_infos_dict["score"]`. That
+        separation is what makes the concordance measurement meaningful — if the
+        judge's own bonus were inside the number it is scored against, a judge
+        could raise its measured quality just by being louder.
+
+        Best-effort: any failure is logged and skipped, never raised.
+        """
+        from omegaconf import OmegaConf
+
+        se_cfg = OmegaConf.select(self.config, "data.self_evolving") or {}
+        if not bool(se_cfg.get("evolve_retrieval_reward", False)):
+            return {}
+        gen_server_url = se_cfg.get("gen_server_url", "") or os.environ.get("GEN_SERVER_URL", "")
+        if not gen_server_url:
+            return {}
+        every = int(se_cfg.get("evolve_retrieval_every_n_steps", 5) or 5)
+        if every > 1 and (self.global_steps % every != 0):
+            return {}
+
+        def _say(msg: str) -> None:
+            print(f"[retrieval_reward_evolution] step {self.global_steps}: {msg}", flush=True)
+
+        try:
+            import requests
+
+            src = reward_extra_infos_dict or {}
+            cov = src.get("retrieval_coverage")
+            if cov is None:
+                _say("no retrieval_coverage in reward extras; skipping")
+                return {}
+            judged = src.get("retrieval_judged") or []
+            used = src.get("retrieval_used") or []
+            scores = src.get("score") or src.get("reward") or []
+            uids = batch.non_tensor_batch.get("uid")
+            if uids is None:
+                _say("no uid on the batch; cannot form groups, skipping")
+                return {}
+
+            def _at(seq, i, default=0.0):
+                try:
+                    return seq[i]
+                except (IndexError, TypeError, KeyError):
+                    return default
+
+            cases = []
+            for i in range(len(uids)):
+                if float(_at(used, i)) <= 0.5 or float(_at(judged, i)) <= 0.5:
+                    continue
+                ntb = batch[i].non_tensor_batch
+                ex = ntb.get("extra_info", {}) or {}
+                # The agent loop's fields arrive ONLY inside the `tool_extra_fields`
+                # object column — a top-level "search_queries" column never exists
+                # (the reward extras are a homogeneous all-float key set, so the
+                # query strings cannot travel that way).
+                tef = ntb.get("tool_extra_fields")
+                if not isinstance(tef, dict):
+                    tef = {}
+                q = tef.get("search_queries") or []
+                if isinstance(q, str):
+                    try:
+                        q = json.loads(q)
+                    except Exception:
+                        q = [q] if q else []
+                if not isinstance(q, (list, tuple)):
+                    q = []
+                items = list(ex.get("rubric_items") or [])
+                cases.append({
+                    "uid": str(uids[i]),
+                    "coverage": float(_at(cov, i)),
+                    "judged": True,
+                    "answer_score": float(_at(scores, i)),
+                    "queries": list(q)[:6],
+                    "task": str(ex.get("question", ""))[:600],
+                    "criteria": [str((it or {}).get("criterion_text")
+                                     or (it or {}).get("criterion") or "")[:140]
+                                 for it in items][:5],
+                })
+
+            if len(cases) < 4:
+                _say(f"only {len(cases)} judged searching rollouts; too few to measure, skipping")
+                return {}
+
+            # The server needs the prompt actually in force to edit it, and on the
+            # first round no file exists yet — send the defaults the reward is
+            # running on so v1 is an edit of the real prompt, not of "".
+            from verl.utils.reward_score.retrieval_coverage import current_coverage_prompt
+            cur_sys, cur_tpl, _v = current_coverage_prompt()
+            cases[0]["current_system"] = cur_sys
+            cases[0]["current_template"] = cur_tpl
+
+            _say(f"posting {len(cases)} searching rollouts -> {gen_server_url}/evolve_retrieval")
+            r = requests.post(
+                f"{gen_server_url.rstrip('/')}/evolve_retrieval",
+                json={"step": int(self.global_steps), "cases": cases},
+                timeout=float(se_cfg.get("evolve_timeout", 1200)),
+            )
+            r.raise_for_status()
+            res = r.json()
+            _say(f"done: {res}")
+            out = {"cov_evolution/changed": float(bool(res.get("changed"))),
+                   "cov_evolution/version": float(res.get("version", 0) or 0)}
+            for k in ("concordance", "within_group_spread", "coverage_sd",
+                      "n_ranked_pairs", "frac_one", "frac_zero"):
+                if res.get(k) is not None:
+                    out[f"cov_evolution/{k}"] = float(res[k])
+            return out
+        except Exception as e:  # noqa: BLE001 — never break training
+            import traceback
+
+            _say(f"FAILED: {type(e).__name__}: {e}\n{traceback.format_exc()}")
+            return {}
+
     def _record_val_score(self, val_metrics: dict) -> None:
         """Remember the headline held-out score for the generation-evolution loop.
 
@@ -2249,6 +2371,15 @@ class RayPPOTrainer:
                     gen_evo_metrics = self._maybe_evolve_generation(batch, reward_extra_infos_dict)
                     if gen_evo_metrics:
                         metrics.update(gen_evo_metrics)
+
+                    # Optional, training-only: evolve the RETRIEVAL reward itself
+                    # (the coverage judge), so the signal that teaches the policy
+                    # how to query gets sharper as the run proceeds.
+                    cov_evo_metrics = self._maybe_evolve_retrieval_reward(
+                        batch, reward_extra_infos_dict
+                    )
+                    if cov_evo_metrics:
+                        metrics.update(cov_evo_metrics)
 
                 # validate
                 if self.config.trainer.test_freq > 0 and (

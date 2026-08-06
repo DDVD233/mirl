@@ -60,6 +60,9 @@ TRAIN_JUDGE_KEY="${TRAIN_JUDGE_KEY:-$KEY}"
 FALLBACK_JUDGE_BASE="${FALLBACK_JUDGE_BASE:-$TEACHER_BASE}"
 FALLBACK_JUDGE_MODEL="${FALLBACK_JUDGE_MODEL:-Qwen/Qwen3.6-27B}"
 FALLBACK_JUDGE_PROVIDER="${FALLBACK_JUDGE_PROVIDER:-vllm}"
+# D1 (2026-08-04 audit): the fallback key was hardcoded to the local teacher key
+# ($KEY), so a TRAPI-hosted fallback would 401 even once forwarding was fixed.
+FALLBACK_JUDGE_KEY="${FALLBACK_JUDGE_KEY:-$KEY}"
 GEN_SERVER_URL="${GEN_SERVER_URL:-http://localhost:8006}"
 
 # Validation judge: gpt-chat-latest via the TRAPI proxy (the standard HealthBench
@@ -151,7 +154,7 @@ cd "$REPO"
     +reward.custom_reward_function.reward_kwargs.model_name="$TRAIN_JUDGE_MODEL" \
     +reward.custom_reward_function.reward_kwargs.provider="$TRAIN_JUDGE_PROVIDER" \
     +reward.custom_reward_function.reward_kwargs.fallback_api_base="$FALLBACK_JUDGE_BASE" \
-    +reward.custom_reward_function.reward_kwargs.fallback_api_key="$KEY" \
+    +reward.custom_reward_function.reward_kwargs.fallback_api_key="$FALLBACK_JUDGE_KEY" \
     +reward.custom_reward_function.reward_kwargs.fallback_model_name="$FALLBACK_JUDGE_MODEL" \
     +reward.custom_reward_function.reward_kwargs.fallback_provider="$FALLBACK_JUDGE_PROVIDER" \
     +reward.custom_reward_function.reward_kwargs.val_api_base="$VAL_JUDGE_BASE" \
@@ -186,7 +189,6 @@ cd "$REPO"
     actor_rollout_ref.rollout.n=8 \
     actor_rollout_ref.rollout.temperature=1.0 \
     actor_rollout_ref.rollout.top_p=1.0 \
-    +actor_rollout_ref.rollout.repetition_penalty=1.1 \
     actor_rollout_ref.rollout.tensor_model_parallel_size=4 \
     actor_rollout_ref.rollout.gpu_memory_utilization="${VLLM_GPU_UTIL:-0.55}" \
     actor_rollout_ref.rollout.max_model_len=16384 \

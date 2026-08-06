@@ -58,6 +58,13 @@ cd "$REPO"
 RETRIEVAL="${RETRIEVAL:?set RETRIEVAL=1 (retrieval arm) or RETRIEVAL=0 (control arm)}"
 EVOLVE="${EVOLVE:-0}"
 SELF_JUDGE="${SELF_JUDGE:-0}"
+REWARD_EVOLVE="${REWARD_EVOLVE:-0}"
+if [ "$REWARD_EVOLVE" = 1 ] && [ "$RETRIEVAL" != 1 ]; then
+    echo "FATAL: REWARD_EVOLVE=1 needs RETRIEVAL=1 — the coverage judge it evolves only" \
+         "runs on searching rollouts, so with retrieval off it would rewrite a prompt" \
+         "that is never called" >&2
+    exit 1
+fi
 if [ "$EVOLVE" = 1 ] && [ "$SELF_JUDGE" = 1 ]; then
     echo "FATAL: EVOLVE and SELF_JUDGE together confound both deltas; run them as separate arms" >&2
     exit 1
@@ -73,9 +80,9 @@ TRAPI_KEY=$(cat $S/.trapi_key)
 JUDGE=gpt-chat-latest_2026-05-28
 GEN_PORT="${GEN_PORT:-8041}"
 SUMM_PORT="${SUMM_PORT:-8199}"
-SJUDGE_PORT="${SJUDGE_PORT:-8198}"
-SJUDGE_BASE="${SJUDGE_BASE:-http://localhost:$SJUDGE_PORT/v1}"
-SJUDGE_MODEL="${SJUDGE_MODEL:-Qwen/Qwen3.5-9B}"
+# The self-judge IS the frozen-9B server (same model, same weights, one process).
+SJUDGE_BASE="$SUMM_BASE"
+SJUDGE_MODEL="$SUMM_MODEL"
 
 # Judge routing. VAL is pinned to gpt-chat-latest in EVERY arm so the held-out
 # number stays one comparable series; only the TRAINING judge moves.
@@ -170,55 +177,64 @@ if [ "$RETRIEVAL" = 1 ]; then
         actor_rollout_ref.rollout.multi_turn.tool_response_truncate_side=right
         actor_rollout_ref.rollout.multi_turn.tool_config_path=scripts/self_evolving/train/config/medical_retrieval_tool.yaml
         actor_rollout_ref.rollout.agent.default_agent_loop=retrieval_tool_agent
-        +reward.custom_reward_function.reward_kwargs.cov_api_base="$TRAPI_BASE"
-        +reward.custom_reward_function.reward_kwargs.cov_api_key="$TRAPI_KEY"
-        +reward.custom_reward_function.reward_kwargs.cov_model_name="$JUDGE"
-        +reward.custom_reward_function.reward_kwargs.cov_provider=trapi
+        # The coverage judge follows the TRAIN judge: in the self-judge arm the
+        # model must grade its own retrieval too, or the arm would still be
+        # partly gpt-graded and would not answer the question it exists for.
+        +reward.custom_reward_function.reward_kwargs.cov_api_base="$TRAIN_JUDGE_BASE"
+        +reward.custom_reward_function.reward_kwargs.cov_api_key="$TRAIN_JUDGE_KEY"
+        +reward.custom_reward_function.reward_kwargs.cov_model_name="$TRAIN_JUDGE_MODEL"
+        +reward.custom_reward_function.reward_kwargs.cov_provider="$TRAIN_JUDGE_PROVIDER"
     )
-    # Summarizer (frozen self-model), pinned to one GPU.
-    if ! curl -sf -m 5 "$SUMM_BASE/models" >/dev/null 2>&1; then
-        CUDA_VISIBLE_DEVICES="${SUMM_GPU:-3}" MODEL="$SUMM_MODEL" PORT="$SUMM_PORT" \
-        TP=1 MEM="${SUMM_MEM:-0.14}" MAXSEQS=64 \
-            bash scripts/self_evolving/serve/serve_summarizer.sh \
-            > "$LOGDIR/summarizer_${EXP}.log" 2>&1 &
-        SUMM_PID=$!
-        start=$SECONDS
-        until curl -sf -m 5 "$SUMM_BASE/models" >/dev/null; do
-            kill -0 "$SUMM_PID" 2>/dev/null || { echo "FATAL: summarizer died" >&2; tail -40 "$LOGDIR/summarizer_${EXP}.log"; exit 1; }
-            (( SECONDS - start > 1800 )) && { echo "FATAL: summarizer unhealthy" >&2; exit 1; }
-            sleep 5
-        done
-    fi
-    echo "summarizer healthy at $SUMM_BASE"
+    echo "summarizer will be served by the frozen-9B server at $SUMM_BASE"
 else
     export HB_SCORE_MIN="${HB_SCORE_MIN:-0.0}"
     VLLM_GPU_UTIL="${VLLM_GPU_UTIL:-0.45}"
 fi
 
-# ---- self-judge: a FROZEN 9B grading the training reward -------------------------
-# Same base checkpoint the actor started from, never the actor's live weights: a
-# judge that tracks the policy makes the reward non-stationary, and the score
-# would drift for reasons that have nothing to do with the answers.
-# One judge call is issued PER RUBRIC CRITERION (~2.2 per rollout, so ~560 per
-# training step at batch 32 x n 8), which is why concurrency goes to 48 above.
-if [ "$SELF_JUDGE" = 1 ]; then
-    VLLM_GPU_UTIL="${VLLM_GPU_UTIL_SELFJUDGE:-0.35}"   # judge shares a GPU with rollout
-    if ! curl -sf -m 5 "$SJUDGE_BASE/models" >/dev/null 2>&1; then
-        CUDA_VISIBLE_DEVICES="${SJUDGE_GPU:-3}" MODEL="$SJUDGE_MODEL" PORT="$SJUDGE_PORT" \
-        TP=1 MEM="${SJUDGE_MEM:-0.25}" MAXSEQS=256 MAXLEN=16384 \
+# ---- ONE frozen 9B serving every non-actor role ----------------------------------
+# The retrieval summarizer and the self-judge are the SAME model at the SAME frozen
+# weights, so they are one vLLM server, not two: a second copy would burn ~18 GB of
+# weights and a second scheduler to do a job the first one is already sized for.
+#
+# Frozen, never the actor's live weights. A judge that tracks the policy makes the
+# reward non-stationary (the score drifts for reasons unrelated to the answers), and
+# a summarizer that tracks it breaks the invariant that offline SFT traces and online
+# rollouts see byte-identical evidence briefs.
+#
+# Load, at batch 32 x n 8: ~256 summarizer calls per step (search turns), plus in the
+# self-judge arm ~560 rubric calls (one PER CRITERION) and ~256 coverage calls. Hence
+# the larger slice and max-num-seqs when it is judging as well as summarizing.
+FROZEN_NEEDED=0
+[ "$RETRIEVAL" = 1 ] && FROZEN_NEEDED=1
+[ "$SELF_JUDGE" = 1 ] && FROZEN_NEEDED=1
+if [ "$FROZEN_NEEDED" = 1 ]; then
+    if [ "$SELF_JUDGE" = 1 ]; then
+        FROZEN_MEM="${FROZEN_MEM:-0.30}"; FROZEN_SEQS="${FROZEN_SEQS:-256}"
+        VLLM_GPU_UTIL="${VLLM_GPU_UTIL:-0.30}"
+    else
+        FROZEN_MEM="${FROZEN_MEM:-0.16}"; FROZEN_SEQS="${FROZEN_SEQS:-96}"
+        VLLM_GPU_UTIL="${VLLM_GPU_UTIL:-0.35}"
+    fi
+    if ! curl -sf -m 5 "$SUMM_BASE/models" >/dev/null 2>&1; then
+        CUDA_VISIBLE_DEVICES="${FROZEN_GPU:-3}" MODEL="$SUMM_MODEL" PORT="$SUMM_PORT" \
+        TP=1 MEM="$FROZEN_MEM" MAXSEQS="$FROZEN_SEQS" MAXLEN=16384 \
             bash scripts/self_evolving/serve/serve_summarizer.sh \
-            > "$LOGDIR/selfjudge_${EXP}.log" 2>&1 &
-        SJUDGE_PID=$!
+            > "$LOGDIR/frozen9b_${EXP}.log" 2>&1 &
+        SUMM_PID=$!
         start=$SECONDS
-        until curl -sf -m 5 "$SJUDGE_BASE/models" >/dev/null; do
-            kill -0 "$SJUDGE_PID" 2>/dev/null || { echo "FATAL: self-judge died" >&2; tail -40 "$LOGDIR/selfjudge_${EXP}.log"; exit 1; }
-            (( SECONDS - start > 1800 )) && { echo "FATAL: self-judge unhealthy" >&2; exit 1; }
+        until curl -sf -m 5 "$SUMM_BASE/models" >/dev/null; do
+            kill -0 "$SUMM_PID" 2>/dev/null || { echo "FATAL: frozen 9B died" >&2; tail -40 "$LOGDIR/frozen9b_${EXP}.log"; exit 1; }
+            (( SECONDS - start > 1800 )) && { echo "FATAL: frozen 9B unhealthy" >&2; exit 1; }
             sleep 5
         done
     fi
-    # Prove it actually returns a gradable verdict before spending a step. A judge
-    # that 200s but answers with reasoning prose parses as "not met" for every
-    # criterion, which is indistinguishable from a model that cannot answer.
+    echo "frozen 9B healthy at $SUMM_BASE (mem=$FROZEN_MEM seqs=$FROZEN_SEQS)"
+fi
+
+# Prove the judge returns a GRADABLE verdict before spending a step. A server that
+# 200s but replies with reasoning prose parses as "not met" on every criterion,
+# which is indistinguishable from a model that cannot answer at all.
+if [ "$SELF_JUDGE" = 1 ]; then
     curl -sf -m 120 "$SJUDGE_BASE/chat/completions" -H 'content-type: application/json' \
         -d "{\"model\":\"$SJUDGE_MODEL\",\"max_tokens\":64,\"temperature\":0,
              \"chat_template_kwargs\":{\"enable_thinking\":false},
@@ -237,12 +253,19 @@ if curl -sf -m 5 "localhost:$GEN_PORT/healthz" >/dev/null 2>&1; then
     echo "FATAL: port $GEN_PORT already serving (orphan?)" >&2; exit 1
 fi
 PROMPT_DIR="$LOGDIR/$EXP/prompts"; mkdir -p "$PROMPT_DIR"
+# Retrieval-REWARD evolution: /evolve_retrieval rewrites the coverage judge here and
+# the reward re-reads it on mtime change. Both sides must name the SAME file, or the
+# rewrites land somewhere nothing reads and the run trains on the frozen v0 prompt
+# while every log claims evolution is on.
+COVERAGE_PROMPT_FILE="$PROMPT_DIR/coverage_prompt.json"
+export HB_COVERAGE_PROMPT_FILE="$COVERAGE_PROMPT_FILE"
 SUMM_FLAGS=()
 [ "$RETRIEVAL" = 1 ] && SUMM_FLAGS=(--summarizer_api_base "$SUMM_BASE"
                                     --summarizer_model "$SUMM_MODEL"
                                     --summarizer_provider vllm)
 /usr/local/bin/python scripts/self_evolving/generation_server.py \
     --rubric_mode --prompt_dir "$PROMPT_DIR" \
+    --coverage_prompt_file "$COVERAGE_PROMPT_FILE" \
     --api_base "$TRAPI_BASE" --api_key "$TRAPI_KEY" --model_name "$JUDGE" \
     --embed_api_base "$EMBED_BASE" --embed_model Qwen/Qwen3-VL-Embedding-2B \
     --milvus_uri "$MILVUS_URI" --milvus_token root:Milvus \
@@ -295,6 +318,8 @@ fi
     +data.self_evolving.evolve_generation=$([ "$EVOLVE" = 1 ] && echo True || echo False) \
     +data.self_evolving.evolve_every_n_steps="${EVOLVE_EVERY:-5}" \
     +data.self_evolving.evolve_num_examples="${EVOLVE_N:-24}" \
+    +data.self_evolving.evolve_retrieval_reward=$([ "$REWARD_EVOLVE" = 1 ] && echo True || echo False) \
+    +data.self_evolving.evolve_retrieval_every_n_steps="${REWARD_EVOLVE_EVERY:-5}" \
     data.val_files="$VAL" \
     data.train_batch_size="${TRAIN_BS:-32}" \
     data.max_prompt_length=6144 \
