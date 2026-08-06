@@ -1696,6 +1696,30 @@ async def agent_validator(state: ServerState, generated: dict) -> tuple[bool, st
 # ======================================================================
 # Rubric-mode agents (HealthBench-Professional task + rubric co-generation)
 # ======================================================================
+# Sign-inverted / grader-meta criterion filters. MODULE scope on purpose: both
+# the generator (agent_task_rubric_generator) and the spec patcher
+# (validate_patch_criterion) must apply the SAME objects. Two copies of a regex
+# that guards a sign convention is how the two drift apart and a sign-inverted
+# negative reaches training.
+#
+# The official grader marks "Does not assert X" as met when the answer correctly
+# avoids X, so a negative phrased that way punishes CORRECT answers (39% of
+# generated negatives in the seeded diag; capped those tasks at ~0.50 max score).
+_INVERTED = re.compile(
+    r"^\s*(does not|doesn'?t|do not|avoids?|refrains?|never\b|advises against|"
+    r"warns against|recommends against|penali[sz]e)", re.I)
+# The ^-anchored form misses inversions wrapped in a disjunction, e.g.
+# "Does at least one of the following: does not recommend X, ...".
+_INVERTED_WRAPPED = re.compile(
+    r"(?::\s*|,\s*|\bor\b\s+)(does not|doesn'?t|do not|avoids?|refrains? from|"
+    r"never\b|advises against|warns against|recommends against)\s", re.I)
+# A criterion must describe a property of the RESPONSE, not instruct the
+# grader — applies to BOTH signs. (Measured: drops 0/1135 real criteria.)
+_GRADER_META = re.compile(
+    r"^\s*(penali[sz]e|deduct|subtract|award|give (?:credit|points)|score|mark\b|"
+    r"the (?:response|answer|model|assistant|ai)\b)", re.I)
+
+
 def _valid_rubric(items) -> bool:
     """1-6 objective items, points in [-10,10]\\{0}, >=1 positive.
 
@@ -2052,23 +2076,8 @@ async def agent_task_rubric_generator(state: ServerState, request: str, use_case
             repr(obj.get("conversation"))[:200],
         )
         raise ValueError("invalid conversation (no usable clinician/user turn)")
-    # Drop sign-inverted or grader-meta NEGATIVE criteria: the official grader
-    # marks "Does not assert X" as met when the answer correctly avoids X, so a
-    # negative phrased that way punishes CORRECT answers (39% of generated
-    # negatives in the seeded diag; capped those tasks at ~0.50 max score).
-    _INVERTED = re.compile(
-        r"^\s*(does not|doesn'?t|do not|avoids?|refrains?|never\b|advises against|"
-        r"warns against|recommends against|penali[sz]e)", re.I)
-    # The ^-anchored form misses inversions wrapped in a disjunction, e.g.
-    # "Does at least one of the following: does not recommend X, ...".
-    _INVERTED_WRAPPED = re.compile(
-        r"(?::\s*|,\s*|\bor\b\s+)(does not|doesn'?t|do not|avoids?|refrains? from|"
-        r"never\b|advises against|warns against|recommends against)\s", re.I)
-    # A criterion must describe a property of the RESPONSE, not instruct the
-    # grader — applies to BOTH signs. (Measured: drops 0/1135 real criteria.)
-    _GRADER_META = re.compile(
-        r"^\s*(penali[sz]e|deduct|subtract|award|give (?:credit|points)|score|mark\b|"
-        r"the (?:response|answer|model|assistant|ai)\b)", re.I)
+    # Drop sign-inverted or grader-meta NEGATIVE criteria (regexes at module scope
+    # so the spec patcher runs these exact objects — see _INVERTED).
     if isinstance(items, list):
         kept = []
         for it in items:
@@ -4198,13 +4207,41 @@ async def attach_rubric_gold_trace(state: ServerState, entry: dict) -> bool:
     return False
 
 
-async def _grade_answer_with_rubric(state: ServerState, task_text: str, answer: str,
-                                    items: list) -> float:
-    """Grade `answer` against `items` with the same criterion-by-criterion
-    contract the training reward uses. Returns achieved/total_positive."""
-    conv_block = f"user: {task_text}\n\nassistant: {answer}"
+# The clause from the official GRADER_TEMPLATE (verl/utils/reward_score/
+# healthbench_pro.py) that tells the judge a GOOD answer FAILS a negative
+# criterion. _grade_items' own prompt does not carry the official template's
+# Example 2, and every fire/no-fire decision in the admission probe and the spec
+# patcher turns on exactly that semantics — so those paths pass strict=True.
+_GRADER_STRICT_NOTE = (
+    "\nNote: a criterion may describe something UNDESIRABLE and carry negative points. "
+    "Report whether the criterion is MET, not whether the response is good. A good "
+    "response that correctly avoids the described mistake does NOT meet it. "
+    'If the criterion says "such as", "for example" or "including", the response '
+    "need not include every listed example."
+)
 
-    async def one(it):
+
+async def _grade_items(state: ServerState, task_text: str, answer: str, items: list,
+                       label: str = "gold_grade", strict: bool = False,
+                       votes: int = 1) -> list:
+    """Per-criterion verdicts under the training reward's contract.
+
+    Returns [(points, met_or_None), ...] positionally aligned with `items`.
+    `met is None` means the grader was unreachable or its reply unparseable, and
+    it is kept DISTINCT from False: a rubric edit justified by an ungradable
+    verdict is a rubric edit justified by nothing.
+
+    `strict` appends _GRADER_STRICT_NOTE (negative-criterion semantics).
+    `votes` grades each criterion `votes` times and takes the majority, for the
+    patch acceptance test where a single stochastic verdict would otherwise
+    decide a permanent rubric edit.
+    """
+    conv_block = f"user: {task_text}\n\nassistant: {answer}"
+    sys_prompt = "You are a careful grader. Return only JSON."
+    if strict:
+        sys_prompt += _GRADER_STRICT_NOTE
+
+    async def one_vote(it):
         pts = float(it.get("points", 0))
         txt = it.get("criterion_text") or it.get("criterion") or ""
         prompt = (
@@ -4215,16 +4252,55 @@ async def _grade_answer_with_rubric(state: ServerState, task_text: str, answer: 
         # temperature >= 0.5 keeps _api_call from adding reasoning_effort="none",
         # which gpt-chat-latest rejects with 400 (chat models don't take it).
         # The trapi branch strips temperature itself, so this only sets that flag.
-        raw = await _api_call(state, "You are a careful grader. Return only JSON.",
-                              prompt, max_tokens=512, temperature=0.6, label="gold_grade",
-                              want_json=True)
-        obj = _parse_json(raw) or {}
-        return pts, bool(obj.get("criteria_met"))
+        try:
+            raw = await _api_call(state, sys_prompt, prompt, max_tokens=512,
+                                  temperature=0.6, label=label, want_json=True)
+        except Exception as e:  # noqa: BLE001 — an unreachable grader is not a False verdict
+            logger.warning("grade_items call failed (%s): %s", label, e)
+            return None
+        obj = _parse_json(raw)
+        if not isinstance(obj, dict) or "criteria_met" not in obj:
+            return None
+        return bool(obj.get("criteria_met"))
 
-    graded = await asyncio.gather(*[one(it) for it in items])
+    async def one(it):
+        n = max(1, int(votes))
+        verdicts = await asyncio.gather(*[one_vote(it) for _ in range(n)])
+        usable = [v for v in verdicts if v is not None]
+        pts = float(it.get("points", 0))
+        if not usable:
+            return pts, None
+        return pts, (sum(usable) * 2 > len(usable))
+
+    return list(await asyncio.gather(*[one(it) for it in items]))
+
+
+async def _grade_answer_with_rubric(state: ServerState, task_text: str, answer: str,
+                                    items: list) -> float:
+    """Grade `answer` against `items` with the same criterion-by-criterion
+    contract the training reward uses. Returns achieved/total_positive."""
+    graded = await _grade_items(state, task_text, answer, items)
     total_pos = sum(p for p, _ in graded if p > 0) or 1.0
     achieved = sum(p for p, met in graded if met)
     return achieved / total_pos
+
+
+def _hb_length_adj(raw: float, n_chars: int) -> float:
+    """raw - 0.0147 * ((chars - 2000) / 500), mirroring the reward's length tax
+    (verl/utils/reward_score/healthbench_pro.py).
+
+    UNCLIPPED on purpose: the reward clips to [HB_SCORE_MIN, 1], clipping is
+    monotone so it cannot change which of two answers scored higher, and it
+    destroys resolution below 0 — exactly where a hard spec's separation lives.
+    Reads the same env vars the reward reads, so retuning the tax retunes every
+    probe with it. Padding breadth is a rubric-farming tactic and it IS taxed in
+    the real reward; a probe that ignored the tax would overstate the adversary.
+    """
+    if os.environ.get("HB_TRAIN_LENGTH_ADJ", "1") != "1":
+        return float(raw)
+    center = float(os.environ.get("HB_LENGTH_CENTER", "2000"))
+    per500 = float(os.environ.get("HB_LENGTH_PENALTY_PER_500", "0.0147"))
+    return float(raw) - per500 * ((float(n_chars) - center) / 500.0)
 
 
 async def attach_teacher_trace(state: ServerState, entry: dict) -> bool:

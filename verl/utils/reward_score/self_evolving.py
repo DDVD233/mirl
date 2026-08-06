@@ -283,6 +283,7 @@ async def _call_api(
     user_prompt: str,
     max_tokens: int = 256,
     provider: str = "",
+    timeout_s: float | None = None,
 ) -> str:
     """Call the chat API with thinking disabled.
 
@@ -345,7 +346,12 @@ async def _call_api(
     # gen_server proposer/generator/validator (which use thinking and
     # can run for minutes per request), so individual judge requests
     # occasionally sit in the queue long past the model's own latency.
-    timeout_total = float(os.environ.get("REWARD_JUDGE_TIMEOUT", "300"))
+    # `timeout_s` overrides that budget per caller. The specification-gap referee
+    # runs in the trainer DRIVER and blocks the step, so it needs a much tighter
+    # budget than a reward worker's grading call — and REWARD_JUDGE_TIMEOUT is
+    # shared with those workers, so it cannot be lowered globally.
+    timeout_total = (float(timeout_s) if timeout_s
+                     else float(os.environ.get("REWARD_JUDGE_TIMEOUT", "300")))
     timeout = aiohttp.ClientTimeout(total=timeout_total)
     last_err: Exception | None = None
     # Throttle concurrent judge calls (rate-limit safety) — only the network wait is

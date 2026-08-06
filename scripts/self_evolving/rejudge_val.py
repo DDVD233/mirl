@@ -65,12 +65,32 @@ async def main(a):
 
     async def one(i):
         ei = _to_py(df.iloc[i]["extra_info"])
-        return await score_row(i, ei, dump[i].get("output", ""), a.val_model)
+        r = await score_row(i, ei, dump[i].get("output", ""), a.val_model)
+        if r is not None:
+            r = dict(r)
+            r["_idx"] = i  # canonical val index: the join key for every offline study
+        return r
 
     results = await asyncio.gather(*[one(i) for i in range(n)])
     results = [r for r in results if r is not None]
     if not results:
         print("no results"); return
+    # Per-row output. The mean-only reporting below is what this script was for,
+    # but every pairwise study (referee validation, judge-noise sigma, the
+    # proxy/gold/referee three-way witness) needs the rows themselves, and
+    # rubric_met already carries per-criterion verdicts.
+    if a.out_rows:
+        keep = ("_idx", "acc_len_adj_signed", "acc_len_adj", "acc_raw_signed", "acc_raw",
+                "score", "format_ok", "think_chars", "judge_fail", "rubric_met",
+                "extracted_answer")
+        with open(a.out_rows, "w") as f:
+            for r in sorted(results, key=lambda x: x["_idx"]):
+                row = {k: r.get(k) for k in keep if k in r}
+                row["answer_chars"] = len(str(dump[r["_idx"]].get("output", "")))
+                row["tag"] = a.tag
+                row["judge"] = a.val_model
+                f.write(json.dumps(row) + "\n")
+        print(f"wrote {len(results)} rows -> {a.out_rows}", flush=True)
     import statistics as st
     def m(k): return st.mean(float(r.get(k, 0.0)) for r in results)
     print(f"\n===== {a.tag}  (judge={a.val_model}, N={len(results)}) =====")
@@ -94,6 +114,9 @@ def parse():
     p.add_argument("--val_model", default="gpt-chat-latest_2026-05-28")
     p.add_argument("--tag", required=True)
     p.add_argument("--out", default="/scratch/sheng/self_evolving/rejudge_results.jsonl")
+    p.add_argument("--out_rows", default="",
+                   help="jsonl of PER-ROW results (index-aligned to the val parquet). "
+                        "Required by the offline referee/threshold studies.")
     return p.parse_args()
 
 
