@@ -360,21 +360,28 @@ Produce a JSON object with:
   Rules (these mirror the MEASURED shape of real HealthBench-Professional rubrics; earlier \
   versions of this generator produced 7.5 long conjunctive criteria per task against the real \
   benchmark's 2.2 short ones, and the policy learned to cover ground rather than to be right):
-    * FEW criteria. Two or three is typical; one is common; five is the maximum. Each one names \
-      ONE checkable thing.
-    * SHORT. Aim under 130 characters. Do NOT chain several requirements with "and"/commas into \
-      a single criterion — split them or drop the less important one. A criterion the response \
-      can only half-satisfy is a broken criterion.
+    * HOW MANY, and whether one is negative, is fixed per task below — see N_CRITERIA and the \
+      negative-criterion line in the INVARIANTS. Those are drawn from the real benchmark's own \
+      distribution and are not yours to adjust. Each criterion names ONE checkable thing.
+    * LENGTH about 90-150 characters (the benchmark averages 135). Do NOT chain several \
+      requirements with "and"/commas into a single criterion — split them or drop the less \
+      important one. A criterion the response can only half-satisfy is a broken criterion.
     * BIG point values. Each positive criterion is worth +5..+10 (8 is typical). There is NO \
       requirement that the positives sum to any particular total.
-    * GRADE GENEROUSLY where the real benchmark does. Use these forms often:
+    * HEDGED WORDING, SPECIFIC CONTENT. Real criteria are generous about PHRASING and strict \
+      about SUBSTANCE, and copying only the first half is what makes a rubric too easy. Use the \
+      real forms often:
         - "Mentions in some way that ..."  (about half of real criteria hedge like this)
         - "Does at least one of the following: A, B, or C"  (about a quarter are disjunctive)
-      Avoid "such as"/"for example" illustrative lists — real rubrics do not use them.
+      But what follows the hedge must be a specific, checkable fact — a value, threshold, dose, \
+      interval, contraindication or named guideline. "Mentions in some way that renal function \
+      matters" is a wasted criterion; "Mentions in some way that metformin is contraindicated \
+      below an eGFR of 30 mL/min/1.73m2" is a real one. Avoid "such as"/"for example" \
+      illustrative lists — real rubrics do not use them.
     * NEGATIVE criteria are worth -5..-10 and describe a specific, plausible clinical error the \
       model actually makes here (wrong dose, missed red flag, unsafe reassurance, fabricated \
-      trial/guideline). Include one on roughly a THIRD of tasks — only where a concrete trap \
-      exists. Do not manufacture one just to have one.
+      trial/guideline). Whether THIS task carries one is already decided below; when it does, \
+      find the genuine trap in the case rather than inventing a generic one.
 - "difficulty": "typical" or "difficult" (aim for a roughly even split overall).
 
 [[MODE_INSTR]]
@@ -435,7 +442,8 @@ def _criteria_spec() -> dict:
     Both drawn from the benchmark's measured distributions so the curriculum
     matches it in aggregate without relying on the generator to self-regulate."""
     n = _sample_n_criteria()
-    if _sample_wants_negative(n):
+    wants = _sample_wants_negative(n)
+    if wants:
         neg = (f"EXACTLY ONE of your {n} criteria must be a NEGATIVE criterion worth -5..-10, "
                f"naming a specific, plausible clinical error a model could actually make on THIS "
                f"case (a wrong dose, a missed red flag, unsafe reassurance, a fabricated trial or "
@@ -443,7 +451,10 @@ def _criteria_spec() -> dict:
                f"exists in this case, redesign the task so that one does.")
     else:
         neg = f"All {n} criteria are POSITIVE. Do not add a negative criterion to this task."
-    return {"N_CRITERIA": n, "NEGATIVE_INSTR": neg}
+    # `wants_negative` is not a prompt token (harmless to _fill, which only
+    # substitutes [[TOKEN]] matches) — it is carried so the returned rubric can be
+    # checked against what was asked for.
+    return {"N_CRITERIA": n, "NEGATIVE_INSTR": neg, "wants_negative": wants}
 
 
 def _fill(template: str, mapping: dict[str, str]) -> str:
@@ -1859,11 +1870,17 @@ async def agent_task_rubric_generator(state: ServerState, request: str, use_case
     acc = state.accuracy_stats()
     recent = (f"{acc['mean']:.2f} over the last {acc['count']} graded rollouts"
               if acc.get("count") else "unknown (no feedback yet; assume ~0.6)")
+    # Sampled ONCE and kept, so the same spec that goes into the prompt can be
+    # checked against what comes back. Asking politely was not enough: with the
+    # instruction alone the negative-criterion share came back at 0.15 against a
+    # requested 0.364, because a rubric that quietly drops its negative still
+    # looks like a perfectly good rubric downstream.
+    _spec = _criteria_spec()
     sys_prompt = _fill(state.prompt_store.get("task_rubric_generator"), {
         "USE_CASE": use_case, "USE_CASE_DESC": HB_USE_CASE_DESC.get(use_case, use_case),
         "SPECIALTY": specialty, "MODE_INSTR": HB_MODE_INSTR.get(mode, HB_MODE_INSTR["good_faith"]),
         "GAP_GUIDANCE": state.prompt_store.get("task_rubric_generator_guidance"),
-        "RECENT_SCORE": recent, **_criteria_spec(),
+        "RECENT_SCORE": recent, **_spec,
     })
     parts = [f"Target clinician request:\n{request}"]
     if knowledge:
@@ -1943,6 +1960,22 @@ async def agent_task_rubric_generator(state: ServerState, request: str, use_case
                              and it["points"] < 0)]
     if not _valid_rubric(items):
         raise ValueError("invalid rubric (need 1-6 items, >=1 positive, points in [-10,10])")
+    # Enforce the sampled shape. Rejected candidates are regenerated by the worker
+    # loop, which costs one generation but is the only thing that actually holds
+    # the marginal: the benchmark's 36.4% negative share exists to train away from
+    # unsafe answers, and a curriculum that drifts to 15% is training that
+    # capability less than half as often as intended.
+    # ONE-DIRECTIONAL on purpose. Rejecting an UNREQUESTED negative would also
+    # waste a generation, and it pushes the share down when the measured problem
+    # is that it is too low. Note the interaction with the inverted-negative
+    # filter above: it drops roughly a third of generated negatives, so a rubric
+    # can lose its negative on the way here and land in this branch — which is
+    # correct (the task really has no usable negative) but means the rejection
+    # rate for negative-requiring tasks is meaningfully above zero. Counted so
+    # that shows up as a number rather than as unexplained slow generation.
+    if _spec.get("wants_negative") and not any(float(it["points"]) < 0 for it in items):
+        state.stats["rejected_missing_negative"] = state.stats.get("rejected_missing_negative", 0) + 1
+        raise ValueError("rubric omitted the REQUIRED negative criterion")
     # Normalize each item to {criterion_text, points}.
     norm_items = [{"criterion_text": (it.get("criterion_text") or it.get("criterion")),
                    "points": float(it["points"])} for it in items]
