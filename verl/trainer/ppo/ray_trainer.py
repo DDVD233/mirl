@@ -297,13 +297,26 @@ def _fold_retrieval_group_bonus(data: DataProto, reward_tensor, reward_extra_inf
     valid = data.batch["attention_mask"][:, -resp_len:].sum(dim=-1).to(torch.int64)
 
     eligible = (used > 0.5) & (judged > 0.5)
+
+    # Counterfactual coverage for a group with only ONE searcher, where there is no
+    # within-group comparison to make. Estimated from THIS batch's own searching
+    # rollouts rather than from a hand-set constant: the constant was 0.35 against a
+    # measured coverage mean of 0.517, which handed a lone searcher a flat
+    # 0.20*(0.517-0.35) = +0.033 for searching at all, regardless of how well it
+    # searched -- the exact "pay for searching, not for searching well" bias the
+    # group-relative design exists to avoid. It also silently goes stale every time
+    # the coverage judge is evolved, which now happens every 5 steps. The env value
+    # remains the fallback for a batch with nothing to estimate from.
+    _batch_cov = cov[eligible]
+    c0_batch = float(_batch_cov.mean()) if _batch_cov.size >= 8 else c0
+
     n_adj, n_clipped, deltas = 0, 0, []
     for uid in dict.fromkeys(uids.tolist()):
         idx = np.nonzero(uids == uid)[0]
         sel = idx[eligible[idx]]
         if len(sel) == 0:
             continue
-        base = float(cov[sel].mean()) if len(sel) >= 2 else c0
+        base = float(cov[sel].mean()) if len(sel) >= 2 else c0_batch
         for i in sel:
             pos = int(valid[i].item()) - 1
             if pos < 0:
@@ -331,7 +344,11 @@ def _fold_retrieval_group_bonus(data: DataProto, reward_tensor, reward_extra_inf
             n_adj += 1
 
     m = {"reward/retrieval_bonus/n_adjusted": float(n_adj),
-         "reward/retrieval_bonus/clipped_frac": float(n_clipped) / max(1, n_adj)}
+         "reward/retrieval_bonus/clipped_frac": float(n_clipped) / max(1, n_adj),
+         # Logged so the single-searcher counterfactual is checkable rather than
+         # trusted: if this drifts far from the coverage mean the lone-searcher
+         # bonus is once again paying for searching rather than for searching well.
+         "reward/retrieval_bonus/nosearch_baseline": float(c0_batch)}
     if deltas:
         d = np.asarray(deltas)
         m["reward/retrieval_bonus/mean"] = float(d.mean())
