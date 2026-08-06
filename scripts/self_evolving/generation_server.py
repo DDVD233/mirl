@@ -5247,6 +5247,180 @@ async def evolve(payload: EvolvePayload):
                                      payload.val_score, payload.val_step)
 
 
+SOLVER_EVOLVE_SYSTEM = """\
+You tune the SYSTEM PROMPT of a medical AI being trained with RL on multi-image
+diagnostic radiology. Each case gives it a clinical history, up to four images of the
+study, and five candidate diagnoses; it must reason and answer with one letter in
+\\boxed{}. Its reward is exact match, so there is no style component and nothing to
+game -- the only thing that raises the score is picking the right diagnosis more often.
+
+You are given the CURRENT system prompt, the measured accuracy under it, and a sample of
+this step's rollouts: the case, what the model answered, what was correct, and its
+reasoning. Diagnose why it is failing and rewrite the prompt so it fails less.
+
+What is worth changing, roughly in order of how often it matters here:
+- HOW IT USES THE IMAGES. This benchmark exists because models answer from the clinical
+  history and ignore the pixels. If the reasoning barely refers to the images, or refers
+  to them only in generic terms ("imaging shows abnormality"), say what to extract from
+  each image and to name the specific finding, its location, and which image shows it.
+- CROSS-VIEW INTEGRATION. Several images are different views or sequences of one study.
+  Findings that are ambiguous on one view are often decided by another.
+- DIFFERENTIAL DISCIPLINE. Five options, one right. A prompt that pushes it to argue
+  AGAINST the distractors using image evidence beats one that only argues for a favourite.
+- COMMITMENT. It must always emit a letter. If rollouts trail off without \\boxed{}, that
+  is lost reward independent of diagnostic skill.
+- CALIBRATION TO THE OPTIONS. Answers should be chosen from the five given, not invented.
+
+HARD CONSTRAINTS -- violate these and the run breaks or the number stops meaning anything:
+- The prompt MUST keep requiring a single letter A-E inside \\boxed{}. That is the reward's
+  only parsing contract; drop it and every rollout scores zero.
+- Do NOT name specific diagnoses, findings, or answer letters. The prompt is shared by
+  every case; anything case-specific is leakage into the tasks it was not derived from,
+  and steering toward a letter would just teach the label prior.
+- Do NOT tell it to answer a particular letter when unsure. Random guessing already scores
+  0.20 and the majority label 0.254; a prompt that lifts the score that way has taught
+  nothing.
+- Keep it under 250 words. It is prepended to every rollout, so length is paid on every
+  sample of every step.
+
+Output ONLY a JSON object:
+{"system_prompt": "<the new full system prompt>", "summary": "<2-3 sentences: what the failures showed and what you changed>"}"""
+
+
+def _format_solver_case(c: dict) -> str:
+    """Render one rollout for solver-prompt error analysis."""
+    ok = "CORRECT" if c.get("correct") else "WRONG"
+    return (
+        f"[{ok}] gold={c.get('gold', '?')} predicted={c.get('predicted', '?') or '(none parsed)'} "
+        f"n_images={c.get('n_images', '?')}\n"
+        f"CASE: {(c.get('question') or '')[:1200]}\n"
+        f"MODEL REASONING (truncated): {(c.get('reasoning') or '')[:2000]}"
+    )
+
+
+async def _evolve_solver_prompt(state: ServerState, step: int, cases: list[dict],
+                                accuracy: float | None, path: str) -> dict:
+    """Rewrite the solver system prompt from this step's rollouts."""
+    if not path:
+        return {"skipped": "no solver_prompt_file configured"}
+    try:
+        cur = open(path).read().strip()
+    except OSError:
+        cur = str((cases[0] if cases else {}).get("current_prompt") or "")
+    if not cur:
+        logger.error("/evolve_solver: no current solver prompt available; skipping")
+        return {"skipped": "no current prompt"}
+
+    n = len(cases)
+    n_ok = sum(1 for c in cases if c.get("correct"))
+    n_unparsed = sum(1 for c in cases if not c.get("predicted"))
+    hist = getattr(state, "solver_history", None)
+    if hist is None:
+        hist = state.solver_history = []
+    if hist:
+        hist[-1].setdefault("outcomes", []).append(
+            {"step": int(step), "accuracy": accuracy, "sample_acc": (n_ok / n if n else None)})
+
+    hist_block = "\n".join(
+        f"--- v{e.get('version')} @ step {e.get('step')}: "
+        + (", ".join(f"acc {o['accuracy']:.3f}" for o in (e.get("outcomes") or [])
+                     if o.get("accuracy") is not None) or "no outcome yet")
+        + f"\n    rationale: {(e.get('summary') or '')[:200]}"
+        for e in hist[-6:]) or "(no previous versions)"
+
+    user = (
+        f"MEASURED ACCURACY under the current prompt: "
+        f"{('%.3f' % accuracy) if accuracy is not None else 'not yet measured'}"
+        f"   (random guessing scores 0.200; always answering the majority label scores 0.254)\n"
+        f"This step's sample: {n_ok}/{n} correct, {n_unparsed} produced no parsable letter.\n\n"
+        f"=== VERSION HISTORY ===\n{hist_block}\n\n"
+        f"=== CURRENT SYSTEM PROMPT ===\n{cur}\n\n"
+        f"=== ROLLOUTS ===\n" + "\n\n".join(f"[{i+1}] {_format_solver_case(c)}"
+                                             for i, c in enumerate(cases[:16]))
+    )
+    _marker = os.path.join(state.args.log_dir, "SOLVER_EVOLVE_FAILING")
+    changed, summary = False, ""
+    ver = len(hist) + 1
+    try:
+        raw = await _api_call(state, SOLVER_EVOLVE_SYSTEM, user, **_evolve_endpoint(state),
+                              max_tokens=2048, temperature=0.5, label="evolve_solver",
+                              want_json=True)
+        obj = _parse_json(raw)
+        if not isinstance(obj, dict):
+            raise ValueError("meta-optimizer did not return a JSON object")
+        cand = str(obj.get("system_prompt") or "").strip()
+        summary = str(obj.get("summary") or "").strip()
+        # The parsing contract is the one thing that cannot be evolved away: without
+        # \boxed{} the reward cannot read an answer and every rollout scores 0.
+        if not cand:
+            raise ValueError("empty system_prompt")
+        if "boxed" not in cand:
+            logger.error("/evolve_solver: REJECTED rewrite that dropped the \\boxed{} "
+                         "contract; keeping current prompt")
+            summary = "[rejected: dropped \\boxed{} contract] " + summary
+        elif cand == cur:
+            logger.info("/evolve_solver: proposal identical to current, nothing to commit")
+        else:
+            _atomic_write(path, cand)
+            changed = True
+            hist.append({"version": ver, "step": int(step), "summary": summary,
+                         "prompt": cand, "outcomes": []})
+            logger.warning("/evolve_solver: committed solver prompt v%d (%d chars) -> %s",
+                           ver, len(cand), path)
+        state.solver_consec_failures = 0
+        try:
+            os.remove(_marker)
+        except FileNotFoundError:
+            pass
+    except Exception as e:  # noqa: BLE001 — never break training
+        state.solver_consec_failures = getattr(state, "solver_consec_failures", 0) + 1
+        logger.error("/evolve_solver FAILED (%d consecutive), keeping prompt: %s: %s",
+                     state.solver_consec_failures, type(e).__name__, e)
+        try:
+            with open(_marker, "a") as f:
+                f.write(f"{datetime.now().isoformat()} step={step} {type(e).__name__}: {e}\n")
+        except OSError:
+            pass
+    try:
+        _atomic_write(os.path.join(state.args.log_dir, "solver_evolve_history.json"),
+                      json.dumps(hist, indent=1))
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"could not persist solver history: {e}")
+    metrics = {"step": int(step), "n_cases": n, "sample_acc": (n_ok / n if n else 0.0),
+               "n_unparsed": n_unparsed, "changed": changed, "version": ver if changed else ver - 1}
+    logger.info(f"~ evolve_solver step={step} changed={changed} sample_acc="
+                f"{metrics['sample_acc']:.3f} unparsed={n_unparsed}/{n}")
+    if summary:
+        logger.info(f"  solver evolve summary: {summary[:300]}")
+    return metrics
+
+
+class EvolveSolverPayload(BaseModel):
+    """End-of-step solver-prompt evolution request (fixed-dataset runs).
+
+    `cases` are sampled rollouts with the gold answer, the prediction and the
+    reasoning; `accuracy` is the last held-out evaluation, which is the only
+    outcome signal that cannot be moved by the prompt talking about itself.
+    """
+
+    step: int
+    cases: list[dict]
+    accuracy: float | None = None
+    solver_prompt_file: str = ""
+
+
+@app.post("/evolve_solver")
+async def evolve_solver(payload: EvolveSolverPayload):
+    """Rewrite the SOLVER system prompt from this step's failures."""
+    s = STATE
+    if not payload.cases:
+        return {"step": payload.step, "n_cases": 0, "skipped": "no cases"}
+    path = payload.solver_prompt_file or getattr(s.args, "solver_prompt_file", "")
+    async with s.evolve_lock:
+        return await _evolve_solver_prompt(s, payload.step, payload.cases,
+                                           payload.accuracy, path)
+
+
 class EvolveRetrievalPayload(BaseModel):
     """End-of-step retrieval-REWARD evolution request.
 
@@ -5339,6 +5513,10 @@ def main():
                         help="Generate open-ended clinician TASK + co-generated "
                              "HealthBench-Professional rubric per item (no MCQ/"
                              "diagnosis). Reward is the rubric, graded by self.")
+    parser.add_argument("--solver_prompt_file", default="",
+                        help="Where /evolve_solver writes the evolved SOLVER system "
+                             "prompt. The dataset reads the SAME path via "
+                             "MTV_SOLVER_PROMPT_FILE and reloads it per item.")
     parser.add_argument("--coverage_prompt_file", default="",
                         help="Where /evolve_retrieval writes the evolved coverage-judge "
                              "prompt. The reward reads the SAME path via "
