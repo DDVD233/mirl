@@ -21,7 +21,7 @@ This trainer supports model-agonistic model initialization with huggingface
 import json
 import os
 import uuid
-from collections import defaultdict
+from collections import defaultdict, deque
 from concurrent.futures import ThreadPoolExecutor
 from pprint import pprint
 from typing import Any, Optional
@@ -234,6 +234,32 @@ def _as_list(v) -> list:
     if isinstance(v, (list, tuple)):
         return list(v)
     return [v]
+
+
+def _conversation_text_for_spec_gap(ex_info: dict) -> str:
+    """The clinician turns only, as the referee should see them.
+
+    Deliberately excludes any system/solver prompt and any retrieved passages: the
+    referee judges clinical substance, and telling it what output format was
+    demanded (or what evidence was available) would turn it into a
+    format-compliance or evidence-use judge instead.
+    """
+    conv = _as_list(ex_info.get("conversation"))
+    parts = []
+    for m in conv:
+        if not isinstance(m, dict):
+            continue
+        role = str(m.get("role", ""))
+        if role not in ("user", "system"):
+            continue
+        content = m.get("content")
+        if isinstance(content, list):
+            content = " ".join(str(c.get("text", "")) for c in content if isinstance(c, dict))
+        if content:
+            parts.append(f"{role}: {content}")
+    if parts:
+        return "\n\n".join(parts)
+    return str(ex_info.get("question") or ex_info.get("prompt") or "")
 
 
 def _fold_retrieval_group_bonus(data: DataProto, reward_tensor, reward_extra_infos_dict: dict):
@@ -942,6 +968,386 @@ class RayPPOTrainer:
         )
         return batch, reward_tensor, reward_extra_infos_dict, fg_metrics
 
+    # ------------------------------------------------------------------
+    # Specification gap: is the rubric this group trains on being hacked?
+    # ------------------------------------------------------------------
+    def _spec_gap_cfg(self) -> dict:
+        """Resolved spec-gap config, or {} when disabled (every caller short-circuits).
+
+        The referee's endpoint defaults to the VAL judge credentials, never the
+        train judge's: under SELF_JUDGE=1 the train judge is a frozen local model
+        of the policy's own family, and a referee that shares the train judge's
+        blind spots cannot detect a hack the two of them share.
+        """
+        from omegaconf import OmegaConf
+
+        se_cfg = OmegaConf.select(self.config, "data.self_evolving") or {}
+        if not bool(se_cfg.get("spec_gap", False)):
+            return {}
+        if getattr(self, "_spec_gap_dead", False):
+            return {}
+        rk = OmegaConf.select(self.config, "reward.custom_reward_function.reward_kwargs") or {}
+        cfg = {
+            "mode": str(se_cfg.get("spec_gap_mode", "measure")),
+            "ship": bool(se_cfg.get("spec_gap_ship_exploits", False)),
+            "every": max(1, int(se_cfg.get("spec_gap_every_n_steps", 1) or 1)),
+            "score_key": str(se_cfg.get("spec_gap_score_key", "acc_raw_signed")),
+            "margin": float(se_cfg.get("spec_gap_margin", 0.05)),
+            "min_pairs": int(se_cfg.get("spec_gap_min_pairs", 3)),
+            "min_ranked": int(se_cfg.get("spec_gap_min_ranked", 3)),
+            "prior_pairs": float(se_cfg.get("spec_gap_prior_pairs", 8.0)),
+            "tau": float(se_cfg.get("spec_gap_tau", 0.35)),
+            "w_floor": float(se_cfg.get("spec_gap_w_floor", 0.0)),
+            "swap": bool(se_cfg.get("spec_gap_swap", True)),
+            "async_": bool(se_cfg.get("spec_gap_async", True)),
+            "deadline_s": float(se_cfg.get("spec_gap_deadline_s", 120)),
+            "answer_chars": int(se_cfg.get("spec_gap_answer_chars", 6000)),
+            "concurrency": int(se_cfg.get("spec_gap_concurrency", 16)),
+            "call_timeout_s": float(se_cfg.get("spec_gap_call_timeout_s", 90)),
+            "exploit_margin": float(se_cfg.get("spec_gap_exploit_margin", 0.15)),
+            "exploits_per_round": int(se_cfg.get("spec_gap_exploits_per_round", 8)),
+            "max_fail_steps": int(se_cfg.get("spec_gap_max_fail_steps", 3)),
+            "api_base": str(se_cfg.get("referee_api_base", "") or rk.get("val_api_base", "")),
+            "api_key": str(se_cfg.get("referee_api_key", "") or rk.get("val_api_key", "")),
+            "model_name": str(se_cfg.get("referee_model_name", "") or rk.get("val_model_name", "")),
+            "provider": str(se_cfg.get("referee_provider", "") or rk.get("val_provider", "")),
+        }
+        if not cfg["api_base"] or not cfg["model_name"]:
+            print("[spec_gap] no referee endpoint (referee_* or reward_kwargs.val_*); disabled",
+                  flush=True)
+            self._spec_gap_dead = True
+            return {}
+        if not getattr(self, "_spec_gap_logged", False):
+            self._spec_gap_logged = True
+            print(f"[spec_gap] mode={cfg['mode']} ship={cfg['ship']} referee="
+                  f"{cfg['model_name']} @ {cfg['api_base']} provider={cfg['provider'] or 'env'} "
+                  f"margin={cfg['margin']} prior_pairs={cfg['prior_pairs']}", flush=True)
+            if str(rk.get("model_name", "")) == cfg["model_name"]:
+                print("[spec_gap] WARNING: referee model == TRAIN judge model. Rubric-blindness "
+                      "still makes it an independent signal but not an independent model, so H is "
+                      "biased LOW by shared model bias. Use spec_gap_holdout_frac / a second "
+                      "grader on the val dumps to bound it.", flush=True)
+            if cfg["mode"] != "measure":
+                # A group-constant multiplier on the reward is absorbed by the
+                # group's own normalization: an exact no-op under std-norm, and
+                # only a mean shift without it. We attenuate the ADVANTAGE after
+                # compute_advantage, which is only meaningful for mean-centred
+                # (Dr.GRPO) advantages -- under std-norm the group std would be
+                # rescaled with it and the intervention would cancel.
+                std_norm = bool(OmegaConf.select(self.config, "algorithm.norm_adv_by_std_in_grpo"))
+                assert not std_norm, (
+                    "spec_gap_mode != measure requires algorithm.norm_adv_by_std_in_grpo=False. "
+                    "With std normalization the per-group weight cancels against the group std "
+                    "and the attenuation is a no-op that still logs as active."
+                )
+        return cfg
+
+    def _spec_gap_payload(self, batch: DataProto, reward_extra_infos_dict: dict, cfg: dict):
+        """Build the referee payload on the MAIN thread. Returns (payload, meta, metrics).
+
+        Everything handed to the worker is plain Python (str/float/int/list) —
+        never a DataProto, TensorDict or tokenizer — because the measurement runs
+        in a background thread while the main thread is mutating the batch with
+        old_log_prob / ref_log_prob.
+        """
+        from verl.utils.reward_score.healthbench_pro import _strip_thinking
+
+        src = reward_extra_infos_dict or {}
+        uids = batch.non_tensor_batch.get("uid")
+        if uids is None:
+            return [], {}, {}
+        uids = np.asarray(uids)
+        # Extras may be numpy arrays OR python lists here: the zero-variance
+        # filter rebuilds them as lists. Never `arr or default` — see _as_list.
+        scores = src.get(cfg["score_key"])
+        used_key = cfg["score_key"]
+        for alt in ("acc_raw", "score", "reward"):
+            if scores is None:
+                scores, used_key = src.get(alt), alt
+        if scores is None:
+            return [], {}, {}
+        scores = _as_list(scores)
+        think_closed = _as_list(src.get("think_closed"))
+        n = len(batch.batch)
+
+        payload, meta = [], {}
+        n_excluded = 0
+        for uid in dict.fromkeys(uids.tolist()):
+            idx = np.nonzero(uids == uid)[0]
+            rows = []
+            for i in idx:
+                i = int(i)
+                # Unclosed-think / empty answers sit at the reward FLOOR by
+                # construction (no judge call is even made), so pairs of
+                # (floor rollout, real answer) are almost always concordant and
+                # would INFLATE C, hiding real specification gaps. They are also
+                # a token-budget failure, not a specification failure.
+                if think_closed and i < len(think_closed) and float(think_closed[i]) <= 0.5:
+                    n_excluded += 1
+                    continue
+                rows.append(i)
+            if len(rows) < max(2, cfg["min_ranked"]):
+                continue
+            answers, lens, sc, item_results = {}, {}, {}, {}
+            keep = []
+            for i in rows:
+                data_item = batch[i]
+                plen = data_item.batch["prompts"].shape[-1]
+                valid = int(data_item.batch["attention_mask"][plen:].sum())
+                resp = self.tokenizer.decode(data_item.batch["responses"][:valid],
+                                             skip_special_tokens=True)
+                ans = _strip_thinking(resp)
+                if len(ans.strip()) < 32:
+                    n_excluded += 1
+                    continue
+                answers[i] = ans
+                lens[i] = len(ans)
+                sc[i] = float(scores[i]) if i < len(scores) else 0.0
+                keep.append(i)
+            if len(keep) < max(2, cfg["min_ranked"]):
+                continue
+            ex_info = batch[keep[0]].non_tensor_batch.get("extra_info", {}) or {}
+            task = _conversation_text_for_spec_gap(ex_info)
+            payload.append({"uid": str(uid), "task": task, "rows": keep,
+                            "answers": answers, "scores": sc, "lens": lens})
+            per_item = _as_list(src.get("rubric_met"))
+            for i in keep:
+                if per_item and i < len(per_item):
+                    try:
+                        item_results[i] = json.loads(per_item[i])
+                    except Exception:
+                        item_results[i] = []
+            meta[str(uid)] = {
+                "question_id": str(ex_info.get("question_id", "")),
+                "use_case": str(ex_info.get("use_case", "")),
+                "task": task, "answers": answers, "scores": sc,
+                "item_results": item_results,
+            }
+        metrics = {"spec_gap/excluded_unclosed_frac": (n_excluded / n) if n else 0.0}
+        if used_key != cfg["score_key"]:
+            print(f"[spec_gap] score key {cfg['score_key']!r} absent; using {used_key!r}",
+                  flush=True)
+        return payload, meta, metrics
+
+    def _submit_spec_gap(self, batch: DataProto, reward_extra_infos_dict: dict) -> None:
+        """Hook A: build the payload and start the referee (inline or on a thread).
+
+        Runs AFTER the zero-variance filter so no referee call is spent on a group
+        that is about to be dropped, and so there is a single indexing regime. The
+        two mechanisms are complementary, never in conflict: a zero-variance group
+        has no rubric ordering at all, so every pair is a rubric tie, H is
+        undefined and its weight stays 1.
+        """
+        self._spec_gap_result = None
+        cfg = self._spec_gap_cfg()
+        if not cfg or (self.global_steps % cfg["every"] != 0):
+            return
+        fut = getattr(self, "_spec_gap_future", None)
+        if fut is not None and not fut.done():
+            print("[spec_gap] previous step's referee still running; skipping this step",
+                  flush=True)
+            self._spec_gap_result = ({}, {}, {"spec_gap/skipped_busy": 1.0})
+            return
+        try:
+            payload, meta, metrics = self._spec_gap_payload(batch, reward_extra_infos_dict, cfg)
+        except Exception as e:  # noqa: BLE001 — never break training on measurement
+            import traceback
+            print(f"[spec_gap] payload build FAILED: {type(e).__name__}: {e}\n"
+                  f"{traceback.format_exc()}", flush=True)
+            return
+        if not payload:
+            self._spec_gap_result = ({}, meta, metrics)
+            return
+
+        def _work():
+            from verl.utils.reward_score.spec_gap import measure_groups_sync
+
+            return measure_groups_sync(
+                payload, cfg["api_base"], cfg["api_key"], cfg["model_name"],
+                provider=cfg["provider"], concurrency=cfg["concurrency"], swap=cfg["swap"],
+                margin=cfg["margin"], min_pairs=cfg["min_pairs"], step=int(self.global_steps),
+                answer_chars=cfg["answer_chars"], timeout_s=cfg["call_timeout_s"])
+
+        self._spec_gap_pending = (cfg, meta, metrics)
+        if not cfg["async_"]:
+            self._spec_gap_result = (self._run_spec_gap(_work), meta, metrics)
+            return
+        if getattr(self, "_spec_gap_executor", None) is None:
+            from concurrent.futures import ThreadPoolExecutor
+
+            self._spec_gap_executor = ThreadPoolExecutor(max_workers=1,
+                                                         thread_name_prefix="spec_gap")
+        self._spec_gap_future = self._spec_gap_executor.submit(self._run_spec_gap, _work)
+
+    def _run_spec_gap(self, work) -> dict:
+        """Referee call wrapper. Any failure degrades to measure-off, never raises."""
+        try:
+            return work()
+        except Exception as e:  # noqa: BLE001
+            import traceback
+            print(f"[spec_gap] referee FAILED: {type(e).__name__}: {e}\n"
+                  f"{traceback.format_exc()}", flush=True)
+            return {}
+
+    def _apply_spec_gap(self, batch: DataProto, reward_extra_infos_dict: dict) -> dict:
+        """Hook B: join the measurement, weight the advantages, emit the metrics."""
+        from verl.utils.reward_score.spec_gap import pick_exploit, shrink_weights
+
+        pending = getattr(self, "_spec_gap_result", None)
+        cfg, meta, metrics = getattr(self, "_spec_gap_pending", (None, {}, {}))
+        if pending is not None:
+            stats, meta, metrics = pending
+        else:
+            fut = getattr(self, "_spec_gap_future", None)
+            if fut is None or cfg is None:
+                return {}
+            try:
+                stats = fut.result(timeout=cfg["deadline_s"])
+            except Exception as e:  # noqa: BLE001 — TimeoutError included
+                print(f"[spec_gap] join missed the {cfg['deadline_s']}s deadline "
+                      f"({type(e).__name__}); measure-off for this step", flush=True)
+                return {**metrics, "spec_gap/deadline_miss": 1.0}
+            finally:
+                self._spec_gap_future = None
+        self._spec_gap_result = None
+        if cfg is None:
+            return {}
+        if not stats:
+            n_fail = getattr(self, "_spec_gap_fail_steps", 0) + 1
+            self._spec_gap_fail_steps = n_fail
+            if n_fail >= cfg["max_fail_steps"]:
+                self._spec_gap_dead = True
+                print(f"[spec_gap] {n_fail} consecutive all-fail steps; DISABLED for this run",
+                      flush=True)
+                return {**metrics, "spec_gap/dead": 1.0}
+            return {**metrics, "spec_gap/referee/fail_frac": 1.0}
+        self._spec_gap_fail_steps = 0
+        self._spec_gap_n_groups = len(stats)
+
+        weights, m = shrink_weights(stats, prior_pairs=cfg["prior_pairs"], mode=cfg["mode"],
+                                   tau=cfg["tau"], w_floor=cfg["w_floor"],
+                                   step=int(self.global_steps))
+        metrics = {**metrics, **m}
+
+        # Weight the advantages. Keyed by uid and read from the CURRENT uid column,
+        # so the join is immune to any reordering or reslicing between the hooks.
+        uids = np.asarray(batch.non_tensor_batch["uid"])
+        adv = batch.batch.get("advantages")
+        realized = 1.0
+        if adv is not None and cfg["mode"] != "measure":
+            w_row = np.ones(len(uids), dtype=np.float64)
+            for uid, w in weights.items():
+                w_row[uids == uid] = w
+            col = torch.as_tensor(w_row, dtype=adv.dtype, device=adv.device).unsqueeze(-1)
+            # GRPO returns the SAME tensor object for advantages and returns
+            # (core_algos.compute_grpo_outcome_advantage). Scale out-of-place and
+            # reassign both explicitly, so a future GAE/critic setup gets a correct
+            # value target instead of a silently corrupted one.
+            shares = ("returns" in batch.batch
+                      and batch.batch["returns"].data_ptr() == adv.data_ptr()
+                      and not self.use_critic)
+            scaled = adv * col
+            batch.batch["advantages"] = scaled
+            if shares:
+                batch.batch["returns"] = scaled
+            realized = float(np.mean(w_row))
+        # The token-mean denominator does not shrink when groups are down-weighted,
+        # so this IS the effective-LR multiplier for the step. Always logged: it is
+        # what the shuffled-weight placebo has to match.
+        metrics["spec_gap/adv_scale"] = realized
+
+        # Per-row extras -> the rollout jsonl (any key whose length matches the
+        # batch is dumped). Added AFTER the auto reward/<key>/mean loop, so these
+        # never become non_tensor_batch columns and never ride into a worker.
+        if reward_extra_infos_dict is not None:
+            n = len(batch.batch)
+            row_h = np.full(n, np.nan)
+            row_w = np.ones(n)
+            row_meas = np.zeros(n)
+            row_tier = np.full(n, -1.0)
+            for uid, st in stats.items():
+                sel = uids == uid
+                row_w[sel] = weights.get(uid, 1.0)
+                if st.measured:
+                    row_h[sel] = st.h
+                    row_meas[sel] = 1.0
+                for i, t in st.tier_of.items():
+                    if 0 <= i < n:
+                        row_tier[i] = float(t)
+            for key, val in (("spec_gap_H", row_h), ("spec_gap_w", row_w),
+                             ("spec_gap_measured", row_meas), ("referee_tier", row_tier)):
+                reward_extra_infos_dict[key] = val.tolist()
+            if "uid" not in reward_extra_infos_dict:
+                reward_extra_infos_dict["uid"] = [str(u) for u in uids.tolist()]
+
+        # Confirmed exploits: the rollout the RUBRIC ranked top while the referee
+        # judged another better. Buffered across the steps between evolve rounds.
+        if cfg["ship"]:
+            buf = getattr(self, "_spec_gap_exploits", None)
+            if buf is None:
+                buf = self._spec_gap_exploits = deque(maxlen=64)
+            found = 0
+            for uid, st in stats.items():
+                md = meta.get(uid) or {}
+                ex = pick_exploit(uid, st, md.get("scores", {}), md.get("answers", {}),
+                                  md.get("item_results", {}),
+                                  question_id=md.get("question_id", ""),
+                                  task=md.get("task", ""), use_case=md.get("use_case", ""),
+                                  exploit_margin=cfg["exploit_margin"],
+                                  step=int(self.global_steps))
+                if ex is not None:
+                    buf.append(ex)
+                    found += 1
+            metrics["spec_gap/exploits/found"] = float(found)
+            metrics["spec_gap/exploits/buffered"] = float(len(buf))
+        return metrics
+
+    def _maybe_ship_exploits(self, gen_server_url: str, se_cfg) -> dict:
+        """POST buffered exploit contrasts to /patch_spec. Never raises.
+
+        The buffer is drained ONLY on a 2xx: a failed POST must not destroy the
+        evidence, since a confirmed exploit costs a full step of rollouts to find.
+        Highest-H first, so if the round is capped the most-exploited
+        specifications are the ones that get repaired.
+        """
+        buf = getattr(self, "_spec_gap_exploits", None)
+        if not buf:
+            return {}
+        cfg = self._spec_gap_cfg()
+        if not cfg or not cfg["ship"]:
+            return {}
+        k = max(1, cfg["exploits_per_round"])
+        picked = sorted(buf, key=lambda e: -(e.get("H") or 0.0))[:k]
+        try:
+            import requests
+
+            r = requests.post(
+                f"{gen_server_url.rstrip('/')}/patch_spec",
+                json={"step": int(self.global_steps), "cases": picked,
+                      # groups graded at the last measurement, so the server can
+                      # report a hack RATE and not just a count
+                      "n_groups": int(getattr(self, "_spec_gap_n_groups", 0) or len(picked))},
+                timeout=float(se_cfg.get("patch_timeout", 900)),
+            )
+            r.raise_for_status()
+            res = r.json()
+            for e in picked:
+                try:
+                    buf.remove(e)
+                except ValueError:
+                    pass
+            print(f"[spec_gap] shipped {len(picked)} exploits -> /patch_spec: {res}", flush=True)
+            return {
+                "spec_gap/exploits/shipped": float(len(picked)),
+                "patch/minted": float(res.get("n_cases", 0)),
+                "patch/accepted": float(res.get("n_accepted", 0)),
+                "patch/mean_gap_drop": float(res.get("mean_gap_drop", 0.0) or 0.0),
+            }
+        except Exception as e:  # noqa: BLE001 — never break training on a patch failure
+            print(f"[spec_gap] /patch_spec FAILED, keeping {len(buf)} buffered: "
+                  f"{type(e).__name__}: {e}", flush=True)
+            return {"spec_gap/exploits/shipped": 0.0}
+
     def _maybe_evolve_retrieval_reward(self, batch: DataProto, reward_extra_infos_dict: dict) -> dict:
         """Optional end-of-step evolution of the RETRIEVAL reward (coverage judge).
 
@@ -1178,6 +1584,10 @@ class RayPPOTrainer:
                     except Exception:
                         item_results = []
                 cases.append({
+                    # The server keys pool entries by question_id (that is what
+                    # /report's eviction uses), so a spec patch cannot find the
+                    # right rubric without it.
+                    "question_id": str(ex_info.get("question_id", "")),
                     "use_case": ex_info.get("use_case", ""),
                     "conversation": _as_list(ex_info.get("conversation")),
                     "response": answer_str,
@@ -1206,12 +1616,14 @@ class RayPPOTrainer:
             r.raise_for_status()
             res = r.json()
             _say(f"done: {res}")
-            return {
+            out = {
                 "gen_evolution/n_cases": float(res.get("n_cases", 0)),
                 "gen_evolution/mean_score": float(res.get("mean_score", 0.0)),
                 "gen_evolution/changed_query_guidance": float(bool(res.get("changed_query_guidance"))),
                 "gen_evolution/changed_generator_guidance": float(bool(res.get("changed_generator_guidance"))),
             }
+            out.update(self._maybe_ship_exploits(gen_server_url, se_cfg))
+            return out
         except Exception as e:  # noqa: BLE001 — never break training on evolution failure
             import traceback
 
@@ -2239,6 +2651,14 @@ class RayPPOTrainer:
                             )
                             metrics.update(_fg_metrics)
 
+                        # Measure this step's SPECIFICATION GAP: for each group, does
+                        # the generated rubric's ordering of the rollouts agree with a
+                        # rubric-BLIND referee's? Started here (after the zero-variance
+                        # filter, so no referee call is spent on a group about to be
+                        # dropped) and joined after compute_advantage, so the HTTP hides
+                        # behind the old_log_prob / ref_log_prob forward passes.
+                        self._submit_spec_gap(batch, reward_extra_infos_dict)
+
                     # Operating Mode Selection:
                     # - Bypass mode: Sets old_log_probs = rollout_log_probs (2 policies: π_rollout, π_θ)
                     # - Decoupled mode: Recomputes old_log_probs as proximal anchor (3 policies: π_rollout, π_old, π_θ)
@@ -2361,6 +2781,16 @@ class RayPPOTrainer:
                             norm_adv_by_std_in_grpo=norm_adv_by_std_in_grpo,
                             config=self.config.algorithm,
                         )
+
+                    # Join the specification-gap measurement and attenuate each
+                    # group's advantages by w = clamp(1-2H, 0, 1) -- a per-group
+                    # learning rate. It has to happen HERE and not on the reward:
+                    # a group-constant multiplier applied before compute_advantage
+                    # is absorbed by the group's own normalization.
+                    with marked_timer("spec_gap", timing_raw, color="purple"):
+                        _sg_metrics = self._apply_spec_gap(batch, reward_extra_infos_dict)
+                        if _sg_metrics:
+                            metrics.update(_sg_metrics)
 
                     # update critic
                     if self.use_critic:
