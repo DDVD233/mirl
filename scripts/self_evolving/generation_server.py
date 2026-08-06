@@ -340,9 +340,22 @@ Produce a JSON object with:
 [[GAP_GUIDANCE]]
 
 # NON-NEGOTIABLE INVARIANTS — these OVERRIDE anything in the guidance above if in conflict
-- 1-5 rubric criteria, each under ~130 characters and testing ONE thing. Positive criteria are \
-worth +5..+10 each; there is NO required total. Include a negative criterion (-5..-10) on about \
-a third of tasks, only where a specific clinical trap genuinely exists.
+- EXACTLY TWO OR THREE criteria on the large majority of tasks. One is acceptable; four is \
+already unusual and five is reserved for a genuinely multi-part deliverable. Measured against \
+the real benchmark this generator drifted to 4.0 criteria per task where the benchmark averages \
+2.16, and that drift is not cosmetic: each extra short criterion is another independent chance \
+at partial credit, so rubrics of four easy criteria push almost every response to a near-perfect \
+score, the GRPO group goes zero-variance, and the task teaches nothing. If you are about to \
+write a fourth criterion, the honest move is almost always three good ones instead.
+- Each criterion tests ONE thing and runs roughly 90-160 characters — about the length of a \
+full clinical sentence naming a specific fact and its condition. Do not compress to a terse \
+fragment: the generated corpus drifted to 83 characters against the benchmark's 135, which \
+means criteria that are too vague to grade consistently. Length comes from SPECIFICITY (the \
+value, the threshold, the population it applies to), never from welding several requirements \
+together with "and".
+- Positive criteria are worth +5..+10 each; there is NO required total. Include a negative \
+criterion (-5..-10) on about a third of tasks, only where a specific clinical trap genuinely \
+exists.
 - Do NOT make rubrics easier to satisfy: criteria must test real clinical capability and \
 judgment, NOT merely restate the task's explicit deliverables 1:1 (a rubric that only checks \
 "did it do what the prompt literally asked" is gameable and useless for training).
@@ -2032,7 +2045,15 @@ def _weighted_choice(weights: dict[str, float]) -> str:
 # This is the distribution the generated curriculum must imitate; it is the
 # reference side of every comparison shown to the meta-optimizer.
 HB_REF_STATS = {
-    "use_case_mix": {"consult": 0.45, "research": 0.28, "writing": 0.27},
+    # Keyed by the CANONICAL use_case names the generator actually emits, not the
+    # short names the benchmark parquet stores (consult/research/writing). The
+    # measured proportions are the parquet's; only the labels are translated. Get
+    # this wrong and every comparison is against a key that is absent from the
+    # generated mix, so every share reads 0.0 and the DRIFT flag can NEVER clear —
+    # which then tells the meta-optimizer, in the one arm whose whole purpose is
+    # prompt evolution, to keep "fixing" a distribution that was never off.
+    "use_case_mix": {"care_consult": 0.45, "medical_research": 0.28,
+                     "writing_documentation": 0.27},
     "criteria_per_task_mean": 2.16,
     "criteria_per_task_median": 2.0,
     "criteria_per_task_max": 5,
@@ -2041,6 +2062,13 @@ HB_REF_STATS = {
     "modal_positive_points": 8,
     "frac_tasks_with_negative": 0.364,
 }
+
+# Fail at import if the reference labels ever drift from the ones the generator
+# emits. A silent mismatch here does not error anywhere — it just makes every
+# comparison meaningless while still rendering confident-looking numbers.
+assert set(HB_REF_STATS["use_case_mix"]) == set(HB_USE_CASES), (
+    f"HB_REF_STATS use_case labels {sorted(HB_REF_STATS['use_case_mix'])} != "
+    f"generator labels {sorted(HB_USE_CASES)}")
 
 # The exact reward the solver is optimised against. The meta-optimizer is shown
 # this verbatim: without it, it cannot tell that a lone +9 criterion makes a task
@@ -2529,15 +2557,28 @@ def _format_corpus_block(cur: dict) -> str:
         rows.append(f"  {label:<34} generated={got!s:<22} benchmark={want!s}{flag}")
 
     gm = cur.get("use_case_mix", {})
-    _row("use-case mix", gm, ref["use_case_mix"],
-         any(abs(gm.get(k, 0.0) - v) > 0.10 for k, v in ref["use_case_mix"].items()))
+    if gm and not (set(gm) & set(ref["use_case_mix"])):
+        # Zero overlap means the labels changed, not the distribution. Saying so is
+        # the only honest output; reporting maximal drift would send the
+        # meta-optimizer chasing a difference that does not exist.
+        rows.append(f"  {'use-case mix':<34} generated={gm} benchmark={ref['use_case_mix']}"
+                    f"   <-- LABEL MISMATCH, not drift: no shared keys, comparison is "
+                    f"meaningless. Ignore this row and report it as a bug.")
+    else:
+        _row("use-case mix", gm, ref["use_case_mix"],
+             any(abs(gm.get(k, 0.0) - v) > 0.10 for k, v in ref["use_case_mix"].items()))
     _row("criteria per task (mean)", cur.get("criteria_per_task_mean"), ref["criteria_per_task_mean"],
          abs((cur.get("criteria_per_task_mean") or 0) - ref["criteria_per_task_mean"]) > 0.8)
     _row("criteria per task (median/max)",
          f"{cur.get('criteria_per_task_median')}/{cur.get('criteria_per_task_max')}",
          f"{ref['criteria_per_task_median']}/{ref['criteria_per_task_max']}")
+    # RELATIVE threshold. The absolute >60 this used to be never fired on the
+    # shortfall that actually occurs: generated criteria run ~80 chars against the
+    # benchmark's 135, a 40% miss that sat 5 chars under the bar — silent on
+    # precisely the short-vs-conjunctive axis this row exists to police.
     _row("criterion chars (mean)", cur.get("criterion_chars_mean"), ref["criterion_chars_mean"],
-         abs((cur.get("criterion_chars_mean") or 0) - ref["criterion_chars_mean"]) > 60)
+         abs((cur.get("criterion_chars_mean") or 0) - ref["criterion_chars_mean"])
+         > 0.25 * ref["criterion_chars_mean"])
     _row("criterion chars (median)", cur.get("criterion_chars_median"), ref["criterion_chars_median"])
     _row("positive points (mean)", cur.get("positive_points_mean"), ref["modal_positive_points"])
     _row("tasks with a negative criterion", cur.get("frac_tasks_with_negative"),
@@ -4904,8 +4945,15 @@ class EvolveRetrievalPayload(BaseModel):
 async def evolve_retrieval(payload: EvolveRetrievalPayload):
     """Rewrite the coverage judge from measured discrimination. Serialised on the
     same lock as /evolve so two rewrites cannot interleave."""
-    s: ServerState = app.state.server
-    if not s.args.rubric_mode:
+    # Module global, exactly like the sibling /evolve above. `app.state.server` is
+    # never assigned anywhere in this file (only `app.state.args`), so reading it
+    # raised KeyError -> HTTP 500 on EVERY call. The trainer's raise_for_status is
+    # swallowed by its blanket except, so this failed completely silently: the
+    # round logged "FAILED" once and returned {}, and because the
+    # COVERAGE_EVOLVE_FAILING marker is written INSIDE the handler it was never
+    # dropped either, so a marker-watching monitor read healthy forever.
+    s = STATE
+    if not s.rubric_mode or s.prompt_store is None:
         raise HTTPException(status_code=400, detail="evolve_retrieval requires --rubric_mode")
     async with s.evolve_lock:
         return await _evolve_retrieval_reward(s, payload.step, payload.cases)

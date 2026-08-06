@@ -142,6 +142,12 @@ export WANDB_RESUME=allow
 # ---- shaping: none, so the rubric fraction is the signal (matches prior runs) ----
 export HB_THINK_PENALTY_PER_1K=0.0
 export HB_REP_PENALTY_MAX=0.0
+# Train on the SAME length-adjusted score validation reports. Set explicitly rather
+# than relying on the default: with train and report disagreeing, nothing in the
+# training reward opposes verbosity, and the predecessor run grew from 3357 to 9165
+# answer chars while 82% of its raw rubric gain was eaten by the length adjustment
+# it was never shown. HB_TRAIN_LENGTH_ADJ=0 opts back out.
+export HB_TRAIN_LENGTH_ADJ="${HB_TRAIN_LENGTH_ADJ:-1}"
 export REWARD_JUDGE_CONCURRENCY="${REWARD_JUDGE_CONCURRENCY:-10}"
 
 # ---- token budget: IDENTICAL in both arms (this is the confound that bit us) ----
@@ -304,6 +310,23 @@ assert d["summarized"] is True, "summarizer NOT active: %s" % (d.get("fallback_r
 print("retrieve smoke OK: %sq -> %s passages -> %s chars"
       % (d["n_queries"], d["n_merged"], d["chars"]))
 ' || { echo "FATAL: /retrieve smoke failed" >&2; exit 1; }
+fi
+
+# Prove /evolve_retrieval is REACHABLE before training. It first fires at step 5,
+# and its failure is invisible by construction: the trainer's raise_for_status is
+# swallowed by a blanket except so the round logs FAILED once and returns {}, and
+# the COVERAGE_EVOLVE_FAILING marker is written inside the handler so it is never
+# dropped when the handler itself cannot be entered. A monitor watching markers
+# reads healthy forever while the treatment silently never runs. A shipped build
+# did exactly this (HTTP 500, KeyError 'server', every round of a 60-step run).
+# Empty `cases` exercises routing and state access without touching a model.
+if [ "$REWARD_EVOLVE" = 1 ]; then
+    _rc=$(curl -s -o /dev/null -w '%{http_code}' -m 60 -X POST \
+          "localhost:$GEN_PORT/evolve_retrieval" -H 'content-type: application/json' \
+          -d '{"step":0,"cases":[]}')
+    [ "$_rc" = 200 ] || { echo "FATAL: /evolve_retrieval returned HTTP $_rc (want 200); reward evolution would silently never run" >&2
+                          tail -30 "$LOGDIR/gen_server_${EXP}.log" >&2; exit 1; }
+    echo "evolve_retrieval smoke OK (HTTP 200)"
 fi
 
 # ---- trainer ---------------------------------------------------------------------
