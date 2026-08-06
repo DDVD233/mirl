@@ -684,7 +684,13 @@ def _result(raw: float, length_adjusted: float, response_text: str,
     # Training reward may go below 0 (HB_SCORE_MIN) so bad rollouts stay ordered;
     # validation keeps the benchmark's [0, 1] clip.
     lo = 0.0 if is_val else min(0.0, HB_SCORE_MIN)
-    score = max(lo, min(1.0, float(length_adjusted) + float(retrieval_bonus)))
+    # The [lo, 1] range bounds the ANSWER score. The retrieval bonus is a separate
+    # additive term, so the clip is widened by its weight — otherwise an answer
+    # already near an edge silently truncates the bonus, and asymmetrically: with
+    # training scores at ~0.92 only the POSITIVE bonuses were being cut, rewarding
+    # bad retrieval relative to good. (Same fix as the trainer-side group fold.)
+    _w = HB_RETRIEVAL_WEIGHT if retrieval_bonus else 0.0
+    score = max(lo - _w, min(1.0 + _w, float(length_adjusted) + float(retrieval_bonus)))
     raw01 = _clip01(raw)
     fmt_ok = 1.0 if (response_text or "").strip() else 0.0
     # HEADLINE val metric (`val-core/acc/mean`): the OFFICIAL HealthBench-Professional

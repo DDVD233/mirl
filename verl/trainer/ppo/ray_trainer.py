@@ -290,7 +290,15 @@ def _fold_retrieval_group_bonus(data: DataProto, reward_tensor, reward_extra_inf
                 continue
             delta = w * (float(cov[i]) - base)
             before = float(reward_tensor[i, pos])
-            after = float(np.clip(before + delta, lo, 1.0))
+            # Clip to [lo - w, 1 + w], NOT [lo, 1]. The [lo, 1] range bounds the
+            # ANSWER score; bounding the SUM to it conflates two separate terms and
+            # silently truncates the bonus whenever the answer already sits near an
+            # edge. Measured: with training rewards at ~0.92 on generated tasks, 45%
+            # of bonuses hit the CEILING — and only the positive ones, so good
+            # retrieval had its reward cut while bad retrieval kept its full penalty.
+            # The bias grows as scores rise with training, which is exactly when the
+            # held-out retrieval arm peaked (step 10) and then declined.
+            after = float(np.clip(before + delta, lo - w, 1.0 + w))
             reward_tensor[i, pos] = after
             # Clipping breaks the sum-to-zero property, and it is ASYMMETRIC: a
             # negative delta on an already-floored rollout is swallowed while a
