@@ -559,18 +559,23 @@ async def compute_score(
     # the policy learns "shorter" first — v15's over-compression fingerprint —
     # and below the 2000-char center the "penalty" is a length BONUS.
     #
-    # Gated on `is_train`, NOT `is_val`. On a train-on-val run every row's
-    # data_source is healthbench_professional/*, so `is_val` is True for TRAINING
-    # rollouts too and the benchmark's length term silently entered the training
-    # reward. Measured consequence (2026-08-05/06): the 9B, whose base answers ran
-    # 10.6k chars (length penalty 0.25), harvested that term and looked like a large
-    # win; the 27B SFT checkpoint already writes 4.4k chars (penalty 0.07), has
-    # nothing to harvest, and its acc_raw DECLINED 0.492 -> 0.451 while the policy
-    # chased the one deterministic term in an otherwise judge-noisy signal.
-    # Validation is unaffected: is_train is False there, so the benchmark metric
-    # keeps its exact definition.
+    # ON BY DEFAULT FOR TRAINING TOO (dvd, 2026-08-06): the training reward should be
+    # the metric we are scored on. Length adjustment is part of HealthBench-Pro, so
+    # optimizing raw rubric fraction while measuring length-adjusted score trains
+    # against a different objective than the one reported — the generation runs did
+    # exactly that (train rows are `healthbench_self`, so `is_val` was False and the
+    # term was absent from training) and their val gain still turned out to be ~45%
+    # length, earned incidentally rather than optimized.
+    #
+    # The known risk, kept here because it is real: this linear term is the only
+    # DETERMINISTIC part of a judge-noisy reward, so the policy learns "shorter"
+    # first. That is fine when a model is verbose (the 9B base wrote 10.6k chars,
+    # penalty 0.25) and useless-to-harmful when it is not (the 27B SFT writes 4.4k,
+    # penalty 0.07, and its acc_raw fell 0.492 -> 0.451). Watch acc_raw, not just
+    # acc: if acc rises while acc_raw falls, the policy is buying score with brevity.
+    # Set HB_TRAIN_LENGTH_ADJ=0 to train on raw rubric content instead.
     chars = len(answer_text)
-    if (not is_train) or os.environ.get("HB_TRAIN_LENGTH_ADJ", "0") == "1":
+    if (not is_train) or os.environ.get("HB_TRAIN_LENGTH_ADJ", "1") == "1":
         length_adjusted = raw - LENGTH_ADJ_PENALTY_PER_500 * ((chars - LENGTH_ADJ_CENTER) / 500.0)
     else:
         length_adjusted = raw
