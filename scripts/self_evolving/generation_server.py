@@ -5274,6 +5274,14 @@ async def evolve_retrieval(payload: EvolveRetrievalPayload):
     s = STATE
     if not s.rubric_mode or s.prompt_store is None:
         raise HTTPException(status_code=400, detail="evolve_retrieval requires --rubric_mode")
+    if not payload.cases:
+        # Mirrors /evolve. Without this the launch smoke gate — which POSTs an
+        # empty case list precisely so it can check routing without touching a
+        # model — ran a full evolution round on NO evidence and committed a
+        # rewritten coverage judge before training had produced a single
+        # rollout. Observed live: coverage_prompt.json at v2 while the trainer
+        # was still in val_before_train.
+        return {"step": payload.step, "n_cases": 0, "skipped": "no cases"}
     async with s.evolve_lock:
         return await _evolve_retrieval_reward(s, payload.step, payload.cases)
 
