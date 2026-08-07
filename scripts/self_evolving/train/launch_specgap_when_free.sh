@@ -22,7 +22,7 @@ set -euo pipefail
 
 S=/scratch/sheng/self_evolving
 REPO=${REPO:-$S/verl_specgap}
-ARM="${ARM:?set ARM=1 (measure-only) | 2 (full refine loop) | 3 (evolve-only control)}"
+ARM="${ARM:?set ARM=1 measure-only | 2 refine-loop | 3 evolve-only | 4 self-judge}"
 POLL_S="${POLL_S:-300}"
 MAX_WAIT_H="${MAX_WAIT_H:-24}"
 
@@ -46,7 +46,24 @@ case "$ARM" in
      # the difference between them IS the refine loop.
      ARM_ENV=(RETRIEVAL=0 EVOLVE=1 SPEC_GAP=1)
      EXP_NAME=hb9b_specgap_evolveonly ;;
-  *) echo "FATAL: ARM must be 1, 2 or 3" >&2; exit 1 ;;
+  4) # Judge comparison. Identical to the completed hb9b_gen_control except that the
+     # TRAINING reward is graded by the frozen local 9B instead of gpt-chat-latest;
+     # validation stays on gpt-chat-latest in every arm, so the held-out numbers are
+     # one comparable series. Single factor: the judge.
+     #
+     # Worth running because the existing partial pair points the counter-intuitive
+     # way. The gpt judge assigns 0.87-0.94 on train rollouts -- nearly saturated,
+     # which matches the farmer beating honest answers on 99% of rubrics -- while the
+     # 9B assigns 0.69-0.79 and led on held-out accuracy at steps 20 and 25. A
+     # stronger judge that gives points away may simply be a worse reward.
+     #
+     # No PROBE here on purpose: the probe grades with the generator's endpoint, not
+     # the training judge, so its farmability number would describe a reward this arm
+     # is not training on. That routing needs fixing before the two can be combined.
+     # EVOLVE is off because the script forbids EVOLVE+SELF_JUDGE (two factors).
+     ARM_ENV=(RETRIEVAL=0 EVOLVE=0 SELF_JUDGE=1 SPEC_GAP=1)
+     EXP_NAME=hb9b_specgap_selfjudge ;;
+  *) echo "FATAL: ARM must be 1, 2, 3 or 4" >&2; exit 1 ;;
 esac
 
 echo "=== waiting to launch ARM=$ARM ($EXP_NAME) on $(hostname) ==="
