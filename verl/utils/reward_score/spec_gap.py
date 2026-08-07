@@ -347,7 +347,7 @@ def pick_exploit(uid: str, st: GroupStats, scores: dict, answers: dict,
 # ----------------------------------------------------------------------
 async def rank_group(task: str, answers: list, api_base: str, api_key: str,
                      model_name: str, provider: str = "", seed: str = "",
-                     answer_chars: int = 6000, max_tokens: int = 400,
+                     answer_chars: int = 6000, max_tokens: int = 3000,
                      timeout_s: float | None = None) -> tuple[dict, dict, int, str, bool]:
     """(tier_of_local_idx, slot_of_local_idx, n_tiers, notes, judged).
 
@@ -356,6 +356,16 @@ async def rank_group(task: str, answers: list, api_base: str, api_key: str,
     offline and position bias is estimable. Returns judged=False on any failure —
     the (value, judged) contract from ``retrieval_coverage.score_coverage``: an
     unusable verdict must be distinguishable from a verdict of zero.
+
+    `max_tokens` is 3000 for a verdict that needs perhaps 60, and that is not slack.
+    The judges here are reasoning-capable chat deployments, and ``_call_api``
+    deliberately omits ``reasoning_effort`` for any model with "chat" in its name
+    (the deployment 400s on it), so the model reasons freely and the budget covers
+    reasoning + output. Ranking eight long clinical answers is a lot of reasoning:
+    measured at 400 tokens, 19% of groups came back with EMPTY content and were
+    discarded as unusable — and because a discarded group is simply not measured,
+    the loss showed up as noise rather than as an error. Same failure the standalone
+    evaluator hit with gpt-5.3-chat; the fix there was the same.
     """
     from verl.utils.reward_score.self_evolving import _call_api  # lazy: import cycle
 
