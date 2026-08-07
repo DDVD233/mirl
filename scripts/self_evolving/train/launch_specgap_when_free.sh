@@ -25,6 +25,17 @@ REPO=${REPO:-$S/verl_specgap}
 ARM="${ARM:?set ARM=1 measure-only | 2 refine-loop | 3 evolve-only | 4 self-judge}"
 POLL_S="${POLL_S:-300}"
 MAX_WAIT_H="${MAX_WAIT_H:-24}"
+# Effectively unbounded by default. Safe because the LR schedule does not depend on
+# it (lr_warmup_steps_ratio=0.0, constant LR), and because max_actor_ckpt_to_keep=1
+# prunes the actor weights from every checkpoint but the newest -- an old step dir is
+# 7.5K against 106G for the live one -- so a long run costs no more disk than a short
+# one. Stop a run by killing it; resume_mode=auto brings it back from the last
+# checkpoint if the box is preempted.
+STEPS="${STEPS:-100000}"
+# Appended to the arm's experiment name. A fresh suffix gives a fresh checkpoint dir,
+# which is how you RESTART rather than resume: with the same name, resume_mode=auto
+# would silently continue the previous run from its last checkpoint.
+EXP_SUFFIX="${EXP_SUFFIX:-}"
 
 case "$ARM" in
   1) ARM_ENV=(RETRIEVAL=0 EVOLVE=0 SPEC_GAP=1)
@@ -66,7 +77,8 @@ case "$ARM" in
   *) echo "FATAL: ARM must be 1, 2, 3 or 4" >&2; exit 1 ;;
 esac
 
-echo "=== waiting to launch ARM=$ARM ($EXP_NAME) on $(hostname) ==="
+EXP_NAME="${EXP_NAME}${EXP_SUFFIX}"
+echo "=== waiting to launch ARM=$ARM ($EXP_NAME, STEPS=$STEPS) on $(hostname) ==="
 echo "    repo=$REPO  poll=${POLL_S}s  give up after ${MAX_WAIT_H}h"
 
 deadline=$(( SECONDS + MAX_WAIT_H * 3600 ))
@@ -120,5 +132,6 @@ fi
 
 cd "$REPO"
 echo "=== launching $EXP_NAME from $(git log --oneline -1) ==="
-exec env "${ARM_ENV[@]}" EXP="$EXP_NAME" REPO="$REPO" WANDB_API_KEY="$WANDB_API_KEY" \
+exec env "${ARM_ENV[@]}" EXP="$EXP_NAME" REPO="$REPO" STEPS="$STEPS" \
+     WANDB_API_KEY="$WANDB_API_KEY" \
      bash scripts/self_evolving/train/run_9b_hb_gen.sh
