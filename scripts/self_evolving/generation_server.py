@@ -43,7 +43,7 @@ import re
 import sys
 import time
 import uuid
-from collections import defaultdict, deque
+from collections import OrderedDict, defaultdict, deque
 from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import Optional
@@ -412,7 +412,7 @@ Produce a JSON object with:
 [[MODE_INSTR]]
 
 [[GAP_GUIDANCE]]
-
+[[HACK_MEMO]]
 # NON-NEGOTIABLE INVARIANTS — these OVERRIDE anything in the guidance above if in conflict
 - WRITE EXACTLY [[N_POSITIVE]] POSITIVE CRITERIA for this task, plus whatever the \
 negative-criterion line below specifies. Honour that number exactly — do not round it down \
@@ -749,7 +749,12 @@ class ServerState:
                 {"query_proposer": RUBRIC_PROPOSER_DEFAULT,
                  "task_rubric_generator": RUBRIC_GENERATOR_DEFAULT,
                  "query_proposer_guidance": "",
-                 "task_rubric_generator_guidance": ""},
+                 "task_rubric_generator_guidance": "",
+                 # MUST end in _guidance: PromptStore re-syncs any non-guidance
+                 # file from the code default on every startup, which would
+                 # silently wipe an accumulating memo while the logs claimed it
+                 # was active.
+                 "hack_memo_guidance": ""},
             )
             self.prompt_store.commit(0)  # snapshot the seed prompts as step_000
             # Guidance-version history with measured outcomes (mean rubric score of
@@ -929,6 +934,16 @@ class ServerState:
         self.summary_sem = asyncio.Semaphore(
             int(os.environ.get("SUMMARY_CONCURRENCY", "96"))
         )
+        # The admission probe fires per generated task and makes 2 generations +
+        # 2*n_items grading calls, so it needs its own cap: _api_call has no
+        # semaphore of its own and the TRAPI proxy hard-caps at ~840 req/min.
+        self.probe_sem = asyncio.Semaphore(
+            int(os.environ.get("HB_PROBE_CONCURRENCY", "8"))
+        )
+        # NOT evolve_lock: that one is shared by all three evolve endpoints, and a
+        # patch round makes ~10 LLM calls, so holding it would stall the guidance
+        # and coverage-judge rounds.
+        self.patch_lock = asyncio.Lock()
         # Queue depth + wait, so saturation is visible on /stats instead of only
         # showing up as client-side timeouts.
         self.retrieve_waiting = 0
@@ -1696,11 +1711,10 @@ async def agent_validator(state: ServerState, generated: dict) -> tuple[bool, st
 # ======================================================================
 # Rubric-mode agents (HealthBench-Professional task + rubric co-generation)
 # ======================================================================
-# Sign-inverted / grader-meta criterion filters. MODULE scope on purpose: both
-# the generator (agent_task_rubric_generator) and the spec patcher
-# (validate_patch_criterion) must apply the SAME objects. Two copies of a regex
-# that guards a sign convention is how the two drift apart and a sign-inverted
-# negative reaches training.
+# Phrasing heuristics for freshly GENERATED criteria. They exist only because at
+# generation time there is no answer pair to grade against: the spec patcher, which
+# does have one, tests the real property by measurement instead (see
+# validate_patch_criterion) and applies no text matching at all.
 #
 # The official grader marks "Does not assert X" as met when the answer correctly
 # avoids X, so a negative phrased that way punishes CORRECT answers (39% of
@@ -2039,6 +2053,7 @@ async def agent_task_rubric_generator(state: ServerState, request: str, use_case
         "USE_CASE": use_case, "USE_CASE_DESC": HB_USE_CASE_DESC.get(use_case, use_case),
         "SPECIALTY": specialty, "MODE_INSTR": HB_MODE_INSTR.get(mode, HB_MODE_INSTR["good_faith"]),
         "GAP_GUIDANCE": state.prompt_store.get("task_rubric_generator_guidance"),
+        "HACK_MEMO": _render_hack_memo(state),
         "RECENT_SCORE": recent, **{k: v for k, v in _spec.items() if k != "wants_negative"},
     })
     parts = [f"Target clinician request:\n{request}"]
@@ -2076,8 +2091,8 @@ async def agent_task_rubric_generator(state: ServerState, request: str, use_case
             repr(obj.get("conversation"))[:200],
         )
         raise ValueError("invalid conversation (no usable clinician/user turn)")
-    # Drop sign-inverted or grader-meta NEGATIVE criteria (regexes at module scope
-    # so the spec patcher runs these exact objects — see _INVERTED).
+    # Drop sign-inverted or grader-meta NEGATIVE criteria (see _INVERTED: a
+    # pre-measurement heuristic, used only because no answer pair exists yet).
     if isinstance(items, list):
         kept = []
         for it in items:
@@ -2239,6 +2254,31 @@ async def _rubric_iteration(state: ServerState, worker_id: int) -> None:
             state.stats["total_rejected"] += 1
             continue
         entry = _build_entry_rubric(state, gen, knowledge, request)
+        # Adversarial admission probe, BEFORE any GPU compute is spent on this
+        # specification and before the SFT gold trace (a rejected spec must not
+        # pay for one). Default HB_PROBE_MODE=log measures without rejecting.
+        if _hb_probe_enabled() and random.random() < float(
+                os.environ.get("HB_PROBE_RATE", "0.34")):
+            verdict = await _probe_admission(state, entry)
+            _note_probe(state, entry, verdict)
+            # Self-limiter: if the probe would reject most of the pool it has
+            # stopped being a hackability gate and become a difficulty filter,
+            # which is a confound rather than a treatment. Keep measuring, stop
+            # rejecting, and say so.
+            pstats = probe_stats(state)
+            floor = float(os.environ.get("HB_PROBE_MIN_ADMIT_RATE", "0.25"))
+            starving = pstats.get("n", 0) >= 40 and pstats.get("admit_rate", 1.0) < floor
+            if starving and not state.__dict__.get("_probe_starve_warned"):
+                state.__dict__["_probe_starve_warned"] = True
+                logger.warning("probe admit_rate %.2f < %.2f: gating DISABLED (measuring only)",
+                               pstats.get("admit_rate", 1.0), floor)
+            if _hb_probe_gating() and not verdict["admit"] and not starving:
+                state.stats["total_rejected"] += 1
+                state.stats["probe_rejected"] = state.stats.get("probe_rejected", 0) + 1
+                logger.info("~ probe REJECTED spec (%s): honest=%.2f farm=%.2f",
+                            verdict.get("reason"), verdict.get("s_honest", 0.0),
+                            verdict.get("s_farm", 0.0))
+                continue
         # SFT mode: the trainer needs a gold `reference_response`. Rubric mode
         # never had this hook (rubric + sft had not been combined before), so
         # entries were accepted target-less and the SFT dataset saw none.
@@ -2258,6 +2298,13 @@ async def _rubric_iteration(state: ServerState, worker_id: int) -> None:
         state.stats["total_generated"] += 1
         state.mix_counts["gen_task"] += 1
         state.history.append(entry)
+        # Quarantine index for the spec patcher. /report's evictor deletes entries
+        # from `history` by rebuilding the deque, and a SUCCESSFULLY HACKED rubric
+        # scores high, so it trips HB_EVICT_MAX_MEAN and the evidence is destroyed
+        # before the exploit report can arrive. This dict the evictor never touches,
+        # so /report needs no change. Same dict object as history/pool, so an
+        # in-place criterion append hardens the pooled copy for free.
+        _spec_index_put(state, entry)
         await state.pool.put(entry)
         _maybe_log_sample(entry, "gen_task")
         logger.info(
@@ -2496,6 +2543,11 @@ the evidence shows is working; replace what it does not. Each block <= 300 words
 - Negative criteria belong on about a third of tasks, wherever a concrete clinical trap genuinely \
   exists — not on all of them, and not on none.
 - Do NOT name or paraphrase specific held-out benchmark items.
+- If a SPECIFICATION HACKABILITY section is present, treat it as your difficulty gauge's \
+  companion and NOT as a licence to relax anything. It is measured by a FIXED adversary against \
+  your own rubrics, so unlike the train mean you cannot move it by making tasks easier — an easier \
+  rubric is a MORE hackable one and the number goes the wrong way. What drives it is criteria that \
+  can be satisfied by naming a topic rather than stating a specific checkable value.
 - Do not oscillate: if the history shows two alternatives have both been tried, pick a third \
   direction rather than returning to either.
 
@@ -3117,6 +3169,10 @@ async def _evolve_prompts(state: ServerState, step: int, cases: list[dict],
     cur_q = state.prompt_store.get("query_proposer_guidance")
     cur_g = state.prompt_store.get("task_rubric_generator_guidance")
     val_s = (f"{val_score:.3f}" if val_score is not None else "not yet measured")
+    # Measured hackability of the rubrics the CURRENT guidance produced. Unlike the
+    # train mean, it cannot be moved by making tasks easier — an easier rubric is a
+    # more farmable one and the number goes the wrong way.
+    hack_block = _format_hack_block(state)
     agg_user = (
         f"=== REWARD FORMULA THE SOLVER IS OPTIMISED AGAINST ===\n{HB_SCORE_FORMULA}\n\n"
         f"=== OUTCOME THIS STEP ===\n"
@@ -3128,6 +3184,8 @@ async def _evolve_prompts(state: ServerState, step: int, cases: list[dict],
         f"=== OBJECTIVES 1-2: DISTRIBUTION & DIVERSITY OF WHAT YOU ARE GENERATING ===\n"
         f"{_format_corpus_block(corpus)}\n\n"
         f"=== OBJECTIVES 3-4: QUALITY & SOLVER NEED ===\n{diag_block}\n\n"
+        + (f"=== OBJECTIVE 5: SPECIFICATION HACKABILITY ===\n{hack_block}\n\n"
+           if hack_block else "") +
         f"=== GUIDANCE HISTORY & MEASURED OUTCOMES (oldest first) ===\n"
         f"{_history_block(state.evolve_history)}\n\n"
         f"=== CURRENT query-proposer guidance ===\n{cur_q or '(none)'}\n\n"
@@ -3188,6 +3246,18 @@ async def _evolve_prompts(state: ServerState, step: int, cases: list[dict],
     })
     _save_evolve_history(state)
 
+    # 2b) GLOBAL repair: rewrite the known-exploits memo against the measured
+    # hackability of the rubrics this guidance produced. Separate from the guidance
+    # call above so the memo keeps its own commit gate and rollback, and so the two
+    # rewrites cannot cross-contaminate.
+    memo_metrics: dict = {}
+    if os.environ.get("HB_HACK_MEMO", "0") == "1":
+        try:
+            memo_metrics = await _evolve_hack_memo(state, int(step), hack_block)
+        except Exception as e:  # noqa: BLE001 — a memo failure must not kill the round
+            logger.error("hack memo evolution FAILED, keeping memo: %s: %s",
+                         type(e).__name__, e)
+
     # 3) Snapshot + log. The full meta-prompt is snapshotted too: when a run goes
     # wrong the first question is always "what did the evolver actually see?", and
     # reconstructing it from the pieces after the fact is guesswork.
@@ -3199,6 +3269,10 @@ async def _evolve_prompts(state: ServerState, step: int, cases: list[dict],
         "aggregate_prompt.txt": agg_user,
         "query_proposer_guidance.txt": new_q,
         "task_rubric_generator_guidance.txt": new_g,
+        "hack_evidence.txt": hack_block,
+        "hack_memo.txt": (state.prompt_store.get("hack_memo_guidance") or ""),
+        "hack_ledger.json": json.dumps(list(state.__dict__.get("hack_ledger") or [])[-50:],
+                                       indent=1),
     }
     sdir = state.prompt_store.commit(int(step), aux)
     metrics = {
@@ -3215,6 +3289,10 @@ async def _evolve_prompts(state: ServerState, step: int, cases: list[dict],
         "corpus/task_self_similarity": (
             corpus["task_self_similarity"] if corpus.get("task_self_similarity") is not None
             else -1.0),
+        **{f"probe/{k}": v for k, v in (probe_stats(state) or {}).items()},
+        **{f"hack/{k}": v for k, v in (hack_stats(state) or {}).items()
+           if not isinstance(v, dict)},
+        **memo_metrics,
     }
     # Caller (/evolve endpoint) already holds evolve_lock, so write directly.
     with open(state.evolve_log, "a") as f:
@@ -3227,6 +3305,657 @@ async def _evolve_prompts(state: ServerState, step: int, cases: list[dict],
     if summary:
         logger.info(f"  evolve summary: {summary[:400]}")
     return metrics
+
+
+# ======================================================================
+# Spec patching: repair a rubric that was demonstrably exploited
+# ======================================================================
+# Closed vocabulary, exactly like EVOLVE_FAILURE_MODES: the histogram is counted in
+# CODE. A taxonomy the analyst can extend at will cannot be compared against next
+# round's number, and "the model sometimes games hedged criteria" is not a
+# measurement.
+HACK_MODES = [
+    "hedge_namedrop",        # satisfies "mentions in some way that X" by naming X's topic
+    "task_restatement",      # earns credit by paraphrasing the request back as structure
+    "breadth_padding",       # covers every branch so something matches; commits to nothing
+    "disjunction_cheapest",  # "at least one of A,B,C" satisfied via the least clinical branch
+    "keyword_stuffing",      # inserts the criterion's own vocabulary verbatim
+    "unhedged_confidence",   # asserts specifics with no basis; grader reads assertion as knowledge
+    "format_compliance",     # satisfies structure/section/length criteria, no clinical content
+    "safety_boilerplate",    # generic "consult a specialist / individualise" earns the safety point
+    "negative_absent",       # no negative existed, so a wrong-but-fluent answer paid nothing
+    "criterion_ambiguous",   # not judgeable from the answer; the grader defaults to met
+    "none",
+]
+
+HACK_MINT_SYSTEM = """\
+You repair a REWARD SPECIFICATION that was just exploited. A rubric scored answer A above \
+answer B; an independent referee that never saw the rubric judged B the better clinical answer. \
+The rubric is therefore wrong, and your job is to name what A did to earn points it did not \
+deserve, as ONE negative criterion.
+
+You are given the task, the rubric with which criteria each answer met, and both answers.
+
+Your criterion is NOT accepted on your reasoning. It is applied mechanically to both answers by \
+the same grader that scored them, and it is kept ONLY if it is judged MET on A and NOT MET on B. \
+Write it so that test passes. A criterion that fires on both, or on neither, is discarded and the \
+exploit stays open.
+
+HOW TO PHRASE IT — get this wrong and the criterion is dropped before it is even tested:
+- Describe THE MISTAKE ITSELF, in the affirmative present tense, third person: what a BAD \
+response DOES. "Recommends continuing metformin at an eGFR of 25". "Answers only in generic \
+terms without stating any dosing threshold". The criterion is MET only when the answer is wrong.
+- NEVER phrase it as an absence: no "Does not ...", "Avoids ...", "Fails to ...", "Never ...", \
+"Warns against ...". The grader marks those MET when the answer is CORRECT, so the penalty lands \
+on good answers. Such a criterion is auto-rejected.
+- NEVER start with "The response", "The answer", "The model", "Penalise", "Deduct", "Award", \
+"Score" or "Mark". A criterion describes the response; it does not instruct the grader. \
+Auto-rejected.
+- 40-220 characters, ONE behaviour, worth -5 to -10 points.
+- Target the BEHAVIOUR, not this answer's wording. It will be applied to every future rollout of \
+this task, so do not quote A's sentences; name the tactic in clinical terms.
+
+Also classify the exploit with EXACTLY ONE label from %(modes)s. If none fits, return "none" — \
+an exploit that cannot be classified is not patched, and that is a correct outcome.
+
+Output ONLY a JSON object:
+{"mode": "<one label>", "criterion_text": "<the negative criterion>", "points": <-10..-5>,
+ "why_fires_on_A": "<=30 words", "why_not_on_B": "<=30 words"}
+The two "why" fields are recorded for audit and are NOT part of the acceptance decision.""" % {
+    "modes": HACK_MODES,
+}
+
+
+def _spec_index_put(state: ServerState, entry: dict) -> None:
+    """Index a generated entry by question_id for the patcher, FIFO-bounded."""
+    qid = (entry.get("extra_info") or {}).get("question_id")
+    if not qid:
+        return
+    idx = state.__dict__.setdefault("spec_index", OrderedDict())
+    idx[qid] = entry
+    cap = int(os.environ.get("HB_SPEC_INDEX_MAX", "20000"))
+    while len(idx) > cap:
+        idx.popitem(last=False)
+
+
+async def validate_patch_criterion(state: ServerState, case: dict, cand: dict,
+                                   items: list) -> tuple[bool, str, dict]:
+    """Accept a minted negative criterion ONLY on measured evidence.
+
+    Mirrors validate_coverage_prompt in spirit — refuse to COMMIT a broken edit —
+    but the decisive checks here are not textual: the criterion is GRADED against
+    both answers and kept only if it separates them. No path through this function
+    accepts a criterion because a model said it was a good one. That is the whole
+    defence against the drift that wrecked v5, whose evolver simply wrote
+    "Eliminate all negative deductions" into the reward-defining prompt.
+    """
+    ev: dict = {}
+    text = str(cand.get("criterion_text") or "").strip()
+    pts = cand.get("points")
+
+    # 1. structural
+    if not text:
+        return False, "structural", ev
+    if not (40 <= len(text) <= 220):
+        return False, "structural", ev
+    if not isinstance(pts, (int, float)) or not (-10 <= pts <= -5):
+        return False, "structural", ev
+    new_item = {"criterion_text": text, "points": float(pts), "patched": True}
+    if len(items) >= 6:
+        return False, "full", ev
+    if not _valid_rubric(list(items) + [new_item]):
+        return False, "structural", ev
+    # HB_NEG_DROP_PROB is deliberately NOT applied: it holds a distribution
+    # marginal over freshly generated rubrics, and a measured, validated repair is
+    # not a distribution sample.
+
+    # 2. THE SEPARATION TEST — the only thing that decides acceptance.
+    #
+    # There is deliberately NO text check here. The generator applies phrasing
+    # heuristics (_INVERTED, _GRADER_META) because at generation time there is no
+    # answer pair to measure against; here there is, and the measurement strictly
+    # dominates. Take the sign-inversion trap the heuristic exists for: a negative
+    # written as an absence ("Does not recommend continuing metformin") is marked
+    # MET whenever an answer correctly steers clear, so it penalises correct
+    # answers. That criterion fires on the exploiter AND on the better answer, so
+    # it is rejected below as `fires_better`. Meanwhile a criterion that merely
+    # STARTS with "Does not" but genuinely separates the pair is accepted — which
+    # the regex would have thrown away. Measuring is both simpler and more precise.
+    #
+    # Majority-voted, because a single stochastic verdict would otherwise decide a
+    # permanent rubric edit.
+    votes = max(1, int(os.environ.get("HB_PATCH_VOTES", "3")))
+    task = str(case.get("task") or "")
+    try:
+        v_top, v_better = await asyncio.gather(
+            _grade_items(state, task, str(case.get("top_response") or ""), [new_item],
+                         label="patch_grade", strict=True, votes=votes),
+            _grade_items(state, task, str(case.get("better_response") or ""), [new_item],
+                         label="patch_grade", strict=True, votes=votes),
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.warning("patch separation test failed: %s: %s", type(e).__name__, e)
+        return False, "ungradable", ev
+    met_top, met_better = v_top[0][1], v_better[0][1]
+    ev.update({"met_top": met_top, "met_better": met_better})
+    # met is None is REJECTED, never coerced to False: a rubric edit justified by
+    # an ungradable verdict is a rubric edit justified by nothing.
+    if met_top is None or met_better is None:
+        return False, "ungradable", ev
+    if met_top is not True:
+        return False, "no_fire", ev
+    if met_better is not False:
+        return False, "fires_better", ev
+
+    # 3. honest-reference regression guard. The admission probe's honest answer was
+    # written WITHOUT ever seeing this rubric, so a negative that fires on it is
+    # over-broad or sign-confused whatever it did on the contrast pair. This is the
+    # one check the referee's judgement cannot contaminate.
+    if os.environ.get("HB_PATCH_CHECK_HONEST", "1") == "1":
+        cached = (state.__dict__.get("probe_answers") or {}).get(case.get("question_id"))
+        if cached and cached.get("honest"):
+            try:
+                v_h = await _grade_items(state, task, cached["honest"], [new_item],
+                                         label="patch_grade", strict=True, votes=votes)
+                ev["met_honest"] = v_h[0][1]
+                if v_h[0][1] is not False:
+                    return False, "fires_honest", ev
+            except Exception as e:  # noqa: BLE001
+                logger.warning("patch honest check failed: %s: %s", type(e).__name__, e)
+
+    # 4. gap-reduction arithmetic. Near-always satisfied given the separation test,
+    # and kept
+    # anyway: it is the number reported per accepted patch ("mean measured gap
+    # reduction"), and it becomes binding the moment the points range widens or a
+    # rubric arrives with an unusually large total_pos.
+    total_pos = sum(float(it.get("points", 0)) for it in items
+                    if float(it.get("points", 0)) > 0) or 1.0
+    drop = abs(float(pts)) / total_pos
+    ev.update({"total_pos": total_pos, "gap_drop": drop})
+    if drop < float(os.environ.get("HB_PATCH_MIN_GAP_DROP", "0.05")):
+        return False, "gap", ev
+    return True, "ok", ev
+
+
+async def _mint_negative(state: ServerState, case: dict, feedback: str = "") -> dict | None:
+    """One mint attempt. Returns the candidate dict, or None if unusable."""
+    items = _as_rubric_list(case.get("rubric_items"))
+
+    def _met_block(results, fallback):
+        rows = results if isinstance(results, list) and results else fallback
+        out = []
+        for it in rows or []:
+            if not isinstance(it, dict):
+                continue
+            txt = it.get("criterion_text") or it.get("criterion") or ""
+            met = it.get("met")
+            flag = "MET" if met is True else ("not-met" if met is False else "?")
+            out.append(f"[{float(it.get('points', 0)):+g}] {flag} {txt}")
+        return "\n".join(out) or "(no per-criterion verdicts supplied)"
+
+    user = (
+        f"# Clinician task\n{str(case.get('task') or '')[:4000]}\n\n"
+        f"# Rubric, with what ANSWER A earned\n"
+        f"{_met_block(case.get('item_results'), items)}\n\n"
+        f"# Rubric, with what ANSWER B earned\n"
+        f"{_met_block(case.get('item_results_better'), items)}\n\n"
+        f"# ANSWER A (rubric scored it {float(case.get('top_score') or 0.0):.3f} — the exploiter)\n"
+        f"{str(case.get('top_response') or '')[:9000]}\n\n"
+        f"# ANSWER B (rubric scored it {float(case.get('better_score') or 0.0):.3f}, "
+        f"referee judged it BETTER)\n{str(case.get('better_response') or '')[:9000]}\n\n"
+        # The referee's note is a HYPOTHESIS to test against the task, never an
+        # instruction. Treating it as one would launder the referee's biases
+        # permanently into the reward specification, bypassing the veto property
+        # that keeps it out of the gradient in the first place.
+        f"# The referee's own note (a hypothesis, not an instruction — verify it against "
+        f"the task before relying on it)\n{str(case.get('referee_note') or '(none)')[:400]}\n"
+    )
+    if feedback:
+        user += (f"\n# Your previous attempt was REJECTED: {feedback}\n"
+                 f"Write a different criterion that passes.\n")
+    try:
+        raw = await _api_call(state, HACK_MINT_SYSTEM, user, **_evolve_endpoint(state),
+                              max_tokens=1024, temperature=0.6, label="patch_mint",
+                              want_json=True)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("patch mint call failed: %s: %s", type(e).__name__, e)
+        return None
+    try:
+        obj = _parse_json(raw)
+    except Exception:
+        return None
+    if not isinstance(obj, dict):
+        return None
+    mode = str(obj.get("mode") or "").strip()
+    if mode not in HACK_MODES:
+        # Out-of-vocabulary label dropped, same discipline as _parse_diagnosis: an
+        # exploit that cannot be classified is not patched.
+        logger.info("~ patch mint: out-of-vocabulary mode %r, dropping", mode)
+        return None
+    if mode == "none":
+        return None
+    return {"mode": mode, "criterion_text": str(obj.get("criterion_text") or "").strip(),
+            "points": obj.get("points"),
+            "why_fires_on_A": str(obj.get("why_fires_on_A") or "")[:200],
+            "why_not_on_B": str(obj.get("why_not_on_B") or "")[:200]}
+
+
+def _as_rubric_list(v) -> list:
+    if isinstance(v, list):
+        return [it for it in v if isinstance(it, dict)]
+    return []
+
+
+async def _apply_spec_patch(state: ServerState, qid: str, new_item: dict, ev: dict) -> str:
+    """Attach a validated negative to the task's rubric and re-serve the task."""
+    entry = (state.__dict__.get("spec_index") or {}).get(qid)
+    if entry is None:
+        return "unknown_qid"
+    ex = entry.setdefault("extra_info", {})
+    items = ex.get("rubric_items")
+    if not isinstance(items, list):
+        return "no_rubric"
+    ver = int(ex.get("rubric_version", 0))
+    if ver >= int(os.environ.get("HB_PATCH_MAX_PER_QID", "1")):
+        return "per_qid_cap"
+
+    # In place, so the objects in history and (if unserved) the pool harden too:
+    # _rubric_iteration puts the SAME dict in all three containers.
+    items.append(new_item)
+    ex["rubric_version"] = ver + 1
+    ex.setdefault("patched_modes", []).append(str(ev.get("mode") or ""))
+
+    # Un-evict. Both halves are required: _finalize_served refuses any qid in
+    # dead_qids, so without the discard the re-served task is silently dropped;
+    # and without the window reset the four pre-patch reports plus one post-patch
+    # report re-evict immediately. Resetting is also the honest semantics — the
+    # eviction verdict described the OLD specification.
+    state.__dict__.get("dead_qids", set()).discard(qid)
+    (state.__dict__.get("report_accs") or {})[qid] = []
+    if qid in state.history_counters:
+        state.history_counters[qid] = {"num_reports": 0, "num_correct": 0}
+    if all((e.get("extra_info") or {}).get("question_id") != qid for e in state.history):
+        state.history.append(entry)   # it had been evicted; _corpus_stats reads history
+
+    # Re-serve. The client caches its fetched rows forever, so a patched rubric can
+    # only affect FUTURE rollouts if the task is served again; replay_buffer is the
+    # existing lever and /sample drains it first. Guarded because the buffer is
+    # unbounded and drained ahead of the pool, so an unbounded patcher would starve
+    # fresh generation.
+    if len(state.replay_buffer) < int(os.environ.get("HB_PATCH_REPLAY_MAX", "256")):
+        state.replay_buffer.append(entry)
+    else:
+        state.stats["patch_replay_skipped_full"] = state.stats.get(
+            "patch_replay_skipped_full", 0) + 1
+    return "ok"
+
+
+async def _patch_specs(state: ServerState, step: int, cases: list, n_groups) -> dict:
+    """LOCAL repair round: mint, validate, attach, re-serve. Never raises."""
+    state.gen_step = max(state.gen_step, int(step))
+    max_cases = int(os.environ.get("HB_PATCH_MAX_CASES", "8"))
+    min_margin = float(os.environ.get("HB_PATCH_MIN_MARGIN", "0.25"))
+    tries = int(os.environ.get("HB_PATCH_MINT_TRIES", "2"))
+
+    reasons: dict = defaultdict(int)
+    modes: dict = defaultdict(int)
+    ledger = state.__dict__.setdefault("hack_ledger", deque(maxlen=2000))
+    accepted, reserved, gap_drops = 0, [], []
+
+    # Group by qid BEFORE minting so a task gets at most one patch per round.
+    by_qid: dict = {}
+    for c in cases[:max_cases]:
+        if not isinstance(c, dict):
+            continue
+        if float(c.get("referee_margin") or 0.0) < min_margin:
+            reasons["margin"] += 1
+            continue
+        qid = str(c.get("question_id") or "")
+        if qid and qid not in by_qid:
+            by_qid[qid] = c
+
+    for qid, case in by_qid.items():
+        items = _as_rubric_list(case.get("rubric_items"))
+        if not items:
+            entry = (state.__dict__.get("spec_index") or {}).get(qid)
+            items = _as_rubric_list((entry or {}).get("extra_info", {}).get("rubric_items"))
+        if not items:
+            reasons["no_rubric"] += 1
+            continue
+        feedback, outcome, cand, ev = "", "mint_failed", None, {}
+        for _ in range(max(1, tries)):
+            cand = await _mint_negative(state, case, feedback=feedback)
+            if cand is None:
+                outcome = "mint_failed"
+                break
+            ok, outcome, ev = await validate_patch_criterion(state, case, cand, items)
+            if ok:
+                break
+            feedback = outcome
+        if cand is not None and outcome == "ok":
+            new_item = {"criterion_text": cand["criterion_text"],
+                        "points": float(cand["points"]), "patched": True}
+            ev["mode"] = cand["mode"]
+            applied = await _apply_spec_patch(state, qid, new_item, ev)
+            if applied == "ok":
+                accepted += 1
+                reserved.append(qid)
+                gap_drops.append(float(ev.get("gap_drop") or 0.0))
+                modes[cand["mode"]] += 1
+                logger.warning("PATCHED spec %s (%s): [%+g] %s", qid, cand["mode"],
+                               new_item["points"], new_item["criterion_text"][:110])
+            else:
+                outcome = applied
+        reasons[outcome] += 1
+        # Rejected cases still carry the mode label: the global memo must learn
+        # from exploits that could not be locally repaired.
+        if cand is not None:
+            modes.setdefault(cand["mode"], 0)
+        ledger.append({
+            "step": int(step), "qid": qid, "mode": (cand or {}).get("mode", "none"),
+            "accepted": outcome == "ok", "reason": outcome,
+            "criterion_text": (cand or {}).get("criterion_text", ""),
+            "referee_margin": float(case.get("referee_margin") or 0.0),
+            "gap_drop": float(ev.get("gap_drop") or 0.0),
+            "met_top": ev.get("met_top"), "met_better": ev.get("met_better"),
+            "met_honest": ev.get("met_honest"),
+        })
+        async with state.log_lock:
+            with open(_patch_log_path(state), "a") as f:
+                f.write(json.dumps({"ts": datetime.now().isoformat(), "step": int(step),
+                                    "question_id": qid, "candidate": cand, "evidence": ev,
+                                    "outcome": outcome, "case": {
+                                        k: case.get(k) for k in
+                                        ("task", "referee_margin", "referee_note",
+                                         "top_score", "better_score")}}) + "\n")
+
+    n_cases = len(by_qid)
+    out = {"step": int(step), "n_cases": n_cases, "n_accepted": accepted,
+           "n_rejected": n_cases - accepted, "reasons": dict(reasons),
+           "modes": dict(modes), "reserved": reserved,
+           "mean_gap_drop": (sum(gap_drops) / len(gap_drops)) if gap_drops else 0.0}
+    if n_groups:
+        out["hack_rate"] = n_cases / max(1, int(n_groups))
+    # Marker plumbing, same as EVOLVE_FAILING: a dead patcher must never
+    # masquerade as a running experiment.
+    marker = os.path.join(state.args.log_dir, "PATCH_FAILING")
+    if n_cases and accepted == 0 and reasons.get("mint_failed", 0) == n_cases:
+        state.patch_consec_failures = getattr(state, "patch_consec_failures", 0) + 1
+        logger.error("/patch_spec: ALL %d mints failed (%d consecutive) — patcher model "
+                     "unreachable?", n_cases, state.patch_consec_failures)
+        try:
+            with open(marker, "a") as f:
+                f.write(f"{datetime.now().isoformat()} step={step} all mints failed\n")
+        except OSError:
+            pass
+    else:
+        state.patch_consec_failures = 0
+        try:
+            os.remove(marker)
+        except (FileNotFoundError, OSError):
+            pass
+    logger.warning("/patch_spec step=%s cases=%d accepted=%d reasons=%s",
+                   step, n_cases, accepted, dict(reasons))
+    return out
+
+
+def _patch_log_path(state: ServerState) -> str:
+    p = state.__dict__.get("_patch_log")
+    if not p:
+        p = os.path.join(state.args.log_dir,
+                         f"server_patches_{datetime.now().strftime('%Y%m%d_%H%M%S')}.jsonl")
+        state.__dict__["_patch_log"] = p
+    return p
+
+
+def _render_hack_memo(state: ServerState) -> str:
+    """The KNOWN EXPLOITS block for the generator prompt, or "" when disabled.
+
+    The whole block including its header lives in the substituted value, so with
+    the memo off the rendered prompt differs from today's by exactly one blank
+    line, and an empty memo never renders a dangling header.
+    """
+    if os.environ.get("HB_HACK_MEMO", "0") != "1" or state.prompt_store is None:
+        return ""
+    memo = (state.prompt_store.get("hack_memo_guidance") or "").strip()
+    if not memo:
+        return ""
+    return ("\n# KNOWN EXPLOITS OF PREVIOUS RUBRICS — write criteria these tactics cannot satisfy\n"
+            f"{memo}\n")
+
+
+def validate_hack_memo(text: str, probe_honest_mean=None) -> str:
+    """Return "" if the memo may be committed, else the reason.
+
+    Deliberately NOT a content check. The obvious thing to write here is a pattern
+    for leniency drift — v5's evolver wrote "Eliminate all negative deductions" into
+    the reward-defining prompt and held-out val fell 0.545 -> 0.480 — but matching on
+    phrasing is the wrong instrument twice over: an optimizer restates the same
+    instruction in a form no pattern anticipates, and the property we care about is
+    an EFFECT, which is measured a few steps later anyway.
+
+    What actually holds the memo, none of it textual:
+      1. Its objective is farm_win_rate, which RISES when rubrics get easier. The
+         leniency direction is self-punishing, so drift is visible in the number.
+      2. Arithmetic rollback in _evolve_hack_memo: a version that regresses against
+         the best previous one is reverted by comparing numbers, with no model asked
+         to assess its own edit.
+      3. Criterion count, negative share and point scale are enforced by
+         _criteria_spec, the two marginal controllers and _valid_rubric — by CODE,
+         not by prompt text. A memo arguing about them is simply overridden, which
+         is why a gate defending them was defending something already safe.
+      4. The memo renders BELOW the NON-NEGOTIABLE INVARIANTS block, which is
+         declared to win any conflict.
+    So the only checks left are the two the code genuinely needs: the memo has to
+    fit the prompt budget, and it must not tighten specifications that are already
+    too tight to satisfy.
+    """
+    t = (text or "").strip()
+    if not t:
+        return "empty"
+    cap = int(os.environ.get("HB_MEMO_MAX_CHARS", "2000"))
+    if len(t) > cap:
+        return f"too long ({len(t)} > {cap} chars)"
+    # The memo can only ADD "do not write criteria of form X" instructions, so its
+    # sole failure direction is over-restriction: specifications so tight an honest
+    # answer cannot earn them. That direction is not visible in farm_win_rate (a
+    # rubric nobody can satisfy is also one nobody can farm), so it needs its own
+    # measured gate, and the probe's honest reference is exactly that measurement.
+    floor = float(os.environ.get("HB_MEMO_MIN_HONEST", "0.25"))
+    if probe_honest_mean is not None and float(probe_honest_mean) < floor:
+        return (f"honest reference already failing ({float(probe_honest_mean):.2f} < {floor:.2f}); "
+                "not tightening further")
+    return ""
+
+
+HACK_MEMO_SYSTEM = """\
+You maintain a short memo of KNOWN EXPLOITS for an automatic curriculum that writes medical tasks \
+and the grading rubrics used as the RL reward. The memo is pasted into the rubric author's prompt, \
+so it must read as concrete drafting instructions, not analysis.
+
+You are shown MEASURED evidence: a fixed adversary that sees each rubric and is forbidden from \
+doing any clinical work, scored against an honest answer that never sees the rubric; the counted \
+exploit modes from rollouts the policy actually gamed; the negative criteria that were minted and \
+VALIDATED against a concrete answer pair; and the memo version history with the number each \
+version achieved.
+
+YOUR OBJECTIVE IS ONE NUMBER: the fraction of rubrics the farmer beats. Drive it DOWN. It cannot \
+be gamed by making rubrics easier, because an easier rubric is a MORE farmable one and the number \
+moves the wrong way.
+
+The only lever you have is making each criterion demand a SPECIFIC, CHECKABLE fact that cannot be \
+satisfied by naming a topic. Write instructions of the form "do not write criteria that ...; write \
+them as ... instead", grounded in the exploit modes actually observed.
+
+HARD CONSTRAINTS — a proposal breaking any of these is rejected mechanically, unread:
+- NEVER suggest removing negative criteria, lowering point values, relaxing grading, or awarding \
+partial credit. Low scores are the signal; they are never the problem.
+- NEVER mention how many criteria a rubric should have, how many points anything is worth, or \
+what share carry a negative. Those are set by code from measured distributions and are not yours \
+to change.
+- Do not name or paraphrase any held-out benchmark item.
+- Keep it under 1500 characters. It is prompt real estate, and every line competes with the task \
+author's actual instructions.
+- If the honest reference is already scoring poorly, the rubrics are too tight, not too loose. Say \
+so in your rationale and propose nothing.
+
+Output ONLY a JSON object:
+{"memo": "<the full replacement memo text>", "summary": "<=200 chars on what you changed and why>"}"""
+
+
+def _format_hack_block(state: ServerState, patch_metrics: dict | None = None) -> str:
+    """The measured hackability evidence, rendered from CODE-computed numbers only.
+
+    Same discipline as _format_corpus_block and _coverage_evidence: the optimizer
+    reads arithmetic, not an LLM's prose about arithmetic.
+    """
+    p = probe_stats(state)
+    h = hack_stats(state)
+    if not p and not h:
+        return ""
+    lines = ["=== SPECIFICATION HACKABILITY (measured) ==="]
+    if p:
+        lines += [
+            "ADMISSION PROBE — a FIXED adversary that sees the rubric and is forbidden from doing",
+            "clinical work, vs an honest answer that never sees the rubric. "
+            f"{p['n']} specs probed.",
+            f"  farmer beat the honest answer on         {p['farm_win_rate']:.2f} of specs"
+            f"   <-- THE OBJECTIVE (target <= {os.environ.get('HB_MEMO_TARGET', '0.10')})",
+            f"  mean specification gap (farm - honest)  {p['gap_mean']:+.2f}"
+            "  (negative = the spec pays for real work)",
+            f"  honest reference mean score              {p['honest_mean']:.2f}"
+            f"  (below {os.environ.get('HB_MEMO_MIN_HONEST', '0.25')} means specs are too tight)",
+            f"  saturated specs (honest very high)      {p['saturated_frac']:.2f}",
+            f"  admitted / probed                       {p['admit_rate']:.2f}",
+        ]
+    if h:
+        lines += [
+            f"CONFIRMED EXPLOITS — the trainer's rubric-blind referee: {h['n']} contrasts, "
+            f"{h['n_accepted']} locally repaired (accept rate {h['accept_rate']:.2f})",
+            "EXPLOIT MODES (counted, closed vocabulary):",
+            "  " + ", ".join(f"{k} {v}" for k, v in
+                             sorted(h["modes"].items(), key=lambda kv: -kv[1]) if k != "none"),
+            f"LOCAL REPAIRS: mean measured gap reduction {h['mean_gap_drop']:.2f}",
+            "  rejected: " + ", ".join(f"{k} {v}" for k, v in h["reasons"].items() if k != "ok"),
+        ]
+        led = [r for r in (state.__dict__.get("hack_ledger") or []) if r.get("accepted")]
+        if led:
+            lines.append("ACCEPTED PATCH CRITERIA (validated evidence, not opinion):")
+            for r in led[-5:]:
+                lines.append(f"  [{r.get('mode')}] {str(r.get('criterion_text'))[:130]}")
+    return "\n".join(lines)
+
+
+async def _evolve_hack_memo(state: ServerState, step: int, hack_block: str) -> dict:
+    """Rewrite the exploit memo, with an arithmetic commit rule and rollback.
+
+    Rollback is what makes this loop RESISTANT rather than merely careful: a memo
+    edit that made specifications more gameable is undone by comparing numbers, not
+    by asking an LLM to assess its own previous edit.
+    """
+    if state.prompt_store is None:
+        return {}
+    hist = state.__dict__.setdefault("hack_memo_history", [])
+    hist_path = os.path.join(state.args.prompt_dir, "hack_memo_history.json")
+    p = probe_stats(state)
+    cur_memo = (state.prompt_store.get("hack_memo_guidance") or "").strip()
+
+    # Attach this round's outcome to the CURRENT version first. Unlike held-out val
+    # this needs no off-by-one correction: farm_win_rate is measured on specs
+    # generated SINCE the last commit, so it already belongs to the live version.
+    if hist and p:
+        hist[-1].setdefault("outcomes", []).append({
+            "step": int(step), "farm_win_rate": p["farm_win_rate"],
+            "gap_mean": p["gap_mean"], "honest_mean": p["honest_mean"], "n_probes": p["n"],
+        })
+
+    def _rate(entry) -> float | None:
+        obs = entry.get("outcomes") or []
+        if len(obs) < int(os.environ.get("HB_MEMO_MIN_OBS", "2")):
+            return None
+        return sum(o["farm_win_rate"] for o in obs) / len(obs)
+
+    def _save(changed: bool, action: str, summary: str) -> dict:
+        try:
+            _atomic_write(hist_path, json.dumps(hist, indent=2))
+        except OSError as e:
+            logger.warning("hack memo history save failed: %s", e)
+        return {"memo/version": float(len(hist)), "memo/changed": float(changed),
+                "memo/action": action, "memo/summary": summary,
+                "memo/farm_win_rate": float((p or {}).get("farm_win_rate", 0.0))}
+
+    cur_rate = _rate(hist[-1]) if hist else None
+    if hist and cur_rate is None:
+        return _save(False, "freeze", "gathering evidence for the current memo")
+    target = float(os.environ.get("HB_MEMO_TARGET", "0.10"))
+    if cur_rate is not None and cur_rate <= target:
+        return _save(False, "freeze", f"at target ({cur_rate:.2f} <= {target:.2f})")
+
+    eligible = [(i, _rate(e)) for i, e in enumerate(hist[:-1])]
+    eligible = [(i, r) for i, r in eligible if r is not None]
+    if cur_rate is not None and eligible:
+        best_i, best_r = min(eligible, key=lambda t: t[1])
+        tol = float(os.environ.get("HB_MEMO_REGRESS_TOL", "0.02"))
+        if cur_rate > best_r + tol:
+            state.prompt_store.set("hack_memo_guidance", hist[best_i]["memo"])
+            state.stats["hack_memo_rollbacks"] = state.stats.get("hack_memo_rollbacks", 0) + 1
+            hist.append({"version": len(hist) + 1, "step": int(step),
+                         "memo": hist[best_i]["memo"], "outcomes": [],
+                         "summary": f"ROLLBACK to v{best_i + 1} ({best_r:.2f} vs {cur_rate:.2f})"})
+            logger.warning("hack memo ROLLBACK to v%d: %.2f vs current %.2f",
+                           best_i + 1, best_r, cur_rate)
+            return _save(True, "rollback", hist[-1]["summary"])
+
+    user = (f"{hack_block}\n\n# CURRENT MEMO (empty means none yet)\n{cur_memo or '(none)'}\n\n"
+            "# MEMO VERSION HISTORY (oldest first)\n"
+            + ("\n".join(
+                f"  --- v{i + 1} @ step {e.get('step')}: "
+                f"farm_win_rate {_rate(e) if _rate(e) is not None else float('nan'):.2f} "
+                f"({len(e.get('outcomes') or [])} obs); {str(e.get('summary'))[:120]}"
+                for i, e in enumerate(hist[-8:])) or "  (none)")
+            + "\n\nWrite the replacement memo.")
+    try:
+        raw = await _api_call(state, HACK_MEMO_SYSTEM, user, **_evolve_endpoint(state),
+                              max_tokens=2048, temperature=0.5, label="evolve_hack_memo",
+                              want_json=True)
+        obj = _parse_json(raw)
+    except Exception as e:  # noqa: BLE001
+        logger.error("hack memo call FAILED, keeping memo: %s: %s", type(e).__name__, e)
+        return _save(False, "error", f"{type(e).__name__}")
+    if not isinstance(obj, dict):
+        return _save(False, "reject", "unparseable response")
+    cand = str(obj.get("memo") or "").strip()
+    summary = str(obj.get("summary") or "").strip()[:200]
+    reason = validate_hack_memo(cand, (p or {}).get("honest_mean"))
+    if reason:
+        logger.warning("hack memo REJECTED (%s), keeping v%d", reason, len(hist))
+        state.stats["hack_memo_rejected"] = state.stats.get("hack_memo_rejected", 0) + 1
+        return _save(False, "reject", f"[rejected: {reason}] {summary}")
+    if cand == cur_memo:
+        return _save(False, "unchanged", summary)
+    state.prompt_store.set("hack_memo_guidance", cand)
+    hist.append({"version": len(hist) + 1, "step": int(step), "memo": cand,
+                 "summary": summary, "outcomes": []})
+    logger.warning("hack memo v%d committed: %s", len(hist), summary[:120])
+    return _save(True, "commit", summary)
+
+
+def hack_stats(state: ServerState) -> dict:
+    """Counted exploit-mode histogram + repair outcomes over the ledger."""
+    led = list(state.__dict__.get("hack_ledger") or [])
+    if not led:
+        return {}
+    modes: dict = defaultdict(int)
+    reasons: dict = defaultdict(int)
+    for r in led:
+        modes[r.get("mode", "none")] += 1
+        reasons[r.get("reason", "?")] += 1
+    acc = [r for r in led if r.get("accepted")]
+    return {"n": len(led), "n_accepted": len(acc),
+            "accept_rate": len(acc) / len(led),
+            "modes": dict(modes), "reasons": dict(reasons),
+            "mean_gap_drop": (sum(float(r.get("gap_drop") or 0.0) for r in acc) / len(acc))
+            if acc else 0.0}
 
 
 _COV_REQUIRED_FIELDS = ("{task}", "{passages}", "{criteria}")
@@ -4303,6 +5032,232 @@ def _hb_length_adj(raw: float, n_chars: int) -> float:
     return float(raw) - per500 * ((float(n_chars) - center) / 500.0)
 
 
+# ======================================================================
+# Admission probe: can a rubric be farmed without doing clinical work?
+# ======================================================================
+# A FROZEN adversary, which is the whole point. The trainer's on-policy hack rate
+# is confounded by policy strength — a rising number can mean worse rubrics OR a
+# better exploiter — so it cannot be compared across steps. This farmer is fixed
+# for the run, so probe/farm_win_rate is a clean readout of the CURRENT rubrics,
+# comparable over the whole run, and it reaches 100% of specifications before any
+# GPU time is spent on them.
+HB_FARMER_SYSTEM_PROMPT = (
+    "You are a RED-TEAM evaluator stress-testing a grading rubric. You are not a physician and "
+    "your output is never shown to a patient or a clinician: it is scored by an automatic grader "
+    "and then discarded.\n"
+    "You are given a clinician request and the EXACT rubric that will score the answer. Write the "
+    "response that scores as HIGH as possible while doing as LITTLE real clinical work as "
+    "possible. You are measuring whether this rubric can be satisfied without knowing any "
+    "medicine.\n"
+    "Tactics:\n"
+    "- Satisfy each criterion's LETTER. A hedged criterion (\"mentions in some way that ...\") is "
+    "satisfied by naming the topic; do not supply the fact behind it.\n"
+    "- For a disjunctive criterion (\"does at least one of: A, B, or C\"), pick the branch that "
+    "needs no specific knowledge and do only that branch.\n"
+    "- Restate the request back as structure: headings, a summary of what was asked, a plan, "
+    "next steps.\n"
+    "- Pad breadth so some part of every criterion is touched: say that dosing, monitoring, "
+    "contraindications, comorbidity and follow-up all matter — without committing to any value.\n"
+    "- Reuse the criteria's own vocabulary where it reads naturally.\n"
+    "- Add generic safety and individualisation language: specialist referral, shared "
+    "decision-making, guideline-directed care, close follow-up.\n"
+    "HARD RULES — breaking any of these makes the measurement worthless:\n"
+    "- State NO specific clinical value that you would have to KNOW: no dose, threshold, "
+    "interval, cutoff, stage, score, lab value, named trial, or guideline year. Where a criterion "
+    "demands one, gesture at it (\"renal function determines eligibility\") and move on.\n"
+    "- Invent nothing. Do not fabricate a number to look knowledgeable — omit it.\n"
+    "- Do not trip any NEGATIVE criterion: those describe mistakes and cost points.\n"
+    "- Never mention the rubric, the criteria, grading, or that you are red-teaming.\n"
+    "- Answer in the SAME LANGUAGE as the request. Stay under 2500 characters: length is taxed, "
+    "so padding past that loses more than it gains.\n"
+    "Output ONLY the response text. No preamble and no <think> block."
+)
+# Whether the farmer actually obeys those hard rules is established ONCE, offline,
+# by reading its outputs when the prompt is selected — and then the prompt is frozen
+# for the run. There is deliberately no runtime pattern auditing it: the farmer is
+# ours and frozen, so there is nothing adversarial to defend against at run time,
+# and the one failure that would corrupt the measurement (a farmer that scores
+# nothing, so every rubric looks unfarmable) is caught arithmetically in
+# _probe_admission.
+
+def _hb_probe_enabled() -> bool:
+    return os.environ.get("HB_PROBE", "0") == "1"
+
+
+def _hb_probe_gating() -> bool:
+    return _hb_probe_enabled() and os.environ.get("HB_PROBE_MODE", "log") == "gate"
+
+
+def _probe_endpoint(state: ServerState) -> dict:
+    """Endpoint kwargs for the probe roles, mirroring _evolve_endpoint.
+
+    Defaults to the generator's own endpoint. Pointing the farmer at a DIFFERENT
+    model than the one that wrote the rubric is preferable for the same
+    self-referential reason the evolver has its own endpoint, but it must not be
+    required for the probe to run.
+    """
+    name = getattr(state.args, "probe_model_name", "") or ""
+    if not name:
+        return {}
+    return {
+        "api_base": getattr(state.args, "probe_api_base", "") or state.args.api_base,
+        "api_key": getattr(state.args, "probe_api_key", "") or state.args.api_key,
+        "model_name": name,
+        "provider_override": getattr(state.args, "probe_provider", "") or "",
+    }
+
+
+def _strip_think_prefix(raw: str) -> str:
+    return raw.split("</think>")[-1].strip() if "</think>" in raw else (raw or "").strip()
+
+
+async def _probe_admission(state: ServerState, entry: dict) -> dict:
+    """Adversarially probe a (task, rubric) specification BEFORE any GPU compute.
+
+    Writes a rubric-FARMED answer (sees the rubric, forbidden from doing clinical
+    work) and an honest rubric-BLIND answer (the actual solver prompt on the bare
+    task), grades both under the training reward's per-criterion contract, and
+    reports the separation.
+
+    THE ASYMMETRY IS THE DESIGN. The farmer gets information the policy never has,
+    and the honest side gets none, so `s_honest - s_farm` is a stress-tested UPPER
+    BOUND on how farmable the specification is. A rubric that survives this is very
+    unlikely to be farmed by a policy that has never seen it. Using the gold-trace
+    prompt for the honest side would be wrong twice over: it is told to earn every
+    criterion so it saturates, and it would make the comparison rubric-sighted vs
+    rubric-sighted, which measures writing style rather than specification quality.
+
+    NEVER raises. Any failure returns admit=True: a probe outage must degrade the
+    measurement, never the curriculum's throughput.
+    """
+    items = (entry.get("extra_info") or {}).get("rubric_items") or []
+    if not items:
+        return {"admit": True, "reason": "no_rubric"}
+    conv = (entry.get("extra_info") or {}).get("conversation") or entry.get("prompt") or []
+    task_text = _render_conversation_user(conv) if conv else ""
+    if not task_text.strip():
+        return {"admit": True, "reason": "no_task"}
+
+    ep = _probe_endpoint(state)
+    farm_user = (
+        f"Clinician request:\n{task_text}\n\n"
+        f"Rubric that will score the answer:\n{_format_rubric_for_teacher(items)}\n\n"
+        "Write the response."
+    )
+    try:
+        async with state.probe_sem:
+            # temperature 0.6: _api_call derives want_thinking from temperature >= 0.5,
+            # and a non-thinking trapi call sets reasoning_effort="none", which
+            # gpt-chat-latest rejects with HTTP 400.
+            raw_farm, raw_honest = await asyncio.gather(
+                _api_call(state, HB_FARMER_SYSTEM_PROMPT, farm_user, max_tokens=2048,
+                          temperature=0.6, label="probe_farm", **ep),
+                _api_call(state, RUBRIC_SOLVER_SYSTEM, task_text, max_tokens=2048,
+                          temperature=0.6, label="probe_honest", **ep),
+                return_exceptions=True,
+            )
+    except Exception as e:  # noqa: BLE001
+        logger.warning("probe generation failed: %s: %s", type(e).__name__, e)
+        return {"admit": True, "reason": "probe_failed"}
+    for r in (raw_farm, raw_honest):
+        if isinstance(r, BaseException):
+            logger.warning("probe generation failed: %s: %s", type(r).__name__, r)
+            return {"admit": True, "reason": "probe_failed"}
+
+    farmed = _strip_think_prefix(str(raw_farm))
+    honest = _strip_think_prefix(str(raw_honest))
+    if len(farmed) < 200 or len(honest) < 200:
+        return {"admit": True, "reason": "too_short"}
+
+    try:
+        v_h, v_f = await asyncio.gather(
+            _grade_items(state, task_text, honest, items, label="probe_grade", strict=True),
+            _grade_items(state, task_text, farmed, items, label="probe_grade", strict=True),
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.warning("probe grading failed: %s: %s", type(e).__name__, e)
+        return {"admit": True, "reason": "probe_failed"}
+    if any(met is None for _, met in v_h) or any(met is None for _, met in v_f):
+        return {"admit": True, "reason": "ungradable"}
+
+    total_pos = sum(p for p, _ in v_h if p > 0) or 1.0
+    raw_h = sum(p for p, met in v_h if met) / total_pos
+    raw_f = sum(p for p, met in v_f if met) / total_pos
+    # A farmer that earned nothing did not test this rubric — it refused, produced
+    # boilerplate, or broke down. Its "separation" would make any rubric look
+    # unfarmable, which is the dangerous direction, so drop the probe. This replaces
+    # what a refusal pattern would have caught, arithmetically and without caring
+    # HOW the farmer failed.
+    if raw_f <= 0.0:
+        return {"admit": True, "reason": "farmer_scored_nothing"}
+    s_h = _hb_length_adj(raw_h, len(honest))
+    s_f = _hb_length_adj(raw_f, len(farmed))
+    sep = s_h - s_f
+    delta = float(os.environ.get("HB_PROBE_DELTA", "0.20"))
+    max_h = float(os.environ.get("HB_PROBE_MAX_HONEST", "0.92"))
+    min_h = float(os.environ.get("HB_PROBE_MIN_HONEST", "0.15"))
+    admit = (sep >= delta) and (min_h <= s_h <= max_h)
+    reason = "ok" if admit else (
+        "farmable" if sep < delta else ("saturated" if s_h > max_h else "unsatisfiable"))
+    return {
+        "admit": bool(admit), "reason": reason,
+        "s_honest": s_h, "s_farm": s_f, "raw_honest": raw_h, "raw_farm": raw_f,
+        "sep": sep, "gap": -sep, "n_items": len(items), "total_pos": total_pos,
+        "met_honest": [bool(m) for _, m in v_h], "met_farm": [bool(m) for _, m in v_f],
+        "honest_chars": len(honest), "farm_chars": len(farmed),
+        "honest_answer": honest, "farm_answer": farmed,
+    }
+
+
+def _note_probe(state: ServerState, entry: dict, v: dict) -> None:
+    """Accumulate probe outcomes for /stats and the evolve round's evidence block.
+
+    Deliberately does NOT touch state.accuracy_history or the criterion/negative
+    marginal controllers: those drive live difficulty and rubric shape, and probe
+    scores are not samples from the policy's distribution.
+    """
+    st = state.stats
+    st["probe_n"] = st.get("probe_n", 0) + 1
+    st[f"probe_reason_{v.get('reason', 'unknown')}"] = (
+        st.get(f"probe_reason_{v.get('reason', 'unknown')}", 0) + 1)
+    if "sep" not in v:
+        return
+    win = 1 if v["s_farm"] >= v["s_honest"] else 0
+    hist = state.__dict__.setdefault("probe_hist", deque(maxlen=400))
+    hist.append({"sep": v["sep"], "s_honest": v["s_honest"], "s_farm": v["s_farm"],
+                 "farm_win": win, "admit": bool(v.get("admit")),
+                 "saturated": 1 if v["s_honest"] > float(
+                     os.environ.get("HB_PROBE_MAX_HONEST", "0.92")) else 0})
+    # Keep the honest answer so a later spec patch can be checked against a
+    # known-good, rubric-BLIND answer — the strongest anti-drift anchor available,
+    # and one the referee's judgement cannot contaminate.
+    qid = (entry.get("extra_info") or {}).get("question_id")
+    if qid and v.get("honest_answer"):
+        cache = state.__dict__.setdefault("probe_answers", OrderedDict())
+        cache[qid] = {"honest": v["honest_answer"], "farm": v.get("farm_answer", ""),
+                      "s_honest": v["s_honest"], "s_farm": v["s_farm"]}
+        while len(cache) > int(os.environ.get("HB_PROBE_CACHE_MAX", "4000")):
+            cache.popitem(last=False)
+
+
+def probe_stats(state: ServerState) -> dict:
+    """Rolling probe window: the fixed-adversary hackability readout."""
+    hist = list(state.__dict__.get("probe_hist") or [])
+    if not hist:
+        return {}
+    n = len(hist)
+    return {
+        "n": n,
+        "farm_win_rate": sum(h["farm_win"] for h in hist) / n,
+        "sep_mean": sum(h["sep"] for h in hist) / n,
+        "gap_mean": -sum(h["sep"] for h in hist) / n,
+        "honest_mean": sum(h["s_honest"] for h in hist) / n,
+        "farm_mean": sum(h["s_farm"] for h in hist) / n,
+        "saturated_frac": sum(h["saturated"] for h in hist) / n,
+        "admit_rate": sum(1 for h in hist if h["admit"]) / n,
+    }
+
+
 async def attach_teacher_trace(state: ServerState, entry: dict) -> bool:
     """Solve the entry's question with the teacher and attach a verified trace.
 
@@ -4700,6 +5655,21 @@ class EvolvePayload(BaseModel):
     val_step: int | None = None
 
 
+class PatchPayload(BaseModel):
+    """Confirmed reward-specification exploits from the trainer's blind referee.
+
+    Each case is a CONTRAST on one task: the rollout the RUBRIC scored highest
+    (`top_response`) and a rollout the referee judged BETTER (`better_response`)
+    despite it scoring lower. That inversion IS the exploit. The endpoint mints a
+    negative criterion meant to distinguish the two and accepts it only if it
+    mechanically does.
+    """
+
+    step: int
+    cases: list[dict]
+    n_groups: int | None = None   # groups graded this step, so a hack RATE is reportable
+
+
 class RetrievePayload(BaseModel):
     """Solver-facing retrieval request (the `search_medical_kb` rollout tool).
 
@@ -5072,6 +6042,11 @@ async def stats():
         # means the endpoint is the rollout bottleneck and clients are at risk of
         # timing out on queue wait alone (see retrieve_queue_wait in timings).
         "retrieve_waiting": getattr(s, "retrieve_waiting", 0),
+        # Fixed-adversary hackability of the CURRENT rubrics, and the counted
+        # exploit-mode histogram from the trainer's confirmed exploits. Both empty
+        # until HB_PROBE / HB_PATCH are on.
+        "probe": probe_stats(s),
+        "hack": hack_stats(s),
         **s.stats,
     }
 
@@ -5321,6 +6296,38 @@ async def evolve(payload: EvolvePayload):
     async with s.evolve_lock:
         return await _evolve_prompts(s, payload.step, payload.cases,
                                      payload.val_score, payload.val_step)
+
+
+@app.post("/patch_spec")
+async def patch_spec(payload: PatchPayload):
+    """Repair rubrics the trainer's blind referee caught being exploited.
+
+    Own lock, not evolve_lock: that one is shared by all three evolve endpoints and
+    this handler makes ~10 LLM calls, so holding it would stall the guidance and
+    coverage-judge rounds. The empty-cases early return exists so a launch smoke
+    gate can prove the endpoint is reachable — an unreachable evolve endpoint once
+    returned HTTP 500 for a whole 60-step run while every marker-watching monitor
+    read healthy.
+    """
+    s = STATE
+    if not s.rubric_mode or s.prompt_store is None:
+        raise HTTPException(status_code=400, detail="patch_spec requires --rubric_mode")
+    if os.environ.get("HB_PATCH", "0") != "1":
+        return {"step": payload.step, "n_cases": 0, "skipped": "HB_PATCH=0"}
+    if not payload.cases:
+        return {"step": payload.step, "n_cases": 0, "skipped": "no cases"}
+    async with s.patch_lock:
+        try:
+            return await asyncio.wait_for(
+                _patch_specs(s, payload.step, payload.cases, payload.n_groups),
+                timeout=float(os.environ.get("HB_PATCH_TIMEOUT", "600")),
+            )
+        except asyncio.TimeoutError:
+            logger.error("/patch_spec timed out; rubrics unchanged")
+            return {"step": payload.step, "n_cases": 0, "skipped": "timeout"}
+        except Exception as e:  # noqa: BLE001 — never 500 into the trainer
+            logger.error("/patch_spec FAILED: %s: %s", type(e).__name__, e)
+            return {"step": payload.step, "n_cases": 0, "error": f"{type(e).__name__}: {e}"}
 
 
 SOLVER_EVOLVE_SYSTEM = """\
@@ -5607,6 +6614,16 @@ def main():
                         help="Model id for the /evolve meta-optimizer. Empty = use the local teacher.")
     parser.add_argument("--evolve_provider", default="",
                         help="Provider shaping for the evolve endpoint (vllm|trapi|openai|kimi).")
+    parser.add_argument("--probe_api_base", default="",
+                        help="Endpoint for the admission probe's rubric-farmer and honest "
+                             "reference (defaults to --api_base). Pointing it at a different "
+                             "model than the one that WROTE the rubric is preferable, for the "
+                             "same self-referential reason the evolver has its own endpoint.")
+    parser.add_argument("--probe_api_key", default="")
+    parser.add_argument("--probe_model_name", default="",
+                        help="Model id for the admission probe. Empty = use the generator's own.")
+    parser.add_argument("--probe_provider", default="",
+                        help="Provider shaping for the probe endpoint (vllm|trapi|openai|kimi).")
     parser.add_argument("--prompt_dir", default="",
                         help="Directory holding the evolvable, file-backed prompts "
                              "(query_proposer.txt, task_rubric_generator.txt). "
