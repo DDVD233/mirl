@@ -29,7 +29,14 @@ MAX_WAIT_H="${MAX_WAIT_H:-24}"
 case "$ARM" in
   1) ARM_ENV=(RETRIEVAL=0 EVOLVE=0 SPEC_GAP=1)
      EXP_NAME=hb9b_specgap_measure ;;
-  2) ARM_ENV=(RETRIEVAL=0 EVOLVE=1 SPEC_GAP=1 SPEC_GAP_SHIP=1 PROBE=1 PATCH=1
+  2) # SPEC_GAP_SHIP is OFF, deliberately. The referee was measured against
+     # physician-written rubrics and gets 41% of decisive pairs wrong, so routing
+     # ITS verdicts into rubric patches would inject a near-coin-flip signal into
+     # the reward. The treatment here is driven entirely by the FROZEN FARMER, whose
+     # comparison is farmed-vs-honest on the SAME rubric under the SAME grader that
+     # trains on it -- a measurement in the reward's own units, needing no second
+     # opinion. SPEC_GAP=1 stays so H is still logged as a diagnostic.
+     ARM_ENV=(RETRIEVAL=0 EVOLVE=1 SPEC_GAP=1 SPEC_GAP_SHIP=0 PROBE=1 PATCH=1
               HACK_MEMO=1 HB_PROBE_MODE=gate)
      EXP_NAME=hb9b_specgap_full ;;
   *) echo "FATAL: ARM must be 1 or 2" >&2; exit 1 ;;

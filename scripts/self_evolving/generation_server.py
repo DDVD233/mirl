@@ -4087,9 +4087,12 @@ async def _probe_admission(state: ServerState, entry: dict) -> dict:
         return {"admit": True, "reason": "too_short"}
 
     try:
+        _votes = max(1, int(os.environ.get("HB_PROBE_VOTES", "3")))
         v_h, v_f = await asyncio.gather(
-            _grade_items(state, task_text, honest, items, label="probe_grade", strict=True),
-            _grade_items(state, task_text, farmed, items, label="probe_grade", strict=True),
+            _grade_items(state, task_text, honest, items, label="probe_grade",
+                         strict=True, votes=_votes),
+            _grade_items(state, task_text, farmed, items, label="probe_grade",
+                         strict=True, votes=_votes),
         )
     except Exception as e:  # noqa: BLE001
         logger.warning("probe grading failed: %s: %s", type(e).__name__, e)
