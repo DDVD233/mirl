@@ -5,6 +5,11 @@
 #   - code: /work/.../mirl-phase1 @ de576393 (the pre-rubric commit that created
 #     the two-stage SFT->RL pipeline, same era as the original 27B gen-RL run),
 #     bound to /root/mirl_evolve = that launcher's default REPO.
+#     EVERY script this file runs comes from THAT pinned checkout, not from the
+#     branch you are reading. The pre-rubric generation pipeline and its launchers
+#     (start_generation_server.sh, run_qwen36_27b_selfimprove_from_sft.sh) were
+#     deleted from the current branch when the generation server was cut down to
+#     rubric mode; this run is unaffected, and de576393 is where to look for them.
 #   - recipe: scripts/self_evolving/train/run_qwen36_27b_selfimprove_from_sft.sh
 #     (self-evolving questions from the gen server, EVOLVE_ENABLE=False, fixed
 #     composite reward, actor from the merged distill-SFT init).

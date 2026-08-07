@@ -221,6 +221,19 @@ export HB_PROBE_MODE="${HB_PROBE_MODE:-log}"     # log = measure without rejecti
 export HB_PROBE_RATE="${HB_PROBE_RATE:-0.34}"
 export HB_PATCH="$PATCH"
 export HB_REFINE_ROUNDS="${HB_REFINE_ROUNDS:-1}"
+# Refinement makes a specification ~2.5x more expensive to produce (2 extra
+# generations + per-criterion grading for the probe, plus a mint and its validation
+# per repair round), and a worker is SERIAL within one spec. Same worker count would
+# cut spec throughput by the same factor and the trainer would end up blocking on
+# /sample. The work is all HTTP wait, so the fix is more of them; the TRAPI budget is
+# not the constraint here (generation is ~0.4 req/s against a ~14 req/s ceiling, the
+# rubric judge dominates), latency x concurrency is.
+if [ "$PROBE" = 1 ]; then
+    GEN_WORKERS="${GEN_WORKERS:-20}"
+    export HB_PROBE_CONCURRENCY="${HB_PROBE_CONCURRENCY:-16}"
+else
+    GEN_WORKERS="${GEN_WORKERS:-8}"
+fi
 export HB_HACK_MEMO="$HACK_MEMO"
 
 # ---- token budget: IDENTICAL in both arms (this is the confound that bit us) ----
@@ -356,7 +369,7 @@ SUMM_FLAGS=()
     "${SUMM_FLAGS[@]}" \
     --n_queries "${N_QUERIES:-6}" --questions_per_query 1 \
     --accuracy_window 64 --max_pool_size 200 \
-    --workers "${GEN_WORKERS:-8}" --log_dir "$LOGDIR/$EXP" \
+    --workers "$GEN_WORKERS" --log_dir "$LOGDIR/$EXP" \
     --host 0.0.0.0 --port "$GEN_PORT" \
     > "$LOGDIR/gen_server_${EXP}.log" 2>&1 &
 GEN_PID=$!
@@ -413,6 +426,29 @@ if [ "$PATCH" = 1 ]; then
                           tail -30 "$LOGDIR/gen_server_${EXP}.log" >&2; exit 1; }
     echo "patch_spec smoke OK (HTTP 200)"
 fi
+
+# WARM THE POOL before the trainer starts. /healthz answers as soon as the process is
+# up, which says nothing about whether any specification has been generated yet --
+# and with refinement each one costs a proposer call, a co-generation call, a probe
+# (2 generations + per-criterion grading) and possibly a repair round. Without this
+# gate the first training step blocks inside /sample for minutes and the run looks
+# hung. Waiting here instead makes the cost visible and pays it once.
+_want=$(( ${TRAIN_BS:-32} * 2 ))
+_deadline=$(( SECONDS + ${GEN_WARMUP_S:-1800} ))
+echo "warming the generation pool to $_want specs (workers=$GEN_WORKERS, probe=$PROBE)..."
+while :; do
+    _pool=$(curl -sf -m 10 "localhost:$GEN_PORT/stats" | python3 -c \
+        'import json,sys; print(json.load(sys.stdin).get("pool_size", 0))' 2>/dev/null || echo 0)
+    [ "${_pool:-0}" -ge "$_want" ] && { echo "pool warm: $_pool specs"; break; }
+    if [ "$SECONDS" -ge "$_deadline" ]; then
+        echo "FATAL: pool only reached $_pool/$_want in ${GEN_WARMUP_S:-1800}s." >&2
+        echo "  Generation cannot keep up with training. Check $LOGDIR/gen_server_${EXP}.log" >&2
+        echo "  for probe/mint failures, then raise GEN_WORKERS or lower HB_PROBE_RATE." >&2
+        curl -sf -m 10 "localhost:$GEN_PORT/stats" >&2 || true
+        exit 1
+    fi
+    sleep 20
+done
 
 # Prove the REFEREE endpoint answers before training. Its failure mode is the same
 # shape: _run_spec_gap returns {} on any exception, so a bad endpoint degrades to

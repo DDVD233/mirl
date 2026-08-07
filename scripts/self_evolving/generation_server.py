@@ -87,183 +87,17 @@ logger = logging.getLogger("gen_server")
 # AGENT SYSTEM PROMPTS (verbatim from self_evolving_dataset.py)
 # ======================================================================
 
-QUERY_PROPOSER_SYSTEM_PROMPT = """\
-You are a medical information retrieval expert. Given a training question (and optionally \
-a list of previously-proposed similar questions with the solver's running accuracy on \
-each), propose 10 diverse search queries for retrieving medical knowledge from a \
-multimodal database (PubMedQA abstracts, MIRAGE MCQs, MedRAG textbooks, PubMed, Wikipedia, \
-PMC-VQA, CLIMB clinical QA across chest X-ray, derm, CT, ECG, fundus, MRI, mammography, \
-ultrasound, pathology).
-
-If a list of previously-proposed similar questions is provided, FIRST briefly assess \
-(internally, in your reasoning) what the solver appears to already do well (high accuracy) \
-and where it struggles (low accuracy or untested), then bias your 10 queries toward the \
-gaps. DO NOT generate queries whose answers would duplicate those past questions.
-
-Output EXACTLY 10 queries, one per angle below (IN ORDER). Each query is a complete \
-sentence (not keywords), specific enough to retrieve focused results, and should retrieve \
-DIFFERENT content — avoid near-paraphrases.
-
-1. MECHANISM / pathophysiology (molecular, cellular, systems level)
-2. DIAGNOSTIC CRITERIA or workup (specific tests, thresholds, scoring systems)
-3. COMPARATIVE effectiveness (treatment A vs B, test A vs B with outcome metric)
-4. ADVERSE EFFECTS / complications / contraindications
-5. PROGNOSIS / outcome / natural history (specific numbers, survival, risk factors)
-6. ATYPICAL PRESENTATION or edge case (rare variant, unusual demographic)
-7. DIFFERENTIAL DIAGNOSIS (distinguishing from 1–2 named mimics)
-8. IMAGING / VISUAL FINDINGS (modality-specific features, if applicable — else another \
-   angle not yet covered)
-9. EPIDEMIOLOGY or risk-factor association (quantitative if possible)
-10. RELATED CONDITION or downstream effect (comorbidity, systemic link, long-term sequela)
-
-Keep any internal reasoning UNDER 500 WORDS, then output ONLY a JSON array of 10 strings \
-in the above order. No markdown, no explanation.
-["query 1", "query 2", ..., "query 10"]"""
 
 
-QUESTION_GENERATOR_SYSTEM_PROMPT = """\
-You are a medical educator creating training questions for a medical AI. You are given: \
-(1) a reference training question, (2) several relevant passages from a medical \
-knowledge base, (3) the solver's recent accuracy, (4) the REQUIRED format for this \
-question.
-
-SYNTHESIZE a NEW question that AGGREGATES information across the retrieved passages \
-(not a copy of any one source). The question MUST:
-
-- NOT be a direct copy or paraphrase of any single passage or the reference question.
-- Combine facts, conditions, or mechanisms across MULTIPLE passages when possible (e.g. \
-  complex clinical scenarios, rare corner cases mentioned by multiple sources, \
-  differentials where passages disagree partially, treatment tradeoffs weighing \
-  different sources).
-- Hit one of these depths: complex clinical scenario, rare corner case, differential \
-  diagnosis where multiple dx fit partially, treatment tradeoff, atypical presentation.
-
-REQUIRED FORMAT: {required_format}
-
-DIFFICULTY CALIBRATION:
-- Solver's recent accuracy: {accuracy:.0%} over {accuracy_count} questions.
-- Target ~50% accuracy. If accuracy is high, add more nuance / closer distractors. If \
-  low, sharpen phrasing but keep the inferential step.
-
-ANSWER RULES:
-- Answer must be verifiable FROM THE PASSAGE + standard textbook facts.
-- For MCQ: 4 plausible options. Distractors must be defensible misinterpretations (e.g. \
-  adjacent condition, wrong phase of treatment, right concept but wrong threshold) — \
-  NOT obvious nonsense.
-- For free response: answer is a specific phrase (1-15 words, e.g. a diagnosis, drug \
-  name, mechanism, threshold value).
-- The correct answer must be UNAMBIGUOUS — exactly one option is defensible.
-
-Keep any internal reasoning UNDER 500 WORDS, then output ONLY a JSON object. No markdown, \
-no explanation.
-
-For MCQ (required_format="mcq"):
-{{"format": "mcq", "question": "...", "options": {{"A": "...", "B": "...", "C": "...", "D": "..."}}, "answer": "A"}}
-
-For free response (required_format="free"):
-{{"format": "free", "question": "...", "answer": "short expected answer"}}"""
 
 
-QUESTION_GENERATOR_MM_SYSTEM_PROMPT = """\
-You are a medical educator creating MULTIMODAL training questions for a medical vision-language AI. \
-You are given several retrieved clinical media items, each labeled [MEDIA k] with its clinical \
-modality, the original question it came from, and its answer/label. The actual image(s) (or sampled \
-video frames) are attached in order.
-
-Create ONE NEW question that USES one or more of these media items and is answerable from them. Be \
-DIVERSE across calls — pick the most fitting of these styles (vary it):
-  - reuse / rephrase the original question for a single media item;
-  - LOCALIZE a finding ("in <<k>>, which region / lobe / quadrant shows the abnormality?");
-  - relate to KNOWLEDGE implied by the label (mechanism, next diagnostic step, complication);
-  - go BROADER (the parent category of the label) or FINER (a more specific subtype);
-  - COMPARE two media items ("how does the finding in <<1>> differ from <<2>>?").
-
-Reference each media item you use with the token <<k>> (e.g. <<1>>, <<2>>) placed exactly where the \
-reader must look at it; you may reference an item more than once. Every <<k>> must be a valid index, \
-and you MUST reference at least one item.
-
-REQUIRED FORMAT: {required_format}
-DIFFICULTY: solver recent accuracy {accuracy:.0%} over {accuracy_count} items; target ~50%.
-
-ANSWER RULES:
-  - The answer must be unambiguously determinable from the referenced media (+ standard medical knowledge).
-  - MCQ: exactly 4 options; distractors must be defensible (adjacent finding, wrong region, wrong subtype) \
-    — never obvious nonsense; exactly one option is correct.
-  - Free: a short specific phrase (1-8 words: a finding, region, diagnosis, threshold, or mechanism).
-
-Keep internal reasoning UNDER 400 WORDS, then output ONLY a JSON object. No markdown, no explanation.
-For MCQ: {{"format":"mcq","question":"... <<1>> ...","options":{{"A":"..","B":"..","C":"..","D":".."}},"answer":"A"}}
-For free: {{"format":"free","question":"... <<1>> ...","answer":"short answer"}}"""
 
 
-QUESTION_VALIDATOR_SYSTEM_PROMPT = """\
-You are a medical fact-checker. You are given:
-(1) A candidate training question + its proposed answer (+ options if MCQ).
-(2) Retrieved passages from a medical knowledge database (re-queried using the \
-candidate question).
-
-Decide whether the question's proposed answer CONTRADICTS the retrieved knowledge.
-
-BE LENIENT — only reject obvious contradictions:
-- If the retrieved knowledge directly and unambiguously STATES something that makes \
-  the proposed answer WRONG → "contradict"
-- If the retrieved knowledge is silent, tangential, or only partially relevant → "ok"
-- If the question is about something NOT in the retrieved passages (out-of-knowledge) \
-  → "ok" (we accept new knowledge)
-- If the question is well-formed but the answer seems questionable without direct \
-  contradiction from the passages → "ok"
-- If the question is poorly formed / ungrammatical / incoherent → "contradict"
-
-Keep any internal reasoning UNDER 500 WORDS, then output ONLY a JSON object with a \
-one-sentence reason. No markdown, no explanation.
-{{"verdict": "ok" or "contradict", "reason": "..."}}"""
 
 
-SOLVER_SYSTEM_PROMPT_MCQ = (
-    "You are a medical expert. Read the question carefully and choose the best answer. "
-    "Think through the question briefly, then give your final answer. Keep your reasoning "
-    "under 500 words. Commit to your reasoning — do not waver, backtrack, or use hedging "
-    "phrases like \"wait\", \"actually\", \"on second thought\", or \"hmm\". Give your "
-    "best answer directly. The final answer MUST BE a single letter (A, B, C, or D) "
-    "wrapped in \\boxed{}. The boxed answer is REQUIRED — do not omit it. "
-    "Example: \\boxed{C}"
-)
-
-SOLVER_SYSTEM_PROMPT_FREE = (
-    "You are a medical expert. Answer the question with a short specific phrase. "
-    "Think through the question briefly, then give your final answer. Keep your reasoning "
-    "under 500 words. Commit to your reasoning — do not waver, backtrack, or use hedging "
-    "phrases like \"wait\", \"actually\", \"on second thought\", or \"hmm\". Give your "
-    "best answer directly. The final answer MUST BE a short phrase (1-15 words) wrapped "
-    "in \\boxed{}. The boxed answer is REQUIRED — do not omit it. "
-    "Example: \\boxed{acute pancreatitis}"
-)
 
 
-# Teacher prompt used in SFT mode to elicit a VISIBLE reasoning trace for
-# distillation. Reasoning models (e.g. TRAPI gpt-5.x) keep their chain-of-thought
-# in a hidden channel that the API does not return — so we must explicitly demand
-# the reasoning as visible prose in the content, otherwise we only get the final
-# boxed answer (and an empty <think> block). The student is trained to imitate
-# THIS trace under its own (SOLVER) system prompt; this prompt is teacher-only.
-SFT_TEACHER_SYSTEM_PROMPT = (
-    "You are a medical expert solving a question in order to TEACH a student. "
-    "You MUST write out your full step-by-step clinical reasoning as visible prose: "
-    "interpret the key findings, weigh the plausible differentials, and justify why the "
-    "correct answer is right and the others are wrong. Write several sentences of reasoning "
-    "— do NOT respond with only the final answer. "
-    "You may be given reference medical knowledge (the same passages this question was "
-    "synthesized from, plus the original training context) as background to ground yourself. "
-    "USE it to reason correctly and reach the right answer, but write SELF-CONTAINED clinical "
-    "reasoning — NEVER refer to \"the passage\", \"the reference\", \"the context\", or "
-    "\"the document\", because the student you are teaching will NOT see this material and "
-    "must learn reasoning it can reproduce from the question alone. "
-    "Commit to your reasoning; do not hedge or "
-    "backtrack. After the reasoning, on its own line, output the final answer wrapped in "
-    "\\boxed{} — a single letter (A, B, C, or D) for a multiple-choice question, otherwise a "
-    "short specific phrase (1-15 words). The boxed answer is REQUIRED. "
-    "Example ending: \\boxed{C}"
-)
+
 
 
 # ======================================================================
@@ -796,57 +630,21 @@ class ServerState:
             except Exception as e:
                 logger.warning(f"could not load evolve history: {e}")
             self.train_seeds = self._synth_rubric_seeds()
-            self.test_seeds = []
-            self.climb_seeds = []
             self.seeds = list(self.train_seeds)
             logger.info(f"rubric mode: {len(self.train_seeds)} use_case x specialty seeds; "
                         f"prompt_dir={args.prompt_dir}")
-            self._init_pool_and_logs(args)
-            return
-
-        self.train_seeds = self._load_seeds(args.seeds_path)
-        self.test_seeds: list[dict] = []
-        if args.test_seeds_path:
-            self.test_seeds = self._load_seeds(args.test_seeds_path)
-            for s in self.test_seeds:
-                # Strip the label so the generator can never see it.
-                s.pop("reward_model", None)
-        # CLIMB multimodal seeds (real train image/video rows in verl shape with
-        # "climb://" media handles). Drive the gen_mm mode and direct multimodal
-        # inserts; labels are KEPT (used as the generation answer + reward GT).
-        self.climb_seeds: list[dict] = []
-        if getattr(args, "climb_seeds_path", ""):
-            self.climb_seeds = self._load_seeds(args.climb_seeds_path)
-        # A flat seed list for consumers that want one; workers no longer iterate
-        # this in order.
-        self.seeds = list(self.train_seeds) + list(self.test_seeds)
-        logger.info(
-            f"seeds: {len(self.seeds)} total "
-            f"({len(self.train_seeds)} train, {len(self.test_seeds)} test_masked, "
-            f"{len(self.climb_seeds)} climb_mm)"
-        )
-
-        # Output-mix targets and running counts. Workers pick the most-deficit
-        # mode each iteration to drive the pool toward these proportions. If
-        # there are no test_seeds, the gen_test target is folded into gen_train;
-        # likewise gen_mm folds into gen_train when no climb seeds are loaded.
-        self.mix_targets = {
-            "direct": float(args.direct_target),
-            "gen_train": float(args.gen_train_target),
-            "gen_test": float(args.gen_test_target),
-            "gen_mm": float(getattr(args, "gen_mm_target", 0.0)),
-        }
-        if not self.test_seeds:
-            self.mix_targets["gen_train"] += self.mix_targets["gen_test"]
-            self.mix_targets["gen_test"] = 0.0
-        if not self.climb_seeds:
-            self.mix_targets["gen_train"] += self.mix_targets["gen_mm"]
-            self.mix_targets["gen_mm"] = 0.0
-        # Renormalize (in case the user passed values that don't sum to 1).
-        total = sum(self.mix_targets.values()) or 1.0
-        for k in self.mix_targets:
-            self.mix_targets[k] /= total
-        self.mix_counts = {"direct": 0, "gen_train": 0, "gen_test": 0, "gen_mm": 0}
+        else:
+            # RETRIEVE-ONLY. Without --rubric_mode the server generates nothing and
+            # exists purely to serve POST /retrieve over the medical KB. That is how
+            # the MedThinkVQA run gets its retrieval tool: its task set is a real
+            # fixed split, so there is nothing to generate. No workers are spawned.
+            self.train_seeds = []
+            self.seeds = []
+            logger.info("retrieve-only mode: no task generation; /retrieve served")
+        # One generation mode remains, so the mix is trivial; kept because /stats
+        # and the corpus statistics read these.
+        self.mix_targets = {"gen_task": 1.0}
+        self.mix_counts = {"gen_task": 0}
         self._init_pool_and_logs(args)
 
     def _synth_rubric_seeds(self) -> list[dict]:
@@ -868,13 +666,7 @@ class ServerState:
         return seeds
 
     def _init_pool_and_logs(self, args) -> None:
-        """Runtime state shared by both diagnosis and rubric modes (pool, logs,
-        stats, milvus client, http client). Mode-specific seed/mix setup runs
-        before this in __init__."""
-        # mix_counts must cover every mode key the active mode can emit.
-        if self.rubric_mode:
-            self.mix_targets = {"gen_task": 1.0}
-            self.mix_counts = {"gen_task": 0}
+        """Runtime state: pool, logs, stats, Milvus client, HTTP client."""
 
         # Random-draw (not FIFO) so each fetched batch is a representative mix
         # of the bursty per-mode output instead of a contiguous run of one mode
@@ -891,8 +683,6 @@ class ServerState:
         # the chat server is saturated), /sample serves a random entry from
         # here instead of 503-ing the trainer.
         self.history: deque = deque(maxlen=args.history_size)
-        self.target_idx = 0
-        self.cycle = 0
         self.question_counter = 0
         self.format_counter = 0
 
@@ -975,20 +765,6 @@ class ServerState:
         self.wikidoc_q: asyncio.Queue = asyncio.Queue(maxsize=20000)
         self.wikidoc_seen: set = set()
         self.summarizer_warned = False
-
-    def _load_seeds(self, path: str) -> list[dict]:
-        if not os.path.isfile(path):
-            raise FileNotFoundError(f"seeds_path not found: {path}")
-        seeds: list[dict] = []
-        with open(path, "r") as f:
-            for line in f:
-                line = line.strip()
-                if line:
-                    seeds.append(json.loads(line))
-        if not seeds:
-            raise RuntimeError(f"no seeds loaded from {path}")
-        logger.info(f"loaded {len(seeds)} seeds from {path}")
-        return seeds
 
     def accuracy_stats(self) -> dict:
         if not self.accuracy_history:
@@ -1264,21 +1040,8 @@ async def _milvus_search_multi(state: ServerState, queries: list[str], top_k: in
         )
 
 
-# Milvus boolean filter selecting CLIMB train-split multimodal rows only. The
-# build_medical_knowledge_v2 indexer keys CLIMB rows as "climb_<split>_<line>",
-# so the train split is exactly entry_id LIKE "climb_train_%".
-CLIMB_TRAIN_FILTER = 'source_dataset == "climb" and entry_id like "climb_train_%"'
 
 
-async def _milvus_search_climb(state: ServerState, query_text: str, top_k: int,
-                               images_only: bool = False) -> list[dict]:
-    """Retrieve CLIMB train-split multimodal neighbors for a query. Restricts to
-    image modality when `images_only` (video frame extraction is best-effort)."""
-    expr = CLIMB_TRAIN_FILTER
-    if images_only:
-        expr += ' and modality == "image"'
-    hits = await _milvus_search(state, query_text, top_k, filter_expr=expr)
-    return [h for h in hits if h.get("image_path")]
 
 
 # ======================================================================
@@ -1382,62 +1145,8 @@ def _history_ensure_collection_sync(state) -> None:
             pass
 
 
-def _history_insert_sync(state, entry_id: str, embedding: list[float],
-                         question_text: str, answer_text: str,
-                         question_format: str, mode: str) -> None:
-    from pymilvus import MilvusClient
-
-    client = MilvusClient(uri=state.args.milvus_uri, token=state.args.milvus_token)
-    try:
-        client.insert(
-            collection_name=state.args.milvus_history_collection,
-            data=[{
-                "entry_id": entry_id,
-                "embedding": embedding,
-                "question_text": _truncate_right_bytes(question_text, 4096, 8000),
-                "answer_text": _truncate_right_bytes(answer_text or "", 1024, 2000),
-                "question_format": (question_format or "")[:16],
-                "mode": (mode or "")[:16],
-                "num_reports": 0,
-                "num_correct": 0,
-                "created_at": int(time.time()),
-            }],
-        )
-    finally:
-        try:
-            client.close()
-        except Exception:
-            pass
 
 
-async def history_insert(state, entry: dict, mode: str) -> None:
-    """Embed the question text and insert this entry into the history
-    collection. Fire-and-forget: failures are logged but don't block the
-    worker — Milvus being down should never wedge the pool."""
-    extra = entry.get("extra_info") or {}
-    entry_id = extra.get("question_id")
-    question_text = (extra.get("question") or "").strip() or _extract_user_text(entry)
-    if not entry_id or not question_text:
-        return
-    try:
-        embedding = await _embed_text(state, question_text)
-    except Exception as e:
-        logger.warning(f"history embed failed for {entry_id}: {type(e).__name__}: {e}")
-        return
-    # Track in-memory counters so we never miss a /report that arrives before
-    # the Milvus insert lands.
-    state.history_counters.setdefault(entry_id, {"num_reports": 0, "num_correct": 0})
-    answer_text = ""
-    if entry.get("reward_model") and isinstance(entry["reward_model"], dict):
-        answer_text = str(entry["reward_model"].get("ground_truth", ""))
-    question_format = extra.get("format", "")
-    try:
-        await asyncio.to_thread(
-            _history_insert_sync, state, entry_id, embedding,
-            question_text, answer_text, question_format, mode,
-        )
-    except Exception as e:
-        logger.warning(f"history insert failed for {entry_id}: {type(e).__name__}: {e}")
 
 
 def _history_upsert_perf_sync(state, entry_id: str, num_reports: int,
@@ -1482,84 +1191,10 @@ def _history_upsert_perf_sync(state, entry_id: str, num_reports: int,
             pass
 
 
-def _history_search_sync(state, embedding: list[float], top_k: int) -> list[dict]:
-    from pymilvus import MilvusClient
-
-    client = MilvusClient(uri=state.args.milvus_uri, token=state.args.milvus_token)
-    try:
-        results = client.search(
-            collection_name=state.args.milvus_history_collection,
-            data=[embedding],
-            limit=top_k,
-            output_fields=["question_text", "answer_text", "question_format",
-                           "num_reports", "num_correct"],
-        )
-        hits: list[dict] = []
-        for hit_list in results:
-            for hit in hit_list:
-                e = hit["entity"]
-                hits.append({
-                    "question": e.get("question_text", ""),
-                    "answer": e.get("answer_text", ""),
-                    "format": e.get("question_format", ""),
-                    "num_reports": int(e.get("num_reports", 0) or 0),
-                    "num_correct": int(e.get("num_correct", 0) or 0),
-                    "score": hit.get("distance"),
-                })
-        return hits
-    finally:
-        try:
-            client.close()
-        except Exception:
-            pass
 
 
-async def history_search(state, query_text: str, top_k: Optional[int] = None) -> list[dict]:
-    """Find the top-k most-similar previously-proposed questions."""
-    if top_k is None:
-        top_k = state.args.history_retrieve_top_k
-    try:
-        embedding = await _embed_text(state, query_text)
-    except Exception as e:
-        logger.warning(
-            f"history search embed failed for '{query_text[:60]}': "
-            f"{type(e).__name__}: {e!r}"
-        )
-        return []
-    try:
-        return await asyncio.to_thread(_history_search_sync, state, embedding, top_k)
-    except Exception as e:
-        logger.warning(f"history search failed: {type(e).__name__}: {e}")
-        return []
 
 
-def format_history_context(hits: list[dict]) -> str:
-    """Render top-k neighbor entries as a compact context block for the
-    proposer prompt. Each entry shows the question, format, and observed
-    solver accuracy (correct/reports) so the proposer can reason about gaps."""
-    if not hits:
-        return ""
-    lines = ["Recently proposed similar questions and the solver's running accuracy:"]
-    for i, h in enumerate(hits, 1):
-        n_rep = h.get("num_reports", 0) or 0
-        n_cor = h.get("num_correct", 0) or 0
-        if n_rep:
-            perf = f"{n_cor}/{n_rep} correct ({n_cor / n_rep:.0%})"
-        else:
-            perf = "not yet scored"
-        fmt = h.get("format") or ""
-        q = (h.get("question") or "").replace("\n", " ").strip()
-        if len(q) > 400:
-            q = q[:400] + "…"
-        lines.append(f"{i}. [{fmt}] {q}  [{perf}]")
-    lines.append("")
-    lines.append(
-        "Use these to (a) NOT repeat or near-paraphrase any of the above, "
-        "(b) infer what topics/skills the solver is consistently RIGHT about and "
-        "should NOT be drilled further, and (c) target the gaps where the solver is "
-        "getting answers wrong or has not been tested."
-    )
-    return "\n".join(lines)
 
 
 def _parse_json(s: str, expect_array: bool = False):
@@ -1612,124 +1247,12 @@ def _parse_json(s: str, expect_array: bool = False):
     raise ValueError(f"no JSON found in: {s}")
 
 
-def _extract_user_text(target: dict) -> str:
-    for msg in target.get("prompt", []):
-        if msg.get("role") == "user":
-            content = msg["content"]
-            if isinstance(content, str):
-                return content
-            if isinstance(content, list):
-                texts = [c.get("text", "") for c in content if c.get("type") == "text"]
-                return " ".join(texts)
-    return ""
 
 
-# ======================================================================
-# Agents
-# ======================================================================
-async def agent_query_proposer(state: ServerState, target: dict,
-                               history_context: str = "") -> list[str]:
-    target_question = (
-        target.get("extra_info", {}).get("question", "")
-        or _extract_user_text(target)
-    )
-    parts = [f"Target training question:\n{target_question}"]
-    if history_context:
-        parts.append(history_context)
-    parts.append(f"Generate {state.args.n_queries} diverse search queries.")
-    user_prompt = "\n\n".join(parts)
-    # Kimi JSON Mode only outputs JSON Objects — not arrays — so we don't
-    # request response_format here. The proposer's prompt already pins the
-    # output to "JSON array of 10 strings" and _parse_json strips fenced
-    # blocks / trailing commas heuristically.
-    response = await _api_call(state, QUERY_PROPOSER_SYSTEM_PROMPT, user_prompt,
-                               max_tokens=12288, temperature=0.8,
-                               label="chat_query_proposer")
-    queries = _parse_json(response, expect_array=True)
-    if not isinstance(queries, list):
-        raise ValueError("query proposer did not return a list")
-    queries = [q for q in queries if isinstance(q, str) and q.strip()]
-    if not queries:
-        raise ValueError("query proposer returned no valid queries")
-    return queries[:state.args.n_queries]
 
 
-async def agent_question_generator(state: ServerState, target_question: str,
-                                   knowledge: str, accuracy_stats: dict,
-                                   required_format: str) -> dict:
-    sys_prompt = QUESTION_GENERATOR_SYSTEM_PROMPT.format(
-        required_format=required_format,
-        accuracy=accuracy_stats["mean"],
-        accuracy_count=accuracy_stats["count"],
-    )
-    user_prompt = (
-        f"Reference training question:\n{target_question}\n\n"
-        f"Retrieved medical knowledge:\n{knowledge}\n\n"
-        f"Synthesize one new training question in the required format ({required_format})."
-    )
-    response = await _api_call(state, sys_prompt, user_prompt, max_tokens=12288,
-                                temperature=0.9, label="chat_generator", want_json=True)
-    q = _parse_json(response)
-    fmt = q.get("format", "").lower()
-    question = q.get("question", "").strip()
-    answer = str(q.get("answer", "")).strip()
-    if not question or not answer:
-        raise ValueError(f"missing question/answer: {q}")
-    if fmt != required_format:
-        raise ValueError(f"format mismatch: got {fmt}, want {required_format}")
-    if fmt == "mcq":
-        options = q.get("options", {})
-        if not isinstance(options, dict) or len(options) < 2:
-            raise ValueError(f"mcq missing options: {q}")
-        ans_letter = answer.upper()[:1]
-        if ans_letter not in options:
-            raise ValueError(f"mcq answer {answer} not in options {list(options)}")
-        q["format"] = "mcq"
-        q["answer"] = ans_letter
-        q["options"] = options
-    else:
-        q["format"] = "free"
-        q["answer"] = answer
-    return q
 
 
-async def agent_validator(state: ServerState, generated: dict) -> tuple[bool, str]:
-    query_text = generated["question"]
-    if generated.get("format") == "mcq":
-        query_text += " " + " ".join(generated.get("options", {}).values())
-    hits = await _milvus_search(state, query_text, top_k=3)
-    if not hits:
-        return True, "no retrieval results — out-of-knowledge, accepted"
-
-    passages = "\n\n".join(f"[{h['source']}] {h['text']}" for h in hits[:3])
-    if generated.get("format") == "mcq":
-        q_text = (
-            f"Question: {generated['question']}\n"
-            f"Options: {json.dumps(generated.get('options', {}))}\n"
-            f"Proposed answer: {generated['answer']}"
-        )
-    else:
-        q_text = (
-            f"Question: {generated['question']}\n"
-            f"Proposed answer: {generated['answer']}"
-        )
-    user_prompt = (
-        f"{q_text}\n\nRetrieved passages from the database:\n{passages}\n\n"
-        "Does the proposed answer CONTRADICT the retrieved knowledge?"
-    )
-    try:
-        response = await _api_call(state, QUESTION_VALIDATOR_SYSTEM_PROMPT, user_prompt,
-                                   max_tokens=12288, temperature=0.2,
-                                   label="chat_validator", want_json=True)
-        result = _parse_json(response)
-        verdict = result.get("verdict", "").lower()
-        reason = result.get("reason", "")
-        if verdict == "contradict":
-            return False, reason
-        return True, reason
-    except Exception as e:
-        logger.warning(f"validator failed, accepting: {e}")
-        return True, f"validator error: {e}"
 
 
 # ======================================================================
@@ -4116,298 +3639,18 @@ async def _evolve_retrieval_reward(state: ServerState, step: int, cases: list[di
     return metrics
 
 
-def _pick_mode(state: ServerState) -> str:
-    """Pick the mode whose current pool share is most below its target.
-
-    Mode counts are number of *entries pushed*, not number of iterations,
-    so a single generate-iteration that yields N entries contributes N to
-    its mode's count. Modes with zero seeds available (e.g. ``gen_test``
-    when ``test_seeds_path`` is unset) are skipped.
-    """
-    counts = state.mix_counts
-    targets = state.mix_targets
-    total = sum(counts.values()) + len(counts)  # +len for Laplace smoothing
-    best_mode = "direct"
-    best_deficit = -float("inf")
-    for mode, target in targets.items():
-        if target <= 0:
-            continue
-        if mode == "gen_test" and not state.test_seeds:
-            continue
-        if mode == "gen_mm" and not state.climb_seeds:
-            continue
-        share = (counts[mode] + 1) / total
-        deficit = target - share
-        if deficit > best_deficit:
-            best_deficit = deficit
-            best_mode = mode
-    return best_mode
 
 
-def _build_raw_entry(target: dict, target_idx: int, cycle: int) -> dict:
-    """Pool entry built directly from a train.jsonl seed (no LLM rewriting).
-
-    The seed already has data_source/prompt/images/reward_model in verl shape;
-    we just clone it, add a question_id, and tag it as direct-insert.
-    """
-    entry = {
-        "data_source": target.get("data_source", "self_evolving"),
-        "prompt": list(target.get("prompt", [])),
-        "reward_model": dict(target.get("reward_model", {})),
-        "extra_info": dict(target.get("extra_info", {})),
-    }
-    if "images" in target:
-        entry["images"] = target["images"]
-    entry["extra_info"]["question_id"] = uuid.uuid4().hex
-    entry["extra_info"]["split"] = "train"
-    entry["extra_info"]["source"] = "direct_seed"
-    entry["extra_info"]["cycle"] = cycle
-    entry["extra_info"]["target_idx"] = target_idx
-    return entry
 
 
-def _build_entry(state: ServerState, generated: dict, target: dict,
-                 passage: str, query: str, target_idx: int, cycle: int) -> dict:
-    state.question_counter += 1
-    target_id = (
-        target.get("extra_info", {}).get("pubmed_id", "")
-        or target.get("extra_info", {}).get("hadm_id", "")
-        or target.get("id", "")
-        or f"t{target_idx}"
-    )
-
-    if generated["format"] == "mcq":
-        options = generated["options"]
-        options_text = "\n".join(f"{k}. {v}" for k, v in sorted(options.items()))
-        user_content = (
-            f"{generated['question']}\n\n"
-            f"Options:\n{options_text}\n\n"
-            "Choose the single best answer (A, B, C, or D)."
-        )
-        sys_prompt = SOLVER_SYSTEM_PROMPT_MCQ
-        gt = generated["answer"]
-        style = "rule_mcq"
-    else:
-        user_content = generated["question"]
-        sys_prompt = SOLVER_SYSTEM_PROMPT_FREE
-        gt = generated["answer"]
-        style = "rule_free"
-
-    if state.args.no_label:
-        gt = ""
-
-    qid = uuid.uuid4().hex
-    return {
-        "data_source": "self_evolving",
-        "prompt": [
-            {"role": "system", "content": sys_prompt},
-            {"role": "user", "content": user_content},
-        ],
-        "reward_model": {"style": style, "ground_truth": gt},
-        "extra_info": {
-            "question_id": qid,
-            "index": state.question_counter,
-            "split": "train",
-            "source": "self_evolving_multi_agent",
-            "cycle": cycle,
-            "target_idx": target_idx,
-            "target_id": str(target_id),
-            "format": generated["format"],
-            "question": generated["question"],
-            "answer": generated["answer"],
-            "options": generated.get("options", {}) if generated["format"] == "mcq" else {},
-            "passage": passage[:4000],
-            "retrieval_query": query,
-        },
-    }
 
 
-# ======================================================================
-# Multimodal (CLIMB) generation
-# ----------------------------------------------------------------------
-# A climb seed (real train image/video + question + label) is combined with a
-# few retrieved CLIMB train-split neighbors. The teacher SEES the images and
-# synthesizes a NEW question that references them with <<k>> tokens; we map
-# those back to <image>/<video> placeholders and ship the entry with portable
-# "climb://<relpath>" media handles the trainer resolves from the file server.
-# ======================================================================
-def _climb_media_item_from_seed(seed: dict) -> Optional[dict]:
-    """Turn a climb seed entry into a media item for the generation prompt."""
-    rel = None
-    media_modality = "image"
-    for vid in (seed.get("videos") or []):
-        r = _climb_relpath(vid)
-        if r:
-            rel, media_modality = r, "video"
-            break
-    if rel is None:
-        for im in (seed.get("images") or []):
-            r = _climb_relpath(im)
-            if r:
-                rel, media_modality = r, "image"
-                break
-    if rel is None:
-        return None
-    extra = seed.get("extra_info") or {}
-    return {
-        "rel": rel,
-        "modality": media_modality,
-        "clinical_modality": extra.get("modality") or "unknown",
-        "question": extra.get("question") or _extract_user_text(seed),
-        "answer": str((seed.get("reward_model") or {}).get("ground_truth", "")),
-    }
 
 
-def _climb_media_item_from_hit(hit: dict) -> Optional[dict]:
-    """Turn a Milvus CLIMB hit into a media item. image_path is
-    high_modality-relative (build_medical_knowledge_v2). Kept dependency-free
-    (this server runs as a script, so `verl` is not importable)."""
-    raw = (hit.get("image_path") or "").lstrip("/")
-    rel = raw[len("high_modality/"):] if raw.startswith("high_modality/") else raw
-    if not rel:
-        return None
-    clinical = rel.split("/")[0] or "unknown"
-    return {
-        "rel": rel,
-        "modality": hit.get("modality") or "image",
-        "clinical_modality": clinical,
-        "question": hit.get("question") or "",
-        "answer": hit.get("answer") or "",
-    }
 
 
-async def agent_question_generator_mm(state: ServerState, media_items: list,
-                                      accuracy_stats: dict, required_format: str) -> dict:
-    """Synthesize one multimodal question over `media_items` (the teacher sees
-    the attached images / sampled video frames). Returns the validated generator
-    dict ({format, question with <<k>> refs, options?, answer})."""
-    sys_prompt = QUESTION_GENERATOR_MM_SYSTEM_PROMPT.format(
-        required_format=required_format,
-        accuracy=accuracy_stats["mean"],
-        accuracy_count=accuracy_stats["count"],
-    )
-    n_frames = int(getattr(state.args, "mm_video_frames", 2))
-    max_pixels = int(getattr(state.args, "mm_max_pixels", 1048576))
-    content: list = []
-    for i, item in enumerate(media_items, 1):
-        content.append({"type": "text", "text": (
-            f"[MEDIA {i}] clinical_modality={item['clinical_modality']} type={item['modality']}\n"
-            f"original question: {(item.get('question') or '')[:600]}\n"
-            f"answer/label: {(item.get('answer') or '')[:300]}"
-        )})
-        if item["modality"] == "video":
-            uris = await asyncio.to_thread(_climb_video_frame_uris, item["rel"], n_frames)
-            for uri in uris:
-                content.append({"type": "image_url", "image_url": {"url": uri}})
-        else:
-            uri = await asyncio.to_thread(
-                _image_to_data_uri, {"image": f"climb://{item['rel']}", "max_pixels": max_pixels}
-            )
-            if uri:
-                content.append({"type": "image_url", "image_url": {"url": uri}})
-    content.append({"type": "text", "text": (
-        f"Synthesize ONE new {required_format} question per the rules, referencing media "
-        f"with <<k>> tokens (k in 1..{len(media_items)})."
-    )})
-
-    response = await _api_call(state, sys_prompt, content, max_tokens=4096,
-                               temperature=0.9, label="chat_generator_mm", want_json=True)
-    q = _parse_json(response)
-    fmt = (q.get("format") or "").lower()
-    question = (q.get("question") or "").strip()
-    answer = str(q.get("answer") or "").strip()
-    if not question or not answer:
-        raise ValueError(f"mm missing question/answer: {q}")
-    if "<<" not in question:
-        raise ValueError("mm question references no media (<<k>>)")
-    if fmt != required_format:
-        raise ValueError(f"mm format mismatch: got {fmt}, want {required_format}")
-    if fmt == "mcq":
-        options = q.get("options", {})
-        if not isinstance(options, dict) or len(options) < 2:
-            raise ValueError(f"mm mcq missing options: {q}")
-        ans_letter = answer.upper()[:1]
-        if ans_letter not in options:
-            raise ValueError(f"mm mcq answer {answer} not in options {list(options)}")
-        q["format"], q["answer"], q["options"] = "mcq", ans_letter, options
-    else:
-        q["format"], q["answer"] = "free", answer
-    return q
 
 
-def _build_mm_entry(state: ServerState, generated: dict, media_items: list,
-                    target_idx: int, cycle: int) -> Optional[dict]:
-    """Build a trainer entry from a multimodal generated question. Maps each
-    <<k>> reference to an <image>/<video> placeholder and an aligned
-    "climb://<rel>" media handle (one media entry per placeholder occurrence)."""
-    state.question_counter += 1
-    images_seq: list = []
-    videos_seq: list = []
-
-    def _repl(m):
-        k = int(m.group(1))
-        if k < 1 or k > len(media_items):
-            return ""  # drop dangling reference
-        item = media_items[k - 1]
-        ref = f"climb://{item['rel']}"
-        if item["modality"] == "video":
-            videos_seq.append(ref)
-            return "<video>"
-        images_seq.append(ref)
-        return "<image>"
-
-    question_text = re.sub(r"<<\s*(\d+)\s*>>", _repl, generated["question"]).strip()
-    if not images_seq and not videos_seq:
-        # Teacher placed no usable reference — anchor on the first media item.
-        item = media_items[0]
-        ref = f"climb://{item['rel']}"
-        if item["modality"] == "video":
-            videos_seq.append(ref)
-            question_text = "<video>\n" + question_text
-        else:
-            images_seq.append(ref)
-            question_text = "<image>\n" + question_text
-
-    if generated["format"] == "mcq":
-        options = generated["options"]
-        options_text = "\n".join(f"{k}. {v}" for k, v in sorted(options.items()))
-        user_content = (
-            f"{question_text}\n\nOptions:\n{options_text}\n\n"
-            "Choose the single best answer (A, B, C, or D)."
-        )
-        sys_prompt, style = SOLVER_SYSTEM_PROMPT_MCQ, "rule_mcq"
-    else:
-        user_content = question_text
-        sys_prompt, style = SOLVER_SYSTEM_PROMPT_FREE, "rule_free"
-
-    gt = "" if state.args.no_label else generated["answer"]
-    entry = {
-        "data_source": "climb_gen",
-        "prompt": [
-            {"role": "system", "content": sys_prompt},
-            {"role": "user", "content": user_content},
-        ],
-        "reward_model": {"style": style, "ground_truth": gt},
-        "extra_info": {
-            "question_id": uuid.uuid4().hex,
-            "index": state.question_counter,
-            "split": "train",
-            "source": "climb_mm_gen",
-            "cycle": cycle,
-            "target_idx": target_idx,
-            "format": generated["format"],
-            "question": question_text,
-            "answer": generated["answer"],
-            "options": generated.get("options", {}) if generated["format"] == "mcq" else {},
-            "modality": media_items[0]["clinical_modality"],
-            "media": [{"rel": it["rel"], "modality": it["modality"]} for it in media_items],
-        },
-    }
-    if images_seq:
-        entry["images"] = images_seq
-    if videos_seq:
-        entry["videos"] = videos_seq
-    return entry
 
 
 # ======================================================================
@@ -4440,71 +3683,14 @@ _TRACE_FORMAT_RE = re.compile(
 )
 
 
-def _valid_trace_format(ref: str) -> bool:
-    """Strict 2-turn target check: the assistant turn must be a non-empty
-    <think> reasoning </think> followed by exactly one trailing \\boxed{...}.
-
-    Rejects empty/whitespace-only reasoning (e.g. a teacher that hides its
-    chain-of-thought), a missing/misplaced box, or trailing junk after the box.
-    """
-    m = _TRACE_FORMAT_RE.fullmatch(ref or "")
-    if not m:
-        return False
-    reasoning = m.group("reasoning").strip()
-    if len(reasoning) < _MIN_REASONING_CHARS:
-        return False
-    # No stray second <think>/box inside the reasoning that would break parsing.
-    if "<think>" in reasoning or "</think>" in reasoning:
-        return False
-    return True
 
 
-def _extract_boxed(text: str) -> Optional[str]:
-    matches = _BOXED_RE.findall(text or "")
-    if not matches:
-        # Fallback for nested braces like \boxed{\text{...}}: grab to last brace.
-        m = re.search(r"\\boxed\{(.+)\}", text or "", re.DOTALL)
-        if not m:
-            return None
-        ans = m.group(1)
-    else:
-        ans = matches[-1]
-    ans = ans.strip()
-    # Strip a \text{...} / \mathrm{...} LaTeX wrapper if present.
-    tm = re.match(r"\\(?:text|mathrm|mathbf)\{(.*)\}$", ans)
-    if tm:
-        ans = tm.group(1).strip()
-    return ans
 
 
-def _icd_code(text: str) -> Optional[str]:
-    m = _ICD_CODE_RE.search(text or "")
-    return m.group(1).upper() if m else None
 
 
-def _answer_matches(pred: str, gt: str, fmt: str) -> bool:
-    """Teacher-trace correctness gate; mirrors the reward's check_accuracy but
-    a touch more lenient for free-form (substring) since the teacher may phrase
-    the same diagnosis differently than the label."""
-    gtl = (gt or "").strip().lower()
-    predl = (pred or "").strip().lower()
-    if not gtl:
-        return False
-    if fmt == "mcq" or (len(gtl) == 1 and gtl in "abcd"):
-        pl = re.sub(r"[^a-d]", "", predl)[:1]
-        return bool(pl) and pl == gtl
-    gc, pc = _icd_code(gt), _icd_code(pred)
-    if gc is not None and pc is not None:
-        return gc == pc
-    return predl == gtl or gtl in predl or predl in gtl
 
 
-def _compose_trace(raw: str, boxed: str) -> str:
-    """Normalize any teacher output into <think>...</think>\n\n\boxed{ans}."""
-    body = re.sub(r"</?think>", "", raw or "").strip()
-    idx = body.rfind("\\boxed")
-    reasoning = (body[:idx].strip() if idx != -1 else body).strip()
-    return f"<think>\n{reasoning}\n</think>\n\n\\boxed{{{boxed}}}"
 
 
 def _text_from_content(content) -> str:
@@ -4515,183 +3701,24 @@ def _text_from_content(content) -> str:
     return ""
 
 
-async def _teacher_solve_call(state: ServerState, system_prompt: str,
-                              user_prompt: str, max_tokens: int) -> str:
-    """Like _api_call but returns the FULL visible reasoning trace.
-
-    The provider's hidden reasoning channel (TRAPI/Azure gpt-5.x) is not
-    returned over the API, so we disable it and rely on the solver system
-    prompt to elicit a visible chain-of-thought in `content`. For vLLM/Kimi we
-    keep thinking on and stitch `reasoning_content` back in front of `content`.
-    """
-    provider = os.environ.get("CHAT_PROVIDER", "vllm").lower()
-    payload: dict = {
-        "model": state.args.model_name,
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt},
-        ],
-    }
-    if provider == "vllm":
-        payload["max_tokens"] = max_tokens
-        payload["temperature"] = 0.6
-        payload["chat_template_kwargs"] = {"enable_thinking": True}
-    elif provider == "kimi":
-        payload["max_tokens"] = max_tokens
-        payload["thinking"] = {"type": "enabled"}
-    elif provider == "trapi":
-        # Leave reasoning at its default: the hidden channel isn't returned, so
-        # the visible chain-of-thought is elicited by SFT_TEACHER_SYSTEM_PROMPT.
-        payload["max_completion_tokens"] = max_tokens
-    else:
-        payload["max_tokens"] = max_tokens
-        payload["temperature"] = 0.6
-    headers = {"Authorization": f"Bearer {state.args.api_key}"}
-    timeout = float(os.environ.get("GEN_CHAT_TIMEOUT", "1800"))
-    async with timed(state, "chat_teacher"):
-        resp = await state.http_client.post(
-            f"{state.args.api_base}/chat/completions",
-            json=payload, headers=headers, timeout=timeout,
-        )
-        resp.raise_for_status()
-        msg = resp.json()["choices"][0]["message"]
-    content = (msg.get("content") or "").strip()
-    reasoning = (msg.get("reasoning_content") or msg.get("reasoning") or "").strip()
-    if reasoning and "<think>" not in content:
-        return f"<think>\n{reasoning}\n</think>\n\n{content}"
-    return content
 
 
-async def _gather_teacher_context(state: ServerState, entry: dict,
-                                  question_text: str) -> str:
-    """Assemble the retrieved-knowledge context the teacher sees while
-    producing an SFT trace.
-
-    The teacher must solve the question with the SAME evidence the answer is
-    grounded in — not from the bare question — so it reasons correctly (more
-    traces pass the GT gate) and produces grounded reasoning. For generated
-    entries the exact passages the question was synthesized from are stored on
-    the entry (`extra_info['passage']`); reuse them verbatim. For raw/direct
-    seeds (no stored passage) fall back to a fresh Milvus retrieval on the
-    question so the teacher is still grounded. Best-effort: returns "" if
-    nothing is available, in which case the teacher solves from the question
-    alone (previous behavior)."""
-    extra = entry.get("extra_info") or {}
-    passage = (extra.get("passage") or "").strip()
-    if passage:
-        return passage
-    try:
-        hits = await _milvus_search(state, question_text, top_k=state.args.milvus_top_k)
-    except Exception as e:
-        logger.warning(f"teacher-context retrieval failed: {type(e).__name__}: {e}")
-        return ""
-    if not hits:
-        return ""
-    knowledge = "\n\n".join(
-        f"[passage {i + 1} / source={h.get('source', '?')}]\n{h['text']}"
-        for i, h in enumerate(hits)
-    )
-    return knowledge[:4000]
 
 
-# ======================================================================
-# CLIMB remote media. The trainer and this server run on GPU nodes that cannot
-# see /scratch/high_modality on disk, so CLIMB images/videos are referenced as
-# "climb://<relpath>" handles and fetched over authenticated HTTP from the local
-# file server. _CLIMB_FILE_BASE is set from --climb_file_base at startup; the
-# token is read from the CLIMB_FILE_TOKEN env on every call (never captured at
-# import time).
-# ======================================================================
-_CLIMB_FILE_BASE = ""
 
 
-def _climb_relpath(ref) -> Optional[str]:
-    """high_modality-relative path for a CLIMB media reference, else None.
-
-    Accepts a "climb://<rel>" string, or a dict carrying that string under
-    `image`/`video`, or a dict with a bare `climb_path`. Plain local paths
-    return None (they are not CLIMB handles)."""
-    cand = None
-    if isinstance(ref, str):
-        cand = ref
-    elif isinstance(ref, dict):
-        cand = ref.get("climb_path") or ref.get("image") or ref.get("video")
-    if not isinstance(cand, str):
-        return None
-    if cand.startswith("climb://"):
-        cand = cand[len("climb://"):]
-    elif not (isinstance(ref, dict) and ref.get("climb_path")):
-        return None
-    return cand[len("high_modality/"):] if cand.startswith("high_modality/") else cand
 
 
-def _climb_fetch_bytes_sync(rel: str, max_pixels: Optional[int] = None) -> Optional[bytes]:
-    """Fetch one CLIMB media file from the local file server (sync; call via
-    to_thread). Optional server-side image downscale via `max_pixels`."""
-    if not _CLIMB_FILE_BASE:
-        logger.warning("climb media requested but --climb_file_base is unset")
-        return None
-    url = f"{_CLIMB_FILE_BASE.rstrip('/')}/file/{rel}"
-    params = {"max_pixels": int(max_pixels)} if max_pixels else None
-    headers = {"Authorization": f"Bearer {os.environ.get('CLIMB_FILE_TOKEN', '')}"}
-    try:
-        resp = httpx.get(url, params=params, headers=headers, timeout=120.0)
-        resp.raise_for_status()
-        return resp.content
-    except Exception as e:
-        logger.warning(f"climb media fetch failed for {rel}: {type(e).__name__}: {e}")
-        return None
 
 
-def _climb_video_frame_uris(rel: str, n_frames: int) -> list:
-    """Best-effort: fetch a CLIMB video and return up to `n_frames` evenly
-    spaced frames as PNG data URIs so the teacher can SEE the clip. Returns []
-    if video decoding is unavailable or fails (teacher then uses the text Q/A)."""
-    data = _climb_fetch_bytes_sync(rel)
-    if not data:
-        return []
-    try:
-        import tempfile
-
-        import cv2  # type: ignore
-
-        suffix = os.path.splitext(rel)[1] or ".mp4"
-        with tempfile.NamedTemporaryFile(suffix=suffix) as tf:
-            tf.write(data)
-            tf.flush()
-            cap = cv2.VideoCapture(tf.name)
-            total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) or 0
-            if total <= 0:
-                cap.release()
-                return []
-            n = max(1, n_frames)
-            idxs = [min(int(total * (k + 0.5) / n), total - 1) for k in range(n)]
-            uris = []
-            for fi in idxs:
-                cap.set(cv2.CAP_PROP_POS_FRAMES, fi)
-                ok, frame = cap.read()
-                if not ok:
-                    continue
-                ok2, buf = cv2.imencode(".png", frame)
-                if ok2:
-                    uris.append("data:image/png;base64," + base64.b64encode(buf.tobytes()).decode("ascii"))
-            cap.release()
-            return uris
-    except Exception as e:
-        logger.warning(f"climb video frame extraction failed for {rel}: {type(e).__name__}: {e}")
-        return []
 
 
 def _entry_images_present(entry: dict) -> bool:
-    """True if every LOCAL media file the entry references exists on disk.
+    """True if every media file the entry references exists on disk.
 
-    Remote CLIMB handles ("climb://...") are assumed present — they are served
-    by the file server, not on this node's disk — and pass the gate. SFT serves
-    media rows through the multimodal tokenizer, which opens each local file, so
-    a missing local file would crash the trainer's __getitem__."""
+    SFT serves media rows through the multimodal tokenizer, which opens each file,
+    so a missing one would crash the trainer's __getitem__."""
     for media in list(entry.get("images") or []) + list(entry.get("videos") or []):
-        if _climb_relpath(media) is not None:
-            continue  # remote: trust the file server
         p = media.get("image") if isinstance(media, dict) else media
         if isinstance(media, dict) and not isinstance(p, str):
             p = media.get("video")
@@ -4700,115 +3727,8 @@ def _entry_images_present(entry: dict) -> bool:
     return True
 
 
-def _image_to_data_uri(img) -> Optional[str]:
-    """Encode one entry image into a data: URI for the OpenAI/vLLM chat
-    image_url field. Accepts a local path (dict {"image": path, "max_pixels": N}
-    or a path string) OR a remote CLIMB handle ("climb://rel" / {"image":
-    "climb://rel"}), which is fetched from the file server.
-
-    Best-effort downscale to `max_pixels` so the teacher sees the SAME
-    resolution the student's multimodal row will. Returns None if unreadable.
-    Sync (blocking I/O + PIL) — call via to_thread."""
-    rel = _climb_relpath(img)
-    max_pixels = img.get("max_pixels") if isinstance(img, dict) else None
-    if rel is not None:
-        # File server already downscaled when max_pixels is passed.
-        data = _climb_fetch_bytes_sync(rel, max_pixels)
-        if data is None:
-            return None
-        mime = "image/png" if max_pixels else (mimetypes.guess_type(rel)[0] or "image/png")
-        return f"data:{mime};base64," + base64.b64encode(data).decode("ascii")
-
-    path = img.get("image") if isinstance(img, dict) else img
-    if not isinstance(path, str) or not path:
-        return None
-    try:
-        with open(path, "rb") as f:
-            data = f.read()
-    except Exception as e:
-        logger.warning(f"teacher image read failed for {path}: {type(e).__name__}: {e}")
-        return None
-    if max_pixels:
-        try:
-            from PIL import Image
-
-            im = Image.open(io.BytesIO(data)).convert("RGB")
-            if im.width * im.height > max_pixels:
-                scale = (max_pixels / float(im.width * im.height)) ** 0.5
-                im = im.resize((max(1, int(im.width * scale)), max(1, int(im.height * scale))))
-            buf = io.BytesIO()
-            im.save(buf, format="PNG")
-            return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode("ascii")
-        except Exception as e:
-            logger.warning(f"teacher image resize failed for {path}: {type(e).__name__}: {e}")
-    mime = mimetypes.guess_type(path)[0] or "image/png"
-    return f"data:{mime};base64," + base64.b64encode(data).decode("ascii")
 
 
-async def _build_teacher_content(entry: dict, user_text: str, knowledge: str):
-    """Build the teacher's user message content.
-
-    Text-only entries → a plain string. Multimodal entries (direct/raw seeds
-    carrying `images`, e.g. an ECG/chest-xray) → a list of OpenAI content parts
-    with the seed images interleaved at their `<image>` placeholders, so the
-    teacher SEES the same clinical image the student does (the student's SFT row
-    carries the image too). The retrieved knowledge is prepended as grounding
-    the teacher is told not to cite (SFT_TEACHER_SYSTEM_PROMPT)."""
-    prefix = ""
-    if knowledge:
-        prefix = (
-            "Reference medical knowledge (background for your own grounding — "
-            "do NOT cite it; the student will not see it):\n"
-            f"{knowledge}\n\n"
-            "Question to solve and teach:\n"
-        )
-    images = entry.get("images") or []
-    videos = entry.get("videos") or []
-    if not images and not videos:
-        return prefix + user_text
-
-    # Show video clips to the teacher as N evenly-spaced frames (image_url
-    # parts) — the SAME image-only treatment the student gets (the dataset
-    # flattens <video> into video_frames <image>s), so teacher and student see
-    # consistent inputs. Frame count matches the dataset default.
-    n_vf = int(os.environ.get("GEN_SFT_VIDEO_FRAMES", "6"))
-    content: list = []
-    if prefix:
-        content.append({"type": "text", "text": prefix})
-    parts = re.split(r"(<image>|<video>)", user_text)
-    img_idx = vid_idx = 0
-    for p in parts:
-        if p == "<image>":
-            uri = (
-                await asyncio.to_thread(_image_to_data_uri, images[img_idx])
-                if img_idx < len(images) else None
-            )
-            content.append(
-                {"type": "image_url", "image_url": {"url": uri}} if uri
-                else {"type": "text", "text": "<image>"}
-            )
-            img_idx += 1
-        elif p == "<video>":
-            rel = _climb_relpath(videos[vid_idx]) if vid_idx < len(videos) else None
-            uris = (
-                await asyncio.to_thread(_climb_video_frame_uris, rel, n_vf)
-                if rel else []
-            )
-            if uris:
-                for u in uris:
-                    content.append({"type": "image_url", "image_url": {"url": u}})
-            else:
-                content.append({"type": "text", "text": "<video>"})
-            vid_idx += 1
-        elif p:
-            content.append({"type": "text", "text": p})
-    # Trailing images without a matching placeholder.
-    while img_idx < len(images):
-        uri = await asyncio.to_thread(_image_to_data_uri, images[img_idx])
-        if uri:
-            content.append({"type": "image_url", "image_url": {"url": uri}})
-        img_idx += 1
-    return content
 
 
 async def _attach_sft_target(state: ServerState, entry: dict) -> bool:
@@ -4818,11 +3738,7 @@ async def _attach_sft_target(state: ServerState, entry: dict) -> bool:
     the rubric; labeled entries (mcq/free with a ground truth) -> the original
     boxed-and-verified teacher trace.
     """
-    style = (entry.get("reward_model") or {}).get("style", "")
-    gt = (entry.get("reward_model") or {}).get("ground_truth", "")
-    if style == "rubric" or (not gt and (entry.get("extra_info") or {}).get("rubric_items")):
-        return await attach_rubric_gold_trace(state, entry)
-    return await attach_teacher_trace(state, entry)
+    return await attach_rubric_gold_trace(state, entry)
 
 
 # Teacher-refusal detector. Matches the standard decline openers; deliberately
@@ -4869,8 +3785,7 @@ async def attach_rubric_gold_trace(state: ServerState, entry: dict) -> bool:
     task, conditioned on the rubric, then self-grade it and keep it only if it
     actually earns most of the rubric.
 
-    Unlike `attach_teacher_trace` (labeled tasks, verified by \boxed{} match),
-    rubric tasks have no ground_truth — the rubric IS the specification, so the
+    Rubric tasks have no ground_truth — the rubric IS the specification, so the
     verification is "does the gold answer score well against its own rubric".
     Sets entry["reference_response"] on success.
     """
@@ -5375,366 +4290,23 @@ def probe_stats(state: ServerState) -> dict:
     }
 
 
-async def attach_teacher_trace(state: ServerState, entry: dict) -> bool:
-    """Solve the entry's question with the teacher and attach a verified trace.
-
-    Returns True and sets entry["reference_response"] on success; False if no
-    correct, parseable trace was obtained (caller should drop the entry).
-    """
-    gt = entry.get("reward_model", {}).get("ground_truth", "")
-    if not gt:
-        return False  # SFT distillation needs a label to verify the trace
-    style = entry.get("reward_model", {}).get("style", "")
-    fmt = entry.get("extra_info", {}).get("format") or ("mcq" if style == "rule_mcq" else "free")
-
-    user_text = None
-    for m in entry.get("prompt", []):
-        if m.get("role") == "user":
-            user_text = _text_from_content(m.get("content"))
-    if not user_text:
-        return False
-    # Ground the teacher in the retrieved medical knowledge (and original
-    # training context carried in user_text) so its trace is correct and
-    # well-supported — NOT a solve from the bare question. The student's prompt
-    # (entry["prompt"]) is left untouched: it never sees this material, so the
-    # teacher is told to write self-contained reasoning (SFT_TEACHER_SYSTEM_PROMPT).
-    knowledge = await _gather_teacher_context(state, entry, user_text)
-    # Text entries -> a string; multimodal entries -> a content list with the
-    # seed image(s) interleaved so the teacher SEES the clinical image.
-    teacher_prompt = await _build_teacher_content(entry, user_text, knowledge)
-    # Teacher uses the visible-reasoning prompt (NOT the student's SOLVER prompt),
-    # so the distillation trace contains an actual chain-of-thought.
-    sys_prompt = SFT_TEACHER_SYSTEM_PROMPT
-
-    for _ in range(state.args.teacher_retries + 1):
-        try:
-            raw = await _teacher_solve_call(
-                state, sys_prompt, teacher_prompt, state.args.teacher_max_tokens,
-            )
-        except Exception as e:
-            logger.warning(f"teacher solve failed: {type(e).__name__}: {e!r}")
-            continue
-        boxed = _extract_boxed(raw)
-        if boxed is None:
-            continue
-        if not _answer_matches(boxed, gt, fmt):
-            continue
-        trace = _compose_trace(raw, boxed)
-        # Reject unless the assistant turn is a clean
-        # <think> reasoning </think> \boxed{answer} (e.g. drop empty-reasoning
-        # traces from a teacher that hides its chain-of-thought).
-        if not _valid_trace_format(trace):
-            logger.debug("teacher trace rejected: bad format (reasoning len/box)")
-            continue
-        entry["reference_response"] = trace
-        entry["extra_info"]["teacher_answer"] = boxed
-        return True
-    return False
 
 
-# ======================================================================
-# Worker loop
-# ======================================================================
-async def _process_query_inner(state: ServerState, query: str, required_format: str,
-                               target_question: str) -> tuple[list[tuple], list[dict]]:
-    """One query -> milvus -> generator -> validator. Returns (accepted, rejected)
-    where accepted holds (gen_dict, knowledge_str, query_str) tuples to be built
-    into entries by the caller."""
-    accepted: list[tuple] = []
-    rejected: list[dict] = []
-    try:
-        hits = await _milvus_search(state, query, top_k=state.args.milvus_top_k)
-    except Exception as e:
-        logger.warning(f"milvus failed on query: {e}")
-        return accepted, rejected
-    if not hits:
-        return accepted, rejected
-
-    knowledge = "\n\n".join(
-        f"[passage {i + 1} / source={h.get('source', '?')}]\n{h['text']}"
-        for i, h in enumerate(hits)
-    )
-    stats = state.accuracy_stats()
-    for _ in range(state.args.questions_per_query):
-        try:
-            gen = await agent_question_generator(
-                state, target_question, knowledge, stats, required_format,
-            )
-        except Exception as e:
-            logger.warning(
-                f"generator failed ({required_format}): {type(e).__name__}: {e!r}"
-            )
-            continue
-        try:
-            ok, reason = await agent_validator(state, gen)
-        except Exception as e:
-            ok, reason = True, f"validator error: {e}"
-        if ok:
-            accepted.append((gen, knowledge, query))
-        else:
-            rejected.append({
-                "question": gen,
-                "reason": reason,
-                "retrieval_query": query,
-                "passage": knowledge[:500],
-            })
-    return accepted, rejected
 
 
-async def _process_query(state: ServerState, query: str, required_format: str,
-                         target_question: str) -> tuple[list[tuple], list[dict]]:
-    async with timed(state, "process_query_total"):
-        return await _process_query_inner(state, query, required_format, target_question)
 
 
 async def worker_loop(state: ServerState, worker_id: int):
+    """One generation worker: propose -> co-generate task+rubric -> refine -> pool."""
     logger.info(f"worker {worker_id} started")
     while True:
         try:
-            # Backoff while pool is full so we don't keep generating into a
+            # Back off while the pool is full so we do not keep generating into a
             # blocked queue.put (also gives the trainer slack on bursty fetches).
             while state.pool.full():
                 await asyncio.sleep(0.5)
 
-            # Rubric mode runs its own single-mode pipeline (task + rubric) and
-            # skips the diagnosis modes entirely.
-            if state.rubric_mode:
-                await _rubric_iteration(state, worker_id)
-                continue
-
-            # Pick the most-deficit mode, then sample a seed of the right
-            # origin uniformly at random. target_idx / cycle become loose
-            # iteration counters used only for logging now.
-            mode = _pick_mode(state)
-            cur_target_idx = state.target_idx
-            cur_cycle = state.cycle
-            state.target_idx += 1
-            if state.target_idx >= len(state.seeds):
-                state.target_idx = 0
-                state.cycle += 1
-                logger.info(f"completed cycle {state.cycle}")
-
-            if mode == "direct":
-                target = random.choice(state.train_seeds)
-                entry = _build_raw_entry(target, cur_target_idx, cur_cycle)
-                # SFT serves image rows multimodally (teacher + trainer open the
-                # files); skip raw seeds whose images are missing on this pod so
-                # we neither waste a teacher solve nor serve a row that crashes
-                # the trainer's tokenizer.
-                if state.args.sft_mode and not _entry_images_present(entry):
-                    continue
-                if state.args.sft_mode and not await _attach_sft_target(state, entry):
-                    state.stats["sft_traces_skipped"] += 1
-                    continue
-                async with state.log_lock:
-                    with open(state.accepted_log, "a") as f:
-                        f.write(json.dumps({
-                            "ts": datetime.now().isoformat(),
-                            "question_id": entry["extra_info"]["question_id"],
-                            "target_idx": cur_target_idx,
-                            "cycle": cur_cycle,
-                            "direct_insert": True,
-                            "entry": entry,
-                        }) + "\n")
-                state.stats["direct_inserted"] += 1
-                state.stats["total_accepted"] += 1
-                state.mix_counts["direct"] += 1
-                state.history.append(entry)
-                await state.pool.put(entry)
-                # Mirror into the Milvus history collection so /report can
-                # update perf counters and future propose cycles can retrieve
-                # neighbors. Fire-and-forget — failures must not block the
-                # pool.
-                asyncio.create_task(history_insert(state, entry, "direct"))
-                _maybe_log_sample(entry, "direct")
-                logger.info(
-                    f"+ direct qid={entry['extra_info']['question_id']} "
-                    f"pool=({state.pool.qsize()}/{state.args.max_pool_size}) "
-                    f"accepted={state.stats['total_accepted']}"
-                )
-                continue
-
-            if mode == "gen_mm":
-                seed = random.choice(state.climb_seeds)
-                entries: list[dict] = []
-                # A fraction of CLIMB output is the REAL seed row served as-is
-                # (grounded multimodal training data); the rest are newly
-                # synthesized multimodal questions over retrieved neighbors.
-                if random.random() < float(getattr(state.args, "mm_direct_prob", 0.3)):
-                    entry = {
-                        "data_source": "climb_gen",
-                        "prompt": list(seed.get("prompt", [])),
-                        "reward_model": dict(seed.get("reward_model", {})),
-                        "extra_info": dict(seed.get("extra_info", {})),
-                    }
-                    for k in ("images", "videos"):
-                        if seed.get(k):
-                            entry[k] = list(seed[k])
-                    entry["extra_info"]["question_id"] = uuid.uuid4().hex
-                    entry["extra_info"]["split"] = "train"
-                    entry["extra_info"]["source"] = "climb_direct"
-                    entries.append(entry)
-                else:
-                    seed_item = _climb_media_item_from_seed(seed)
-                    if seed_item is None:
-                        continue
-                    n_media = max(1, int(getattr(state.args, "mm_images_per_query", 3)))
-                    hits = []
-                    try:
-                        hits = await _milvus_search_climb(
-                            state, seed_item["question"], top_k=n_media + 4,
-                            images_only=not bool(getattr(state.args, "mm_include_videos", True)),
-                        )
-                    except Exception as e:
-                        logger.warning(f"climb retrieval failed: {type(e).__name__}: {e}")
-                    media_items = [seed_item]
-                    seen = {seed_item["rel"]}
-                    for h in hits:
-                        it = _climb_media_item_from_hit(h)
-                        if it and it["rel"] not in seen:
-                            media_items.append(it)
-                            seen.add(it["rel"])
-                        if len(media_items) >= n_media:
-                            break
-                    fmt = "mcq" if state.format_counter % 2 == 0 else "free"
-                    state.format_counter += 1
-                    try:
-                        gen = await agent_question_generator_mm(
-                            state, media_items, state.accuracy_stats(), fmt)
-                    except Exception as e:
-                        logger.warning(f"mm generator failed ({fmt}): {type(e).__name__}: {e!r}")
-                        continue
-                    entry = _build_mm_entry(state, gen, media_items, cur_target_idx, cur_cycle)
-                    if entry is None:
-                        continue
-                    entries.append(entry)
-
-                for entry in entries:
-                    if state.args.sft_mode and not _entry_images_present(entry):
-                        state.stats["served_missing_image_skipped"] += 1
-                        continue
-                    if state.args.sft_mode and not await _attach_sft_target(state, entry):
-                        state.stats["sft_traces_skipped"] += 1
-                        continue
-                    async with state.log_lock:
-                        with open(state.accepted_log, "a") as f:
-                            f.write(json.dumps({
-                                "ts": datetime.now().isoformat(),
-                                "question_id": entry["extra_info"]["question_id"],
-                                "target_idx": cur_target_idx,
-                                "cycle": cur_cycle,
-                                "gen_mm": True,
-                                "entry": entry,
-                            }) + "\n")
-                    state.stats["total_accepted"] += 1
-                    state.stats["total_generated"] += 1
-                    state.mix_counts["gen_mm"] += 1
-                    state.history.append(entry)
-                    await state.pool.put(entry)
-                    asyncio.create_task(history_insert(state, entry, "gen_mm"))
-                    _maybe_log_sample(entry, "gen_mm")
-                    logger.info(
-                        f"+ gen_mm[{entry['extra_info'].get('source')}] "
-                        f"qid={entry['extra_info']['question_id']} "
-                        f"pool=({state.pool.qsize()}/{state.args.max_pool_size}) "
-                        f"generated={state.stats['total_generated']}"
-                    )
-                continue
-
-            if mode == "gen_test":
-                target = random.choice(state.test_seeds)
-            else:
-                target = random.choice(state.train_seeds)
-            target_question = (
-                target.get("extra_info", {}).get("question", "")
-                or _extract_user_text(target)
-            )
-
-            # Retrieve nearest neighbors from the running gen_history collection
-            # so the proposer can avoid repeating questions and target gaps in
-            # the solver's coverage. Best-effort: if Milvus is down we just
-            # skip the context and the proposer runs unconditioned.
-            history_hits = await history_search(state, target_question)
-            history_context = format_history_context(history_hits)
-
-            queries: list[str] = []
-            for attempt in range(3):
-                try:
-                    queries = await agent_query_proposer(
-                        state, target, history_context=history_context,
-                    )
-                    break
-                except Exception as e:
-                    logger.warning(
-                        f"worker {worker_id}: query proposer attempt {attempt + 1}/3 failed: "
-                        f"{type(e).__name__}: {e!r}"
-                    )
-            if not queries:
-                continue
-            state.stats["total_queries"] += len(queries)
-
-            formats = []
-            for _ in queries:
-                formats.append("mcq" if state.format_counter % 2 == 0 else "free")
-                state.format_counter += 1
-
-            tasks = [
-                _process_query(state, q, fmt, target_question)
-                for q, fmt in zip(queries, formats)
-            ]
-            results = await asyncio.gather(*tasks, return_exceptions=True)
-
-            accepted_pairs: list[tuple] = []
-            rejected_list: list[dict] = []
-            for r in results:
-                if isinstance(r, Exception):
-                    logger.warning(f"worker {worker_id}: process_query exception: {r}")
-                    continue
-                a, rj = r
-                accepted_pairs.extend(a)
-                rejected_list.extend(rj)
-
-            for gen, passage, query in accepted_pairs:
-                entry = _build_entry(state, gen, target, passage, query,
-                                     cur_target_idx, cur_cycle)
-                if state.args.sft_mode and not await _attach_sft_target(state, entry):
-                    state.stats["sft_traces_skipped"] += 1
-                    continue
-                async with state.log_lock:
-                    with open(state.accepted_log, "a") as f:
-                        f.write(json.dumps({
-                            "ts": datetime.now().isoformat(),
-                            "question_id": entry["extra_info"]["question_id"],
-                            "target_idx": cur_target_idx,
-                            "cycle": cur_cycle,
-                            "queries_used": queries,
-                            "entry": entry,
-                        }) + "\n")
-                state.stats["total_accepted"] += 1
-                state.stats["total_generated"] += 1
-                state.mix_counts[mode] += 1
-                state.history.append(entry)
-                await state.pool.put(entry)
-                asyncio.create_task(history_insert(state, entry, mode))
-                _maybe_log_sample(entry, mode)
-                logger.info(
-                    f"+ gen[{mode}] qid={entry['extra_info']['question_id']} "
-                    f"pool=({state.pool.qsize()}/{state.args.max_pool_size}) "
-                    f"generated={state.stats['total_generated']}"
-                )
-
-            for r in rejected_list:
-                async with state.log_lock:
-                    with open(state.rejected_log, "a") as f:
-                        f.write(json.dumps({
-                            "ts": datetime.now().isoformat(),
-                            "target_idx": cur_target_idx,
-                            "cycle": cur_cycle,
-                            **r,
-                        }) + "\n")
-                state.stats["total_rejected"] += 1
-                state.stats["total_generated"] += 1
-
+            await _rubric_iteration(state, worker_id)
         except asyncio.CancelledError:
             logger.info(f"worker {worker_id} cancelled")
             raise
@@ -5837,8 +4409,11 @@ async def lifespan(app: FastAPI):
             f"{type(e).__name__}: {e}"
         )
 
+    # Retrieve-only runs generate nothing, so spawning workers would burn chat
+    # calls producing tasks that nobody fetches.
     workers = [
-        asyncio.create_task(worker_loop(STATE, i)) for i in range(args.workers)
+        asyncio.create_task(worker_loop(STATE, i))
+        for i in range(args.workers if STATE.rubric_mode else 0)
     ]
     # Drain wikidoc telemetry off the /retrieve request path (batched, in a thread).
     workers.append(asyncio.create_task(_wikidoc_writer(STATE)))
@@ -6127,8 +4702,11 @@ async def stats():
     s = STATE
     total_mix = sum(s.mix_counts.values()) or 1
     return {
+        # pool_size is the number the trainer's warm-up gate polls: a pool that
+        # cannot stay ahead of a step's 32 fetches is what makes /sample block.
         "pool_size": s.pool.qsize(),
         "max_pool_size": s.args.max_pool_size,
+        "workers": s.args.workers,
         "replay_buffer_size": len(s.replay_buffer),
         "history_size": len(s.history),
         "max_history_size": s.history.maxlen,
@@ -6136,8 +4714,6 @@ async def stats():
         "mix_counts": s.mix_counts,
         "mix_actual": {k: v / total_mix for k, v in s.mix_counts.items()},
         "accuracy": s.accuracy_stats(),
-        "target_idx": s.target_idx,
-        "cycle": s.cycle,
         "seeds": len(s.seeds),
         "timings": _summarize_timings(s.timings),
         "inflight": dict(s.inflight),
@@ -6257,6 +4833,16 @@ async def sample():
         try:
             entry = await asyncio.wait_for(s.pool.get(), timeout=timeout)
         except asyncio.TimeoutError:
+            # The trainer is now waiting on generation, which with refinement is
+            # ~2.5x more expensive per specification than it used to be. Falling
+            # back to history keeps the step moving but silently re-serves older
+            # tasks, so say it loudly: the fix is more workers or a lower probe
+            # rate, and neither is discoverable from a stalled step.
+            s.stats["pool_starved"] = s.stats.get("pool_starved", 0) + 1
+            logger.warning("POOL STARVED: /sample waited 30s with an empty pool "
+                           "(workers=%d, starved %d times). Generation is not keeping "
+                           "up with training; falling back to history.",
+                           s.args.workers, s.stats["pool_starved"])
             break
         out = await _finalize_served(s, entry, "pool")
         if out is not None:
@@ -6647,10 +5233,6 @@ async def evolve_retrieval(payload: EvolveRetrievalPayload):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--seeds_path", default="",
-                        help="JSONL of seed targets (typically train.jsonl). "
-                             "Required unless --rubric_mode (which synthesizes "
-                             "use_case x specialty seeds).")
     # --- Rubric mode (HealthBench-Professional task + rubric co-generation) ---
     parser.add_argument("--rubric_mode", action="store_true",
                         help="Generate open-ended clinician TASK + co-generated "
@@ -6688,25 +5270,6 @@ def main():
                         help="Directory holding the evolvable, file-backed prompts "
                              "(query_proposer.txt, task_rubric_generator.txt). "
                              "Defaults to {log_dir}/prompts. Rubric mode only.")
-    parser.add_argument("--test_seeds_path", default="",
-                        help="Optional JSONL of test seeds. Loaded with "
-                             "reward_model stripped — used to drive question "
-                             "generation against test-like distributions, but "
-                             "never raw-inserted into the pool.")
-    parser.add_argument("--direct_target", type=float, default=0.30,
-                        help="Target share of pool entries that are raw "
-                             "train seeds (direct-inserted, real GT). The "
-                             "worker loop picks whichever mode is most below "
-                             "its target each iteration. Values across the "
-                             "three --*_target flags are renormalized.")
-    parser.add_argument("--gen_train_target", type=float, default=0.35,
-                        help="Target share of pool entries that are LLM-"
-                             "generated from train seeds (synthetic GT).")
-    parser.add_argument("--gen_test_target", type=float, default=0.35,
-                        help="Target share of pool entries that are LLM-"
-                             "generated from test_masked seeds. If no test "
-                             "seeds are loaded, this share is added to "
-                             "--gen_train_target automatically.")
     parser.add_argument("--api_base", required=True, help="vLLM chat /v1 base URL")
     parser.add_argument("--api_key", default="EMPTY")
     parser.add_argument("--model_name", required=True)
@@ -6727,13 +5290,6 @@ def main():
         default=2048,
         help="Embedding dim for the history collection (must match --embed_model).",
     )
-    parser.add_argument(
-        "--history_retrieve_top_k",
-        type=int,
-        default=10,
-        help="How many neighbor questions to retrieve from history when seeding the "
-             "proposer.",
-    )
     # NOTE: --milvus_top_k belongs to the GENERATION pipeline (question proposal,
     # knowledge grounding). The rollout-facing /retrieve endpoint has its own depth
     # knobs below; the two were previously conflated, so an omitted `top_k` from the
@@ -6753,7 +5309,6 @@ def main():
     parser.add_argument("--summarizer_provider", default=os.environ.get("SUMMARIZER_PROVIDER", "vllm"))
     parser.add_argument("--n_queries", type=int, default=10)
     parser.add_argument("--questions_per_query", type=int, default=1)
-    parser.add_argument("--no_label", action="store_true")
     parser.add_argument(
         "--sft_mode", action="store_true",
         help="SFT-distillation mode: for each accepted entry, solve it with the "
@@ -6779,34 +5334,6 @@ def main():
         "--log_dir",
         default=os.path.expanduser("~/scratch/dvdai/self_evolving_datasets/logs"),
     )
-    # --- CLIMB multimodal generation -----------------------------------
-    parser.add_argument("--climb_seeds_path", default="",
-                        help="JSONL of CLIMB train seeds (verl shape, "
-                             "climb:// media handles) for multimodal generation.")
-    parser.add_argument("--climb_file_base", default="",
-                        help="Base URL of the CLIMB media file server "
-                             "(e.g. http://mib.media.mit.edu:18080). Token read "
-                             "from the CLIMB_FILE_TOKEN env, never hardcoded.")
-    parser.add_argument("--gen_mm_target", type=float, default=0.0,
-                        help="Target pool share of multimodal CLIMB entries. "
-                             "Folded into gen_train when no climb seeds are loaded.")
-    parser.add_argument("--mm_images_per_query", type=int, default=3,
-                        help="Number of media items (seed + retrieved neighbors) "
-                             "shown to the teacher per multimodal generation.")
-    parser.add_argument("--mm_video_frames", type=int, default=2,
-                        help="Frames sampled from each video media item for the "
-                             "teacher's view (best-effort, requires opencv).")
-    parser.add_argument("--mm_max_pixels", type=int, default=1048576,
-                        help="max_pixels for images shown to the teacher / stored "
-                             "on generated entries.")
-    parser.add_argument("--mm_direct_prob", type=float, default=0.3,
-                        help="Probability a gen_mm iteration serves the real seed "
-                             "row directly instead of synthesizing a new question.")
-    parser.add_argument("--mm_include_videos", action="store_true", default=True,
-                        help="Allow video-modality CLIMB neighbors in retrieval.")
-    parser.add_argument("--mm_images_only", dest="mm_include_videos",
-                        action="store_false",
-                        help="Restrict CLIMB retrieval/generation to images.")
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=8004)
     args = parser.parse_args()
@@ -6815,12 +5342,6 @@ def main():
     if args.rubric_mode:
         if not args.prompt_dir:
             args.prompt_dir = os.path.join(args.log_dir, "prompts")
-    elif not args.seeds_path:
-        parser.error("--seeds_path is required unless --rubric_mode is set")
-
-    # Make the file-server base available to the sync media helpers.
-    global _CLIMB_FILE_BASE
-    _CLIMB_FILE_BASE = args.climb_file_base
 
     logging.basicConfig(
         level=logging.INFO,
