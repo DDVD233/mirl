@@ -187,14 +187,6 @@ def test_measure_mode_is_a_no_op_but_still_reports_the_counterfactual():
     assert m["spec_gap/adv_scale_would_be"] < 0.5   # what soft mode WOULD have done
 
 
-def test_gate_mode_is_binary():
-    good = _mk({0: 0.9, 1: 0.5, 2: 0.1}, {0: 0, 1: 1, 2: 2}, min_pairs=1)
-    bad = _mk({10: 0.1, 11: 0.5, 12: 0.9}, {10: 0, 11: 1, 12: 2}, min_pairs=1)
-    w, _ = shrink_weights({"g": good, "b": bad}, prior_pairs=0.0, mode="gate", tau=0.35)
-    assert set(w.values()) <= {0.0, 1.0}
-    assert w["g"] == 1.0 and w["b"] == 0.0
-
-
 def test_shuffle_preserves_the_weight_multiset_but_not_the_mapping():
     # The placebo that separates "the mechanism worked" from "the LR was lower".
     stats = {}
@@ -213,7 +205,7 @@ def test_shuffle_preserves_the_weight_multiset_but_not_the_mapping():
 
 def test_unmeasured_groups_always_get_weight_one():
     flat = _mk({0: 0.5, 1: 0.5}, {0: 0, 1: 1})
-    for mode in ("soft", "gate", "shuffle"):
+    for mode in ("soft", "shuffle"):
         w, _ = shrink_weights({"u": flat}, prior_pairs=0.0, mode=mode)
         assert w["u"] == 1.0, mode
 

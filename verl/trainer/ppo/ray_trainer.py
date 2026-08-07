@@ -988,7 +988,7 @@ class RayPPOTrainer:
             return {}
         rk = OmegaConf.select(self.config, "reward.custom_reward_function.reward_kwargs") or {}
         cfg = {
-            "mode": str(se_cfg.get("spec_gap_mode", "measure")),
+            "mode": str(se_cfg.get("spec_gap_mode", "measure")),  # measure|soft|shuffle
             "ship": bool(se_cfg.get("spec_gap_ship_exploits", False)),
             "every": max(1, int(se_cfg.get("spec_gap_every_n_steps", 1) or 1)),
             "score_key": str(se_cfg.get("spec_gap_score_key", "acc_raw_signed")),
@@ -996,7 +996,6 @@ class RayPPOTrainer:
             "min_pairs": int(se_cfg.get("spec_gap_min_pairs", 3)),
             "min_ranked": int(se_cfg.get("spec_gap_min_ranked", 3)),
             "prior_pairs": float(se_cfg.get("spec_gap_prior_pairs", 8.0)),
-            "tau": float(se_cfg.get("spec_gap_tau", 0.35)),
             "w_floor": float(se_cfg.get("spec_gap_w_floor", 0.0)),
             "swap": bool(se_cfg.get("spec_gap_swap", True)),
             "async_": bool(se_cfg.get("spec_gap_async", True)),
@@ -1025,8 +1024,9 @@ class RayPPOTrainer:
             if str(rk.get("model_name", "")) == cfg["model_name"]:
                 print("[spec_gap] WARNING: referee model == TRAIN judge model. Rubric-blindness "
                       "still makes it an independent signal but not an independent model, so H is "
-                      "biased LOW by shared model bias. Use spec_gap_holdout_frac / a second "
-                      "grader on the val dumps to bound it.", flush=True)
+                      "biased LOW by shared model bias. Bound it by re-grading the final val "
+                      "dumps under a second grader (scripts/self_evolving/rejudge_val.py).",
+                      flush=True)
             if cfg["mode"] != "measure":
                 # A group-constant multiplier on the reward is absorbed by the
                 # group's own normalization: an exact no-op under std-norm, and
@@ -1225,7 +1225,7 @@ class RayPPOTrainer:
         self._spec_gap_n_groups = len(stats)
 
         weights, m = shrink_weights(stats, prior_pairs=cfg["prior_pairs"], mode=cfg["mode"],
-                                   tau=cfg["tau"], w_floor=cfg["w_floor"],
+                                   w_floor=cfg["w_floor"],
                                    step=int(self.global_steps))
         metrics = {**metrics, **m}
 

@@ -69,9 +69,52 @@ if [ "$EVOLVE" = 1 ] && [ "$SELF_JUDGE" = 1 ]; then
     echo "FATAL: EVOLVE and SELF_JUDGE together confound both deltas; run them as separate arms" >&2
     exit 1
 fi
+
+# ---- specification-gap arms (hack-then-patch) ----
+# SPEC_GAP=1 measures, per GRPO group, whether the generated rubric's ordering of
+# the rollouts agrees with a rubric-BLIND referee. SPEC_GAP_MODE decides what is
+# done with that number:
+#   measure  observe only, no gradient effect (the instrumented baseline)
+#   soft     weight each group's advantages by clamp(1-2H, 0, 1)
+#   shuffle  THE PLACEBO: the same weight multiset, permuted across groups. Because
+#            token-mean divides by a token count that does not shrink, attenuation
+#            IS an effective-LR cut, and this is the only control that holds the LR
+#            and its whole distribution fixed while destroying the H-to-group link.
+#            An attenuation result without this arm is unpublishable.
+SPEC_GAP="${SPEC_GAP:-0}"
+SPEC_GAP_MODE="${SPEC_GAP_MODE:-measure}"
+SPEC_GAP_SHIP="${SPEC_GAP_SHIP:-0}"   # POST confirmed exploits to /patch_spec
+PROBE="${PROBE:-0}"                   # frozen-farmer admission probe (gen server)
+PATCH="${PATCH:-0}"                   # local rubric repair (gen server)
+HACK_MEMO="${HACK_MEMO:-0}"           # evolvable known-exploits memo (gen server)
+case "$SPEC_GAP_MODE" in
+    measure|soft|shuffle) ;;
+    *) echo "FATAL: SPEC_GAP_MODE must be measure|soft|shuffle (got '$SPEC_GAP_MODE')" >&2
+       exit 1 ;;
+esac
+if [ "$SPEC_GAP_SHIP" = 1 ] && [ "$EVOLVE" != 1 ]; then
+    # The exploit buffer is drained inside _maybe_evolve_generation, which returns
+    # at its first guard when evolve_generation is False. Without EVOLVE=1 the
+    # buffer would fill and nothing would ever ship -- the same class of silent
+    # no-op as the /evolve_retrieval 500 that read healthy for a whole 60-step run.
+    echo "FATAL: SPEC_GAP_SHIP=1 needs EVOLVE=1 (exploits drain on the evolve round)" >&2
+    exit 1
+fi
+if [ "$SPEC_GAP_SHIP" = 1 ] && [ "$SPEC_GAP" != 1 ]; then
+    echo "FATAL: SPEC_GAP_SHIP=1 needs SPEC_GAP=1 (nothing measures the exploits)" >&2
+    exit 1
+fi
+if [ "$PATCH" = 1 ] && [ "$SPEC_GAP_SHIP" != 1 ]; then
+    echo "FATAL: PATCH=1 without SPEC_GAP_SHIP=1 leaves /patch_spec with no cases to repair" >&2
+    exit 1
+fi
+
 _ARM=$([ "$RETRIEVAL" = 1 ] && echo retrieval || echo control)
 [ "$EVOLVE" = 1 ] && _ARM="${_ARM}_evolve"
 [ "$SELF_JUDGE" = 1 ] && _ARM="${_ARM}_selfjudge"
+[ "$SPEC_GAP" = 1 ] && _ARM="${_ARM}_sg${SPEC_GAP_MODE}"
+[ "$PROBE" = 1 ] && _ARM="${_ARM}_probe"
+[ "$PATCH" = 1 ] && _ARM="${_ARM}_patch"
 EXP="${EXP:-hb9b_gen_$_ARM}"
 LOGDIR=$S/logs_hb9b; mkdir -p "$LOGDIR"
 
@@ -149,6 +192,27 @@ export HB_REP_PENALTY_MAX=0.0
 # it was never shown. HB_TRAIN_LENGTH_ADJ=0 opts back out.
 export HB_TRAIN_LENGTH_ADJ="${HB_TRAIN_LENGTH_ADJ:-1}"
 export REWARD_JUDGE_CONCURRENCY="${REWARD_JUDGE_CONCURRENCY:-10}"
+
+# Judge voting. Off by default historically, and that is what bounds the
+# specification-gap measurement: a pair only counts as decisive if the rubric's
+# margin exceeds the grader's own noise, and at single vote the score-level sd is
+# ~0.11, which erases most pairs. Adaptive spends the extra votes only on the
+# criteria whose flips dominate that noise (long ones, and "at least one of"
+# disjunctions), so it buys the resolution at ~15-20% more judge calls instead of
+# 40%. Measure the realized sd offline and set SPEC_GAP_MARGIN from it.
+if [ "$SPEC_GAP" = 1 ]; then
+    export HB_JUDGE_VOTES="${HB_JUDGE_VOTES:-3}"
+    export HB_JUDGE_VOTES_ADAPTIVE="${HB_JUDGE_VOTES_ADAPTIVE:-1}"
+fi
+
+# ---- gen-server side of hack-then-patch (read by generation_server.py) ----
+# Exported here so the arm switches above are the single source of truth; the gen
+# server inherits this environment.
+export HB_PROBE="$PROBE"
+export HB_PROBE_MODE="${HB_PROBE_MODE:-log}"     # log = measure without rejecting
+export HB_PROBE_RATE="${HB_PROBE_RATE:-0.34}"
+export HB_PATCH="$PATCH"
+export HB_HACK_MEMO="$HACK_MEMO"
 
 # ---- token budget: IDENTICAL in both arms (this is the confound that bit us) ----
 MAX_RESP_LEN="${MAX_RESP_LEN:-8192}"
@@ -329,6 +393,39 @@ if [ "$REWARD_EVOLVE" = 1 ]; then
     echo "evolve_retrieval smoke OK (HTTP 200)"
 fi
 
+# Same reasoning for /patch_spec: it first fires at step 5, the trainer swallows its
+# failure, and the PATCH_FAILING marker is written inside the handler. Empty `cases`
+# proves routing + state access without touching a model.
+if [ "$PATCH" = 1 ]; then
+    _rc=$(curl -s -o /dev/null -w '%{http_code}' -m 60 -X POST \
+          "localhost:$GEN_PORT/patch_spec" -H 'content-type: application/json' \
+          -d '{"step":0,"cases":[]}')
+    [ "$_rc" = 200 ] || { echo "FATAL: /patch_spec returned HTTP $_rc (want 200); spec repair would silently never run" >&2
+                          tail -30 "$LOGDIR/gen_server_${EXP}.log" >&2; exit 1; }
+    echo "patch_spec smoke OK (HTTP 200)"
+fi
+
+# Prove the REFEREE endpoint answers before training. Its failure mode is the same
+# shape: _run_spec_gap returns {} on any exception, so a bad endpoint degrades to
+# measure-off and every step logs a referee failure that nothing is watching. One
+# real ranking call on a hand-built group costs a couple of seconds and settles it.
+# Also asserts the referee prefers the SHORT CORRECT answer over the long unsafe
+# one, which is the prompt's whole premise -- a referee that reads as a length proxy
+# would down-weight exactly the groups where the rubric correctly punished verbosity.
+if [ "$SPEC_GAP" = 1 ]; then
+    # Defaults to the VAL judge, which is gpt-chat-latest in every arm. Never
+    # TRAIN_JUDGE_*: under SELF_JUDGE=1 that flips to the frozen local 9B, i.e. the
+    # policy's own family, and a referee sharing the policy's blind spots cannot
+    # detect a hack the two of them share.
+    REFEREE_BASE="${REFEREE_BASE:-$TRAPI_BASE}" \
+    REFEREE_KEY="${REFEREE_KEY:-$TRAPI_KEY}" \
+    REFEREE_MODEL="${REFEREE_MODEL:-$JUDGE}" \
+    REFEREE_PROVIDER="${REFEREE_PROVIDER:-trapi}" \
+    /usr/local/bin/python scripts/self_evolving/analysis/referee_smoke.py || {
+        echo "FATAL: referee smoke failed; the specification-gap measurement would silently never run" >&2
+        exit 1; }
+fi
+
 # ---- trainer ---------------------------------------------------------------------
 # train_files is a PLACEHOLDER: SelfEvolvingDataset fetches every training sample
 # from the gen server. val_files is the REAL benchmark set and is never trained on.
@@ -346,6 +443,17 @@ fi
     +data.self_evolving.evolve_num_examples="${EVOLVE_N:-24}" \
     +data.self_evolving.evolve_retrieval_reward=$([ "$REWARD_EVOLVE" = 1 ] && echo True || echo False) \
     +data.self_evolving.evolve_retrieval_every_n_steps="${REWARD_EVOLVE_EVERY:-5}" \
+    +data.self_evolving.spec_gap=$([ "$SPEC_GAP" = 1 ] && echo True || echo False) \
+    +data.self_evolving.spec_gap_mode="$SPEC_GAP_MODE" \
+    +data.self_evolving.spec_gap_ship_exploits=$([ "$SPEC_GAP_SHIP" = 1 ] && echo True || echo False) \
+    +data.self_evolving.spec_gap_margin="${SPEC_GAP_MARGIN:-0.05}" \
+    +data.self_evolving.spec_gap_prior_pairs="${SPEC_GAP_PRIOR_PAIRS:-8.0}" \
+    +data.self_evolving.spec_gap_w_floor="${SPEC_GAP_W_FLOOR:-0.0}" \
+    +data.self_evolving.spec_gap_min_pairs="${SPEC_GAP_MIN_PAIRS:-3}" \
+    +data.self_evolving.spec_gap_swap="${SPEC_GAP_SWAP:-True}" \
+    +data.self_evolving.spec_gap_concurrency="${SPEC_GAP_CONCURRENCY:-16}" \
+    +data.self_evolving.spec_gap_deadline_s="${SPEC_GAP_DEADLINE_S:-120}" \
+    +data.self_evolving.spec_gap_exploit_margin="${SPEC_GAP_EXPLOIT_MARGIN:-0.15}" \
     data.val_files="$VAL" \
     data.train_batch_size="${TRAIN_BS:-32}" \
     data.max_prompt_length=6144 \

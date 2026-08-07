@@ -250,7 +250,7 @@ def group_stats(ranked_rows: list, scores: dict, lens: dict, slots: dict,
 
 
 def shrink_weights(stats: dict, prior_pairs: float = 8.0, mode: str = "measure",
-                   tau: float = 0.35, w_floor: float = 0.0, step: int = 0) -> tuple[dict, dict]:
+                   w_floor: float = 0.0, step: int = 0) -> tuple[dict, dict]:
     """(uid -> advantage weight, aggregate metric dict).
 
     SHRINKAGE IS NOT OPTIONAL. Pairs within a group are dependent — each shares a
@@ -260,10 +260,10 @@ def shrink_weights(stats: dict, prior_pairs: float = 8.0, mode: str = "measure",
     each group's H is shrunk toward the batch value with `prior_pairs` pseudo-pairs
     (`prior_pairs=0` recovers the raw estimate for a purist run).
 
-    Modes: `measure` (all weights 1.0 — the treatment is off, but every statistic
-    including the counterfactual `adv_scale_would_be` is still computed), `soft`
-    (w = clamp(1-2H, w_floor, 1)), `gate` (w in {0,1} by `tau`), and `shuffle` —
-    the placebo, which computes the soft weights and then PERMUTES them across
+    Three modes, deliberately no more: `measure` (all weights 1.0 — the treatment is
+    off, but every statistic including the counterfactual `adv_scale_would_be` is
+    still computed), `soft` (w = clamp(1-2H, w_floor, 1)), and `shuffle` — the
+    placebo, which computes the soft weights and then PERMUTES them across
     uids. Because `loss_agg_mode=token-mean` divides by a global token count that
     does not shrink when groups are down-weighted, attenuation IS an effective-LR
     cut; `shuffle` preserves the weight multiset, all its moments and the
@@ -289,8 +289,6 @@ def shrink_weights(stats: dict, prior_pairs: float = 8.0, mode: str = "measure",
     weights: dict[str, float] = {u: 1.0 for u in stats}
     if mode == "soft":
         weights.update(w_soft)
-    elif mode == "gate":
-        weights.update({u: (0.0 if h_shrunk[u] > tau else 1.0) for u in meas})
     elif mode == "shuffle":
         uids = sorted(meas)
         vals = [w_soft[u] for u in uids]
