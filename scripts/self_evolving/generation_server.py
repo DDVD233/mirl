@@ -303,10 +303,6 @@ HB_REDTEAM_SHARE = 0.33
 # hold: with a byte-identical prompt the SFT-phase generator averaged 2.28 while
 # the gen-RL generator drifted to 3.9, sitting at the top of the stated "1-5"
 # range. Naming a concrete number removes the range to drift within.
-# The benchmark's own rubric-size histogram, kept for reference:
-#   1 crit x104, 2 x269, 3 x117, 4 x33, 5 x2  -> mean 2.16 over 525 tasks.
-HB_BENCH_N_CRITERIA_DIST = [(1, 104), (2, 269), (3, 117), (4, 33), (5, 2)]
-
 # TRAINING TARGET: 3 positives plus a negative, i.e. ~4 criteria — a DELIBERATE
 # departure from the benchmark's 2.16, made because the two want different things.
 # Matching the benchmark's shape optimises resemblance to the EVALUATION set; the
@@ -821,8 +817,8 @@ class ServerState:
         self.climb_seeds: list[dict] = []
         if getattr(args, "climb_seeds_path", ""):
             self.climb_seeds = self._load_seeds(args.climb_seeds_path)
-        # Kept for /replay logging compatibility and any consumer that wants a
-        # flat seed list — workers no longer iterate this in order.
+        # A flat seed list for consumers that want one; workers no longer iterate
+        # this in order.
         self.seeds = list(self.train_seeds) + list(self.test_seeds)
         logger.info(
             f"seeds: {len(self.seeds)} total "
@@ -884,10 +880,11 @@ class ServerState:
         # of the bursty per-mode output instead of a contiguous run of one mode
         # (see _RandomQueue for why FIFO caused a period-2 training oscillation).
         self.pool: asyncio.Queue = _RandomQueue(maxsize=args.max_pool_size)
-        # Unbounded buffer drained by /sample BEFORE the regular pool. Used by
-        # /replay so we don't drop entries when the pool is full; the trainer
-        # pulls these first, then the pool's freshly-generated stream takes
-        # over.
+        # Unbounded buffer drained by /sample BEFORE the regular pool. This is how
+        # a task whose rubric was just REPAIRED gets back in front of the trainer:
+        # the client caches its fetched rows forever, so a patched specification
+        # only ever trains if the task is served again. Unbounded so a patch is
+        # never dropped when the pool is full; _apply_spec_patch guards the depth.
         self.replay_buffer: deque = deque()
         # Bounded ring of every entry that was ever pushed into the pool.
         # When the pool is empty and workers can't produce fast enough (e.g.
@@ -1784,13 +1781,6 @@ def _valid_rubric(items) -> bool:
     return has_pos
 
 
-def _valid_conversation(conv) -> bool:
-    return (isinstance(conv, list) and len(conv) >= 1
-            and isinstance(conv[-1], dict) and conv[-1].get("role") == "user"
-            and bool(conv[-1].get("content")))
-
-
-_USER_ROLES = {"user", "clinician", "physician", "doctor", "human", "md", "provider", "nurse", "client"}
 _ASSISTANT_ROLES = {"assistant", "ai", "model", "bot", "chatbot", "gpt"}
 
 
@@ -5818,20 +5808,6 @@ class RetrievePayload(BaseModel):
     summarize: bool | None = None       # None -> server default
 
 
-class ReplayPayload(BaseModel):
-    """Push previously-accepted entries back into the pool.
-
-    Used when restarting the trainer mid-run — gen_server keeps generating
-    in the background, so its log accumulates entries the dead trainer
-    already consumed. Calling /replay re-injects those entries so the new
-    trainer sees the same data instead of starting from scratch.
-    """
-
-    log_path: str | None = None  # default: current accepted_log
-    count: int | None = None     # max entries to push; None = all parsable
-    tail: bool = True            # take last `count` (True) or first (False)
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global STATE
@@ -6262,8 +6238,8 @@ async def sample():
     # (or, in SFT mode, repairs) any entry missing a required field so the
     # trainer never receives a partial entry that would break its batch.
 
-    # 1) Replay buffer (FIFO). Skip any replayed line that fails the gate
-    #    (e.g. a non-SFT log replayed into an SFT run).
+    # 1) Replay buffer (FIFO): re-served tasks whose rubric was repaired. Skip any
+    #    that fails the gate (e.g. a non-SFT entry in an SFT run).
     while s.replay_buffer:
         out = await _finalize_served(s, s.replay_buffer.popleft(), "replay")
         if out is not None:
@@ -6668,49 +6644,6 @@ async def evolve_retrieval(payload: EvolveRetrievalPayload):
         return {"step": payload.step, "n_cases": 0, "skipped": "no cases"}
     async with s.evolve_lock:
         return await _evolve_retrieval_reward(s, payload.step, payload.cases)
-
-
-@app.post("/replay")
-async def replay(payload: ReplayPayload):
-    """Re-push entries from an accepted_log file into the replay buffer.
-
-    The replay buffer is unbounded and drained by /sample before the regular
-    pool, so nothing is dropped regardless of how many entries are replayed.
-    Live workers keep filling the pool in the background.
-    """
-    s = STATE
-    log_path = payload.log_path or s.accepted_log
-    if not os.path.exists(log_path):
-        raise HTTPException(status_code=404, detail=f"log not found: {log_path}")
-
-    entries: list[dict] = []
-    with open(log_path) as f:
-        for line in f:
-            try:
-                rec = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            entry = rec.get("entry")
-            if isinstance(entry, dict):
-                entries.append(entry)
-
-    if payload.count is not None:
-        entries = entries[-payload.count:] if payload.tail else entries[:payload.count]
-
-    for entry in entries:
-        s.replay_buffer.append(entry)
-    logger.info(
-        f"replay: log={log_path} parsed={len(entries)} "
-        f"replay_buffer_size={len(s.replay_buffer)}"
-    )
-    return {
-        "log_path": log_path,
-        "parsed": len(entries),
-        "pushed": len(entries),
-        "replay_buffer_size": len(s.replay_buffer),
-        "pool_size": s.pool.qsize(),
-    }
-
 
 def main():
     parser = argparse.ArgumentParser()
