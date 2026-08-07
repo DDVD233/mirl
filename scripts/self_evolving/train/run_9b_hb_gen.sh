@@ -232,7 +232,13 @@ if [ "$PROBE" = 1 ]; then
     GEN_WORKERS="${GEN_WORKERS:-20}"
     export HB_PROBE_CONCURRENCY="${HB_PROBE_CONCURRENCY:-16}"
 else
-    GEN_WORKERS="${GEN_WORKERS:-8}"
+    # 16, not 8, even with no probe to pay for. The dataloader prefetches roughly
+    # (dataloader_workers x prefetch_factor x batch) ~= 500 samples before the first
+    # step, and 8 workers at ~6s per generation supply ~29/min, so that burst drains
+    # the pool for ~15 minutes and /sample falls back to re-serving stale history.
+    # Measured on the evolve-only arm: 6 groups served from history before it caught
+    # up. Steady state needs only ~3 specs/min; this is entirely about the burst.
+    GEN_WORKERS="${GEN_WORKERS:-16}"
 fi
 export HB_HACK_MEMO="$HACK_MEMO"
 
@@ -429,6 +435,9 @@ fi
 
 # WARM THE POOL before the trainer starts. /healthz answers as soon as the process is
 # up, which says nothing about whether any specification has been generated yet --
+# NOTE this is a floor, not a guarantee: the dataloader's initial prefetch pulls far
+# more than this gate waits for, so the burst can still outrun generation. Worker
+# count is what covers that; pool_starved in /stats is what proves it did.
 # and with refinement each one costs a proposer call, a co-generation call, a probe
 # (2 generations + per-criterion grading) and possibly a repair round. Without this
 # gate the first training step blocks inside /sample for minutes and the run looks
