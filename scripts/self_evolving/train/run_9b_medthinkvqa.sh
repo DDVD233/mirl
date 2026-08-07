@@ -37,8 +37,20 @@ REPO=${REPO:-$S/verl_healthbench}
 cd "$REPO"
 
 RETRIEVAL="${RETRIEVAL:?set RETRIEVAL=1 (retrieval arm) or RETRIEVAL=0 (baseline)}"
+# EVOLVE=1: rewrite the SOLVER system prompt every few steps from an error
+# analysis of that step's rollouts. On a fixed split there is no task generator to
+# evolve, so the prompt the solver runs under is the thing that can change.
+# Requires the retrieval arm's gen server, which is what hosts /evolve_solver.
+EVOLVE="${EVOLVE:-0}"
+if [ "$EVOLVE" = 1 ] && [ "$RETRIEVAL" != 1 ]; then
+    echo "FATAL: EVOLVE=1 needs RETRIEVAL=1 — /evolve_solver is served by the gen" \
+         "server, which only starts on the retrieval arm" >&2
+    exit 1
+fi
 DATA=${DATA:-/scratch/sheng/medthinkvqa}
-EXP="${EXP:-mtv9b_$([ "$RETRIEVAL" = 1 ] && echo retrieval || echo base)}"
+_ARM=$([ "$RETRIEVAL" = 1 ] && echo retrieval || echo base)
+[ "$EVOLVE" = 1 ] && _ARM="${_ARM}_evolve"
+EXP="${EXP:-mtv9b_$_ARM}"
 LOGDIR=$S/logs_mtv; mkdir -p "$LOGDIR"
 
 TRAIN=$DATA/medthinkvqa_train.parquet
@@ -90,6 +102,22 @@ LOGPROB_MAX_TOKEN_LEN="${LOGPROB_MAX_TOKEN_LEN:-16384}"
 cleanup() { kill ${GEN_PID:-} ${SUMM_PID:-} 2>/dev/null || true; }
 trap cleanup EXIT INT TERM
 
+# The evolved prompt has to reach rollouts, and the system message is baked into
+# every parquet row while the dataset object is built once at trainer start. The
+# custom dataset re-reads this file per item; without it a rewrite would be
+# committed and never used, and the run would report evolution as on while
+# training under the prompt it started with.
+SOLVER_PROMPT_FILE="$LOGDIR/$EXP/solver_system.txt"
+mkdir -p "$LOGDIR/$EXP"
+export MTV_SOLVER_PROMPT_FILE="$SOLVER_PROMPT_FILE"
+DATASET_ARGS=()
+if [ "$EVOLVE" = 1 ]; then
+    DATASET_ARGS=(
+        data.custom_cls.path=scripts/self_evolving/medthink_dataset.py
+        data.custom_cls.name=MedThinkVQADataset
+    )
+fi
+
 AGENT_ARGS=()
 if [ "$RETRIEVAL" = 1 ]; then
     curl -sf -m 10 "$EMBED_BASE/models" >/dev/null \
@@ -137,6 +165,7 @@ if [ "$RETRIEVAL" = 1 ]; then
         --retrieve_top_k "${RETRIEVE_TOP_K:-5}" --retrieve_total "${RETRIEVE_TOTAL:-16}" \
         --summarizer_api_base "$SUMM_BASE" --summarizer_model "$SUMM_MODEL" \
         --summarizer_provider vllm \
+        --solver_prompt_file "$SOLVER_PROMPT_FILE" \
         --workers "${GEN_WORKERS:-4}" --log_dir "$LOGDIR/$EXP" \
         --host 0.0.0.0 --port "$GEN_PORT" \
         > "$LOGDIR/gen_server_${EXP}.log" 2>&1 &
@@ -183,7 +212,12 @@ fi
     data.return_raw_chat=True \
     data.dataloader_num_workers=8 \
     data.image_key=images \
+    +data.self_evolving.gen_server_url="$([ "$RETRIEVAL" = 1 ] && echo "http://localhost:$GEN_PORT" || echo "")" \
+    +data.self_evolving.evolve_solver_prompt=$([ "$EVOLVE" = 1 ] && echo True || echo False) \
+    +data.self_evolving.evolve_solver_every_n_steps="${EVOLVE_EVERY:-5}" \
+    +data.self_evolving.solver_prompt_file="$SOLVER_PROMPT_FILE" \
     reward.custom_reward_function.path=verl/utils/reward_score/medthinkvqa.py \
+    "${DATASET_ARGS[@]}" \
     reward.custom_reward_function.name=compute_score \
     reward.reward_manager.name=dapo \
     actor_rollout_ref.model.path="${ACTOR_MODEL_PATH:-Qwen/Qwen3.5-9B}" \

@@ -1306,6 +1306,114 @@ class RayPPOTrainer:
                   f"{type(e).__name__}: {e}", flush=True)
             return {"spec_gap/exploits/shipped": 0.0}
 
+    def _maybe_evolve_solver_prompt(self, batch: DataProto, reward_extra_infos_dict: dict) -> dict:
+        """Optional end-of-step evolution of the SOLVER system prompt.
+
+        For fixed-dataset runs (MedThinkVQA), where there is no task generator to
+        evolve. Samples this step's rollouts -- gold answer, prediction, and the
+        reasoning that produced it -- and posts them to the gen server, which
+        rewrites the prompt the solver runs under.
+
+        Failure-heavy on purpose: a rewrite is only as good as the errors it is
+        shown, and correct rollouts say nothing about what to change. A few
+        correct ones are kept for contrast so the rewrite does not break what
+        already works.
+
+        Best-effort: any failure is logged and skipped, never raised.
+        """
+        from omegaconf import OmegaConf
+
+        se_cfg = OmegaConf.select(self.config, "data.self_evolving") or {}
+        if not bool(se_cfg.get("evolve_solver_prompt", False)):
+            return {}
+        gen_server_url = se_cfg.get("gen_server_url", "") or os.environ.get("GEN_SERVER_URL", "")
+        if not gen_server_url:
+            return {}
+        every = int(se_cfg.get("evolve_solver_every_n_steps", 5) or 5)
+        if every > 1 and (self.global_steps % every != 0):
+            return {}
+
+        def _say(msg: str) -> None:
+            print(f"[solver_prompt_evolution] step {self.global_steps}: {msg}", flush=True)
+
+        try:
+            import random as _random
+
+            import requests
+
+            src = reward_extra_infos_dict if reward_extra_infos_dict is not None else {}
+            acc = src.get("acc")
+            if acc is None:
+                _say("no per-sample acc in reward extras; skipping")
+                return {}
+            pred = src.get("extracted_answer")
+            n = len(batch)
+
+            def _at(seq, i, default=None):
+                try:
+                    return seq[i]
+                except (IndexError, TypeError, KeyError):
+                    return default
+
+            wrong = [i for i in range(n) if float(_at(acc, i, 0.0) or 0.0) < 0.5]
+            right = [i for i in range(n) if float(_at(acc, i, 0.0) or 0.0) >= 0.5]
+            k_bad = min(12, len(wrong))
+            k_ok = min(4, len(right))
+            picked = (_random.sample(wrong, k_bad) if k_bad else []) + \
+                     (_random.sample(right, k_ok) if k_ok else [])
+            if len(picked) < 4:
+                _say(f"only {len(picked)} usable rollouts; too few to diagnose, skipping")
+                return {}
+
+            cases = []
+            for i in picked:
+                item = batch[i]
+                prompt_ids = item.batch["prompts"]
+                plen = prompt_ids.shape[-1]
+                resp_ids = item.batch["responses"]
+                vlen = int(item.batch["attention_mask"][plen:].sum())
+                reasoning = self.tokenizer.decode(resp_ids[:vlen], skip_special_tokens=True)
+                ex = item.non_tensor_batch.get("extra_info", {}) or {}
+                rm = item.non_tensor_batch.get("reward_model", {}) or {}
+                cases.append({
+                    "gold": str(rm.get("ground_truth", "")),
+                    "predicted": str(_at(pred, i, "") or ""),
+                    "correct": float(_at(acc, i, 0.0) or 0.0) >= 0.5,
+                    "question": str(ex.get("question", ""))[:1500],
+                    "reasoning": reasoning[-2500:],
+                    "n_images": int(ex.get("n_images_used", 0) or 0),
+                })
+
+            from scripts.self_evolving.medthink_dataset import current_solver_prompt
+
+            path = se_cfg.get("solver_prompt_file", "") or os.environ.get(
+                "MTV_SOLVER_PROMPT_FILE", "")
+            cases[0]["current_prompt"] = current_solver_prompt(path, "")
+
+            val_score = getattr(self, "_last_val_score", None)
+            _say(f"posting {len(cases)} rollouts ({k_bad} wrong / {k_ok} right), "
+                 f"val={val_score} -> {gen_server_url}/evolve_solver")
+            r = requests.post(
+                f"{gen_server_url.rstrip('/')}/evolve_solver",
+                json={"step": int(self.global_steps), "cases": cases,
+                      "accuracy": val_score, "solver_prompt_file": path},
+                timeout=float(se_cfg.get("evolve_timeout", 600)),
+            )
+            r.raise_for_status()
+            res = r.json()
+            _say(f"done: {res}")
+            out = {"solver_evolution/changed": float(bool(res.get("changed"))),
+                   "solver_evolution/version": float(res.get("version", 0) or 0)}
+            for k in ("sample_acc", "n_unparsed"):
+                if res.get(k) is not None:
+                    out[f"solver_evolution/{k}"] = float(res[k])
+            return out
+        except Exception as e:  # noqa: BLE001 — never break training
+            import traceback
+
+            _say(f"FAILED: {type(e).__name__}: {e}\n{traceback.format_exc()}")
+            return {}
+
     def _maybe_evolve_retrieval_reward(self, batch: DataProto, reward_extra_infos_dict: dict) -> dict:
         """Optional end-of-step evolution of the RETRIEVAL reward (coverage judge).
 
@@ -2819,6 +2927,15 @@ class RayPPOTrainer:
                     )
                     if cov_evo_metrics:
                         metrics.update(cov_evo_metrics)
+
+                    # Optional, training-only: evolve the SOLVER system prompt.
+                    # Used by fixed-dataset runs, where there is no task
+                    # generator to evolve instead.
+                    solver_evo_metrics = self._maybe_evolve_solver_prompt(
+                        batch, reward_extra_infos_dict
+                    )
+                    if solver_evo_metrics:
+                        metrics.update(solver_evo_metrics)
 
                 # validate
                 if self.config.trainer.test_freq > 0 and (
