@@ -118,7 +118,9 @@ def build_groups(rows: list, score_key: str, min_ranked: int,
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--dumps", required=True, help="glob of rollout jsonl dumps")
+    ap.add_argument("--dumps", required=True,
+                    help="rollout jsonl dumps: a glob, or a comma-separated list of "
+                         "globs/paths (shell brace expansion does NOT reach here)")
     ap.add_argument("--referee-base", required=True)
     ap.add_argument("--referee-key", default="")
     ap.add_argument("--referee-model", required=True)
@@ -137,7 +139,12 @@ def main() -> int:
     ap.add_argument("--contrasts", default="", help="jsonl of exploit contrasts to read by hand")
     a = ap.parse_args()
 
-    paths = sorted(glob.glob(a.dumps), key=lambda p: int(re.sub(r"\D", "", os.path.basename(p)) or 0))
+    paths = []
+    for part in a.dumps.split(","):
+        part = part.strip()
+        paths.extend(glob.glob(part) if any(c in part for c in "*?[") else
+                     ([part] if os.path.exists(part) else []))
+    paths = sorted(set(paths), key=lambda p: int(re.sub(r"\D", "", os.path.basename(p)) or 0))
     if not paths:
         raise SystemExit(f"no dumps matched {a.dumps}")
     print(f"{len(paths)} dumps: {', '.join(os.path.basename(p) for p in paths)}", flush=True)
