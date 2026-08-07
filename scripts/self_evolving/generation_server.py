@@ -3341,10 +3341,11 @@ def _format_hack_block(state: ServerState, patch_metrics: dict | None = None) ->
             "ADMISSION PROBE — a FIXED adversary that sees the rubric and is forbidden from doing",
             "clinical work, vs an honest answer that never sees the rubric. "
             f"{p['n']} specs probed.",
+            f"  mean margin the farmer wins by (farm - honest)  {p['gap_mean']:+.3f}"
+            f"   <-- THE OBJECTIVE, drive it DOWN (target <= "
+            f"{os.environ.get('HB_MEMO_TARGET', '0.0')}; negative = the spec pays for real work)",
             f"  farmer beat the honest answer on         {p['farm_win_rate']:.2f} of specs"
-            f"   <-- THE OBJECTIVE (target <= {os.environ.get('HB_MEMO_TARGET', '0.10')})",
-            f"  mean specification gap (farm - honest)  {p['gap_mean']:+.2f}"
-            "  (negative = the spec pays for real work)",
+            "   (saturated near 1.0; watch the margin instead)",
             f"  honest reference mean score              {p['honest_mean']:.2f}"
             f"  (below {os.environ.get('HB_MEMO_MIN_HONEST', '0.25')} means specs are too tight)",
             f"  saturated specs (honest very high)      {p['saturated_frac']:.2f}",
@@ -3391,11 +3392,21 @@ async def _evolve_hack_memo(state: ServerState, step: int, hack_block: str) -> d
             "gap_mean": p["gap_mean"], "honest_mean": p["honest_mean"], "n_probes": p["n"],
         })
 
+    # OBJECTIVE: the farmer's MARGIN over the honest answer, not its win RATE.
+    # Measured on the live run: the win rate sat at 0.987-0.997 across four memo
+    # versions and never moved, because at ~99% it is saturated -- the optimizer
+    # was shown the same number every round and could not tell whether its edit
+    # helped. Over those same versions the margin fell 0.210 -> 0.169 and the
+    # honest answer's score rose 0.783 -> 0.826, so the memo WAS working and the
+    # metric could not see it. A continuous objective also makes the rollback
+    # comparison meaningful instead of a coin flip between saturated values.
+    _key = os.environ.get("HB_MEMO_OBJECTIVE", "gap_mean")
+
     def _rate(entry) -> float | None:
         obs = entry.get("outcomes") or []
         if len(obs) < int(os.environ.get("HB_MEMO_MIN_OBS", "2")):
             return None
-        return sum(o["farm_win_rate"] for o in obs) / len(obs)
+        return sum(o.get(_key, o.get("farm_win_rate", 0.0)) for o in obs) / len(obs)
 
     def _save(changed: bool, action: str, summary: str) -> dict:
         try:
@@ -3404,14 +3415,19 @@ async def _evolve_hack_memo(state: ServerState, step: int, hack_block: str) -> d
             logger.warning("hack memo history save failed: %s", e)
         return {"memo/version": float(len(hist)), "memo/changed": float(changed),
                 "memo/action": action, "memo/summary": summary,
+                "memo/objective": _key,
+                "memo/gap_mean": float((p or {}).get("gap_mean", 0.0)),
+                "memo/honest_mean": float((p or {}).get("honest_mean", 0.0)),
                 "memo/farm_win_rate": float((p or {}).get("farm_win_rate", 0.0))}
 
     cur_rate = _rate(hist[-1]) if hist else None
     if hist and cur_rate is None:
         return _save(False, "freeze", "gathering evidence for the current memo")
-    target = float(os.environ.get("HB_MEMO_TARGET", "0.10"))
+    # Default target 0.0: the honest answer outscoring the farmer is the point at
+    # which the specification is no longer farmable on average.
+    target = float(os.environ.get("HB_MEMO_TARGET", "0.0"))
     if cur_rate is not None and cur_rate <= target:
-        return _save(False, "freeze", f"at target ({cur_rate:.2f} <= {target:.2f})")
+        return _save(False, "freeze", f"at target ({cur_rate:.3f} <= {target:.3f})")
 
     eligible = [(i, _rate(e)) for i, e in enumerate(hist[:-1])]
     eligible = [(i, r) for i, r in eligible if r is not None]
