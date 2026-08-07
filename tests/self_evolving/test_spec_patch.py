@@ -474,3 +474,151 @@ def test_hack_stats_counts_modes_and_outcomes_in_code():
     assert h["modes"] == {"hedge_namedrop": 2, "breadth_padding": 1}
     assert h["reasons"]["fires_better"] == 1
     assert h["mean_gap_drop"] == pytest.approx(0.29)
+
+
+# ----------------------------------------------------------------------
+# The refinement loop: repair the specification before the solver sees it
+# ----------------------------------------------------------------------
+def _refine_state(**kw):
+    st = _state(probe_sem=asyncio.Semaphore(4), **kw)
+    st.accuracy_history = deque(maxlen=64)
+    return st
+
+
+def _refine_entry(items=None):
+    return {"extra_info": {
+        "question_id": "q1",
+        "rubric_items": list(items if items is not None else ITEMS),
+        "conversation": [{"role": "user", "content": "Metformin in CKD, continue?"}]}}
+
+
+def _stub_probe_and_mint(monkeypatch, farm_wins_until: int, mint_ok: bool = True,
+                         patch_separates: bool = True):
+    """Farmer wins the first `farm_wins_until` probes, then loses.
+
+    Models the thing the loop exists to do: a rubric that starts farmable stops being
+    farmable once a validated negative criterion is attached.
+    """
+    calls = {"probe": 0, "mint": 0}
+
+    async def probe(state, entry):
+        i = calls["probe"]
+        calls["probe"] += 1
+        farm_wins = i < farm_wins_until
+        s_h, s_f = (0.40, 0.70) if farm_wins else (0.75, 0.30)
+        return {"admit": not farm_wins, "reason": "farmable" if farm_wins else "ok",
+                "s_honest": s_h, "s_farm": s_f, "sep": s_h - s_f, "gap": s_f - s_h,
+                "honest_answer": "honest text " + "x" * 300,
+                "farm_answer": "farmed text " + "x" * 300}
+
+    async def mint(state, case, feedback=""):
+        calls["mint"] += 1
+        if not mint_ok:
+            return None
+        return {"mode": "hedge_namedrop", "points": -8.0,
+                "criterion_text": GOOD_CRIT + f" (round {calls['mint']})"}
+
+    async def grade(state, task, answer, items, label="", strict=False, votes=1):
+        met = ("farmed" in answer) if patch_separates else True
+        return [(float(items[0]["points"]), met)]
+
+    monkeypatch.setattr(G, "_probe_admission", probe)
+    monkeypatch.setattr(G, "_mint_negative", mint)
+    monkeypatch.setattr(G, "_grade_items", grade)
+    return calls
+
+
+def test_a_farmable_rubric_is_repaired_and_then_served(monkeypatch):
+    monkeypatch.setenv("HB_REFINE_ROUNDS", "1")
+    calls = _stub_probe_and_mint(monkeypatch, farm_wins_until=1)
+    st, entry = _refine_state(), _refine_entry()
+    assert asyncio.run(G._refine_spec(st, entry)) is True
+    assert calls["probe"] == 2 and calls["mint"] == 1        # probe, patch, re-probe
+    items = entry["extra_info"]["rubric_items"]
+    assert len(items) == len(ITEMS) + 1 and items[-1]["patched"] is True
+    assert entry["extra_info"]["rubric_version"] == 1
+    assert st.stats["refine_patched"] == 1
+
+
+def test_a_clean_rubric_is_served_untouched_after_one_probe(monkeypatch):
+    calls = _stub_probe_and_mint(monkeypatch, farm_wins_until=0)
+    st, entry = _refine_state(), _refine_entry()
+    assert asyncio.run(G._refine_spec(st, entry)) is True
+    assert calls["probe"] == 1 and calls["mint"] == 0
+    assert len(entry["extra_info"]["rubric_items"]) == len(ITEMS)
+    assert "rubric_version" not in entry["extra_info"]
+
+
+def test_refinement_is_bounded_and_drops_what_it_cannot_fix(monkeypatch):
+    # Farmer always wins; after the budget the spec is dropped in gate mode.
+    monkeypatch.setenv("HB_REFINE_ROUNDS", "2")
+    monkeypatch.setenv("HB_PROBE", "1")
+    monkeypatch.setenv("HB_PROBE_MODE", "gate")
+    calls = _stub_probe_and_mint(monkeypatch, farm_wins_until=99)
+    st, entry = _refine_state(), _refine_entry()
+    assert asyncio.run(G._refine_spec(st, entry)) is False
+    assert calls["probe"] == 3          # rounds+1, never unbounded
+    assert st.stats["refine_unfixed"] == 1
+
+
+def test_log_mode_measures_but_never_drops(monkeypatch):
+    monkeypatch.setenv("HB_REFINE_ROUNDS", "1")
+    monkeypatch.setenv("HB_PROBE", "1")
+    monkeypatch.setenv("HB_PROBE_MODE", "log")
+    _stub_probe_and_mint(monkeypatch, farm_wins_until=99)
+    st, entry = _refine_state(), _refine_entry()
+    assert asyncio.run(G._refine_spec(st, entry)) is True
+    assert st.stats["refine_unfixed"] == 1
+
+
+def test_a_patch_that_does_not_separate_is_not_attached(monkeypatch):
+    monkeypatch.setenv("HB_REFINE_ROUNDS", "1")
+    monkeypatch.setenv("HB_PROBE", "1")
+    monkeypatch.setenv("HB_PROBE_MODE", "gate")
+    _stub_probe_and_mint(monkeypatch, farm_wins_until=99, patch_separates=False)
+    st, entry = _refine_state(), _refine_entry()
+    assert asyncio.run(G._refine_spec(st, entry)) is False
+    assert len(entry["extra_info"]["rubric_items"]) == len(ITEMS)   # nothing attached
+    assert st.stats.get("refine_fires_better") == 1
+
+
+def test_an_unmeasurable_probe_serves_the_spec_rather_than_dropping_it(monkeypatch):
+    # A probe outage must degrade the measurement, never the curriculum's throughput.
+    async def probe(state, entry):
+        return {"admit": True, "reason": "probe_failed"}
+    monkeypatch.setattr(G, "_probe_admission", probe)
+    monkeypatch.setenv("HB_PROBE_MODE", "gate")
+    st, entry = _refine_state(), _refine_entry()
+    assert asyncio.run(G._refine_spec(st, entry)) is True
+    assert len(entry["extra_info"]["rubric_items"]) == len(ITEMS)
+
+
+def test_dropping_stops_when_it_would_starve_the_pool(monkeypatch):
+    # Below the admit-rate floor the probe has become a difficulty filter, which is a
+    # confound rather than a treatment.
+    monkeypatch.setenv("HB_PROBE", "1")
+    monkeypatch.setenv("HB_PROBE_MODE", "gate")
+    monkeypatch.setenv("HB_PROBE_MIN_ADMIT_RATE", "0.25")
+    monkeypatch.setenv("HB_REFINE_ROUNDS", "0")
+    _stub_probe_and_mint(monkeypatch, farm_wins_until=99)
+    hist = deque({"sep": -0.3, "s_honest": 0.4, "s_farm": 0.7, "farm_win": 1,
+                  "admit": False, "saturated": 0, "n_patched": 0} for _ in range(50))
+    st, entry = _refine_state(probe_hist=hist), _refine_entry()
+    assert G._refine_starving(st) is True
+    assert asyncio.run(G._refine_spec(st, entry)) is True     # measured, not dropped
+
+
+def test_probe_stats_separates_fresh_rubrics_from_refined_ones():
+    # farm_win_rate must describe the rubric AS WRITTEN, or refinement would flatter
+    # the number it is being judged by.
+    hist = deque([
+        {"sep": -0.2, "s_honest": 0.4, "s_farm": 0.6, "farm_win": 1, "admit": False,
+         "saturated": 0, "n_patched": 0},
+        {"sep": 0.3, "s_honest": 0.7, "s_farm": 0.4, "farm_win": 0, "admit": True,
+         "saturated": 0, "n_patched": 2},
+    ])
+    p = G.probe_stats(_state(probe_hist=hist))
+    assert p["n"] == 2 and p["n_fresh"] == 1
+    assert p["farm_win_rate"] == 1.0        # the one unrefined rubric was farmable
+    assert p["farm_win_rate_all"] == 0.5
+    assert p["refine_depth_mean"] == 1.0

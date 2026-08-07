@@ -56,7 +56,7 @@ def _trainer(**se):
     t.tokenizer = _Tok()
     t.global_steps = 10
     t.use_critic = False
-    for name in ("_spec_gap_cfg", "_spec_gap_payload", "_submit_spec_gap", "_apply_spec_gap",
+    for name in ("_spec_gap_cfg", "_spec_gap_payload", "_submit_spec_gap", "_record_spec_gap",
                  "_run_spec_gap", "_maybe_ship_exploits"):
         setattr(t, name, getattr(RayPPOTrainer, name).__get__(t, types.SimpleNamespace))
     return t
@@ -118,21 +118,6 @@ def test_missing_referee_endpoint_disables_permanently():
     assert t._spec_gap_cfg() == {}
     assert t._spec_gap_dead is True
     assert t._spec_gap_cfg() == {}          # stays off, no repeated probing
-
-
-def test_std_norm_with_attenuation_is_a_hard_assert():
-    # A group-constant weight cancels against the group std, so the treatment would
-    # be a silent no-op that still logs as active.
-    t = _trainer(spec_gap_mode="soft")
-    t.config.algorithm.norm_adv_by_std_in_grpo = True
-    with pytest.raises(AssertionError, match="norm_adv_by_std_in_grpo=False"):
-        t._spec_gap_cfg()
-
-
-def test_std_norm_is_fine_in_measure_mode():
-    t = _trainer(spec_gap_mode="measure")
-    t.config.algorithm.norm_adv_by_std_in_grpo = True
-    assert t._spec_gap_cfg()["mode"] == "measure"
 
 
 # ----------------------------------------------------------------------
@@ -230,100 +215,64 @@ def _prime(t, batch, extras, stats):
     return cfg
 
 
-def test_measure_mode_leaves_advantages_untouched_but_reports_counterfactual():
-    t = _trainer(spec_gap_mode="measure", spec_gap_prior_pairs=0.0)
+def test_recording_never_touches_what_the_actor_trains_on():
+    """The whole point of dropping attenuation: this hook is inert on the gradient."""
+    t = _trainer()
     batch, extras = _batch()
-    before = batch.batch["advantages"].clone()
+    before_adv = batch.batch["advantages"].clone()
+    before_ret = batch.batch["returns"].clone()
     _prime(t, batch, extras, _stats_for(batch))
-    m = t._apply_spec_gap(batch, extras)
-    assert torch.equal(batch.batch["advantages"], before)
-    assert m["spec_gap/adv_scale"] == 1.0
-    assert m["spec_gap/adv_scale_would_be"] == pytest.approx(0.5)   # one of two groups zeroed
-    assert m["spec_gap/H/mean"] == pytest.approx(0.5)
-
-
-def test_soft_mode_zeroes_the_inverted_group_and_keeps_the_clean_one():
-    t = _trainer(spec_gap_mode="soft", spec_gap_prior_pairs=0.0)
-    batch, extras = _batch()
-    before = batch.batch["advantages"].clone()
-    _prime(t, batch, extras, _stats_for(batch))
-    m = t._apply_spec_gap(batch, extras)
-    adv = batch.batch["advantages"]
-    assert torch.equal(adv[:4], before[:4])            # u0: H=0 -> w=1
-    assert adv[4:].abs().sum().item() == 0.0           # u1: H=1 -> w=0
-    assert m["spec_gap/adv_scale"] == pytest.approx(0.5)
-    # returns shared storage with advantages, so it must have followed
-    assert torch.equal(batch.batch["returns"], adv)
-
-
-def test_weighting_preserves_group_mean_zero():
-    t = _trainer(spec_gap_mode="soft", spec_gap_prior_pairs=8.0)
-    batch, extras = _batch()
-    _prime(t, batch, extras, _stats_for(batch))
-    t._apply_spec_gap(batch, extras)
-    adv = batch.batch["advantages"]
-    for sl in (slice(0, 4), slice(4, 8)):
-        assert adv[sl].mean().abs().item() < 1e-6
-
-
-def test_returns_are_not_touched_when_a_critic_owns_them():
-    t = _trainer(spec_gap_mode="soft", spec_gap_prior_pairs=0.0)
-    t.use_critic = True
-    batch, extras = _batch()
-    ret_before = batch.batch["returns"].clone()
-    _prime(t, batch, extras, _stats_for(batch))
-    t._apply_spec_gap(batch, extras)
-    # advantages moved; the value target must not have been corrupted with them
-    assert torch.equal(batch.batch["returns"], ret_before)
-    assert not torch.equal(batch.batch["advantages"], ret_before)
+    m = t._record_spec_gap(batch, extras)
+    assert torch.equal(batch.batch["advantages"], before_adv)
+    assert torch.equal(batch.batch["returns"], before_ret)
+    assert m["spec_gap/H/mean"] == pytest.approx(0.5)   # one of two groups inverted
+    assert not any("adv_scale" in k or "/w/" in k for k in m)
 
 
 def test_per_row_extras_land_for_the_rollout_dump():
-    t = _trainer(spec_gap_mode="soft", spec_gap_prior_pairs=0.0)
+    t = _trainer()
     batch, extras = _batch()
     _prime(t, batch, extras, _stats_for(batch))
-    t._apply_spec_gap(batch, extras)
+    t._record_spec_gap(batch, extras)
     n = len(batch.batch)
-    for k in ("spec_gap_H", "spec_gap_w", "spec_gap_measured", "referee_tier", "uid"):
+    for k in ("spec_gap_H", "spec_gap_measured", "referee_tier", "uid"):
         assert len(extras[k]) == n, k
-    assert extras["spec_gap_w"][:4] == [1.0] * 4
-    assert extras["spec_gap_w"][4:] == [0.0] * 4
     assert set(extras["referee_tier"]) == {0.0, 1.0, 2.0, 3.0}
+    assert extras["spec_gap_H"][0] == 0.0 and extras["spec_gap_H"][-1] == 1.0
 
 
 def test_referee_failure_leaves_the_batch_alone():
-    t = _trainer(spec_gap_mode="soft")
+    t = _trainer()
     batch, extras = _batch()
     before = batch.batch["advantages"].clone()
     _prime(t, batch, extras, {})               # empty == every referee call failed
-    m = t._apply_spec_gap(batch, extras)
+    m = t._record_spec_gap(batch, extras)
     assert torch.equal(batch.batch["advantages"], before)
     assert m["spec_gap/referee/fail_frac"] == 1.0
 
 
 def test_repeated_referee_failure_disables_the_feature():
-    t = _trainer(spec_gap_mode="soft", spec_gap_max_fail_steps=2)
+    t = _trainer(spec_gap_max_fail_steps=2)
     batch, extras = _batch()
     _prime(t, batch, extras, {})
-    t._apply_spec_gap(batch, extras)
+    t._record_spec_gap(batch, extras)
     _prime(t, batch, extras, {})
-    m = t._apply_spec_gap(batch, extras)
+    m = t._record_spec_gap(batch, extras)
     assert m["spec_gap/dead"] == 1.0
     assert t._spec_gap_cfg() == {}
 
 
 def test_exploits_are_buffered_only_when_shipping_is_on():
     batch, extras = _batch()
-    t = _trainer(spec_gap_mode="measure", spec_gap_prior_pairs=0.0)
+    t = _trainer()
     _prime(t, batch, extras, _stats_for(batch))
-    t._apply_spec_gap(batch, extras)
+    t._record_spec_gap(batch, extras)
     assert not getattr(t, "_spec_gap_exploits", None)
 
-    t2 = _trainer(spec_gap_mode="measure", spec_gap_prior_pairs=0.0,
-                  spec_gap_ship_exploits=True, spec_gap_exploit_margin=0.15)
+    t2 = _trainer(spec_gap_ship_exploits=True, spec_gap_exploit_margin=0.15)
     batch2, extras2 = _batch()
     _prime(t2, batch2, extras2, _stats_for(batch2))
-    m = t2._apply_spec_gap(batch2, extras2)
+    m = t2._record_spec_gap(batch2, extras2)
     assert m["spec_gap/exploits/found"] == 1.0        # only the inverted group
     ex = list(t2._spec_gap_exploits)[0]
     assert ex["question_id"] == "q1" and ex["H"] == 1.0
@@ -351,7 +300,7 @@ def test_hooks_are_a_total_no_op_when_disabled():
     before = batch.batch["advantages"].clone()
     keys_before = set(extras)
     t._submit_spec_gap(batch, extras)
-    assert t._apply_spec_gap(batch, extras) == {}
+    assert t._record_spec_gap(batch, extras) == {}
     assert torch.equal(batch.batch["advantages"], before)
     assert set(extras) == keys_before
 
@@ -362,7 +311,7 @@ def test_cadence_skips_off_steps():
     batch, extras = _batch()
     t._submit_spec_gap(batch, extras)
     assert t._spec_gap_result is None
-    assert t._apply_spec_gap(batch, extras) == {}
+    assert t._record_spec_gap(batch, extras) == {}
 
 
 def test_conversation_text_excludes_assistant_turns_and_falls_back():

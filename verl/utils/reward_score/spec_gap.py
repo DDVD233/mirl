@@ -1,8 +1,8 @@
-"""Specification gap: how exploitable is the rubric this group is being trained on?
+"""Specification gap: is the rubric this group trains on actually ranking correctly?
 
 A generated rubric is a reward SPECIFICATION, and RL turns the policy into an
-adversary against it. This module measures how well that specification holds up
-against the policy's own rollouts, inside the GRPO group, every step.
+adversary against it. This module measures how well a specification holds up against
+the policy's own rollouts, inside the GRPO group, every step.
 
 For a group of n rollouts of one generated task, a rubric-BLIND referee partitions
 the answers into quality tiers. Let ``delta_ij = s_i - s_j`` be the rubric's margin
@@ -14,43 +14,38 @@ and ``r_ij`` the referee's preference. Over margin-decisive pairs::
 H is the fraction of decisive pairs where the rubric's ordering contradicts the
 referee's. ``C = 1 - H`` is concordance, ``D = sd({s_i})`` is discrimination.
 
-WHY THIS IS THE RIGHT CURRENCY. Under Dr.GRPO (``norm_adv_by_std_in_grpo=False``)
+H is in GRPO's own currency, which is why the group is the right unit. Under Dr.GRPO
 the advantage is EXACTLY an average of pairwise margins::
 
     A_i = s_i - mean(s) = (1/n) * sum_{j != i} (s_i - s_j)
 
-an identity, not an approximation. GRPO already IS a pairwise ordering learner, so
-H is a defect rate in its own units, and weighting a group's advantages by
-``w = clamp(1 - 2H, 0, 1)`` makes H a per-group learning rate. Motivation for that
-form: under a pairwise-noise model where the proxy's ordering is flipped with
-probability H, the expected useful ordering signal is ``(1-H) - H = 1-2H``; at
-H = 0.5 the specification carries no ordering information and earns zero weight.
-It is a variance/SNR choice, not an unbiasedness one — unbiasedness would want
-``1/(1-2H)``. We are in the noise-dominated regime (single-vote judge noise has
-score-level sd ~0.11, the same order as the within-group sd), where ``1-2H`` is the
-MMSE rescaling.
+an identity, not an approximation. GRPO already IS a pairwise ordering learner, so a
+rubric that orders pairs wrongly is feeding it wrong gradients, and H is that defect
+rate measured directly.
 
-This is the continuous generalization of the DAPO filter the trainer already runs:
-that drops groups with no DISCRIMINATION (D = 0); this down-weights groups with no
-VALIDITY (C = 0.5). One knob, two orthogonal failure axes.
+WHAT IS DONE WITH IT. Nothing, here, to the gradient. This measurement DETECTS
+exploited specifications; repairing them happens where they are written, in the
+generation server, before the solver ever sees them. Down-weighting a suspect group's
+advantages was implemented and removed: it repairs nothing, it reaches only the
+minority of groups that have both a decisive rubric margin and a decisive referee
+verdict, and because ``loss_agg_mode=token-mean`` divides by a token count that does
+not shrink, it is indistinguishable from a learning-rate cut without a
+matched-weight-distribution placebo arm. Detecting and fixing the specification is
+strictly better than distrusting it.
 
-THE REFEREE IS A VETO, NEVER A REWARD TERM. A group-constant ``w >= 0`` preserves
-mean-zero, every sign, and every within-group ratio, so the referee cannot change
-what is preferred on any prompt — its whole reachable action is the prompt mixture,
-and it can only ever SHRINK a group's share. A compromised veto costs sample
-efficiency; a compromised reward term trains the wrong objective. One-sided failure
-is the only acceptable property for an oracle we cannot check. The honest limit: a
-SYSTEMATICALLY biased referee still shifts the mixture, which is why the health
-metrics here (``longer_pref``, ``pos_pref``, ``unstable_pair_frac``) are hard
-pre-GPU gates rather than dashboard decoration.
+So this module produces two things: the H series (does the specification gap grow as
+the policy trains?) and the exploit CONTRASTS -- the rollout the rubric ranked top
+paired with one the referee judged better -- which are the concrete evidence a repair
+has to explain.
 
 THE REFEREE PROMPT IS A CODE CONSTANT WITH NO FILE AND NO EVOLVE PATH. An evolvable
 referee is a referee that gets optimized against. Do not add one.
 
 FAILURE POLICY, matching ``retrieval_coverage.score_coverage``: an unusable verdict
-returns ``judged=False`` and the group is left alone (``w = 1``). It must never look
+returns ``judged=False`` and the group is simply not measured. It must never look
 like "H = 0" or "H = 1".
 """
+
 
 from __future__ import annotations
 
@@ -249,62 +244,36 @@ def group_stats(ranked_rows: list, scores: dict, lens: dict, slots: dict,
     return st
 
 
-def shrink_weights(stats: dict, prior_pairs: float = 8.0, mode: str = "measure",
-                   w_floor: float = 0.0, step: int = 0) -> tuple[dict, dict]:
-    """(uid -> advantage weight, aggregate metric dict).
+def aggregate_stats(stats: dict) -> dict:
+    """Batch-level metrics over per-group GroupStats. No weights, nothing to tune.
 
-    SHRINKAGE IS NOT OPTIONAL. Pairs within a group are dependent — each shares a
-    rollout with 2(n-2) others — so the effective sample size is O(n), not O(n^2),
-    and sd(H_hat) at n=8 is ~0.2-0.35, roughly 3x the naive binomial estimate. A
-    raw per-group weight would inject that noise straight into the gradient. So
-    each group's H is shrunk toward the batch value with `prior_pairs` pseudo-pairs
-    (`prior_pairs=0` recovers the raw estimate for a purist run).
+    H is pooled over PAIRS (sum of discordant / sum of decisive) rather than averaged
+    over groups. That is the honest aggregate and it is also why no shrinkage is
+    needed: pairs inside a group are dependent -- each shares a rollout with 2(n-2)
+    others -- so a single group's H at n=8 has a standard deviation around 0.2-0.35,
+    but pooling across the batch's ~30 groups is what the reported number rests on.
+    An earlier version shrank each group's H toward the batch value because each
+    group's estimate drove that group's gradient weight; with no per-group weight,
+    there is nothing to stabilise.
 
-    Three modes, deliberately no more: `measure` (all weights 1.0 — the treatment is
-    off, but every statistic including the counterfactual `adv_scale_would_be` is
-    still computed), `soft` (w = clamp(1-2H, w_floor, 1)), and `shuffle` — the
-    placebo, which computes the soft weights and then PERMUTES them across
-    uids. Because `loss_agg_mode=token-mean` divides by a global token count that
-    does not shrink when groups are down-weighted, attenuation IS an effective-LR
-    cut; `shuffle` preserves the weight multiset, all its moments and the
-    per-step mean while destroying the H-to-group correspondence, so it is the
-    control that separates "the mechanism worked" from "the LR was lower".
+    The referee-health metrics are the ones to read first when H looks strange. They
+    use the referee-decisive denominator, NOT the rubric-gated one: conditioning the
+    length or position estimate on the rubric would confound the very bias being
+    measured. Together they separate the two ways H can land near 0.5 -- a genuinely
+    uninformative rubric (health normal) from a degenerate referee (longer_pref or
+    pos_pref off 0.5, or unstable_pair_frac high).
     """
     meas = {u: s for u, s in stats.items() if s.measured}
     sum_dec = sum(s.n_dec for s in meas.values())
     sum_disc = sum(s.n_disc for s in meas.values())
     h_batch = (sum_disc / sum_dec) if sum_dec else 0.0
-
-    def soft(h: float) -> float:
-        return min(1.0, max(float(w_floor), 1.0 - 2.0 * h))
-
-    h_shrunk: dict[str, float] = {}
-    w_soft: dict[str, float] = {}
-    for u, s in meas.items():
-        m = float(s.n_dec)
-        hs = (s.n_disc + prior_pairs * h_batch) / (m + prior_pairs) if (m + prior_pairs) > 0 else h_batch
-        h_shrunk[u] = hs
-        w_soft[u] = soft(hs)
-
-    weights: dict[str, float] = {u: 1.0 for u in stats}
-    if mode == "soft":
-        weights.update(w_soft)
-    elif mode == "shuffle":
-        uids = sorted(meas)
-        vals = [w_soft[u] for u in uids]
-        random.Random(step).shuffle(vals)
-        weights.update(dict(zip(uids, vals)))
-    elif mode != "measure":
-        logger.warning("unknown spec_gap mode %r, treating as measure", mode)
-
     n_groups = max(1, len(stats))
     n_meas = len(meas)
-    w_meas = [weights[u] for u in meas] or [1.0]
-    w_would = list(w_soft.values()) or [1.0]
     ref_dec = sum(s.n_ref_dec for s in stats.values())
-    metrics = {
+    n_unstable = sum(s.n_unstable for s in stats.values())
+    return {
         "spec_gap/H/mean": h_batch,
-        "spec_gap/H/group_mean": (sum(h_shrunk.values()) / n_meas) if n_meas else 0.0,
+        "spec_gap/H/group_mean": (sum(s.h for s in meas.values()) / n_meas) if n_meas else 0.0,
         "spec_gap/C/mean": 1.0 - h_batch,
         "spec_gap/D/spread_mean": sum(s.d_spread for s in stats.values()) / n_groups,
         "spec_gap/D/std_mean": sum(s.d_std for s in stats.values()) / n_groups,
@@ -312,24 +281,11 @@ def shrink_weights(stats: dict, prior_pairs: float = 8.0, mode: str = "measure",
         "spec_gap/n_groups": float(len(stats)),
         "spec_gap/measured_groups_frac": n_meas / n_groups,
         "spec_gap/frac_groups_H_gt_half": (
-            sum(1 for h in h_shrunk.values() if h > 0.5) / n_meas) if n_meas else 0.0,
-        "spec_gap/w/mean": sum(w_meas) / len(w_meas),
-        "spec_gap/w/min": min(w_meas),
-        "spec_gap/w/sd": statistics.pstdev(w_meas) if len(w_meas) > 1 else 0.0,
-        "spec_gap/groups_gated_frac": (
-            sum(1 for u in meas if weights[u] <= 1e-9) / n_groups),
-        # Kish effective sample size over the weights actually applied.
-        "spec_gap/ess": ((sum(w_meas) ** 2) / sum(w * w for w in w_meas)) if sum(w_meas) else 0.0,
-        # The counterfactual advantage scale: in `measure` mode adv_scale is 1.0 by
-        # construction, so this is what makes a measure-only run able to power an
-        # LR-matched control.
-        "spec_gap/adv_scale_would_be": sum(w_would) / len(w_would),
+            sum(1 for s in meas.values() if s.h > 0.5) / n_meas) if n_meas else 0.0,
         "spec_gap/referee/n_tiers_mean": sum(s.n_tiers for s in stats.values()) / n_groups,
         "spec_gap/referee/abstain_frac": (
             sum(1 for s in stats.values() if s.judged and s.n_ref_dec == 0) / n_groups),
-        "spec_gap/referee/unstable_pair_frac": (
-            sum(s.n_unstable for s in stats.values())
-            / max(1, ref_dec + sum(s.n_unstable for s in stats.values()))),
+        "spec_gap/referee/unstable_pair_frac": n_unstable / max(1, ref_dec + n_unstable),
         "spec_gap/referee/longer_pref": (
             sum(s.n_len_pref for s in stats.values()) / ref_dec) if ref_dec else 0.5,
         "spec_gap/referee/pos_pref": (
@@ -337,7 +293,6 @@ def shrink_weights(stats: dict, prior_pairs: float = 8.0, mode: str = "measure",
         "spec_gap/referee/fail_frac": (
             sum(1 for s in stats.values() if not s.judged) / n_groups),
     }
-    return weights, metrics
 
 
 def pick_exploit(uid: str, st: GroupStats, scores: dict, answers: dict,

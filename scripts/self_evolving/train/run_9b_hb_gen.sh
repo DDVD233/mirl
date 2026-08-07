@@ -70,33 +70,40 @@ if [ "$EVOLVE" = 1 ] && [ "$SELF_JUDGE" = 1 ]; then
     exit 1
 fi
 
-# ---- specification-gap arms (hack-then-patch) ----
-# SPEC_GAP=1 measures, per GRPO group, whether the generated rubric's ordering of
-# the rollouts agrees with a rubric-BLIND referee. SPEC_GAP_MODE decides what is
-# done with that number:
-#   measure  observe only, no gradient effect (the instrumented baseline)
-#   soft     weight each group's advantages by clamp(1-2H, 0, 1)
-#   shuffle  THE PLACEBO: the same weight multiset, permuted across groups. Because
-#            token-mean divides by a token count that does not shrink, attenuation
-#            IS an effective-LR cut, and this is the only control that holds the LR
-#            and its whole distribution fixed while destroying the H-to-group link.
-#            An attenuation result without this arm is unpublishable.
+# ---- adversarial specification refinement ----
+# The reward for each generated task is a rubric another model wrote, and it can be
+# satisfied without doing the clinical work. These switches test and repair it.
+#
+#   PROBE=1   Before a task is served, a FROZEN rubric-farmer writes the laziest
+#             answer that ticks every box, and a rubric-BLIND honest answer is
+#             written from the bare task. Both are graded. If the farmer wins, the
+#             rubric cannot tell good medicine from empty words.
+#   PATCH=1   A farmable rubric is REPAIRED rather than discarded: mint a negative
+#             criterion from the farmed/honest contrast, keep it only if grading
+#             proves it fires on the farmed answer and not the honest one, then
+#             re-probe. HB_REFINE_ROUNDS bounds the loop. Rejection is the last
+#             resort -- discarding specs starves the pool and turns the probe into a
+#             difficulty filter.
+#   SPEC_GAP=1  During training, a rubric-blind referee ranks each GRPO group's 8
+#             rollouts. H = the fraction of decisive pairs where the rubric's order
+#             contradicts the referee's. This changes NOTHING the actor trains on --
+#             it detects the exploits the frozen farmer missed, because the real
+#             policy is a better adversary and gets better as it trains.
+#   SPEC_GAP_SHIP=1  Those confirmed exploits POST to /patch_spec, repairing the
+#             rubric for future rollouts of that task.
+#   HACK_MEMO=1  The exploit MODES accumulate into a memo in the generator's prompt,
+#             so future rubrics do not have the same hole. This is the only switch
+#             that improves generation itself; without it you patch forever.
 SPEC_GAP="${SPEC_GAP:-0}"
-SPEC_GAP_MODE="${SPEC_GAP_MODE:-measure}"
-SPEC_GAP_SHIP="${SPEC_GAP_SHIP:-0}"   # POST confirmed exploits to /patch_spec
-PROBE="${PROBE:-0}"                   # frozen-farmer admission probe (gen server)
-PATCH="${PATCH:-0}"                   # local rubric repair (gen server)
-HACK_MEMO="${HACK_MEMO:-0}"           # evolvable known-exploits memo (gen server)
-case "$SPEC_GAP_MODE" in
-    measure|soft|shuffle) ;;
-    *) echo "FATAL: SPEC_GAP_MODE must be measure|soft|shuffle (got '$SPEC_GAP_MODE')" >&2
-       exit 1 ;;
-esac
+SPEC_GAP_SHIP="${SPEC_GAP_SHIP:-0}"
+PROBE="${PROBE:-0}"
+PATCH="${PATCH:-0}"
+HACK_MEMO="${HACK_MEMO:-0}"
 if [ "$SPEC_GAP_SHIP" = 1 ] && [ "$EVOLVE" != 1 ]; then
-    # The exploit buffer is drained inside _maybe_evolve_generation, which returns
-    # at its first guard when evolve_generation is False. Without EVOLVE=1 the
-    # buffer would fill and nothing would ever ship -- the same class of silent
-    # no-op as the /evolve_retrieval 500 that read healthy for a whole 60-step run.
+    # The exploit buffer drains inside _maybe_evolve_generation, which returns at its
+    # first guard when evolve_generation is False. Without EVOLVE=1 the buffer would
+    # fill and nothing would ever ship -- the same class of silent no-op as the
+    # /evolve_retrieval 500 that read healthy for a whole 60-step run.
     echo "FATAL: SPEC_GAP_SHIP=1 needs EVOLVE=1 (exploits drain on the evolve round)" >&2
     exit 1
 fi
@@ -104,15 +111,16 @@ if [ "$SPEC_GAP_SHIP" = 1 ] && [ "$SPEC_GAP" != 1 ]; then
     echo "FATAL: SPEC_GAP_SHIP=1 needs SPEC_GAP=1 (nothing measures the exploits)" >&2
     exit 1
 fi
-if [ "$PATCH" = 1 ] && [ "$SPEC_GAP_SHIP" != 1 ]; then
-    echo "FATAL: PATCH=1 without SPEC_GAP_SHIP=1 leaves /patch_spec with no cases to repair" >&2
+if [ "$PATCH" = 1 ] && [ "$PROBE" != 1 ] && [ "$SPEC_GAP_SHIP" != 1 ]; then
+    echo "FATAL: PATCH=1 needs PROBE=1 (refine before serving) or SPEC_GAP_SHIP=1" \
+         "(repair on-policy exploits); on its own it has nothing to repair from" >&2
     exit 1
 fi
 
 _ARM=$([ "$RETRIEVAL" = 1 ] && echo retrieval || echo control)
 [ "$EVOLVE" = 1 ] && _ARM="${_ARM}_evolve"
 [ "$SELF_JUDGE" = 1 ] && _ARM="${_ARM}_selfjudge"
-[ "$SPEC_GAP" = 1 ] && _ARM="${_ARM}_sg${SPEC_GAP_MODE}"
+[ "$SPEC_GAP" = 1 ] && _ARM="${_ARM}_sg"
 [ "$PROBE" = 1 ] && _ARM="${_ARM}_probe"
 [ "$PATCH" = 1 ] && _ARM="${_ARM}_patch"
 EXP="${EXP:-hb9b_gen_$_ARM}"
@@ -212,6 +220,7 @@ export HB_PROBE="$PROBE"
 export HB_PROBE_MODE="${HB_PROBE_MODE:-log}"     # log = measure without rejecting
 export HB_PROBE_RATE="${HB_PROBE_RATE:-0.34}"
 export HB_PATCH="$PATCH"
+export HB_REFINE_ROUNDS="${HB_REFINE_ROUNDS:-1}"
 export HB_HACK_MEMO="$HACK_MEMO"
 
 # ---- token budget: IDENTICAL in both arms (this is the confound that bit us) ----
@@ -444,11 +453,8 @@ fi
     +data.self_evolving.evolve_retrieval_reward=$([ "$REWARD_EVOLVE" = 1 ] && echo True || echo False) \
     +data.self_evolving.evolve_retrieval_every_n_steps="${REWARD_EVOLVE_EVERY:-5}" \
     +data.self_evolving.spec_gap=$([ "$SPEC_GAP" = 1 ] && echo True || echo False) \
-    +data.self_evolving.spec_gap_mode="$SPEC_GAP_MODE" \
     +data.self_evolving.spec_gap_ship_exploits=$([ "$SPEC_GAP_SHIP" = 1 ] && echo True || echo False) \
     +data.self_evolving.spec_gap_margin="${SPEC_GAP_MARGIN:-0.05}" \
-    +data.self_evolving.spec_gap_prior_pairs="${SPEC_GAP_PRIOR_PAIRS:-8.0}" \
-    +data.self_evolving.spec_gap_w_floor="${SPEC_GAP_W_FLOOR:-0.0}" \
     +data.self_evolving.spec_gap_min_pairs="${SPEC_GAP_MIN_PAIRS:-3}" \
     +data.self_evolving.spec_gap_swap="${SPEC_GAP_SWAP:-True}" \
     +data.self_evolving.spec_gap_concurrency="${SPEC_GAP_CONCURRENCY:-16}" \

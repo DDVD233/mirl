@@ -988,15 +988,12 @@ class RayPPOTrainer:
             return {}
         rk = OmegaConf.select(self.config, "reward.custom_reward_function.reward_kwargs") or {}
         cfg = {
-            "mode": str(se_cfg.get("spec_gap_mode", "measure")),  # measure|soft|shuffle
             "ship": bool(se_cfg.get("spec_gap_ship_exploits", False)),
             "every": max(1, int(se_cfg.get("spec_gap_every_n_steps", 1) or 1)),
             "score_key": str(se_cfg.get("spec_gap_score_key", "acc_raw_signed")),
             "margin": float(se_cfg.get("spec_gap_margin", 0.05)),
             "min_pairs": int(se_cfg.get("spec_gap_min_pairs", 3)),
             "min_ranked": int(se_cfg.get("spec_gap_min_ranked", 3)),
-            "prior_pairs": float(se_cfg.get("spec_gap_prior_pairs", 8.0)),
-            "w_floor": float(se_cfg.get("spec_gap_w_floor", 0.0)),
             "swap": bool(se_cfg.get("spec_gap_swap", True)),
             "async_": bool(se_cfg.get("spec_gap_async", True)),
             "deadline_s": float(se_cfg.get("spec_gap_deadline_s", 120)),
@@ -1018,28 +1015,15 @@ class RayPPOTrainer:
             return {}
         if not getattr(self, "_spec_gap_logged", False):
             self._spec_gap_logged = True
-            print(f"[spec_gap] mode={cfg['mode']} ship={cfg['ship']} referee="
-                  f"{cfg['model_name']} @ {cfg['api_base']} provider={cfg['provider'] or 'env'} "
-                  f"margin={cfg['margin']} prior_pairs={cfg['prior_pairs']}", flush=True)
+            print(f"[spec_gap] ship={cfg['ship']} referee={cfg['model_name']} @ "
+                  f"{cfg['api_base']} provider={cfg['provider'] or 'env'} "
+                  f"margin={cfg['margin']}", flush=True)
             if str(rk.get("model_name", "")) == cfg["model_name"]:
                 print("[spec_gap] WARNING: referee model == TRAIN judge model. Rubric-blindness "
                       "still makes it an independent signal but not an independent model, so H is "
                       "biased LOW by shared model bias. Bound it by re-grading the final val "
                       "dumps under a second grader (scripts/self_evolving/rejudge_val.py).",
                       flush=True)
-            if cfg["mode"] != "measure":
-                # A group-constant multiplier on the reward is absorbed by the
-                # group's own normalization: an exact no-op under std-norm, and
-                # only a mean shift without it. We attenuate the ADVANTAGE after
-                # compute_advantage, which is only meaningful for mean-centred
-                # (Dr.GRPO) advantages -- under std-norm the group std would be
-                # rescaled with it and the intervention would cancel.
-                std_norm = bool(OmegaConf.select(self.config, "algorithm.norm_adv_by_std_in_grpo"))
-                assert not std_norm, (
-                    "spec_gap_mode != measure requires algorithm.norm_adv_by_std_in_grpo=False. "
-                    "With std normalization the per-group weight cancels against the group std "
-                    "and the attenuation is a no-op that still logs as active."
-                )
         return cfg
 
     def _spec_gap_payload(self, batch: DataProto, reward_extra_infos_dict: dict, cfg: dict):
@@ -1189,9 +1173,15 @@ class RayPPOTrainer:
                   f"{traceback.format_exc()}", flush=True)
             return {}
 
-    def _apply_spec_gap(self, batch: DataProto, reward_extra_infos_dict: dict) -> dict:
-        """Hook B: join the measurement, weight the advantages, emit the metrics."""
-        from verl.utils.reward_score.spec_gap import pick_exploit, shrink_weights
+    def _record_spec_gap(self, batch: DataProto, reward_extra_infos_dict: dict) -> dict:
+        """Join the measurement, log it, and buffer the exploits it found.
+
+        Deliberately touches nothing the actor will train on. The repair happens in
+        the generation server, on the specification itself, before the solver sees it
+        again -- see verl/utils/reward_score/spec_gap.py for why down-weighting a
+        suspect group was implemented and then removed.
+        """
+        from verl.utils.reward_score.spec_gap import aggregate_stats, pick_exploit
 
         pending = getattr(self, "_spec_gap_result", None)
         cfg, meta, metrics = getattr(self, "_spec_gap_pending", (None, {}, {}))
@@ -1205,7 +1195,7 @@ class RayPPOTrainer:
                 stats = fut.result(timeout=cfg["deadline_s"])
             except Exception as e:  # noqa: BLE001 — TimeoutError included
                 print(f"[spec_gap] join missed the {cfg['deadline_s']}s deadline "
-                      f"({type(e).__name__}); measure-off for this step", flush=True)
+                      f"({type(e).__name__}); not measured this step", flush=True)
                 return {**metrics, "spec_gap/deadline_miss": 1.0}
             finally:
                 self._spec_gap_future = None
@@ -1223,59 +1213,27 @@ class RayPPOTrainer:
             return {**metrics, "spec_gap/referee/fail_frac": 1.0}
         self._spec_gap_fail_steps = 0
         self._spec_gap_n_groups = len(stats)
+        metrics = {**metrics, **aggregate_stats(stats)}
 
-        weights, m = shrink_weights(stats, prior_pairs=cfg["prior_pairs"], mode=cfg["mode"],
-                                   w_floor=cfg["w_floor"],
-                                   step=int(self.global_steps))
-        metrics = {**metrics, **m}
-
-        # Weight the advantages. Keyed by uid and read from the CURRENT uid column,
-        # so the join is immune to any reordering or reslicing between the hooks.
+        # Per-row extras -> the rollout jsonl (any key whose length matches the batch
+        # is dumped). Added AFTER the auto reward/<key>/mean loop, so these never
+        # become non_tensor_batch columns that ride into every actor worker.
         uids = np.asarray(batch.non_tensor_batch["uid"])
-        adv = batch.batch.get("advantages")
-        realized = 1.0
-        if adv is not None and cfg["mode"] != "measure":
-            w_row = np.ones(len(uids), dtype=np.float64)
-            for uid, w in weights.items():
-                w_row[uids == uid] = w
-            col = torch.as_tensor(w_row, dtype=adv.dtype, device=adv.device).unsqueeze(-1)
-            # GRPO returns the SAME tensor object for advantages and returns
-            # (core_algos.compute_grpo_outcome_advantage). Scale out-of-place and
-            # reassign both explicitly, so a future GAE/critic setup gets a correct
-            # value target instead of a silently corrupted one.
-            shares = ("returns" in batch.batch
-                      and batch.batch["returns"].data_ptr() == adv.data_ptr()
-                      and not self.use_critic)
-            scaled = adv * col
-            batch.batch["advantages"] = scaled
-            if shares:
-                batch.batch["returns"] = scaled
-            realized = float(np.mean(w_row))
-        # The token-mean denominator does not shrink when groups are down-weighted,
-        # so this IS the effective-LR multiplier for the step. Always logged: it is
-        # what the shuffled-weight placebo has to match.
-        metrics["spec_gap/adv_scale"] = realized
-
-        # Per-row extras -> the rollout jsonl (any key whose length matches the
-        # batch is dumped). Added AFTER the auto reward/<key>/mean loop, so these
-        # never become non_tensor_batch columns and never ride into a worker.
         if reward_extra_infos_dict is not None:
             n = len(batch.batch)
             row_h = np.full(n, np.nan)
-            row_w = np.ones(n)
             row_meas = np.zeros(n)
             row_tier = np.full(n, -1.0)
             for uid, st in stats.items():
                 sel = uids == uid
-                row_w[sel] = weights.get(uid, 1.0)
                 if st.measured:
                     row_h[sel] = st.h
                     row_meas[sel] = 1.0
                 for i, t in st.tier_of.items():
                     if 0 <= i < n:
                         row_tier[i] = float(t)
-            for key, val in (("spec_gap_H", row_h), ("spec_gap_w", row_w),
-                             ("spec_gap_measured", row_meas), ("referee_tier", row_tier)):
+            for key, val in (("spec_gap_H", row_h), ("spec_gap_measured", row_meas),
+                             ("referee_tier", row_tier)):
                 reward_extra_infos_dict[key] = val.tolist()
             if "uid" not in reward_extra_infos_dict:
                 reward_extra_infos_dict["uid"] = [str(u) for u in uids.tolist()]
@@ -2782,13 +2740,11 @@ class RayPPOTrainer:
                             config=self.config.algorithm,
                         )
 
-                    # Join the specification-gap measurement and attenuate each
-                    # group's advantages by w = clamp(1-2H, 0, 1) -- a per-group
-                    # learning rate. It has to happen HERE and not on the reward:
-                    # a group-constant multiplier applied before compute_advantage
-                    # is absorbed by the group's own normalization.
+                    # Join the specification-gap measurement started before
+                    # old_log_prob. Records H and buffers the exploits it found; it
+                    # changes nothing the actor trains on.
                     with marked_timer("spec_gap", timing_raw, color="purple"):
-                        _sg_metrics = self._apply_spec_gap(batch, reward_extra_infos_dict)
+                        _sg_metrics = self._record_spec_gap(batch, reward_extra_infos_dict)
                         if _sg_metrics:
                             metrics.update(_sg_metrics)
 

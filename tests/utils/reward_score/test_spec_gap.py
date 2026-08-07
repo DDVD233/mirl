@@ -26,9 +26,9 @@ import torch
 from verl.utils.reward_score.spec_gap import (
     GroupStats,
     _parse_tiers,
+    aggregate_stats,
     group_stats,
     pick_exploit,
-    shrink_weights,
 )
 
 LABELS3 = ["A", "B", "C"]
@@ -88,11 +88,9 @@ def test_perfect_agreement_gives_h_zero():
     assert st.h == 0.0 and st.c == 1.0
 
 
-def test_perfect_inversion_gives_h_one_and_zero_weight():
+def test_perfect_inversion_gives_h_one():
     st = _mk({0: 0.1, 1: 0.5, 2: 0.9}, {0: 0, 1: 1, 2: 2}, min_pairs=3)
-    assert st.h == 1.0
-    w, _ = shrink_weights({"u": st}, prior_pairs=0.0, mode="soft")
-    assert w["u"] == 0.0
+    assert st.h == 1.0 and st.c == 0.0
 
 
 def test_single_tier_is_unmeasured_not_h_zero():
@@ -141,7 +139,7 @@ def test_length_preference_is_measured_on_referee_decisive_pairs():
     lens = {0: 9000, 1: 5000, 2: 1000}
     st = group_stats([0, 1, 2], scores, lens, {0: 0, 1: 1, 2: 2},
                      {0: 0, 1: 1, 2: 2}, min_pairs=3)
-    _, m = shrink_weights({"u": st}, prior_pairs=0.0)
+    m = aggregate_stats({"u": st})
     assert m["spec_gap/referee/longer_pref"] == 1.0
     assert m["spec_gap/referee/pos_pref"] == 1.0
 
@@ -163,107 +161,45 @@ def test_discrimination_uses_the_ranked_rows():
 
 
 # ----------------------------------------------------------------------
-# shrink_weights
+# aggregate_stats
 # ----------------------------------------------------------------------
-def test_prior_pairs_zero_reproduces_the_raw_rule():
-    st = _mk({0: 0.9, 1: 0.5, 2: 0.1}, {0: 1, 1: 0, 2: 2}, min_pairs=1)
-    w, _ = shrink_weights({"u": st}, prior_pairs=0.0, mode="soft")
-    assert w["u"] == pytest.approx(max(0.0, 1.0 - 2.0 * st.h))
+def test_H_is_pooled_over_pairs_not_averaged_over_groups():
+    # Pair-pooling is the honest aggregate: a group with 3 decisive pairs should not
+    # carry the same weight as one with 1.
+    clean = _mk({0: 0.9, 1: 0.5, 2: 0.1}, {0: 0, 1: 1, 2: 2}, min_pairs=1)   # 3 pairs, H=0
+    bad = _mk({10: 0.9, 11: 0.1}, {10: 1, 11: 0}, min_pairs=1)               # 1 pair,  H=1
+    m = aggregate_stats({"a": clean, "b": bad})
+    assert m["spec_gap/H/mean"] == pytest.approx(1 / 4)          # pooled over 4 pairs
+    assert m["spec_gap/H/group_mean"] == pytest.approx(0.5)      # unweighted, for contrast
+    assert m["spec_gap/C/mean"] == pytest.approx(3 / 4)
 
 
-def test_shrinkage_pulls_a_thin_group_toward_the_batch():
-    thin = _mk({0: 0.9, 1: 0.1}, {0: 1, 1: 0}, min_pairs=1)          # H = 1.0, 1 pair
-    clean = _mk({10: 0.9, 11: 0.5, 12: 0.1}, {10: 0, 11: 1, 12: 2}, min_pairs=1)  # H = 0
-    _, m = shrink_weights({"thin": thin, "clean": clean}, prior_pairs=8.0)
-    # Pooled H = 1/4; the thin group's own H = 1.0 must not survive intact.
-    assert 0.2 < m["spec_gap/H/group_mean"] < 0.6
-
-
-def test_measure_mode_is_a_no_op_but_still_reports_the_counterfactual():
-    st = _mk({0: 0.9, 1: 0.5, 2: 0.1}, {0: 2, 1: 1, 2: 0}, min_pairs=1)
-    w, m = shrink_weights({"u": st}, prior_pairs=0.0, mode="measure")
-    assert w["u"] == 1.0
-    assert m["spec_gap/w/mean"] == 1.0
-    assert m["spec_gap/adv_scale_would_be"] < 0.5   # what soft mode WOULD have done
-
-
-def test_shuffle_preserves_the_weight_multiset_but_not_the_mapping():
-    # The placebo that separates "the mechanism worked" from "the LR was lower".
-    stats = {}
-    for k in range(12):
-        # alternate concordant / discordant so the weight multiset is non-trivial
-        tiers = {k: 0, 100 + k: 1, 200 + k: 2} if k % 2 else {k: 2, 100 + k: 1, 200 + k: 0}
-        stats[f"u{k}"] = _mk({k: 0.9, 100 + k: 0.5, 200 + k: 0.1}, tiers, min_pairs=1)
-    w_soft, _ = shrink_weights(stats, prior_pairs=0.0, mode="soft")
-    w_shuf, _ = shrink_weights(stats, prior_pairs=0.0, mode="shuffle", step=7)
-    assert sorted(w_soft.values()) == sorted(w_shuf.values())
-    assert w_soft != w_shuf
-    # deterministic in the step, so a resumed run reproduces its own placebo
-    again, _ = shrink_weights(stats, prior_pairs=0.0, mode="shuffle", step=7)
-    assert again == w_shuf
-
-
-def test_unmeasured_groups_always_get_weight_one():
-    flat = _mk({0: 0.5, 1: 0.5}, {0: 0, 1: 1})
-    for mode in ("soft", "shuffle"):
-        w, _ = shrink_weights({"u": flat}, prior_pairs=0.0, mode=mode)
-        assert w["u"] == 1.0, mode
-
-
-def test_unjudged_group_reports_as_referee_failure():
-    st = GroupStats(ranked_rows=[0, 1], n_ranked=2, judged=False)
-    w, m = shrink_weights({"u": st}, prior_pairs=0.0, mode="soft")
-    assert w["u"] == 1.0
-    assert m["spec_gap/referee/fail_frac"] == 1.0
+def test_unmeasured_and_unjudged_groups_are_reported_not_silently_counted():
+    flat = _mk({0: 0.5, 1: 0.5}, {0: 0, 1: 1})                 # no rubric ordering
+    dead = GroupStats(ranked_rows=[0, 1], n_ranked=2, judged=False)
+    m = aggregate_stats({"flat": flat, "dead": dead})
     assert m["spec_gap/measured_groups_frac"] == 0.0
+    assert m["spec_gap/referee/fail_frac"] == 0.5
+    assert m["spec_gap/H/mean"] == 0.0        # nothing measured, not "perfect"
 
 
-def test_no_measured_groups_does_not_divide_by_zero():
-    w, m = shrink_weights({}, prior_pairs=0.0, mode="soft")
-    assert w == {}
+def test_no_groups_does_not_divide_by_zero():
+    m = aggregate_stats({})
     assert m["spec_gap/H/mean"] == 0.0 and m["spec_gap/n_groups"] == 0.0
 
 
-# ----------------------------------------------------------------------
-# The advantage-weighting algebra (the load-bearing 8 lines of the trainer hook)
-# ----------------------------------------------------------------------
-def _apply(adv, uids, weights):
-    """Mirror of the trainer hook, so the algebra is testable without a trainer."""
-    w_row = np.ones(len(uids), dtype=np.float64)
-    for uid, w in weights.items():
-        w_row[uids == uid] = w
-    col = torch.as_tensor(w_row, dtype=adv.dtype).unsqueeze(-1)
-    return adv * col
+def test_the_module_exposes_no_gradient_weighting():
+    """Attenuation was removed on purpose; this stops it drifting back in.
 
-
-def test_group_mean_zero_is_preserved_and_unmeasured_rows_are_untouched():
-    uids = np.array(["a"] * 4 + ["b"] * 4, dtype=object)
-    raw = torch.tensor([0.9, 0.5, 0.1, -0.3, 0.4, 0.2, -0.2, -0.4])
-    adv = (raw - torch.tensor([raw[:4].mean()] * 4 + [raw[4:].mean()] * 4)).unsqueeze(-1)
-    adv = adv.repeat(1, 5)
-    out = _apply(adv.clone(), uids, {"a": 0.25})           # b is unmeasured
-    for sl in (slice(0, 4), slice(4, 8)):
-        assert out[sl].mean().abs().item() < 1e-6          # still mean-zero
-    assert torch.equal(out[4:], adv[4:])                   # b bit-identical
-    assert torch.allclose(out[:4], adv[:4] * 0.25)
-
-
-def test_gating_to_zero_kills_the_group_gradient_only():
-    uids = np.array(["a"] * 2 + ["b"] * 2, dtype=object)
-    adv = torch.tensor([[1.0, 1.0], [-1.0, -1.0], [2.0, 2.0], [-2.0, -2.0]])
-    out = _apply(adv.clone(), uids, {"a": 0.0, "b": 1.0})
-    assert out[:2].abs().sum().item() == 0.0
-    assert torch.equal(out[2:], adv[2:])
-
-
-def test_weights_for_absent_uids_and_uids_without_weights_are_both_safe():
-    # Reslicing between the two hooks (rollout-correction rejection sampling, the
-    # zero-variance filter) can drop rows, so the join must tolerate both gaps.
-    uids = np.array(["a", "a", "b", "b"], dtype=object)
-    adv = torch.ones(4, 3)
-    out = _apply(adv.clone(), uids, {"a": 0.5, "ghost": 0.0})
-    assert torch.allclose(out[:2], adv[:2] * 0.5)
-    assert torch.equal(out[2:], adv[2:])
+    Down-weighting a suspect group repairs nothing, reaches only the minority of
+    groups with both a decisive rubric margin and a decisive referee verdict, and
+    under token-mean is indistinguishable from a learning-rate cut. Repair happens
+    where the specification is written.
+    """
+    import verl.utils.reward_score.spec_gap as sg
+    for gone in ("shrink_weights", "advantage_weights"):
+        assert not hasattr(sg, gone), f"{gone} came back"
+    assert "prior_pairs" not in open(sg.__file__).read()
 
 
 # ----------------------------------------------------------------------
