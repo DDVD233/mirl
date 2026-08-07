@@ -22,7 +22,7 @@ set -euo pipefail
 
 S=/scratch/sheng/self_evolving
 REPO=${REPO:-$S/verl_specgap}
-ARM="${ARM:?set ARM=1 (measure-only) or ARM=2 (full refine loop)}"
+ARM="${ARM:?set ARM=1 (measure-only) | 2 (full refine loop) | 3 (evolve-only control)}"
 POLL_S="${POLL_S:-300}"
 MAX_WAIT_H="${MAX_WAIT_H:-24}"
 
@@ -39,7 +39,14 @@ case "$ARM" in
      ARM_ENV=(RETRIEVAL=0 EVOLVE=1 SPEC_GAP=1 SPEC_GAP_SHIP=0 PROBE=1 PATCH=1
               HACK_MEMO=1 HB_PROBE_MODE=gate)
      EXP_NAME=hb9b_specgap_full ;;
-  *) echo "FATAL: ARM must be 1 or 2" >&2; exit 1 ;;
+  3) # The single-factor control for ARM=2, and the arm that was missing. ARM=2 runs
+     # EVOLVE=1 as well as the refine loop, because the exploit memo is rewritten
+     # inside the evolve round -- so comparing it against ARM=1 (EVOLVE=0) confounds
+     # two factors. This is ARM=2 minus PROBE/PATCH/HACK_MEMO and nothing else, so
+     # the difference between them IS the refine loop.
+     ARM_ENV=(RETRIEVAL=0 EVOLVE=1 SPEC_GAP=1)
+     EXP_NAME=hb9b_specgap_evolveonly ;;
+  *) echo "FATAL: ARM must be 1, 2 or 3" >&2; exit 1 ;;
 esac
 
 echo "=== waiting to launch ARM=$ARM ($EXP_NAME) on $(hostname) ==="
