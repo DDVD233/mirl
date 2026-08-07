@@ -76,12 +76,16 @@ fi
 export WANDB_RESUME=allow
 
 MAX_PROMPT_LEN="${MAX_PROMPT_LEN:-8192}"     # 4 images ~760 tok + history + options
-MAX_RESP_LEN="${MAX_RESP_LEN:-4096}"
-ROLLOUT_MAX_LEN="${ROLLOUT_MAX_LEN:-12288}"  # prompt + response
+# 8192, not 4096: at 4096 the untrained model hit the cap on 78.6% of responses and
+# every single unanswered rollout was a truncation, costing 27% of the val set for
+# budget rather than for being wrong. The bounded-reasoning system prompt does the
+# other half of the work.
+MAX_RESP_LEN="${MAX_RESP_LEN:-8192}"
+ROLLOUT_MAX_LEN="${ROLLOUT_MAX_LEN:-16384}"  # prompt + response
 # HARD RULE: >= max_prompt + max_response, else rearrange_micro_batches asserts on
 # the first long rollout (the assert is on the longest ACTUAL sequence).
-PPO_MAX_TOKEN_LEN="${PPO_MAX_TOKEN_LEN:-12288}"
-LOGPROB_MAX_TOKEN_LEN="${LOGPROB_MAX_TOKEN_LEN:-12288}"
+PPO_MAX_TOKEN_LEN="${PPO_MAX_TOKEN_LEN:-16384}"
+LOGPROB_MAX_TOKEN_LEN="${LOGPROB_MAX_TOKEN_LEN:-16384}"
 
 cleanup() { kill ${GEN_PID:-} ${SUMM_PID:-} 2>/dev/null || true; }
 trap cleanup EXIT INT TERM

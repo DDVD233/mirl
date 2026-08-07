@@ -180,9 +180,27 @@ class GroupStats:
     n_tiers: int = 0
     n_ranked: int = 0
     notes: str = ""
-    tier_of: dict = field(default_factory=dict)   # row index -> tier (0 = best)
+    tier_of: dict = field(default_factory=dict)       # row index -> tier (0 = best)
+    tier_of_swap: dict = field(default_factory=dict)  # same, from the reshuffled call
     ranked_rows: list = field(default_factory=list)
     judged: bool = False
+
+    def stable_pairs(self):
+        """Pairs the referee ordered the same way under both presentation orders.
+
+        Yields (a, b, referee_prefers_a). H is computed on exactly these, so any
+        offline study that wants to compare against H must use them too.
+        """
+        for a, b in itertools.combinations(self.ranked_rows, 2):
+            ta, tb = self.tier_of.get(a), self.tier_of.get(b)
+            if ta is None or tb is None or ta == tb:
+                continue
+            first = ta < tb
+            if self.tier_of_swap:
+                sa, sb = self.tier_of_swap.get(a), self.tier_of_swap.get(b)
+                if sa is None or sb is None or sa == sb or (sa < sb) != first:
+                    continue
+            yield a, b, first
 
     @property
     def measured(self) -> bool:
@@ -200,9 +218,9 @@ def group_stats(ranked_rows: list, scores: dict, lens: dict, slots: dict,
     its randomized presentation position, which is what makes position bias
     estimable at all.
     """
-    st = GroupStats(tier_of=dict(tier_of), ranked_rows=list(ranked_rows),
-                    notes=notes, n_tiers=n_tiers, n_ranked=len(ranked_rows),
-                    judged=bool(tier_of))
+    st = GroupStats(tier_of=dict(tier_of), tier_of_swap=dict(tier_of_swap or {}),
+                    ranked_rows=list(ranked_rows), notes=notes, n_tiers=n_tiers,
+                    n_ranked=len(ranked_rows), judged=bool(tier_of))
     sc = [float(scores[i]) for i in ranked_rows if i in scores]
     if len(sc) >= 2:
         st.d_spread = max(sc) - min(sc)

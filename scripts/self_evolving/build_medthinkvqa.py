@@ -50,12 +50,26 @@ import pandas as pd
 
 REPO = "bio-nlp-umass/MedThinkVQA"
 
+# Measured at step 0 on the untrained 9B: 78.6% of responses hit the 4096-token cap
+# and 100% of the ones that produced NO answer were truncated mid-deliberation, so
+# 27% of the val set scored zero for running out of budget rather than for being
+# wrong. Among rollouts that did answer, accuracy was 0.389 against a 0.253
+# majority baseline -- the model can do this, it just never stopped talking. Hence
+# the explicit reasoning budget and the commit-anyway instruction: an unfinished
+# deliberation is worth exactly as much as a wrong answer.
 SYSTEM = (
     "You are an expert radiologist. You are given a patient's clinical history and "
-    "the imaging study for the case. Examine every image, integrate the findings "
-    "across views, and reason through the differential before committing.\n"
-    "Think step by step inside <think></think>, then give ONLY the single letter of "
-    "the best diagnosis in \\boxed{}. For example: \\boxed{C}"
+    "the imaging study for the case.\n"
+    "Work through it in this order:\n"
+    "1. Read each image and note the key finding in it.\n"
+    "2. Integrate the findings across views into one impression.\n"
+    "3. Test that impression against each of the five options, ruling out the "
+    "distractors on imaging grounds.\n"
+    "Keep the whole reasoning under about 300 words — be decisive rather than "
+    "exhaustive, and do not re-litigate an option you have already excluded.\n"
+    "ALWAYS finish with the single letter of the best diagnosis in \\boxed{}, for "
+    "example \\boxed{C}. Even when you are unsure, commit to your best option: an "
+    "answer you never reach scores the same as a wrong one."
 )
 
 USER_TEMPLATE = """{image_block}
@@ -67,6 +81,12 @@ USER_TEMPLATE = """{image_block}
 
 Which diagnosis best fits this case? Weigh the imaging evidence against each option
 and rule out the distractors. Answer with the single letter in \\boxed{{}}."""
+
+
+def _norm(s) -> str:
+    """Lowercase, punctuation-stripped text for substring leak detection."""
+    import re as _re
+    return _re.sub(r"[^a-z0-9 ]", " ", str(s).lower())
 
 
 def pick_indices(n_total: int, k: int) -> list[int]:
@@ -190,6 +210,15 @@ def main() -> None:
                     "icd_chapter": str(r.get("ICD Chapter") or ""),
                     "icd_block": str(r.get("ICD Block") or ""),
                     "is_longitudinal": bool(r.get("is_longitudinal", False)),
+                    # Some source histories state the conclusion outright ("the
+                    # diagnosis of ... was established"), making the case
+                    # answerable from text with no image reasoning at all. Kept
+                    # rather than dropped (removing them would deviate from the
+                    # official split) but flagged so accuracy can be reported
+                    # both ways. Measured: 1.96% of train, 0.00% of val.
+                    "answer_in_history": bool(
+                        len(str(r.get("correct_answer_text") or "")) > 12
+                        and _norm(r.get("correct_answer_text")) in _norm(r["CLINICAL_HISTORY"])),
                     # Withheld from the prompt on purpose (they are the answer):
                     # kept only so SFT / error analysis can reach them.
                     "imaging_findings": str(r.get("IMAGING_FINDINGS") or ""),
