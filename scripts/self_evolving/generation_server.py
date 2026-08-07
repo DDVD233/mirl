@@ -431,7 +431,7 @@ def _criteria_spec(state=None) -> dict:
             f"clinical error a model could actually make on THIS case (a wrong dose, a missed "
             f"red flag, unsafe reassurance, a fabricated trial or guideline). It is an EXTRA "
             f"criterion — do not drop a positive to make room. If no concrete trap genuinely "
-            f"exists in this case, redesign the task so that one does.\n"
+            f"exists in this case, write NO negative criterion: say so and leave it out.\n"
             f"  PHRASE IT AS THE MISTAKE ITSELF, in the affirmative — describe what a BAD "
             f"response DOES, so the criterion is MET only when the answer is wrong. Write "
             f"\"Recommends continuing metformin at an eGFR of 25\" or \"States the target INR is "
