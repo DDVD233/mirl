@@ -1,7 +1,7 @@
 """Replay the specification-gap statistic on COMPLETED runs. Zero GPU.
 
 This is the "before" number, and the decision gate for the whole mechanism. It
-imports the same `rank_group` / `group_stats` / `shrink_weights` the trainer runs, so
+imports the same `rank_group` / `group_stats` / `aggregate_stats` the trainer runs, so
 what it reports is what training would have logged.
 
 The pre-registered prediction it tests: H RISES over training on self-generated
@@ -38,9 +38,8 @@ import sys
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..")))
 
 from verl.utils.reward_score.spec_gap import (  # noqa: E402
-    group_stats,
+    aggregate_stats,
     measure_groups_sync,
-    shrink_weights,
 )
 
 SCORE_KEYS = ("acc_raw_signed", "acc_raw", "score")
@@ -128,7 +127,6 @@ def main() -> int:
     ap.add_argument("--margin", type=float, default=0.05)
     ap.add_argument("--min-pairs", type=int, default=3)
     ap.add_argument("--min-ranked", type=int, default=3)
-    ap.add_argument("--prior-pairs", type=float, default=8.0)
     ap.add_argument("--concurrency", type=int, default=16)
     ap.add_argument("--max-groups", type=int, default=0, help="0 = all; else cap per step")
     ap.add_argument("--no-swap", action="store_true",
@@ -159,7 +157,7 @@ def main() -> int:
             payload, a.referee_base, a.referee_key, a.referee_model, provider=a.provider,
             concurrency=a.concurrency, swap=not a.no_swap, margin=a.margin,
             min_pairs=a.min_pairs, step=step, timeout_s=120)
-        _, m = shrink_weights(stats, prior_pairs=a.prior_pairs, mode="measure", step=step)
+        m = aggregate_stats(stats)
         row = {"step": step, **diag, **{k: round(v, 4) for k, v in m.items()
                                         if isinstance(v, (int, float))}}
         out_rows.append(row)
@@ -210,7 +208,7 @@ def main() -> int:
     if a.out:
         with open(a.out, "w") as f:
             json.dump({"dumps": a.dumps, "referee": a.referee_model, "margin": a.margin,
-                       "prior_pairs": a.prior_pairs, "spearman_H_step": rho,
+                       "spearman_H_step": rho,
                        "rows": out_rows}, f, indent=2)
         print(f"\nwrote {a.out}")
     if a.contrasts and contrasts:
