@@ -86,7 +86,22 @@ nvidia-smi --query-gpu=index,memory.used --format=csv,noheader | tr '\n' ' '; ec
 # CUDA-graph capture fail with "custom_all_reduce.cuh: invalid argument".
 rm -f /dev/shm/vllm* 2>/dev/null || true
 
+# The run script hard-fails without WANDB_API_KEY, and this waiter lives in a tmux
+# window whose server may have been started by a bare ssh command with no such
+# variable -- which is exactly how one arm died on the first line after waiting for a
+# box to free. Recover it from ~/.netrc (where wandb login puts it) rather than
+# depending on an inherited environment.
+if [ -z "${WANDB_API_KEY:-}" ] && [ -f "$HOME/.netrc" ]; then
+    WANDB_API_KEY=$(awk '/machine[[:space:]]+api\.wandb\.ai/{f=1} f&&/password/{print $2; exit}' \
+                    "$HOME/.netrc")
+    export WANDB_API_KEY
+fi
+if [ -z "${WANDB_API_KEY:-}" ]; then
+    echo "FATAL: no WANDB_API_KEY and none in ~/.netrc; the run script would exit on it" >&2
+    exit 1
+fi
+
 cd "$REPO"
 echo "=== launching $EXP_NAME from $(git log --oneline -1) ==="
-exec env "${ARM_ENV[@]}" EXP="$EXP_NAME" REPO="$REPO" \
+exec env "${ARM_ENV[@]}" EXP="$EXP_NAME" REPO="$REPO" WANDB_API_KEY="$WANDB_API_KEY" \
      bash scripts/self_evolving/train/run_9b_hb_gen.sh
