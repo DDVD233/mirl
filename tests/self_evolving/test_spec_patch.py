@@ -673,3 +673,61 @@ def test_probe_stats_separates_fresh_rubrics_from_refined_ones():
     assert p["farm_win_rate"] == 1.0        # the one unrefined rubric was farmable
     assert p["farm_win_rate_all"] == 0.5
     assert p["refine_depth_mean"] == 1.0
+
+
+# ----------------------------------------------------------------------
+# Memo objective: leniency must be self-punishing
+# ----------------------------------------------------------------------
+def _obs(gap, honest, n=3):
+    """n rounds at a fixed (gap, honest). farm is implied: farm = gap + honest."""
+    return [{"step": 10 * i, "gap_mean": gap, "honest_mean": honest,
+             "farm_mean": gap + honest, "farm_win_rate": 0.99} for i in range(1, n + 1)]
+
+
+def test_unpenalised_gap_is_exactly_a_leniency_objective():
+    """Why the guard is needed at all, in one assertion.
+
+    With the farmer pinned at its ceiling, gap = farm - honest is an affine image of
+    honest, so raising honest lowers gap by exactly as much. Unpenalised, the memo
+    scores easier rubrics as progress -- which is what the live run did for 20 rounds.
+    """
+    lenient = G._memo_objective_score(_obs(gap=0.19, honest=0.80), None, penalty=0.0)
+    strict = G._memo_objective_score(_obs(gap=0.26, honest=0.73), None, penalty=0.0)
+    assert lenient < strict            # "improved", purely by making rubrics easier
+    # ...and the farmer never got worse: both have farm pinned at ~0.99.
+    assert abs((0.19 + 0.80) - (0.26 + 0.73)) < 0.01
+
+
+def test_penalty_makes_leniency_score_worse_not_better():
+    """The live numbers: gap 0.256->0.192 bought entirely by honest 0.731->0.800."""
+    h0 = 0.731
+    before = G._memo_objective_score(_obs(gap=0.256, honest=0.731), h0)
+    after = G._memo_objective_score(_obs(gap=0.192, honest=0.800), h0)
+    assert after > before, "leniency must not be rewarded"
+
+
+def test_penalty_still_rewards_a_real_repair():
+    """farm falls, honest steady -> gap falls, no penalty, score improves."""
+    h0 = 0.75
+    before = G._memo_objective_score(_obs(gap=0.24, honest=0.75), h0)
+    after = G._memo_objective_score(_obs(gap=0.10, honest=0.75), h0)
+    assert after < before
+
+
+def test_small_honest_drift_is_tolerated():
+    h0 = 0.75
+    s = G._memo_objective_score(_obs(gap=0.20, honest=0.76), h0, tol=0.02)
+    raw = G._memo_objective_score(_obs(gap=0.20, honest=0.76), h0, penalty=0.0)
+    assert abs(s - raw) < 1e-9, "drift inside tolerance must not be penalised"
+
+
+def test_baseline_is_the_first_version_not_the_previous_one():
+    """Against a rolling baseline the memo drifts arbitrarily far, a hair per round."""
+    h0 = 0.70
+    creep = G._memo_objective_score(_obs(gap=0.15, honest=0.84), h0)
+    assert creep > G._memo_objective_score(_obs(gap=0.15, honest=0.70), h0)
+
+
+def test_insufficient_evidence_scores_none():
+    assert G._memo_objective_score(_obs(0.2, 0.75, n=1), 0.75, min_obs=2) is None
+    assert G._memo_objective_score([], 0.75) is None

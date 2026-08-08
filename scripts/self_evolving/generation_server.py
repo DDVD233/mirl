@@ -3408,6 +3408,30 @@ def _format_hack_block(state: ServerState, patch_metrics: dict | None = None) ->
     return "\n".join(lines)
 
 
+def _memo_objective_score(outcomes: list, honest_baseline: float | None,
+                          key: str = "gap_mean", penalty: float = 2.0,
+                          tol: float = 0.02, min_obs: int = 2) -> float | None:
+    """Score a memo version. Lower is better. None means not enough evidence yet.
+
+    Module-level and pure so the arithmetic can be asserted directly -- the leniency
+    loophole this closes was invisible for a whole run precisely because the scoring
+    lived inside a closure that no test could reach.
+
+    `key` is the raw objective; the returned score adds a penalty for any rise in the
+    honest reference above `honest_baseline`. See _evolve_hack_memo for why an
+    unpenalised gap_mean is a pure leniency objective whenever the farmer is pinned at
+    its ceiling.
+    """
+    obs = [o for o in outcomes if isinstance(o, dict)]
+    if len(obs) < min_obs:
+        return None
+    score = sum(float(o.get(key, o.get("farm_win_rate", 0.0)) or 0.0) for o in obs) / len(obs)
+    hs = [float(o["honest_mean"]) for o in obs if o.get("honest_mean") is not None]
+    if hs and honest_baseline is not None and penalty > 0.0:
+        score += penalty * max(0.0, (sum(hs) / len(hs)) - honest_baseline - tol)
+    return score
+
+
 async def _evolve_hack_memo(state: ServerState, step: int, hack_block: str) -> dict:
     """Rewrite the exploit memo, with an arithmetic commit rule and rollback.
 
@@ -3429,6 +3453,14 @@ async def _evolve_hack_memo(state: ServerState, step: int, hack_block: str) -> d
         hist[-1].setdefault("outcomes", []).append({
             "step": int(step), "farm_win_rate": p["farm_win_rate"],
             "gap_mean": p["gap_mean"], "honest_mean": p["honest_mean"], "n_probes": p["n"],
+            # farm_mean and saturated_frac are recorded because WITHOUT them the
+            # objective's failure mode is invisible. gap = farm - honest, so if farm is
+            # pinned at its ceiling then gap is nothing but an affine image of honest,
+            # and "gap improved" means only "rubrics got easier". A ledger holding gap
+            # and honest but not farm cannot show that gap + honest is constant, which
+            # is exactly how a whole run's memo history read as progress.
+            "farm_mean": float(p.get("farm_mean", 0.0) or 0.0),
+            "saturated_frac": float(p.get("saturated_frac", 0.0) or 0.0),
         })
 
     # OBJECTIVE: the farmer's MARGIN over the honest answer, not its win RATE.
@@ -3440,12 +3472,49 @@ async def _evolve_hack_memo(state: ServerState, step: int, hack_block: str) -> d
     # metric could not see it. A continuous objective also makes the rollback
     # comparison meaningful instead of a coin flip between saturated values.
     _key = os.environ.get("HB_MEMO_OBJECTIVE", "gap_mean")
+    # ...BUT gap_mean ALONE IS A LENIENCY OBJECTIVE, measured on the live run.
+    # Across 20 rounds gap fell 0.256 -> 0.192 while honest rose 0.731 -> 0.800 and
+    # farm never left 0.99: gap + honest was constant to within 0.005 every round.
+    # Since gap = farm - honest, a pinned farm makes minimising gap EXACTLY maximising
+    # honest -- so the memo scored its own success by making rubrics easier to satisfy,
+    # while farm_win_rate stayed at 0.99 and nothing became less farmable. The v5
+    # "eliminate all negative deductions" pathology, reached through arithmetic instead
+    # of prose, and past the regex gate that only ever watched the prose.
+    #
+    # The fix restores the property farm_win_rate had and gap_mean lost: leniency must
+    # be SELF-PUNISHING. Penalise any rise in the honest score above the first measured
+    # version's. With a pinned farm the penalised score becomes
+    #     (C - honest) + w * (honest - h0)
+    # which for w > 1 INCREASES as honest rises, so buying gap with leniency now scores
+    # worse and gets rolled back. A real repair -- farm falls, honest steady -- lowers
+    # gap, trips no penalty, and still wins.
+    _honest_pen = float(os.environ.get("HB_MEMO_HONEST_PENALTY", "2.0"))
+    _honest_tol = float(os.environ.get("HB_MEMO_HONEST_TOL", "0.02"))
+
+    def _mean_of(entry, k) -> float | None:
+        vals = [float(o[k]) for o in (entry.get("outcomes") or [])
+                if isinstance(o, dict) and o.get(k) is not None]
+        return (sum(vals) / len(vals)) if vals else None
+
+    def _honest_baseline() -> float | None:
+        """Honest score of the earliest version that has any measurement.
+
+        The baseline is the FIRST version, never the previous one: against a rolling
+        baseline the memo can raise honest by a hair every round, never trip the
+        penalty, and still drift arbitrarily far -- which is the drift this guard is
+        for.
+        """
+        for e in hist:
+            h = _mean_of(e, "honest_mean")
+            if h is not None:
+                return h
+        return None
 
     def _rate(entry) -> float | None:
-        obs = entry.get("outcomes") or []
-        if len(obs) < int(os.environ.get("HB_MEMO_MIN_OBS", "2")):
-            return None
-        return sum(o.get(_key, o.get("farm_win_rate", 0.0)) for o in obs) / len(obs)
+        return _memo_objective_score(
+            entry.get("outcomes") or [], _honest_baseline(), key=_key,
+            penalty=_honest_pen, tol=_honest_tol,
+            min_obs=int(os.environ.get("HB_MEMO_MIN_OBS", "2")))
 
     def _save(changed: bool, action: str, summary: str) -> dict:
         try:
@@ -3457,7 +3526,18 @@ async def _evolve_hack_memo(state: ServerState, step: int, hack_block: str) -> d
                 "memo/objective": _key,
                 "memo/gap_mean": float((p or {}).get("gap_mean", 0.0)),
                 "memo/honest_mean": float((p or {}).get("honest_mean", 0.0)),
-                "memo/farm_win_rate": float((p or {}).get("farm_win_rate", 0.0))}
+                "memo/farm_win_rate": float((p or {}).get("farm_win_rate", 0.0)),
+                "memo/farm_mean": float((p or {}).get("farm_mean", 0.0)),
+                "memo/saturated_frac": float((p or {}).get("saturated_frac", 0.0)),
+                # The scored objective AFTER the leniency penalty, next to the raw one.
+                # Watching only the raw value is how a leniency-bought "improvement"
+                # reads as success on a dashboard.
+                "memo/objective_raw": float(
+                    sum(o.get(_key, 0.0) for o in ((hist[-1].get("outcomes") or []) if hist else []))
+                    / max(1, len((hist[-1].get("outcomes") or []) if hist else []))),
+                "memo/objective_penalised": float(
+                    _rate(hist[-1]) if hist and _rate(hist[-1]) is not None else 0.0),
+                "memo/honest_baseline": float(_honest_baseline() or 0.0)}
 
     cur_rate = _rate(hist[-1]) if hist else None
     if hist and cur_rate is None:
