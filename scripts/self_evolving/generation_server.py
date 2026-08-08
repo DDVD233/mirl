@@ -2847,7 +2847,14 @@ HACK_MODES = [
     "safety_boilerplate",    # generic "consult a specialist / individualise" earns the safety point
     "negative_absent",       # no negative existed, so a wrong-but-fluent answer paid nothing
     "criterion_ambiguous",   # not judgeable from the answer; the grader defaults to met
-    "none",
+    # A real exploit that none of the labels above describes. This exists so the
+    # taxonomy stays an ACCOUNTING device and never becomes a gate on repair: the
+    # criterion is still tested by the validator exactly as any other, and only the
+    # label is recorded as unclassified. Without it, a minter that wrote a perfectly
+    # good criterion but could not name the tactic returned "none" and the repair was
+    # thrown away untested -- which is how 60% of farmable specs went unrepaired.
+    "other",
+    "none",                  # no repairable exploit here -- a genuine decline
 ]
 
 HACK_MINT_SYSTEM = """\
@@ -2877,8 +2884,11 @@ Auto-rejected.
 - Target the BEHAVIOUR, not this answer's wording. It will be applied to every future rollout of \
 this task, so do not quote A's sentences; name the tactic in clinical terms.
 
-Also classify the exploit with EXACTLY ONE label from %(modes)s. If none fits, return "none" — \
-an exploit that cannot be classified is not patched, and that is a correct outcome.
+Also classify the exploit with EXACTLY ONE label from %(modes)s. The label is bookkeeping and \
+never decides acceptance, so it must not stop you writing the criterion:
+- a real exploit you cannot name with any other label -> "other", AND STILL WRITE THE CRITERION;
+- "none" ONLY when A genuinely earned its score and there is no exploit to penalise. Then leave \
+criterion_text empty. Declining when a trap does exist leaves the reward open to it.
 
 Output ONLY a JSON object:
 {"mode": "<one label>", "criterion_text": "<the negative criterion>", "points": <-10..-5>,
@@ -2999,6 +3009,19 @@ async def validate_patch_criterion(state: ServerState, case: dict, cand: dict,
     return True, "ok", ev
 
 
+def _mint_outcome(state: ServerState, outcome: str) -> None:
+    """Record why a mint attempt ended, one counter per distinct cause.
+
+    These were a single `refine_mint_failed` tally, which made the refine loop's
+    headline number uninterpretable: it read as a 60% failure rate when almost all of
+    it was the minter declining on a taxonomy technicality. A decline rate describes
+    the SPECS, a parse/call failure rate describes a BUG, and the two want opposite
+    responses -- so they must never share a counter.
+    """
+    st = state.stats
+    st[f"mint_{outcome}"] = st.get(f"mint_{outcome}", 0) + 1
+
+
 async def _mint_negative(state: ServerState, case: dict, feedback: str = "") -> dict | None:
     """One mint attempt. Returns the candidate dict, or None if unusable."""
     items = _as_rubric_list(case.get("rubric_items"))
@@ -3040,22 +3063,38 @@ async def _mint_negative(state: ServerState, case: dict, feedback: str = "") -> 
                               max_tokens=1024, temperature=0.6, label="patch_mint",
                               want_json=True)
     except Exception as e:  # noqa: BLE001
+        _mint_outcome(state, "call_failed")
         logger.warning("patch mint call failed: %s: %s", type(e).__name__, e)
         return None
     try:
         obj = _parse_json(raw)
     except Exception:
+        _mint_outcome(state, "unparsed")
         return None
     if not isinstance(obj, dict):
+        _mint_outcome(state, "unparsed")
         return None
     mode = str(obj.get("mode") or "").strip()
     if mode not in HACK_MODES:
-        # Out-of-vocabulary label dropped, same discipline as _parse_diagnosis: an
-        # exploit that cannot be classified is not patched.
-        logger.info("~ patch mint: out-of-vocabulary mode %r, dropping", mode)
-        return None
+        # An unknown label is a formatting slip, not a reason to discard a criterion --
+        # the validator, not the taxonomy, decides acceptance. Record it as
+        # unclassified and let the arithmetic rule.
+        _mint_outcome(state, "oov_mode")
+        logger.info("~ patch mint: out-of-vocabulary mode %r, recording as 'other'", mode)
+        mode = "other"
     if mode == "none":
+        # A genuine decline: the minter reports A earned its score honestly. Counted
+        # separately from a broken call, because the two demand opposite responses --
+        # a decline rate is a property of the specs, a failure rate is a bug.
+        _mint_outcome(state, "declined")
         return None
+    if not str(obj.get("criterion_text") or "").strip():
+        # Classified the exploit but wrote nothing to test. Not a decline (it asserts a
+        # trap exists) and not a parse failure -- its own outcome, because a rise here
+        # means the prompt's "STILL WRITE THE CRITERION" clause has stopped landing.
+        _mint_outcome(state, "empty_criterion")
+        return None
+    _mint_outcome(state, "minted")
     return {"mode": mode, "criterion_text": str(obj.get("criterion_text") or "").strip(),
             "points": obj.get("points"),
             "why_fires_on_A": str(obj.get("why_fires_on_A") or "")[:200],

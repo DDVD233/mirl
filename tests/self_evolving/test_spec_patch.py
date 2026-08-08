@@ -358,23 +358,74 @@ def test_memo_file_name_must_end_in_guidance():
 # ----------------------------------------------------------------------
 def test_exploit_modes_are_a_closed_vocabulary():
     assert "none" in G.HACK_MODES
+    # "other" keeps the vocabulary closed for counting without making it a gate.
+    assert "other" in G.HACK_MODES
     assert len(set(G.HACK_MODES)) == len(G.HACK_MODES)
     for m in G.HACK_MODES:
         assert m.islower() and " " not in m
 
 
-def test_out_of_vocabulary_mode_drops_the_candidate(monkeypatch):
+def test_out_of_vocabulary_mode_is_relabelled_not_discarded(monkeypatch):
+    """An unnameable exploit is still a repairable one.
+
+    The taxonomy is accounting; the validator decides acceptance. Discarding a
+    criterion because its LABEL was unknown let an LLM's classification opinion veto a
+    candidate before any arithmetic ran -- inverting the module's core invariant, and
+    costing ~60% of farmable specs their repair.
+    """
     async def fake_api(state, sysp, user, **kw):
         return '{"mode": "invented_new_mode", "criterion_text": "' + GOOD_CRIT + '", "points": -8}'
     monkeypatch.setattr(G, "_api_call", fake_api)
-    assert asyncio.run(G._mint_negative(_state(), CASE)) is None
+    st = _state()
+    cand = asyncio.run(G._mint_negative(st, CASE))
+    assert cand is not None
+    assert cand["mode"] == "other"
+    assert cand["criterion_text"] == GOOD_CRIT
+    assert st.stats["mint_oov_mode"] == 1
 
 
 def test_mode_none_means_do_not_patch(monkeypatch):
     async def fake_api(state, sysp, user, **kw):
         return '{"mode": "none", "criterion_text": "", "points": -8}'
     monkeypatch.setattr(G, "_api_call", fake_api)
-    assert asyncio.run(G._mint_negative(_state(), CASE)) is None
+    st = _state()
+    assert asyncio.run(G._mint_negative(st, CASE)) is None
+    # A decline describes the SPECS; it must not be tallied with broken calls.
+    assert st.stats["mint_declined"] == 1
+    assert "mint_call_failed" not in st.stats
+    assert "mint_unparsed" not in st.stats
+
+
+def test_a_classified_exploit_with_no_criterion_is_its_own_outcome(monkeypatch):
+    """Asserting a trap exists but writing nothing is neither a decline nor a bug.
+
+    It gets a separate counter because a rise here means the prompt's "STILL WRITE THE
+    CRITERION" clause stopped landing -- invisible if folded into either neighbour.
+    """
+    async def fake_api(state, sysp, user, **kw):
+        return '{"mode": "other", "criterion_text": "   ", "points": -8}'
+    monkeypatch.setattr(G, "_api_call", fake_api)
+    st = _state()
+    assert asyncio.run(G._mint_negative(st, CASE)) is None
+    assert st.stats["mint_empty_criterion"] == 1
+    assert "mint_declined" not in st.stats
+
+
+def test_mint_outcomes_never_share_a_counter(monkeypatch):
+    """Each distinct cause lands in exactly one bucket, and success is counted too."""
+    cases = {
+        "minted": '{"mode": "hedge_namedrop", "criterion_text": "' + GOOD_CRIT + '", "points": -8}',
+        "unparsed": "not json at all {{{",
+        "declined": '{"mode": "none", "criterion_text": ""}',
+    }
+    for expect, payload in cases.items():
+        async def fake_api(state, sysp, user, _p=payload, **kw):
+            return _p
+        monkeypatch.setattr(G, "_api_call", fake_api)
+        st = _state()
+        asyncio.run(G._mint_negative(st, CASE))
+        got = {k for k in st.stats if k.startswith("mint_")}
+        assert got == {f"mint_{expect}"}, f"{expect}: {got}"
 
 
 def test_mint_survives_an_unreachable_model(monkeypatch):
