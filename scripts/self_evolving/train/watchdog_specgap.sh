@@ -31,12 +31,15 @@ LOGDIR=/scratch/sheng/self_evolving/logs_hb9b
 POLL_S="${POLL_S:-300}"
 DRY="${DRY:-0}"
 
-# port:arm:window. The arm number selects the config inside
-# launch_specgap_when_free.sh; EXP_SUFFIX=_long matches the running experiments, which
-# is what makes this a resume rather than a new run (a fresh suffix would mint a fresh
-# checkpoint dir and start from zero).
-BOXES=("2335:3:arm3" "2336:2:arm2")
-EXP_SUFFIX=_long
+# port:arm:window:exp_suffix:logfile
+#
+# The arm number selects the config inside launch_specgap_when_free.sh. The suffix MUST
+# match the running experiment's, because that is what makes a relaunch a RESUME: a
+# different suffix names a different checkpoint dir and would silently start from step 0.
+# Suffix and logfile are per-box, not global -- 2335 now runs ARM=1 (fixed meta prompt,
+# no evolution, no probe/patch/memo) while 2336 runs ARM=2, and they do not share either.
+BOXES=("2335:1:arm1:_fixedprompt:specgap_arm1_fixedprompt_launch.log"
+       "2336:2:arm2:_long:specgap_arm2_launch.log")
 
 # A pod that dies repeatedly is broken in a way relaunching will not fix, and each
 # attempt costs a model load. Stop and leave it for a human.
@@ -63,6 +66,13 @@ DISK_FLOOR_G="${DISK_FLOOR_G:-400}"
 # in-progress save touches its dir continuously, so anything modified recently is
 # off-limits regardless of numbering.
 PRUNE_MIN_AGE_MIN="${PRUNE_MIN_AGE_MIN:-30}"
+# An arm whose log was written more recently than this is treated as ALIVE and is never
+# relaunched, whatever the process and GPU checks say. This deliberately DELAYS genuine
+# revivals: after a real death the log goes stale, so recovery waits out this window
+# (~25min, two or three steps of idle GPU). That is the correct price. The failure it
+# prevents is unbounded -- two trainers writing one checkpoint dir and one wandb run --
+# while the cost is a few idle minutes, and only after a crash.
+LIVE_LOG_MIN="${LIVE_LOG_MIN:-25}"
 # Log a status line every Nth poll even when everything is fine. Without it a healthy
 # watchdog is byte-identical to a dead one: both produce nothing. 12 polls x 300s = 1h.
 HEARTBEAT_EVERY="${HEARTBEAT_EVERY:-12}"
@@ -134,19 +144,42 @@ box_is_dead() {
     [ "${out%% *}" = "DEAD" ]
 }
 
+# The arm's own log on the shared NFS is the only trustworthy liveness signal, because
+# a PORT is not a MACHINE. On 2026-08-09 port 2335 stopped resolving to the pod running
+# arm 3 (ssh host key changed under us) while that arm kept training happily elsewhere
+# -- the frp port-reassignment failure mode. Had the port then landed on some idle pod,
+# every check here would have said "no trainer, GPUs free, revive", and because /scratch
+# is shared the relaunch would have put a SECOND trainer on the live arm's checkpoint
+# directory and wandb run. Process and GPU checks cannot see that; a fresh log can.
+arm_log_age_min() {  # arm_log_age_min <port> <logfile>
+    local port="$1" logf="$2" out
+    out=$(sshx "$port" "f=$LOGDIR/$logf
+        [ -f \$f ] && echo \$(( ( \$(date +%s) - \$(stat -c %Y \$f) ) / 60 )) || echo -1")
+    echo "${out:--1}"
+}
+
 revive() {
-    local port="$1" arm="$2" win="$3"
-    if [ "$DRY" = "1" ]; then log "[$port] DRY RUN: would relaunch ARM=$arm"; return; fi
+    local port="$1" arm="$2" win="$3" sfx="$4" logf="$5"
+    # Refuse if the arm is demonstrably alive somewhere. -1 means the log is missing,
+    # which is a genuinely fresh start and allowed.
+    local age; age=$(arm_log_age_min "$port" "$logf")
+    if [ "$age" -ge 0 ] 2>/dev/null && [ "$age" -lt "${LIVE_LOG_MIN:-25}" ]; then
+        log "[$port] NOT reviving ARM=$arm: its log was written ${age}min ago, so it is" \
+            "training somewhere else (port likely reassigned). Relaunching would put a" \
+            "second trainer on the same checkpoint dir."
+        return
+    fi
+    if [ "$DRY" = "1" ]; then log "[$port] DRY RUN: would relaunch ARM=$arm (log age ${age}min)"; return; fi
     sshx "$port" "rm -f /dev/shm/vllm* 2>/dev/null
         tmux has-session -t hb 2>/dev/null || tmux new-session -d -s hb -n idle 'sleep infinity'
         tmux kill-window -t hb:$win 2>/dev/null
-        tmux new-window -t hb -n $win \"cd $REPO && ARM=$arm EXP_SUFFIX=$EXP_SUFFIX \
+        tmux new-window -t hb -n $win \"cd $REPO && ARM=$arm EXP_SUFFIX=$sfx \
             bash scripts/self_evolving/train/launch_specgap_when_free.sh \
-            2>&1 | tee -a $LOGDIR/specgap_arm${arm}_launch.log\"
+            2>&1 | tee -a $LOGDIR/$logf\"
         echo relaunched"
     REVIVALS[$port]=$(( ${REVIVALS[$port]} + 1 ))
     LAST_ACTION[$port]=$SECONDS
-    log "[$port] RELAUNCHED ARM=$arm (revival ${REVIVALS[$port]}/$MAX_REVIVALS); resume_mode=auto continues from the newest checkpoint"
+    log "[$port] RELAUNCHED ARM=$arm$sfx (revival ${REVIVALS[$port]}/$MAX_REVIVALS); resume_mode=auto continues from the newest checkpoint"
     sshx "$port" "echo \"$(date -u +%Y-%m-%dT%H:%M:%SZ) watchdog relaunched arm$arm after pod death\" >> $LOGDIR/watchdog.log"
 }
 
@@ -160,7 +193,7 @@ while :; do
     hb_line=""
 
     for b in "${BOXES[@]}"; do
-        port="${b%%:*}"; rest="${b#*:}"; arm="${rest%%:*}"; win="${rest##*:}"
+        IFS=: read -r port arm win sfx logf <<< "$b"
 
         state=$(box_is_dead "$port") && dead=1 || dead=0
         hb_line="$hb_line ${port}=${state%% *}"
@@ -189,7 +222,7 @@ while :; do
                         log "[$port] only ${free}G free -- pruning non-latest checkpoints before relaunch"
                         prune_checkpoints "$port" | while read -r l; do log "[$port] $l"; done
                     fi
-                    revive "$port" "$arm" "$win"
+                    revive "$port" "$arm" "$win" "$sfx" "$logf"
                 fi
                 STRIKES[$port]=0
             fi
