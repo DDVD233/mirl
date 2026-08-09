@@ -22,7 +22,16 @@ set -euo pipefail
 
 S=/scratch/sheng/self_evolving
 REPO=${REPO:-$S/verl_specgap}
-ARM="${ARM:?set ARM=1 measure-only | 2 refine-loop | 3 evolve-only | 4 self-judge}"
+ARM="${ARM:?set ARM=1 fixed-prompt | 2 refine-loop | 3 evolve-only | 4 v1+selfjudge | 5 v3+selfjudge | 6 v2+selfjudge}"
+
+# Where the self-judge arms get their 9B grader. server5 already serves Qwen3.5-9B on a
+# dedicated GPU, exposed through frp, so pointing at it keeps all four GPUs on the
+# TRAINING node available for training -- the run script only spawns a local frozen 9B
+# when SUMM_BASE is not already answering (it curls $SUMM_BASE/models first), so simply
+# naming a live remote endpoint suppresses the local copy and frees a GPU.
+#
+# Validation is unaffected: it stays pinned to gpt-chat-latest in every arm.
+SJUDGE_REMOTE="${SJUDGE_REMOTE:-http://point.dd.works:18184/v1}"
 POLL_S="${POLL_S:-300}"
 MAX_WAIT_H="${MAX_WAIT_H:-24}"
 # Effectively unbounded by default. Safe because the LR schedule does not depend on
@@ -72,9 +81,27 @@ case "$ARM" in
      # the training judge, so its farmability number would describe a reward this arm
      # is not training on. That routing needs fixing before the two can be combined.
      # EVOLVE is off because the script forbids EVOLVE+SELF_JUDGE (two factors).
-     ARM_ENV=(RETRIEVAL=0 EVOLVE=0 SELF_JUDGE=1 SPEC_GAP=1)
-     EXP_NAME=hb9b_specgap_selfjudge ;;
-  *) echo "FATAL: ARM must be 1, 2, 3 or 4" >&2; exit 1 ;;
+     ARM_ENV=(RETRIEVAL=0 EVOLVE=0 SELF_JUDGE=1 SPEC_GAP=1 SUMM_BASE="$SJUDGE_REMOTE")
+     EXP_NAME=hb9b_specgap_measure_selfjudge ;;
+  5) # JUDGE SWAP at fixed variant: this is ARM=2 (the full pipeline) with the TRAINING
+     # reward graded by the frozen local 9B instead of gpt-chat-latest, and nothing else
+     # changed. Its control is ARM=2 itself, so the single factor is the judge --
+     # which is why ALLOW_EVOLVE_SELF_JUDGE is set: the run script's default guard exists
+     # to stop EVOLVE+SELF_JUDGE being compared against the gpt-judge BASELINE, a
+     # different and genuinely confounded comparison.
+     #
+     # Validation stays on gpt-chat-latest in every arm, so held-out numbers remain one
+     # comparable series and only the training signal moves.
+     ARM_ENV=(RETRIEVAL=0 EVOLVE=1 SPEC_GAP=1 SPEC_GAP_SHIP=0 PROBE=1 PATCH=1
+              HACK_MEMO=1 HB_PROBE_MODE=gate SELF_JUDGE=1
+              ALLOW_EVOLVE_SELF_JUDGE=1 SUMM_BASE="$SJUDGE_REMOTE")
+     EXP_NAME=hb9b_specgap_full_selfjudge ;;
+  6) # ARM=3 (evolution only) with the local 9B judge. Same swap, one variant down, so
+     # the judge effect can be read at two pipeline depths rather than one.
+     ARM_ENV=(RETRIEVAL=0 EVOLVE=1 SPEC_GAP=1 SELF_JUDGE=1
+              ALLOW_EVOLVE_SELF_JUDGE=1 SUMM_BASE="$SJUDGE_REMOTE")
+     EXP_NAME=hb9b_specgap_evolveonly_selfjudge ;;
+  *) echo "FATAL: ARM must be 1..6" >&2; exit 1 ;;
 esac
 
 EXP_NAME="${EXP_NAME}${EXP_SUFFIX}"

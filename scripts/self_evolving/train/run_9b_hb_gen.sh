@@ -65,8 +65,19 @@ if [ "$REWARD_EVOLVE" = 1 ] && [ "$RETRIEVAL" != 1 ]; then
          "that is never called" >&2
     exit 1
 fi
-if [ "$EVOLVE" = 1 ] && [ "$SELF_JUDGE" = 1 ]; then
-    echo "FATAL: EVOLVE and SELF_JUDGE together confound both deltas; run them as separate arms" >&2
+# This guard protects ONE experimental design: comparing an arm against the gpt-judge
+# gen-RL baseline, where switching on evolution AND the judge together moves two factors
+# at once and neither delta is attributable.
+#
+# It does NOT apply to a judge SWAP at fixed variant. "v3 with the local 9B judge" versus
+# "v3 with gpt-chat-latest" differs in exactly one factor -- the judge -- because the
+# variant is its own control. That is a legitimate and different question, so the
+# combination is allowed when the caller declares that design explicitly rather than
+# tripping into it.
+if [ "$EVOLVE" = 1 ] && [ "$SELF_JUDGE" = 1 ] && [ "${ALLOW_EVOLVE_SELF_JUDGE:-0}" != 1 ]; then
+    echo "FATAL: EVOLVE and SELF_JUDGE together confound both deltas against the gpt-judge" >&2
+    echo "       baseline. If you are running a judge swap at fixed variant (v_N+selfjudge" >&2
+    echo "       vs v_N+gptjudge, single factor), set ALLOW_EVOLVE_SELF_JUDGE=1." >&2
     exit 1
 fi
 
