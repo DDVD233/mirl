@@ -44,11 +44,25 @@ MAX_REVIVALS="${MAX_REVIVALS:-3}"
 # Long enough that a revival in progress (checkpoint load + 4 vLLM engines is ~7 min)
 # is never mistaken for a second failure.
 COOLDOWN_S="${COOLDOWN_S:-1800}"
-# Free space below which saves start failing. Pruning here uses exactly the rule a
-# human applied and verified by hand: drop only step dirs that are NOT the run's own
-# latest_checkpointed_iteration, so every run stays resumable and keeps its final
-# weights. Runs with no tracker file are hand-restored and never touched.
+# Free space below which saves start failing. Pruning drops only step dirs STRICTLY
+# OLDER than the run's own latest_checkpointed_iteration, so every run stays resumable
+# and keeps its final weights. Runs with no tracker file are hand-restored, never
+# touched.
+#
+# "Strictly older" is not pedantry, it is the whole correctness argument. verl writes
+# latest_checkpointed_iteration.txt only AFTER a save completes, so WHILE step N is
+# being written the tracker still names N-20. A rule of "delete anything that is not the
+# latest" therefore deletes the checkpoint currently being written -- which is exactly
+# what happened on 2026-08-09 at 02:31: this watchdog removed global_step_180 out from
+# under a live save and killed the run with "Parent directory .../global_step_180/actor
+# does not exist", costing 20 steps. Re-reading the tracker just before the rm does NOT
+# help; during a save the stale value is the correct value. Only the ordering test is
+# safe: a dir NEWER than the tracker is in-progress or a failed save, never superseded.
 DISK_FLOOR_G="${DISK_FLOOR_G:-400}"
+# Second, independent guard: never touch a directory still being written to. An
+# in-progress save touches its dir continuously, so anything modified recently is
+# off-limits regardless of numbering.
+PRUNE_MIN_AGE_MIN="${PRUNE_MIN_AGE_MIN:-30}"
 # Log a status line every Nth poll even when everything is fine. Without it a healthy
 # watchdog is byte-identical to a dead one: both produce nothing. 12 polls x 300s = 1h.
 HEARTBEAT_EVERY="${HEARTBEAT_EVERY:-12}"
@@ -80,18 +94,26 @@ sshx() {  # sshx <port> <command>
 prune_checkpoints() {
     local port="$1"
     sshx "$port" 'c=/scratch/sheng/self_evolving/checkpoints
+age='"$PRUNE_MIN_AGE_MIN"'
 for r in $c/*/*; do
   [ -d "$r" ] || continue
   lat=$(cat "$r/latest_checkpointed_iteration.txt" 2>/dev/null)
+  # No tracker: hand-restored, or a run whose save never completed. Not ours to judge.
   [ -n "$lat" ] || continue
+  case "$lat" in *[!0-9]*|"") continue;; esac
   for d in "$r"/global_step_*; do
     [ -d "$d" ] || continue
     n=$(basename "$d" | sed "s/global_step_//")
-    [ "$n" = "$lat" ] && continue
+    case "$n" in *[!0-9]*|"") continue;; esac
+    # STRICTLY older only. n >= lat means in-progress or failed, never superseded.
+    [ "$n" -lt "$lat" ] || continue
+    # And never a directory touched recently: an active save writes continuously.
+    [ -n "$(find "$d" -maxdepth 0 -mmin +$age 2>/dev/null)" ] || continue
     g=$(du -sBG "$d" 2>/dev/null | cut -f1 | tr -d G)
     [ "${g:-0}" -lt 50 ] && continue
     lat2=$(cat "$r/latest_checkpointed_iteration.txt" 2>/dev/null)
-    [ "$n" = "$lat2" ] && continue
+    case "$lat2" in *[!0-9]*|"") continue;; esac
+    [ "$n" -lt "$lat2" ] || continue
     rm -rf "$d" && echo "pruned ${g}G $d"
   done
 done'
