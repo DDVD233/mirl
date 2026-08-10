@@ -38,8 +38,13 @@ DRY="${DRY:-0}"
 # different suffix names a different checkpoint dir and would silently start from step 0.
 # Suffix and logfile are per-box, not global -- 2335 now runs ARM=1 (fixed meta prompt,
 # no evolution, no probe/patch/memo) while 2336 runs ARM=2, and they do not share either.
+#
+# KEEP THIS IN STEP WITH WHAT IS ACTUALLY RUNNING. A stale row is not a no-op: it names
+# the arm to relaunch, so after hb9b_specgap_full_long was deliberately stopped, a row
+# still reading "2336:2:arm2:_long" would have resurrected that exact run from its last
+# checkpoint the first time the pod died -- restarting an experiment the human had ended.
 BOXES=("2335:1:arm1:_fixedprompt:specgap_arm1_fixedprompt_launch.log"
-       "2336:2:arm2:_long:specgap_arm2_launch.log")
+       "2336:5:arm5::specgap_arm5_selfjudge_launch.log")
 
 # A pod that dies repeatedly is broken in a way relaunching will not fix, and each
 # attempt costs a model load. Stop and leave it for a human.
