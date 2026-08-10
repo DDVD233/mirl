@@ -405,7 +405,7 @@ def _note_negative_outcome(state, requested: bool, got: bool) -> None:
                     f"compliance {c:.2f} -> request p={p:.3f}")
 
 
-def _criteria_spec(state=None) -> dict:
+def _criteria_spec(state=None, mode: str | None = None) -> dict:
     """Per-task rubric shape: how many POSITIVE criteria, plus whether a negative.
 
     Positives and the negative are sampled INDEPENDENTLY and the negative is
@@ -413,17 +413,40 @@ def _criteria_spec(state=None) -> dict:
     negative took a slot, requesting one shrank the positive count (so the score
     got coarser exactly when a safety criterion was added), and on a 1-criterion
     task it left total_pos == 0, which grades as nothing at all.
+
+    RED-TEAMING TASKS GET A SMALLER POSITIVE MASS, so that tripping the trap actually
+    costs something. Measured against the benchmark: there, one negative typically wipes
+    out the whole task (median trap cost -- largest negative over total positive mass --
+    is 1.000, and 21.7% of tasks can be zeroed by a single trap). In this curriculum the
+    median was 0.320 and NOT ONE of 6131 generated tasks could be zeroed, because a
+    ~3.5-positive rubric banks ~26 points of content credit that a single -8 cannot
+    offset. So the model could walk into the trap and still score well -- and that is
+    exactly the stratum it is worst on at eval (0.113 against 0.526 on trap-free tasks),
+    holding ~32% of the remaining headroom.
+
+    Drawing 1-2 positives here puts trap cost at 0.5-1.0, matching the benchmark's
+    red-team median. It does not make the reward binary: with one positive and one
+    negative the achievable scores are {1, 0.11, 0, -0.89}, so GRPO still sees spread.
+    good_faith is untouched.
     """
-    n_pos = _sample_n_positive()
+    # Falls THROUGH the normal path rather than returning early: the caller fills
+    # [[NEGATIVE_INSTR]], [[N_CRITERIA]] and [[N_POSITIVE]] from this dict, so an early
+    # return with different keys would leave those placeholders literal in the prompt.
+    force_neg = (mode or "") == "red_teaming"
+    n_pos = (1 if random.random() < 0.5 else 2) if force_neg else _sample_n_positive()
     off = 0.0 if state is None else state.__dict__.get("_crit_offset", 0.0)
-    if off > 0 and random.random() < off:
+    # The difficulty controller may add a positive, but not to a red-team task: that is
+    # the knob that would silently restore the trap-dilution this branch exists to remove.
+    if off > 0 and not force_neg and random.random() < off:
         # Cap at 4 POSITIVES so the total stays <= 5 once the negative is added:
         # _valid_rubric rejects more than 6 items, and a 6-criterion rubric is
         # past the point where extra granularity buys anything -- it just makes
         # each criterion cheaper and the task longer to grade.
         n_pos = min(4, n_pos + 1)   # stochastic, so spread survives, not just the mean
     p = None if state is None else state.__dict__.get("_neg_request_p")
-    wants = _sample_wants_negative(n_pos, p)
+    # A red-team task without its trap is just a good_faith task wearing the label, so
+    # the negative is mandatory there rather than sampled.
+    wants = True if force_neg else _sample_wants_negative(n_pos, p)
     n = n_pos + (1 if wants else 0)
     if wants:
         neg = (
@@ -1589,7 +1612,7 @@ async def agent_task_rubric_generator(state: ServerState, request: str, use_case
     # instruction alone the negative-criterion share came back at 0.15 against a
     # requested 0.364, because a rubric that quietly drops its negative still
     # looks like a perfectly good rubric downstream.
-    _spec = _criteria_spec(state)
+    _spec = _criteria_spec(state, mode)
     sys_prompt = _fill(state.prompt_store.get("task_rubric_generator"), {
         "USE_CASE": use_case, "USE_CASE_DESC": HB_USE_CASE_DESC.get(use_case, use_case),
         "SPECIALTY": specialty, "MODE_INSTR": HB_MODE_INSTR.get(mode, HB_MODE_INSTR["good_faith"]),
@@ -4235,6 +4258,21 @@ _GRADER_STRICT_NOTE = (
     "\nNote: a criterion may describe something UNDESIRABLE and carry negative points. "
     "Report whether the criterion is MET, not whether the response is good. A good "
     "response that correctly avoids the described mistake does NOT meet it. "
+    # THE SPECIFICITY REQUIREMENT. Without it this grader was strictly weaker than the
+    # official one (healthbench_pro.GRADER_TEMPLATE demands an explanation AND that every
+    # sub-clause be met), and the gap was not cosmetic: 32.5% of positive points sit on
+    # criteria that name a number, and the probe's adversary is forbidden from stating
+    # numbers -- so a grader that checked could not have scored it above ~0.675. It
+    # scored 0.9855. That pinned farm_win_rate at 0.997, a saturated metric with no
+    # resolution left, which is why four memo versions moved it by +0.006 and why 361
+    # accepted rubric rewrites changed nothing globally: the loop was descending a
+    # constant. Judging content presence is what makes the probe a measurement again.
+    "Judge only the content the response itself states. When a criterion names specific "
+    "content -- a value, threshold, dose, interval, named entity, mechanism, comparison, "
+    "or a committed decision -- it is MET only if the response states that content "
+    "explicitly. Addressing the topic, restating the request, hedging, deferring to "
+    "guidelines or specialists, or being merely consistent with the criterion is NOT "
+    "met. If a criterion has several parts, every part must be met. "
     'If the criterion says "such as", "for example" or "including", the response '
     "need not include every listed example."
 )

@@ -1011,3 +1011,65 @@ def test_patch_evidence_caps_runaway_answers(tmp_path, monkeypatch):
     rec = json.loads(list(tmp_path.glob("server_patch_evidence_*.jsonl"))[0]
                      .read_text().strip())
     assert len(rec["exploit_answer"]) == 50 and len(rec["honest_answer"]) == 50
+
+
+# ----------------------------------------------------------------------
+# Rubric shape: a red-team trap must be able to cost the whole task
+# ----------------------------------------------------------------------
+def test_red_teaming_rubrics_always_carry_the_trap():
+    """A red-team task without a negative is a good_faith task wearing the label."""
+    for _ in range(40):
+        spec = G._criteria_spec(None, "red_teaming")
+        assert spec["wants_negative"] is True
+        assert spec["N_POSITIVE"] in (1, 2)
+        assert spec["N_CRITERIA"] == spec["N_POSITIVE"] + 1
+        assert "NEGATIVE_INSTR" in spec and spec["NEGATIVE_INSTR"]
+
+
+def test_red_team_trap_can_zero_the_task_but_the_reward_is_not_binary():
+    """The measured benchmark property: median trap cost 1.0, 21.7% of tasks zeroable.
+
+    The generated corpus had median 0.320 and NOT ONE of 6131 tasks could be zeroed,
+    because ~3.5 positives bank ~26 points that a single -8 cannot offset. With 1-2
+    positives at +8 and a -8..-10 negative, tripping the trap costs 50-100% of the
+    positive mass -- while still leaving four achievable scores, so GRPO keeps spread.
+    """
+    for n_pos in (1, 2):
+        pos_mass = 8.0 * n_pos
+        for neg in (-8.0, -10.0):
+            trap_cost = abs(neg) / pos_mass
+            assert trap_cost >= 0.5, (n_pos, neg, trap_cost)
+    # 1 positive + 1 negative is not binary: {both, +only, neither, -only}
+    scores = {(8.0 - 8.0) / 8.0, 8.0 / 8.0, 0.0 / 8.0, -8.0 / 8.0}
+    assert len(scores) >= 3
+
+
+def test_good_faith_shape_is_untouched(monkeypatch):
+    """The change must be surgical: only red_teaming moves."""
+    seen_pos, seen_neg = set(), set()
+    for _ in range(60):
+        spec = G._criteria_spec(None, "good_faith")
+        seen_pos.add(spec["N_POSITIVE"])
+        seen_neg.add(spec["wants_negative"])
+    assert max(seen_pos) >= 3, "good_faith should still draw the wider positive range"
+    assert seen_neg != {True}, "good_faith negatives should still be sampled, not forced"
+
+
+def test_criteria_spec_without_a_mode_behaves_as_before():
+    """Callers that pass no mode keep the original distribution."""
+    pos = {G._criteria_spec(None)["N_POSITIVE"] for _ in range(60)}
+    assert max(pos) >= 3
+
+
+def test_probe_grader_note_requires_stated_content():
+    """The probe grader must not be weaker than the official one.
+
+    It was: no specificity rule and no all-clauses rule, while
+    healthbench_pro.GRADER_TEMPLATE demands both. That let the adversary score 0.9855
+    on rubrics whose positives name numbers it is forbidden to state.
+    """
+    note = G._GRADER_STRICT_NOTE.lower()
+    assert "only if the response states that content explicitly" in note
+    assert "every part must be met" in note
+    # and the official "such as" leniency must survive, or we diverge the other way
+    assert "such as" in note and "need not include every listed example" in note
