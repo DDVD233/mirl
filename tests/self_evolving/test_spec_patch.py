@@ -923,3 +923,91 @@ def test_an_unmeasurable_rewrite_is_never_accepted(monkeypatch):
     asyncio.run(G._refine_spec(st, entry))
     assert entry["extra_info"]["rubric_items"] == before["extra_info"]["rubric_items"]
     assert st.stats.get("mint_rewrite_unmeasured") == 1
+
+
+# ----------------------------------------------------------------------
+# Patch evidence: the answer pair must be persisted at acceptance time
+# ----------------------------------------------------------------------
+def test_patch_evidence_records_the_pair_and_the_pre_patch_rubric(tmp_path, monkeypatch):
+    """Every accepted patch is a worked exploit-and-repair example; keep the proof.
+
+    Acceptance REQUIRES met(exploit)=True and met(honest)=False, so the pair written
+    here is guaranteed to demonstrate the mechanism. Re-deriving it later does not
+    work: the farmer resamples different answers against an evolved rubric, and the
+    guarantee is lost.
+    """
+    st = _state()
+    st.args.log_dir = str(tmp_path)
+    orig = [dict(it) for it in ITEMS]
+    cand = {"mode": "breadth_padding", "criterion_text": GOOD_CRIT, "points": -8.0,
+            "why_fires_on_A": "generic", "why_not_on_B": "specific"}
+    ev = {"met_top": True, "met_better": False, "gap_drop": 0.5}
+
+    asyncio.run(G._log_patch_evidence(
+        st, qid="q1", step=7, task="Clinician asks about metformin in CKD.",
+        original_items=orig, candidate=cand, evidence=ev,
+        exploit_answer="farmed text", honest_answer="honest text",
+        scores={"exploit_score_original": 0.98, "honest_score_original": 0.34},
+        source="refine_loop"))
+
+    files = list(tmp_path.glob("server_patch_evidence_*.jsonl"))
+    assert len(files) == 1
+    rec = json.loads(files[0].read_text().strip())
+    assert rec["question_id"] == "q1" and rec["source"] == "refine_loop"
+    assert rec["exploit_answer"] == "farmed text"
+    assert rec["honest_answer"] == "honest text"
+    # the recorded rubric is the PRE-patch one: the contrast is the whole point
+    assert len(rec["original_rubric"]) == len(ITEMS)
+    assert all(it["criterion_text"] != GOOD_CRIT for it in rec["original_rubric"])
+    assert rec["minted_criterion"]["criterion_text"] == GOOD_CRIT
+    # self-verifying: the acceptance test is stored with the row
+    assert rec["acceptance"]["met_on_exploit"] is True
+    assert rec["acceptance"]["met_on_honest"] is False
+
+
+def test_patch_evidence_snapshot_is_immune_to_later_mutation(tmp_path):
+    """The caller holds a LIVE list; appending the patch must not edit the record.
+
+    _refine_spec appends the new criterion to the same list it passed in. Storing a
+    reference rather than a copy would make every recorded "original rubric" already
+    contain its own patch -- destroying the before/after contrast silently, since the
+    file would still look well-formed.
+    """
+    st = _state()
+    st.args.log_dir = str(tmp_path)
+    live = [dict(it) for it in ITEMS]
+    asyncio.run(G._log_patch_evidence(
+        st, qid="q2", step=1, task="t", original_items=[dict(it) for it in live],
+        candidate={"mode": "x", "criterion_text": "C", "points": -6.0},
+        evidence={"met_top": True, "met_better": False, "gap_drop": 0.1},
+        exploit_answer="a", honest_answer="b", scores={}, source="refine_loop"))
+    live.append({"criterion_text": "C", "points": -6.0, "patched": True})
+
+    rec = json.loads(list(tmp_path.glob("server_patch_evidence_*.jsonl"))[0]
+                     .read_text().strip())
+    assert len(rec["original_rubric"]) == len(ITEMS)
+
+
+def test_patch_evidence_never_breaks_the_loop_on_io_failure(tmp_path):
+    """A logging outage must not cost a repair."""
+    st = _state()
+    st.args.log_dir = "/nonexistent-dir-xyz"
+    asyncio.run(G._log_patch_evidence(
+        st, qid="q3", step=1, task="t", original_items=[],
+        candidate={"mode": "x", "criterion_text": "C", "points": -6.0},
+        evidence={}, exploit_answer="a", honest_answer="b", scores={},
+        source="refine_loop"))
+
+
+def test_patch_evidence_caps_runaway_answers(tmp_path, monkeypatch):
+    monkeypatch.setenv("HB_PATCH_EVIDENCE_CHARS", "50")
+    st = _state()
+    st.args.log_dir = str(tmp_path)
+    asyncio.run(G._log_patch_evidence(
+        st, qid="q4", step=1, task="t" * 500, original_items=[],
+        candidate={"mode": "x", "criterion_text": "C", "points": -6.0},
+        evidence={}, exploit_answer="a" * 5000, honest_answer="b" * 5000,
+        scores={}, source="refine_loop"))
+    rec = json.loads(list(tmp_path.glob("server_patch_evidence_*.jsonl"))[0]
+                     .read_text().strip())
+    assert len(rec["exploit_answer"]) == 50 and len(rec["honest_answer"]) == 50

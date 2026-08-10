@@ -3190,6 +3190,10 @@ async def _patch_specs(state: ServerState, step: int, cases: list, n_groups) -> 
             if cand is None:
                 outcome = "mint_failed"
                 break
+            # Snapshot before _apply_spec_patch: when the rubric came from the pooled
+            # entry rather than the HTTP payload, `items` IS the entry's live list and
+            # the apply appends to it in place.
+            _pre_patch_items = [dict(it) for it in items]
             ok, outcome, ev = await validate_patch_criterion(state, case, cand, items)
             if ok:
                 break
@@ -3230,6 +3234,20 @@ async def _patch_specs(state: ServerState, step: int, cases: list, n_groups) -> 
                                         k: case.get(k) for k in
                                         ("task", "referee_margin", "referee_note",
                                          "top_score", "better_score")}}) + "\n")
+        # Same reasoning as the refine loop: the two ANSWERS are the evidence, and this
+        # ledger records only the verdict. On-policy exploits come with a contrast the
+        # trainer already paid for, so writing it costs nothing and cannot be rebuilt
+        # later.
+        if outcome == "ok" and cand is not None:
+            await _log_patch_evidence(
+                state, qid=qid, step=int(step), task=str(case.get("task") or ""),
+                original_items=_pre_patch_items, candidate=cand, evidence=ev,
+                exploit_answer=str(case.get("top_response") or ""),
+                honest_answer=str(case.get("better_response") or ""),
+                scores={"exploit_score_original": case.get("top_score"),
+                        "honest_score_original": case.get("better_score"),
+                        "referee_margin": case.get("referee_margin")},
+                source="on_policy_exploit")
 
     n_cases = len(by_qid)
     out = {"step": int(step), "n_cases": n_cases, "n_accepted": accepted,
@@ -3259,6 +3277,67 @@ async def _patch_specs(state: ServerState, step: int, cases: list, n_groups) -> 
     logger.warning("/patch_spec step=%s cases=%d accepted=%d reasons=%s",
                    step, n_cases, accepted, dict(reasons))
     return out
+
+
+async def _log_patch_evidence(state: ServerState, *, qid: str, step: int, task: str,
+                              original_items: list, candidate: dict, evidence: dict,
+                              exploit_answer: str, honest_answer: str,
+                              scores: dict, source: str) -> None:
+    """Persist the ANSWER PAIR that justified an accepted patch, not just the verdict.
+
+    Every accepted patch is, by construction, a worked example of a reward-specification
+    exploit and its repair: acceptance REQUIRES that the minted criterion graded MET on
+    the exploiting answer and NOT MET on the honest one. That is precisely the evidence
+    a reader needs, and until now it was thrown away -- the ledger kept the criterion
+    text and the verdict but not the two answers.
+
+    Trying to reconstruct it afterwards does not work. Re-running the farmer later
+    samples DIFFERENT answers against a rubric whose text has since evolved, so the
+    guarantee is lost: in a 3-case reconstruction one pair showed the exploit but the new
+    criterion fired on both answers, and another had a clean patch but no gap left to
+    fix. The pair is only guaranteed at the moment of acceptance, so it must be written
+    then.
+
+    Answers are capped: a runaway generation must not turn this into the largest file in
+    the run directory.
+    """
+    cap = int(os.environ.get("HB_PATCH_EVIDENCE_CHARS", "12000"))
+    rec = {
+        "ts": datetime.now().isoformat(), "step": int(step), "question_id": qid,
+        "source": source, "mode": candidate.get("mode"),
+        "task": str(task)[:cap],
+        # The rubric as it stood BEFORE the append: the "original" half of the contrast.
+        "original_rubric": [{"criterion_text": it.get("criterion_text"),
+                             "points": it.get("points")} for it in original_items],
+        "minted_criterion": {"criterion_text": candidate.get("criterion_text"),
+                             "points": candidate.get("points"),
+                             "why_fires_on_A": candidate.get("why_fires_on_A"),
+                             "why_not_on_B": candidate.get("why_not_on_B")},
+        "exploit_answer": str(exploit_answer)[:cap],
+        "honest_answer": str(honest_answer)[:cap],
+        "scores": scores,
+        # met_top/met_better ARE the acceptance test; recording them makes each row
+        # self-verifying rather than something to be taken on trust.
+        "acceptance": {"met_on_exploit": evidence.get("met_top"),
+                       "met_on_honest": evidence.get("met_better"),
+                       "gap_drop": evidence.get("gap_drop")},
+    }
+    try:
+        async with state.log_lock:
+            with open(_patch_evidence_path(state), "a") as fh:
+                fh.write(json.dumps(rec, ensure_ascii=False) + "\n")
+    except OSError as e:  # noqa: BLE001
+        logger.warning("patch evidence write failed: %s", e)
+
+
+def _patch_evidence_path(state: ServerState) -> str:
+    p = state.__dict__.get("_patch_evidence_log")
+    if not p:
+        p = os.path.join(state.args.log_dir,
+                         f"server_patch_evidence_"
+                         f"{datetime.now().strftime('%Y%m%d_%H%M%S')}.jsonl")
+        state.__dict__["_patch_evidence_log"] = p
+    return p
 
 
 def _patch_log_path(state: ServerState) -> str:
@@ -4546,8 +4625,25 @@ async def _refine_spec(state: ServerState, entry: dict) -> bool:
         state.stats[f"refine_{reason}"] = state.stats.get(f"refine_{reason}", 0) + 1
         if not ok:
             break
+        # Snapshot the pre-append rubric BEFORE mutating it: `items` is the live list
+        # and appending first would make the recorded "original" already contain the
+        # patch, quietly destroying the contrast this record exists to preserve.
+        _pre_patch_items = [dict(it) for it in items]
         items.append({"criterion_text": cand["criterion_text"],
                       "points": float(cand["points"]), "patched": True})
+        await _log_patch_evidence(
+            state, qid=qid, step=int(getattr(state, "gen_step", 0)), task=task,
+            original_items=_pre_patch_items, candidate=cand, evidence=ev,
+            exploit_answer=verdict.get("farm_answer", ""),
+            honest_answer=verdict.get("honest_answer", ""),
+            scores={"exploit_score_original": verdict.get("s_farm"),
+                    "honest_score_original": verdict.get("s_honest"),
+                    "separation": verdict.get("sep"),
+                    "exploit_raw": verdict.get("raw_farm"),
+                    "honest_raw": verdict.get("raw_honest"),
+                    "exploit_chars": verdict.get("farm_chars"),
+                    "honest_chars": verdict.get("honest_chars")},
+            source="refine_loop")
         ex = entry.setdefault("extra_info", {})
         ex["rubric_version"] = int(ex.get("rubric_version", 0)) + 1
         ex.setdefault("patched_modes", []).append(cand["mode"])
