@@ -59,6 +59,7 @@ Launched by scripts/self_evolving/train/run_9b_hb_gen.sh (--rubric_mode).
 import argparse
 import asyncio
 import base64
+import copy
 import io
 import json
 import logging
@@ -3408,6 +3409,167 @@ def _format_hack_block(state: ServerState, patch_metrics: dict | None = None) ->
     return "\n".join(lines)
 
 
+HACK_REWRITE_SYSTEM = """\
+You repair a REWARD SPECIFICATION that an adversary just farmed. You are given a \
+clinician task, its grading rubric, an answer that scored HIGH by exploiting the rubric \
+without doing any clinical work, and a rubric-blind answer that did the work and scored \
+LOWER. The specification is wrong: it pays for asserting conclusions rather than for \
+knowing things.
+
+Rewrite the TASK and the RUBRIC together, as one coherent body.
+
+WHY A NEGATIVE CRITERION IS NOT ENOUGH, so you understand what to fix. Forbidding the \
+exploiter's sentence only taxes the shortcut; the criteria that PAID for it are still \
+there. If every positive criterion can be satisfied by stating a conclusion, a model \
+with no knowledge still scores well. The defect is on the POSITIVE side, and that is \
+what you must change.
+
+REWRITE THE TASK when the question itself is answerable without knowledge -- most often \
+when the correct answer is a bare negative ("no such threshold exists"), which anyone can \
+assert. Keep the SAME clinical scenario, specialty and difficulty: ask for what a \
+clinician would have to know or work out. Demand the specifics -- which agents, which \
+study designs and what they measured, what the numbers were, what follows under a stated \
+constraint -- so the answer cannot be a paraphrase of its own grading criteria.
+
+REWRITE THE RUBRIC so that EVERY positive criterion requires something checkable that \
+must be known or derived: a named entity, a numeric value or range, a mechanism, an \
+explicit comparison, or a decision justified under the case's constraint. A criterion \
+that can be met by restating the task, agreeing with a premise, or naming a topic without \
+committing to content is exactly the hole being closed -- do not write one.
+
+Keep: the same number of criteria as the original (+/- 1), points in [5,10] for positives \
+and [-10,-5] for negatives, at least two positives, and at most one negative. Do not \
+mention the adversary, the rubric, or this instruction in the task text.
+
+YOUR REWRITE IS NOT ACCEPTED ON YOUR REASONING. It is measured: a fresh adversary that \
+sees your new rubric and withholds all real content is graded against it, and so is a \
+fresh answer that never sees it. The rewrite is kept ONLY if the knowledgeable answer now \
+scores materially HIGHER than the adversary's. Write for that test.
+
+Output ONLY a JSON object:
+{"question": "<the rewritten clinician task, self-contained>",
+ "rubric_items": [{"criterion_text": "<...>", "points": <number>}, ...],
+ "why_farmer_fails": "<=40 words: what the lazy answer can no longer get away with",
+ "why_honest_passes": "<=40 words: what a knowledgeable answer supplies that earns it>"}"""
+
+
+async def _rewrite_spec(state: ServerState, entry: dict, verdict: dict) -> dict | None:
+    """One rewrite attempt for a farmed (task, rubric). Returns a candidate or None.
+
+    Returns the candidate only; acceptance is decided by re-probing it, never here.
+    """
+    ex = entry.get("extra_info") or {}
+    items = _as_rubric_list(ex.get("rubric_items"))
+    task = _render_conversation_user(ex.get("conversation") or [])
+
+    def _block(met_flags):
+        """Rubric with which criteria this answer met.
+
+        Shows BOTH answers' verdicts on the same criteria, because the decisive
+        information is which POSITIVE criteria paid the farmer -- those are the ones that
+        must stop being satisfiable by assertion.
+        """
+        flags = met_flags if isinstance(met_flags, list) else []
+        out = []
+        for i, it in enumerate(items):
+            met = flags[i] if i < len(flags) else None
+            flag = "MET" if met is True else ("not-met" if met is False else "?")
+            out.append(f"[{float(it.get('points', 0)):+g}] {flag} "
+                       f"{it.get('criterion_text') or it.get('criterion') or ''}")
+        return "\n".join(out) or "(no per-criterion verdicts)"
+
+    user = (
+        f"# Clinician task (rewrite this)\n{task[:4000]}\n\n"
+        f"# Rubric, and what the FARMED answer earned -- every MET positive here is a\n"
+        f"# criterion that paid for no clinical work\n"
+        f"{_block(verdict.get('met_farm'))}\n\n"
+        f"# The same rubric, and what the RUBRIC-BLIND answer earned\n"
+        f"{_block(verdict.get('met_honest'))}\n\n"
+        f"# The FARMED answer -- scored {float(verdict.get('s_farm') or 0.0):.3f}, "
+        f"saw the rubric, withheld all real content\n{str(verdict.get('farm_answer') or '')[:6000]}\n\n"
+        f"# The RUBRIC-BLIND answer -- scored {float(verdict.get('s_honest') or 0.0):.3f}, "
+        f"never saw the rubric\n{str(verdict.get('honest_answer') or '')[:6000]}\n\n"
+        f"# The defect, numerically\n"
+        f"the lazy answer beat the knowledgeable one by "
+        f"{float(verdict.get('gap') or 0.0):.3f} on this rubric\n"
+    )
+    try:
+        raw = await _api_call(state, HACK_REWRITE_SYSTEM, user, **_evolve_endpoint(state),
+                              max_tokens=2048, temperature=0.6, label="spec_rewrite",
+                              want_json=True)
+    except Exception as e:  # noqa: BLE001
+        _mint_outcome(state, "rewrite_call_failed")
+        logger.warning("spec rewrite call failed: %s: %s", type(e).__name__, e)
+        return None
+    try:
+        obj = _parse_json(raw)
+    except Exception:  # noqa: BLE001
+        _mint_outcome(state, "rewrite_unparsed")
+        return None
+    if not isinstance(obj, dict):
+        _mint_outcome(state, "rewrite_unparsed")
+        return None
+
+    q = str(obj.get("question") or "").strip()
+    new_items = []
+    for it in (obj.get("rubric_items") or []):
+        if not isinstance(it, dict):
+            continue
+        txt = str(it.get("criterion_text") or it.get("criterion") or "").strip()
+        try:
+            pts = float(it.get("points"))
+        except (TypeError, ValueError):
+            continue
+        if txt:
+            new_items.append({"criterion_text": txt, "points": pts})
+
+    # Structural gate, cheap and before any grading. Same shape invariants the marginal
+    # controllers depend on, so a rewrite cannot quietly change the corpus distribution.
+    pos = [it for it in new_items if it["points"] > 0]
+    neg = [it for it in new_items if it["points"] < 0]
+    if len(q) < 80 or len(new_items) < 2 or len(pos) < 2 or len(neg) > 1:
+        _mint_outcome(state, "rewrite_structural")
+        return None
+    if abs(len(new_items) - len(items)) > 1:
+        _mint_outcome(state, "rewrite_structural")
+        return None
+    if any(not (5.0 <= it["points"] <= 10.0) for it in pos) or \
+       any(not (-10.0 <= it["points"] <= -5.0) for it in neg):
+        _mint_outcome(state, "rewrite_structural")
+        return None
+    if not _valid_rubric(new_items):
+        _mint_outcome(state, "rewrite_structural")
+        return None
+    _mint_outcome(state, "rewrite_proposed")
+    return {"question": q, "rubric_items": new_items,
+            "why_farmer_fails": str(obj.get("why_farmer_fails") or "")[:200],
+            "why_honest_passes": str(obj.get("why_honest_passes") or "")[:200]}
+
+
+def _candidate_entry(entry: dict, cand: dict) -> dict:
+    """A probe-able copy of `entry` carrying the rewritten task and rubric.
+
+    The original is left untouched until the rewrite has been measured, so a rejected
+    rewrite costs nothing. The conversation's LAST user turn is replaced rather than the
+    whole list, so multi-turn cases keep their structure.
+    """
+    new = copy.deepcopy(entry)
+    ex = new.setdefault("extra_info", {})
+    conv = [t for t in (ex.get("conversation") or []) if isinstance(t, dict)]
+    replaced = False
+    for t in reversed(conv):
+        if t.get("role") == "user":
+            t["content"] = cand["question"]
+            replaced = True
+            break
+    if not replaced:
+        conv = [{"role": "user", "content": cand["question"]}]
+    ex["conversation"] = conv
+    ex["question"] = cand["question"]
+    ex["rubric_items"] = copy.deepcopy(cand["rubric_items"])
+    return new
+
+
 def _memo_objective_score(outcomes: list, honest_baseline: float | None,
                           key: str = "gap_mean", penalty: float = 2.0,
                           tol: float = 0.02, min_obs: int = 2) -> float | None:
@@ -4324,6 +4486,58 @@ async def _refine_spec(state: ServerState, entry: dict) -> bool:
             "referee_margin": min(1.0, max(0.0, -verdict.get("sep", 0.0))),
             "referee_note": "",
         }
+        if _refine_mode() == "rewrite":
+            # ROOT-CAUSE REPAIR. A minted negative can only ever FORBID; it cannot add a
+            # requirement. On the live run that limit was decisive: the negative landed on
+            # the same sentence an existing +8 was paying for, so the exploit was taxed
+            # 0.24 and left profitable, the rubric became internally inconsistent, and the
+            # farmer still won 99.1% of specifications. The defect is that every POSITIVE
+            # criterion was satisfiable by asserting a conclusion, and no negative can fix
+            # that.
+            #
+            # So rewrite the task and the rubric together and re-measure. Acceptance is
+            # two-sided by construction -- the knowledgeable answer must go UP relative to
+            # the adversary's -- which is the objective the patch path could only ever
+            # approach from one direction.
+            rw = await _rewrite_spec(state, entry, verdict)
+            if rw is None:
+                break
+            probe = await _probe_admission(state, _candidate_entry(entry, rw))
+            if "sep" not in probe:
+                # The rewrite could not be measured (probe outage, ungradable, farmer
+                # scored nothing). Unmeasured is not accepted: keep the original.
+                _mint_outcome(state, "rewrite_unmeasured")
+                break
+            gain = float(probe["sep"]) - float(verdict.get("sep") or 0.0)
+            min_gain = float(os.environ.get("HB_REWRITE_MIN_GAIN", "0.15"))
+            min_h = float(os.environ.get("HB_PROBE_MIN_HONEST", "0.15"))
+            max_h = float(os.environ.get("HB_PROBE_MAX_HONEST", "0.92"))
+            s_h = float(probe.get("s_honest") or 0.0)
+            if gain < min_gain:
+                _mint_outcome(state, "rewrite_no_gain")
+                break
+            if not (min_h <= s_h <= max_h):
+                # Separation bought by making the task trivial or impossible is not a
+                # repair; it is difficulty drift wearing a repair's clothes.
+                _mint_outcome(state, "rewrite_out_of_band")
+                break
+            ex = entry.setdefault("extra_info", {})
+            conv = _candidate_entry(entry, rw)["extra_info"]
+            ex["conversation"] = conv["conversation"]
+            ex["question"] = conv["question"]
+            ex["rubric_items"] = conv["rubric_items"]
+            ex["rubric_version"] = int(ex.get("rubric_version", 0)) + 1
+            ex.setdefault("rewrites", []).append(
+                {"gain": round(gain, 4), "sep_before": round(float(verdict.get("sep") or 0.0), 4),
+                 "sep_after": round(float(probe["sep"]), 4),
+                 "s_honest": round(s_h, 4), "s_farm": round(float(probe.get("s_farm") or 0.0), 4)})
+            n_patched += 1
+            _mint_outcome(state, "rewrite_accepted")
+            state.stats["refine_rewritten"] = state.stats.get("refine_rewritten", 0) + 1
+            logger.warning("~ REWROTE spec %s: sep %.3f -> %.3f (+%.3f), honest %.2f farm %.2f",
+                           qid, float(verdict.get("sep") or 0.0), float(probe["sep"]),
+                           gain, s_h, float(probe.get("s_farm") or 0.0))
+            continue
         cand = await _mint_negative(state, case)
         if cand is None:
             state.stats["refine_mint_failed"] = state.stats.get("refine_mint_failed", 0) + 1
@@ -4351,6 +4565,22 @@ async def _refine_spec(state: ServerState, entry: dict) -> bool:
                     verdict.get("s_farm", 0.0), n_patched)
         return False
     return True
+
+
+def _refine_mode() -> str:
+    """How a farmed specification is repaired: "rewrite" (default) or "patch".
+
+    "patch" mints one negative criterion -- the original mechanism, kept so the two can
+    be ablated against each other. It is off by default because it is provably
+    one-sided: a negative can only forbid the exploiter's sentence, never require the
+    knowledge whose absence made the rubric farmable, and on the live run it landed on
+    the same behaviour an existing positive was paying for.
+
+    "rewrite" regenerates the task and the rubric together and keeps the result only if
+    a re-probe shows the knowledgeable answer gaining on the adversary.
+    """
+    m = (os.environ.get("HB_REFINE_MODE") or "rewrite").strip().lower()
+    return m if m in ("rewrite", "patch") else "rewrite"
 
 
 def _refine_starving(state: ServerState) -> bool:

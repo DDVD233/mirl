@@ -22,6 +22,8 @@ No server, no network: `_grade_items` is stubbed with scripted verdicts.
 """
 
 import asyncio
+import copy
+import json
 import os
 import sys
 import types
@@ -576,6 +578,10 @@ def _stub_probe_and_mint(monkeypatch, farm_wins_until: int, mint_ok: bool = True
     monkeypatch.setattr(G, "_probe_admission", probe)
     monkeypatch.setattr(G, "_mint_negative", mint)
     monkeypatch.setattr(G, "_grade_items", grade)
+    # These tests are about the MINT-a-negative mechanism, which is now the non-default
+    # repair mode ("patch"). Pin it explicitly: without this they silently exercise the
+    # rewrite path instead and assert against a mechanism they are not driving.
+    monkeypatch.setenv("HB_REFINE_MODE", "patch")
     return calls
 
 
@@ -731,3 +737,189 @@ def test_baseline_is_the_first_version_not_the_previous_one():
 def test_insufficient_evidence_scores_none():
     assert G._memo_objective_score(_obs(0.2, 0.75, n=1), 0.75, min_obs=2) is None
     assert G._memo_objective_score([], 0.75) is None
+
+
+# ----------------------------------------------------------------------
+# Root-cause repair: rewrite the (task, rubric) pair, accept on measurement
+# ----------------------------------------------------------------------
+REWRITE_OK = {
+    "question": "A patient on cisplatin has a serum magnesium of 1.4 mg/dL and no symptoms. "
+                "State which prospective studies measured repletion thresholds, what they "
+                "actually reported, and what follows for this patient under a 6-week course.",
+    "rubric_items": [
+        {"criterion_text": "Names at least one prospective cohort and states what it measured",
+         "points": 9.0},
+        {"criterion_text": "Gives the numeric magnesium range at which the cited work acted",
+         "points": 8.0},
+        {"criterion_text": "States trials established a validated cutoff", "points": -8.0},
+    ],
+    "why_farmer_fails": "cannot name a cohort or a number",
+    "why_honest_passes": "supplies both",
+}
+
+
+def _rewrite_state(**kw):
+    st = _state(**kw)
+    st.prompt_store = None
+    return st
+
+
+def _fake_rewrite(monkeypatch, payload):
+    async def fake_api(state, sysp, user, **kwargs):
+        return payload if isinstance(payload, str) else json.dumps(payload)
+    monkeypatch.setattr(G, "_api_call", fake_api)
+
+
+def test_rewrite_returns_a_candidate_and_never_mutates_the_original(monkeypatch):
+    """The original spec must survive a rewrite ATTEMPT untouched.
+
+    Acceptance depends on re-probing the candidate, so a rejected rewrite has to cost
+    nothing -- mutating in place before measuring would corrupt the spec on every miss.
+    """
+    _fake_rewrite(monkeypatch, REWRITE_OK)
+    entry = {"extra_info": {"question_id": "q1", "rubric_items": copy.deepcopy(ITEMS),
+                            "conversation": [{"role": "user", "content": "original question"}]}}
+    before = copy.deepcopy(entry)
+    cand = asyncio.run(G._rewrite_spec(_rewrite_state(), entry,
+                                       {"s_farm": 1.0, "s_honest": 0.36, "sep": -0.64,
+                                        "gap": 0.64, "met_farm": [True, True],
+                                        "met_honest": [True, False],
+                                        "farm_answer": "f" * 300, "honest_answer": "h" * 300}))
+    assert cand is not None and len(cand["rubric_items"]) == 3
+    assert entry == before, "the original entry must not change until the rewrite is measured"
+
+
+def test_candidate_entry_replaces_the_last_user_turn_only():
+    """Multi-turn cases keep their structure; only the question text changes."""
+    entry = {"extra_info": {"question_id": "q1", "rubric_items": copy.deepcopy(ITEMS),
+                            "conversation": [{"role": "user", "content": "first"},
+                                             {"role": "assistant", "content": "reply"},
+                                             {"role": "user", "content": "second"}]}}
+    cand = {"question": "rewritten", "rubric_items": copy.deepcopy(ITEMS)}
+    new = G._candidate_entry(entry, cand)
+    conv = new["extra_info"]["conversation"]
+    assert [t["role"] for t in conv] == ["user", "assistant", "user"]
+    assert conv[0]["content"] == "first" and conv[2]["content"] == "rewritten"
+    assert new["extra_info"]["question"] == "rewritten"
+    # and the source is still untouched
+    assert entry["extra_info"]["conversation"][2]["content"] == "second"
+
+
+@pytest.mark.parametrize("bad,reason", [
+    ({**REWRITE_OK, "question": "too short"}, "question below the length floor"),
+    ({**REWRITE_OK, "rubric_items": [{"criterion_text": "only one positive", "points": 9.0}]},
+     "fewer than two positives"),
+    ({**REWRITE_OK, "rubric_items": REWRITE_OK["rubric_items"] + [
+        {"criterion_text": "second negative", "points": -6.0}]}, "more than one negative"),
+    ({**REWRITE_OK, "rubric_items": [
+        {"criterion_text": "positive out of point range", "points": 25.0},
+        {"criterion_text": "another positive", "points": 8.0}]}, "points outside [5,10]"),
+])
+def test_rewrite_structural_gate_rejects_malformed_candidates(monkeypatch, bad, reason):
+    """Shape invariants are enforced BEFORE any grading is paid for."""
+    _fake_rewrite(monkeypatch, bad)
+    st = _rewrite_state()
+    entry = {"extra_info": {"question_id": "q1", "rubric_items": copy.deepcopy(ITEMS),
+                            "conversation": [{"role": "user", "content": "q"}]}}
+    assert asyncio.run(G._rewrite_spec(st, entry, {"met_farm": [], "met_honest": []})) is None, reason
+    assert st.stats.get("mint_rewrite_structural", 0) >= 1
+
+
+def test_rewrite_mode_is_the_default_and_patch_is_still_selectable(monkeypatch):
+    monkeypatch.delenv("HB_REFINE_MODE", raising=False)
+    assert G._refine_mode() == "rewrite"
+    monkeypatch.setenv("HB_REFINE_MODE", "patch")
+    assert G._refine_mode() == "patch"
+    monkeypatch.setenv("HB_REFINE_MODE", "nonsense")
+    assert G._refine_mode() == "rewrite", "an unknown mode must fall back to the safe default"
+
+
+def _rewrite_loop(monkeypatch, sep_before, sep_after, s_honest_after=0.55):
+    """Drive _refine_spec in rewrite mode with scripted probe separations."""
+    calls = {"probe": 0, "rewrite": 0}
+
+    async def probe(state, entry):
+        calls["probe"] += 1
+        sep = sep_before if calls["probe"] == 1 else sep_after
+        s_h = 0.40 if calls["probe"] == 1 else s_honest_after
+        return {"admit": sep >= 0.20, "reason": "ok" if sep >= 0.20 else "farmable",
+                "sep": sep, "gap": -sep, "s_honest": s_h, "s_farm": s_h - sep,
+                "met_farm": [True, True], "met_honest": [True, False],
+                "farm_answer": "f" * 300, "honest_answer": "h" * 300}
+
+    async def rewrite(state, entry, verdict):
+        calls["rewrite"] += 1
+        return {"question": REWRITE_OK["question"],
+                "rubric_items": copy.deepcopy(REWRITE_OK["rubric_items"])}
+
+    monkeypatch.setattr(G, "_probe_admission", probe)
+    monkeypatch.setattr(G, "_rewrite_spec", rewrite)
+    monkeypatch.setenv("HB_REFINE_MODE", "rewrite")
+    monkeypatch.setenv("HB_REFINE_ROUNDS", "1")
+    return calls
+
+
+def test_a_rewrite_that_raises_the_honest_answer_is_accepted(monkeypatch):
+    """The two-sided acceptance the negative-only patch could never express."""
+    calls = _rewrite_loop(monkeypatch, sep_before=-0.64, sep_after=0.25)
+    st, entry = _refine_state(), _refine_entry()
+    assert asyncio.run(G._refine_spec(st, entry)) is True
+    ex = entry["extra_info"]
+    assert ex["question"] == REWRITE_OK["question"], "task must be rewritten at the root"
+    assert len(ex["rubric_items"]) == 3 and ex["rubric_version"] == 1
+    rec = ex["rewrites"][-1]
+    assert rec["sep_before"] == pytest.approx(-0.64) and rec["sep_after"] == pytest.approx(0.25)
+    assert st.stats.get("refine_rewritten") == 1
+
+
+def test_a_rewrite_that_does_not_improve_separation_is_discarded(monkeypatch):
+    """No gain, no change: the original spec is kept byte-for-byte."""
+    calls = _rewrite_loop(monkeypatch, sep_before=-0.64, sep_after=-0.60)   # +0.04 < 0.15
+    st, entry = _refine_state(), _refine_entry()
+    before = copy.deepcopy(entry)
+    asyncio.run(G._refine_spec(st, entry))
+    assert entry["extra_info"]["rubric_items"] == before["extra_info"]["rubric_items"]
+    assert "rewrites" not in entry["extra_info"]
+    assert st.stats.get("mint_rewrite_no_gain") == 1
+
+
+def test_a_rewrite_that_buys_separation_by_making_the_task_trivial_is_refused(monkeypatch):
+    """Separation is necessary but not sufficient.
+
+    A rewrite can always win the probe by making the question so easy that the honest
+    answer aces it. That is difficulty drift, not repair, so the honest score must stay
+    inside the band -- otherwise the loop would quietly flatten the curriculum, which is
+    the same leniency failure the memo objective had.
+    """
+    calls = _rewrite_loop(monkeypatch, sep_before=-0.64, sep_after=0.40, s_honest_after=0.99)
+    st, entry = _refine_state(), _refine_entry()
+    before = copy.deepcopy(entry)
+    asyncio.run(G._refine_spec(st, entry))
+    assert entry["extra_info"]["rubric_items"] == before["extra_info"]["rubric_items"]
+    assert st.stats.get("mint_rewrite_out_of_band") == 1
+
+
+def test_an_unmeasurable_rewrite_is_never_accepted(monkeypatch):
+    """Probe outage -> keep the original. Unmeasured must never mean approved."""
+    async def probe(state, entry):
+        if not hasattr(probe, "n"):
+            probe.n = 0
+        probe.n += 1
+        if probe.n == 1:
+            return {"admit": False, "reason": "farmable", "sep": -0.5, "gap": 0.5,
+                    "s_honest": 0.4, "s_farm": 0.9, "met_farm": [], "met_honest": [],
+                    "farm_answer": "f" * 300, "honest_answer": "h" * 300}
+        return {"admit": True, "reason": "probe_failed"}          # no "sep"
+
+    async def rewrite(state, entry, verdict):
+        return {"question": REWRITE_OK["question"],
+                "rubric_items": copy.deepcopy(REWRITE_OK["rubric_items"])}
+
+    monkeypatch.setattr(G, "_probe_admission", probe)
+    monkeypatch.setattr(G, "_rewrite_spec", rewrite)
+    monkeypatch.setenv("HB_REFINE_MODE", "rewrite")
+    st, entry = _refine_state(), _refine_entry()
+    before = copy.deepcopy(entry)
+    asyncio.run(G._refine_spec(st, entry))
+    assert entry["extra_info"]["rubric_items"] == before["extra_info"]["rubric_items"]
+    assert st.stats.get("mint_rewrite_unmeasured") == 1
