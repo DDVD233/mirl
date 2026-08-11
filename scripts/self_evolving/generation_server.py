@@ -785,10 +785,27 @@ class ServerState:
         # Queue depth + wait, so saturation is visible on /stats instead of only
         # showing up as client-side timeouts.
         self.retrieve_waiting = 0
+        self._web_stats = lambda: ({} if self.web is None else
+                                   {**self.web.stats(),
+                                    **(self.evidence.stats() if self.evidence else {})})
         # wikidoc title telemetry, drained off the request path (see _queue_wikidoc_titles)
         self.wikidoc_q: asyncio.Queue = asyncio.Queue(maxsize=20000)
         self.wikidoc_seen: set = set()
         self.summarizer_warned = False
+        # Web evidence, off unless --web_evidence. Both the generator and /retrieve reach it
+        # through _web_evidence(); one WebEvidence (use_cache=False, since the SERVICE owns
+        # persistence) and one cache client, shared by every worker in this process.
+        self.web = None
+        self.evidence = None
+        if getattr(args, "web_evidence", False):
+            self.evidence = EvidenceCacheClient(getattr(args, "evidence_cache_url", "") or "")
+            self.web = WebEvidence(
+                api_base=args.api_base, api_key=args.api_key, model=args.model_name,
+                use_cache=False,
+                concurrency=int(os.environ.get("WEB_EVIDENCE_CONCURRENCY", "16")),
+            )
+            logger.warning("web evidence ON (model=%s, cache=%s)", args.model_name,
+                           self.evidence.base or "NONE -- every miss costs a live call")
 
     def accuracy_stats(self) -> dict:
         if not self.accuracy_history:
@@ -1810,6 +1827,14 @@ async def _rubric_iteration(state: ServerState, worker_id: int) -> None:
                 )
         except Exception as e:
             logger.debug(f"rubric retrieval failed (continuing ungrounded): {e}")
+        # Current guidance for the GENERATOR as well, through the same cache. A rubric
+        # written only from pre-2020 abstracts can demand a superseded threshold, and the
+        # policy is then punished for being right; and because both consumers share the
+        # cache, grounding a task here warms the very question its rollouts will ask.
+        web_g = await _web_evidence(state, request)
+        if web_g is not None and getattr(web_g, "text", ""):
+            knowledge = (f"{knowledge}\n\n[web search: current literature and guidelines]\n"
+                         f"{web_g.text}").strip()
         try:
             gen = await agent_task_rubric_generator(
                 state, request, use_case, specialty, knowledge, mode)
@@ -4952,6 +4977,7 @@ from kb.retrieval import (  # noqa: E402
     RetrieveConfig, attach_titles, format_passages, merge_ranked, rank_hits,
     sources_block,
 )
+from kb.web_evidence import EvidenceCacheClient, WebEvidence  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -5033,6 +5059,50 @@ async def _probe_summarizer(s: ServerState) -> None:
             "SUMMARIZER FALLBACK UNREACHABLE (%s: %s) at %s -- a primary outage will "
             "serve RAW passages.", type(e).__name__, e, fb,
         )
+
+
+# --------------------------------------------------------------------------
+# Web evidence: ONE path, used by both consumers.
+# --------------------------------------------------------------------------
+# The embedded corpus effectively ends in 2019 (39k papers from 2020, 5k from 2021, a few
+# hundred for 2022+), so every guideline edition and trial the rubrics name from the last five
+# years is absent from Milvus at any ranking quality. Web search supplies those; measured
+# latency is 6.0-12.3s (median 6.6s) and ~8.8k tokens a call, so it runs synchronously here
+# and the cache is what keeps the cost down.
+#
+# Both the GENERATOR (grounding a freshly minted task) and the SOLVER (/retrieve during a
+# rollout) call this, sharing one cache service -- the curriculum and the policy ask about the
+# same clinical topics by construction, so a fetch for one warms the other.
+async def _web_evidence(s: ServerState, question: str) -> object | None:
+    """Cached web evidence for `question`, or None. NEVER raises.
+
+    Order: cache lookup (milliseconds) -> synchronous fetch on a miss -> store. The miss also
+    ENQUEUES on the cache service, which is the safety net: if the synchronous fetch times out
+    or the breaker is open, the background drainer picks it up and the next asker gets a hit
+    instead of paying again.
+    """
+    if not getattr(s, "web", None):
+        return None
+    try:
+        if s.evidence is not None:
+            hit = await s.evidence.get(question, enqueue=True)
+            if hit is not None:
+                s.stats["web_evidence_cached"] = s.stats.get("web_evidence_cached", 0) + 1
+                return hit
+        res = await s.web.search(question)
+        if res.error or not (res.text or res.sources):
+            s.stats["web_evidence_miss"] = s.stats.get("web_evidence_miss", 0) + 1
+            return None
+        s.stats["web_evidence_fetched"] = s.stats.get("web_evidence_fetched", 0) + 1
+        if s.evidence is not None:
+            await s.evidence.put(question, res, model=s.web.model)
+        return res
+    except Exception as e:  # noqa: BLE001
+        # Retrieval sits on the generation critical path: a web failure costs evidence
+        # quality, never a rollout.
+        s.stats["web_evidence_error"] = s.stats.get("web_evidence_error", 0) + 1
+        logger.debug("web evidence failed: %s: %s", type(e).__name__, e)
+        return None
 
 
 async def _summarize_once(s: ServerState, question: str, raw_text: str, *,
@@ -5244,7 +5314,18 @@ async def retrieve(payload: RetrievePayload):
         s.stats["retrieve_titled"] = s.stats.get("retrieve_titled", 0) + n_titled
         s.stats["retrieve_passages"] = s.stats.get("retrieve_passages", 0) + len(passages)
 
+        # ONE web query per /retrieve, using the caller's question rather than one per
+        # sub-query: the backend expands into its own sub-searches anyway (measured 1-2 per
+        # call), so fanning out would triple the cost and latency for the same coverage.
+        web = await _web_evidence(s, payload.question or (queries[0] if queries else ""))
+
         raw_text = format_passages(passages)
+        if web is not None and getattr(web, "text", ""):
+            # Labelled, so the summarizer can tell corpus evidence from current guidance --
+            # they disagree sometimes, and a 2019 abstract should not silently outrank a 2024
+            # guideline.
+            raw_text = (f"{raw_text}\n\n[web search: current literature and guidelines]\n"
+                        f"{web.text}")
         text, summarized, reason = raw_text, False, None
         want_summary = s.args.summarizer_api_base and (
             payload.summarize if payload.summarize is not None else True
@@ -5263,7 +5344,8 @@ async def retrieve(payload: RetrievePayload):
             # feature at all, because the metric would move with sampling noise rather
             # than with what the KB knows.
             if summarized:
-                blk = sources_block(passages)
+                blk = sources_block(passages,
+                                    getattr(web, "sources", None) if web else None)
                 if blk:
                     text = f"{text}\n\n{blk}"
                     s.stats["retrieve_sources_appended"] = (
@@ -5333,6 +5415,9 @@ async def stats():
         # means the endpoint is the rollout bottleneck and clients are at risk of
         # timing out on queue wait alone (see retrieve_queue_wait in timings).
         "retrieve_waiting": getattr(s, "retrieve_waiting", 0),
+        # Web-evidence counters, so cache growth is observable from the training box rather
+        # than only in the cache service's own log.
+        **(s._web_stats() if hasattr(s, "_web_stats") else {}),
         # Fixed-adversary hackability of the CURRENT rubrics, and the counted
         # exploit-mode histogram from the trainer's confirmed exploits. Both empty
         # until HB_PROBE / HB_PATCH are on.
@@ -5928,6 +6013,18 @@ def main():
     # replaced by raw passages still trains, still scores, and appears nowhere except a
     # counter -- so an endpoint that browns out under 256 calls/step quietly changes what
     # the policy learns to retrieve, which is exactly the variable this arm is testing.
+    # ---- web evidence (shared by the GENERATOR and the SOLVER) ----
+    # The embedded corpus effectively ends in 2019, so anything the rubrics name from the
+    # last five years is unreachable from Milvus alone. Both consumers go through ONE cache
+    # service: a question fetched while minting a task is warm when a rollout retrieves for
+    # it, and the curriculum and the policy ask about the same topics by construction.
+    parser.add_argument("--web_evidence", action="store_true",
+                        help="Query web search alongside Milvus on /retrieve and when "
+                             "grounding a generated task.")
+    parser.add_argument("--evidence_cache_url",
+                        default=os.environ.get("EVIDENCE_CACHE_URL", ""),
+                        help="evidence_cache_server base URL. Empty means no cache: every "
+                             "miss then costs a live call, so this should normally be set.")
     parser.add_argument("--summarizer_fallback_api_base",
                         default=os.environ.get("SUMMARIZER_FALLBACK_API_BASE", ""),
                         help="Second endpoint serving the SAME model as --summarizer_model, "

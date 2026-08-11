@@ -362,7 +362,7 @@ def _warned_once(key: str) -> bool:
     return False
 
 
-def sources_block(passages: list[dict]) -> str:
+def sources_block(passages: list[dict], web_sources: list | None = None) -> str:
     """A deterministic source list for the labelled passages, or "" if none are labelled.
 
     APPENDED IN CODE, not requested from the summarizer. Asking for it does not work: the
@@ -381,6 +381,20 @@ def sources_block(passages: list[dict]) -> str:
         if p.get("pmid"):
             bits += f" (PMID {p['pmid']})"
         lines.append(bits)
+    # Web sources join the SAME list, labelled [w1..] so the brief can point at them the way
+    # it points at passages. One list, because the model should not have to reason about
+    # which retrieval channel a fact came from -- only about what the source is.
+    seen_pmids = {p.get("pmid") for p in passages if p.get("pmid")}
+    for j, w in enumerate(web_sources or []):
+        rendered = w.render() if hasattr(w, "render") else str(w)
+        pmid = getattr(w, "pmid", "")
+        # Deduped against the Milvus half: the same paper can legitimately arrive by both
+        # channels, and citing it twice reads as two independent sources.
+        if not rendered or (pmid and pmid in seen_pmids):
+            continue
+        if pmid:
+            seen_pmids.add(pmid)
+        lines.append(f"[w{j + 1}] {rendered}")
     return ("Sources:\n" + "\n".join(lines)) if lines else ""
 
 
