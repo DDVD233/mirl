@@ -98,12 +98,19 @@ def main() -> int:
         ei = row["extra_info"]
         ei = ei if hasattr(ei, "get") else {}
         items = ei.get("rubric_items")
-        task = str(row.get("prompt") or ei.get("task") or "")
-        if isinstance(row.get("prompt"), (list,)) or not task:
-            try:
-                task = str(row["prompt"][0]["content"])
-            except Exception:  # noqa: BLE001
-                task = ""
+        # `prompt` is a chat list (an ndarray of message dicts once through parquet), so
+        # `or` on it raises "truth value of an array ... is ambiguous". Pull the user turn
+        # explicitly rather than relying on truthiness.
+        task = ""
+        pr = row["prompt"] if "prompt" in row else None
+        try:
+            msgs = list(pr) if pr is not None else []
+            task = " ".join(str(m.get("content") or "") for m in msgs
+                            if hasattr(m, "get") and m.get("role") != "system").strip()
+        except Exception:  # noqa: BLE001
+            task = ""
+        if not task:
+            task = str(ei.get("task") or "")
         for it in ([] if items is None else list(items)):
             if not hasattr(it, "get"):
                 continue
