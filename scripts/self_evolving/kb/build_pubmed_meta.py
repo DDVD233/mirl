@@ -48,11 +48,16 @@ from multiprocessing import Pool
 BASE = "https://ftp.ncbi.nlm.nih.gov/pubmed/baseline"
 LISTING = BASE + "/"
 
-# PMIDs whose citation we know independently, so a wrong join is visible rather than
-# plausible. Lau et al. 2000 NEJM is the exact paper a HealthBench criterion asks for.
+# PMIDs whose citation is confirmed independently (esummary), including the AUTHOR -- not
+# just journal and year. The first version of this set paired 10891516 with "Lau et al." and
+# passed, because that PMID is also NEJM 2000: it is in fact the NEXUS cervical-spine study
+# (Hoffman JR). Checking only journal+year let a wrong PMID verify as correct, which is the
+# same class of error as a test matching a string no title contains. The real Lau et al.
+# IV-omeprazole paper is 10922420.
 VERIFY = {
-    "10891516": ("N Engl J Med", "2000"),
-    "17201879": ("J Gastroenterol Hepatol", "2007"),
+    "10922420": ("N Engl J Med", "2000", "Lau JY"),
+    "10891516": ("N Engl J Med", "2000", "Hoffman JR"),
+    "17201879": ("J Gastroenterol Hepatol", "2007", "Wei KL"),
 }
 
 
@@ -160,14 +165,16 @@ def verify(db_path: str) -> bool:
         print("no meta table"); return False
     print(f"PMIDs with metadata: {n:,}")
     ok = True
-    for pmid, (want_j, want_y) in VERIFY.items():
+    for pmid, (want_j, want_y, want_a) in VERIFY.items():
         r = db.execute("SELECT journal, year, author FROM meta WHERE pmid=?",
                        (pmid,)).fetchone()
         if not r:
             print(f"  {pmid}  MISSING"); ok = False; continue
-        good = want_j.lower()[:12] in (r[0] or "").lower() and r[1] == want_y
-        print(f"  {pmid}  {'OK  ' if good else 'WRONG'} journal={r[0]!r} year={r[1]!r} "
-              f"author={r[2]!r}   (expected ~{want_j} {want_y})")
+        good = (want_j.lower()[:12] in (r[0] or "").lower()
+                and r[1] == want_y
+                and want_a.lower() == (r[2] or "").lower())
+        print(f"  {pmid}  {'OK   ' if good else 'WRONG'} journal={r[0]!r} year={r[1]!r} "
+              f"author={r[2]!r}   (expected {want_a}, {want_j} {want_y})")
         ok = ok and good
     db.close()
     return ok and n > 0

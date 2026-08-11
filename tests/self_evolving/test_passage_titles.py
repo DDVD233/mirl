@@ -158,16 +158,16 @@ def _db(tmp_path, *, pmid_col=True, meta=True):
         con.execute("CREATE TABLE titles (id TEXT PRIMARY KEY, title TEXT, pmid TEXT) "
                     "WITHOUT ROWID")
         con.execute("INSERT INTO titles VALUES (?,?,?)",
-                    ("pubmed23n0558_23219", FULL_TITLE, "10891516"))
+                    ("pubmed23n0362_9027", FULL_TITLE, "10922420"))
     else:
         con.execute("CREATE TABLE titles (id TEXT PRIMARY KEY, title TEXT) WITHOUT ROWID")
         con.execute("INSERT INTO titles VALUES (?,?)",
-                    ("pubmed23n0558_23219", FULL_TITLE))
+                    ("pubmed23n0362_9027", FULL_TITLE))
     if meta:
         con.execute("CREATE TABLE meta (pmid TEXT PRIMARY KEY, journal TEXT, year TEXT, "
                     "author TEXT, n_authors TEXT) WITHOUT ROWID")
         con.execute("INSERT INTO meta VALUES (?,?,?,?,?)",
-                    ("10891516", "N Engl J Med", "2000", "Lau JY", "5"))
+                    ("10922420", "N Engl J Med", "2000", "Lau JY", "12"))
     con.commit()
     con.close()
     return p
@@ -179,7 +179,7 @@ def _load(tmp_path, monkeypatch, **kw):
 
 
 def _one():
-    return [{"source": "medrag_pubmed", "entry_id": "pubmed23n0558_23219", "text": "body"}]
+    return [{"source": "medrag_pubmed", "entry_id": "pubmed23n0362_9027", "text": "body"}]
 
 
 def test_full_schema_yields_the_reference_a_rubric_asks_for(tmp_path, monkeypatch):
@@ -189,7 +189,7 @@ def test_full_schema_yields_the_reference_a_rubric_asks_for(tmp_path, monkeypatc
     assert R.attach_titles(ps) == 1
     assert ps[0]["citation"] == "Lau JY et al., N Engl J Med 2000"
     head = R.format_passages(ps).splitlines()[0]
-    for want in ("title=", "cite=Lau JY et al., N Engl J Med 2000", "pmid=10891516"):
+    for want in ("title=", "cite=Lau JY et al., N Engl J Med 2000", "pmid=10922420"):
         assert want in head, head
 
 
@@ -199,7 +199,7 @@ def test_titles_and_pmid_but_no_meta_still_labels(tmp_path, monkeypatch):
     ps = _one()
     assert R.attach_titles(ps) == 1
     assert ps[0]["title"] == FULL_TITLE
-    assert ps[0].get("pmid") == "10891516"
+    assert ps[0].get("pmid") == "10922420"
     assert "citation" not in ps[0]
     assert "cite=" not in R.format_passages(ps)
 
