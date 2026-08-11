@@ -32,6 +32,12 @@ ARM="${ARM:?set ARM=1 fixed-prompt | 2 refine-loop | 3 evolve-only | 4 v1+selfju
 #
 # Validation is unaffected: it stays pinned to gpt-chat-latest in every arm.
 SJUDGE_REMOTE="${SJUDGE_REMOTE:-http://point.dd.works:18184/v1}"
+# DEDICATED inference box for the retrieval arm: a whole 4-GPU node serving the frozen 9B
+# at DP=4/TP=1 (see serve/serve_frozen9b_dp.sh). server5's single GPU is fine for a judge
+# call per rollout, but the retrieval SUMMARIZER is ~256-800 calls per step, all arriving
+# at once, all on the generation critical path -- so it, not the trainer, sets step time.
+# The 18186 port is the pod's pre-existing frp "comfyui" tunnel to local 8188.
+SUMM_DEDICATED="${SUMM_DEDICATED:-http://point.dd.works:18186/v1}"
 POLL_S="${POLL_S:-300}"
 MAX_WAIT_H="${MAX_WAIT_H:-24}"
 # Effectively unbounded by default. Safe because the LR schedule does not depend on
@@ -110,13 +116,20 @@ case "$ARM" in
      # scale-shaped, and no curriculum or reward change can invent it. Every other lever
      # measured (+0.115 traps, +0.03 clarification regressions) leaves that 34% untouched.
      #
-     # SUMM_BASE points at server5's 9B: RETRIEVAL=1 sets FROZEN_NEEDED=1, and the run
+     # SUMM_BASE names a REMOTE endpoint: RETRIEVAL=1 sets FROZEN_NEEDED=1, and the run
      # script only spawns a local frozen summarizer when SUMM_BASE is not already
      # answering -- so naming a live endpoint keeps all four GPUs on training instead of
      # surrendering one to a summarizer.
+     #
+     # Primary is the dedicated 4-GPU box (DP=4); server5 is the fallback, tried once per
+     # brief before /retrieve degrades to raw passages. Ordering matters: the fallback is
+     # correct but slow, so it must never be the thing serving 256 calls a step.
+     # SUMMARY_CONCURRENCY rises with the primary's replica count -- the default 96 was
+     # sized for one GPU and would leave three of four replicas idle.
      ARM_ENV=(RETRIEVAL=1 EVOLVE=1 SPEC_GAP=1 SPEC_GAP_SHIP=0 PROBE=1 PATCH=1
               HACK_MEMO=1 HB_PROBE_MODE=gate HB_REFINE_MODE=rewrite
-              SUMM_BASE="$SJUDGE_REMOTE")
+              SUMM_BASE="$SUMM_DEDICATED" SUMM_FALLBACK_BASE="$SJUDGE_REMOTE"
+              SUMMARY_CONCURRENCY="${SUMMARY_CONCURRENCY:-320}")
      EXP_NAME=hb9b_specgap_full_retrieval ;;
   *) echo "FATAL: ARM must be 1..7" >&2; exit 1 ;;
 esac

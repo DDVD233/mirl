@@ -4996,52 +4996,129 @@ async def _probe_summarizer(s: ServerState) -> None:
             type(e).__name__, e, s.args.summarizer_api_base,
         )
 
+    fb = getattr(s.args, "summarizer_fallback_api_base", "")
+    if not fb:
+        return
+    # The fallback must serve the SAME frozen checkpoint. If it does not, briefs stop
+    # being reproducible the moment the primary hiccups: two rollouts on the same
+    # passages would see text from two different models, which is precisely the
+    # invariant the frozen summarizer exists to hold.
+    fb_model = s.args.summarizer_fallback_model or s.args.summarizer_model
+    if fb_model != s.args.summarizer_model:
+        logger.error(
+            "SUMMARIZER FALLBACK SERVES A DIFFERENT MODEL (%s vs primary %s) -- briefs "
+            "will not be reproducible across a primary outage. Point both at one "
+            "checkpoint.", fb_model, s.args.summarizer_model,
+        )
+    try:
+        r = await s.http_client.get(
+            f"{fb.rstrip('/')}/models",
+            headers={"Authorization": f"Bearer {s.args.summarizer_fallback_api_key}"},
+            timeout=20,
+        )
+        r.raise_for_status()
+        logger.warning("summarizer FALLBACK OK: %s @ %s", fb_model, fb)
+    except Exception as e:
+        logger.error(
+            "SUMMARIZER FALLBACK UNREACHABLE (%s: %s) at %s -- a primary outage will "
+            "serve RAW passages.", type(e).__name__, e, fb,
+        )
+
+
+async def _summarize_once(s: ServerState, question: str, raw_text: str, *,
+                          api_base: str, api_key: str, model_name: str, provider: str,
+                          timeout: float, min_chars: int, label: str) -> str:
+    """One summarization attempt against ONE endpoint. Raises on any failure."""
+    async with s.summary_sem, timed(s, label):
+        brief = await asyncio.wait_for(
+            _api_call(
+                s, SUMMARY_SYSTEM,
+                SUMMARY_USER.format(question=(question or "")[:4000], passages=raw_text),
+                # 1024, not 700: at 700 roughly a fifth of briefs stopped
+                # exactly at the cap, and because the "Not covered:" gap block
+                # is emitted LAST it was the part amputated -- it survived in
+                # 91% of complete briefs but only ~28% of truncated ones. The
+                # policy was being told what the KB holds while the statement
+                # of what it does NOT hold was silently cut, and nothing
+                # counted it: _summarize_passages only tracks outright failure,
+                # so a truncated brief logs as a success.
+                max_tokens=int(os.environ.get("RETRIEVE_SUMMARY_MAX_TOKENS", "1024")),
+                # >=0.5 would request a thinking channel; a thinking summarizer on
+                # the generation critical path blows the latency budget.
+                temperature=0.2, label=label,
+                api_base=api_base,
+                api_key=api_key,
+                model_name=model_name,
+                provider_override=provider,
+            ),
+            timeout=timeout,
+        )
+    brief = (brief or "").strip()
+    if len(brief) < min_chars:
+        raise ValueError(f"degenerate summary ({len(brief)} chars)")
+    return brief
+
 
 async def _summarize_passages(s: ServerState, question: str, passages: list[dict],
                               raw_text: str) -> tuple[str, bool, str | None]:
     """Compress merged passages into a question-conditioned evidence brief.
 
-    Returns (text, summarized, fallback_reason). Falls back to the raw formatted
-    passages on ANY failure — a summarizer outage must degrade context quality, never
-    lose a rollout."""
+    Returns (text, summarized, fallback_reason). Tries the primary summarizer, then the
+    fallback endpoint if one is configured, then degrades to the raw formatted passages
+    — a summarizer outage must cost context quality, never a rollout."""
     timeout = float(os.environ.get("RETRIEVE_SUMMARY_TIMEOUT", "45"))
     min_chars = int(os.environ.get("RETRIEVE_SUMMARY_MIN_CHARS", "200"))
     try:
-        async with s.summary_sem, timed(s, "summarize"):
-            brief = await asyncio.wait_for(
-                _api_call(
-                    s, SUMMARY_SYSTEM,
-                    SUMMARY_USER.format(question=(question or "")[:4000], passages=raw_text),
-                    # 1024, not 700: at 700 roughly a fifth of briefs stopped
-                    # exactly at the cap, and because the "Not covered:" gap block
-                    # is emitted LAST it was the part amputated -- it survived in
-                    # 91% of complete briefs but only ~28% of truncated ones. The
-                    # policy was being told what the KB holds while the statement
-                    # of what it does NOT hold was silently cut, and nothing
-                    # counted it: _summarize_passages only tracks outright failure,
-                    # so a truncated brief logs as a success.
-                    max_tokens=int(os.environ.get("RETRIEVE_SUMMARY_MAX_TOKENS", "1024")),
-                    # >=0.5 would request a thinking channel; a thinking summarizer on
-                    # the generation critical path blows the latency budget.
-                    temperature=0.2, label="summarize",
-                    api_base=s.args.summarizer_api_base,
-                    api_key=s.args.summarizer_api_key,
-                    model_name=s.args.summarizer_model,
-                    provider_override=s.args.summarizer_provider,
-                ),
-                timeout=timeout,
-            )
-        brief = (brief or "").strip()
-        if len(brief) < min_chars:
-            raise ValueError(f"degenerate summary ({len(brief)} chars)")
+        brief = await _summarize_once(
+            s, question, raw_text,
+            api_base=s.args.summarizer_api_base,
+            api_key=s.args.summarizer_api_key,
+            model_name=s.args.summarizer_model,
+            provider=s.args.summarizer_provider,
+            timeout=timeout, min_chars=min_chars, label="summarize",
+        )
         return brief, True, None
     except Exception as e:
+        primary_err = e
         s.stats["summarizer_fail"] = s.stats.get("summarizer_fail", 0) + 1
-        if not s.summarizer_warned:
-            s.summarizer_warned = True
-            logger.error("SUMMARIZER FAILING (%s: %s) -- serving raw passages",
-                         type(e).__name__, e)
-        return raw_text, False, type(e).__name__
+
+    # The fallback gets its OWN timeout budget rather than a slice of the primary's.
+    # Sharing one deadline makes the second attempt useless in the case it exists for:
+    # a saturated primary consumes the whole budget before the fallback is dialled.
+    fb_base = getattr(s.args, "summarizer_fallback_api_base", "")
+    if fb_base:
+        try:
+            brief = await _summarize_once(
+                s, question, raw_text,
+                api_base=fb_base,
+                api_key=s.args.summarizer_fallback_api_key,
+                model_name=(s.args.summarizer_fallback_model
+                            or s.args.summarizer_model),
+                provider=s.args.summarizer_fallback_provider,
+                timeout=float(os.environ.get("RETRIEVE_SUMMARY_FALLBACK_TIMEOUT",
+                                             str(timeout))),
+                min_chars=min_chars, label="summarize_fallback",
+            )
+            s.stats["summarizer_fallback_ok"] = s.stats.get("summarizer_fallback_ok", 0) + 1
+            if not s.summarizer_warned:
+                s.summarizer_warned = True
+                logger.warning(
+                    "PRIMARY SUMMARIZER FAILING (%s: %s) -- served by the fallback at %s. "
+                    "Briefs are still being written, so this shows up only as "
+                    "summarizer_fallback_ok on /stats.",
+                    type(primary_err).__name__, primary_err, fb_base,
+                )
+            return brief, True, None
+        except Exception as e2:
+            s.stats["summarizer_fallback_fail"] = (
+                s.stats.get("summarizer_fallback_fail", 0) + 1)
+            primary_err = e2
+
+    if not s.summarizer_warned:
+        s.summarizer_warned = True
+        logger.error("SUMMARIZER FAILING (%s: %s) -- serving raw passages",
+                     type(primary_err).__name__, primary_err)
+    return raw_text, False, type(primary_err).__name__
 
 
 async def _wikidoc_writer(s: ServerState) -> None:
@@ -5809,6 +5886,26 @@ def main():
     parser.add_argument("--summarizer_api_key", default=os.environ.get("SUMMARIZER_API_KEY", "EMPTY"))
     parser.add_argument("--summarizer_model", default=os.environ.get("SUMMARIZER_MODEL", ""))
     parser.add_argument("--summarizer_provider", default=os.environ.get("SUMMARIZER_PROVIDER", "vllm"))
+    # SECOND summarizer endpoint, tried once before degrading to raw passages.
+    #
+    # Why a fallback and not just the graceful degradation that already exists: the
+    # degradation is silent in the only way that matters. A rollout whose brief was
+    # replaced by raw passages still trains, still scores, and appears nowhere except a
+    # counter -- so an endpoint that browns out under 256 calls/step quietly changes what
+    # the policy learns to retrieve, which is exactly the variable this arm is testing.
+    # The primary endpoint is a dedicated multi-GPU box; the fallback is the small shared
+    # one, which is slower but correct, and that ordering is the point.
+    parser.add_argument("--summarizer_fallback_api_base",
+                        default=os.environ.get("SUMMARIZER_FALLBACK_API_BASE", ""),
+                        help="Second summarizer endpoint, tried once when the primary "
+                             "fails or times out. Empty keeps today's behaviour (a "
+                             "primary failure serves raw passages).")
+    parser.add_argument("--summarizer_fallback_api_key",
+                        default=os.environ.get("SUMMARIZER_FALLBACK_API_KEY", "EMPTY"))
+    parser.add_argument("--summarizer_fallback_model",
+                        default=os.environ.get("SUMMARIZER_FALLBACK_MODEL", ""))
+    parser.add_argument("--summarizer_fallback_provider",
+                        default=os.environ.get("SUMMARIZER_FALLBACK_PROVIDER", "vllm"))
     parser.add_argument("--n_queries", type=int, default=10)
     parser.add_argument("--questions_per_query", type=int, default=1)
     parser.add_argument(

@@ -145,6 +145,12 @@ SUMM_PORT="${SUMM_PORT:-8199}"
 
 SUMM_BASE="${SUMM_BASE:-http://localhost:$SUMM_PORT/v1}"
 SUMM_MODEL="${SUMM_MODEL:-Qwen/Qwen3.5-9B}"
+# SECOND summarizer endpoint. Set it when SUMM_BASE is a dedicated inference box, so a
+# hiccup there is absorbed by the small shared server instead of silently turning
+# /retrieve into a raw-passage feed for the rest of the step. Must serve the same
+# checkpoint as SUMM_MODEL -- the gen server logs an error if the names differ.
+SUMM_FALLBACK_BASE="${SUMM_FALLBACK_BASE:-}"
+SUMM_FALLBACK_MODEL="${SUMM_FALLBACK_MODEL:-$SUMM_MODEL}"
 # The self-judge IS the frozen-9B server: same model, same frozen weights, one
 # process serving both roles.
 SJUDGE_BASE="$SUMM_BASE"
@@ -357,6 +363,14 @@ if [ "$FROZEN_NEEDED" = 1 ]; then
         done
     fi
     echo "frozen 9B healthy at $SUMM_BASE (mem=$FROZEN_MEM seqs=$FROZEN_SEQS)"
+    if [ -n "$SUMM_FALLBACK_BASE" ]; then
+        # Checked at launch, not on first use. A fallback that is only exercised when
+        # the primary is already failing is a fallback nobody has ever tested, and the
+        # moment it matters is the moment there is no attention to spare for it.
+        curl -sf -m 10 "$SUMM_FALLBACK_BASE/models" >/dev/null \
+            || { echo "FATAL: summarizer fallback $SUMM_FALLBACK_BASE unreachable" >&2; exit 1; }
+        echo "summarizer fallback healthy at $SUMM_FALLBACK_BASE ($SUMM_FALLBACK_MODEL)"
+    fi
 fi
 
 # Prove the judge returns a GRADABLE verdict before spending a step. A server that
@@ -388,9 +402,15 @@ PROMPT_DIR="$LOGDIR/$EXP/prompts"; mkdir -p "$PROMPT_DIR"
 COVERAGE_PROMPT_FILE="$PROMPT_DIR/coverage_prompt.json"
 export HB_COVERAGE_PROMPT_FILE="$COVERAGE_PROMPT_FILE"
 SUMM_FLAGS=()
-[ "$RETRIEVAL" = 1 ] && SUMM_FLAGS=(--summarizer_api_base "$SUMM_BASE"
-                                    --summarizer_model "$SUMM_MODEL"
-                                    --summarizer_provider vllm)
+if [ "$RETRIEVAL" = 1 ]; then
+    SUMM_FLAGS=(--summarizer_api_base "$SUMM_BASE"
+                --summarizer_model "$SUMM_MODEL"
+                --summarizer_provider vllm)
+    [ -n "$SUMM_FALLBACK_BASE" ] && SUMM_FLAGS+=(
+        --summarizer_fallback_api_base "$SUMM_FALLBACK_BASE"
+        --summarizer_fallback_model "$SUMM_FALLBACK_MODEL"
+        --summarizer_fallback_provider vllm)
+fi
 /usr/local/bin/python scripts/self_evolving/generation_server.py \
     --rubric_mode --prompt_dir "$PROMPT_DIR" \
     --coverage_prompt_file "$COVERAGE_PROMPT_FILE" \
