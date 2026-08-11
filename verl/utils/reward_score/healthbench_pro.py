@@ -575,8 +575,29 @@ async def compute_score(
     # acc: if acc rises while acc_raw falls, the policy is buying score with brevity.
     # Set HB_TRAIN_LENGTH_ADJ=0 to train on raw rubric content instead.
     chars = len(answer_text)
-    if (not is_train) or os.environ.get("HB_TRAIN_LENGTH_ADJ", "1") == "1":
+    if not is_train:
+        # VALIDATION: the official HealthBench-Professional term, two-sided and
+        # unchanged. Held-out numbers must stay comparable with published results, so
+        # nothing below touches this branch.
         length_adjusted = raw - LENGTH_ADJ_PENALTY_PER_500 * ((chars - LENGTH_ADJ_CENTER) / 500.0)
+    elif os.environ.get("HB_TRAIN_LENGTH_ADJ", "1") == "1":
+        # TRAINING: penalty ONLY above the centre. The two-sided form paid for brevity:
+        # below 2000 chars (chars - CENTER) is negative, so the term ADDS reward, up to
+        # +0.057 for a 63-char stub, with no reference to content at all.
+        #
+        # That is not theoretical. Measured on this run at step 165: 35 val answers are
+        # under 800 chars, 84% of their positive criteria unmet, 31 of the 35 red_teaming
+        # -- and their think length is ABOVE average, so the model reasoned and then
+        # emitted a stub. Over the run, answers shrank 4159 -> 2554 chars and that
+        # accounted for 27% of the entire val gain while positive-criteria credit moved
+        # 2.4pp. On a wrapper task where every rollout scores ~0 on content, brevity is
+        # the only term with variance, so GRPO has nothing else to climb.
+        #
+        # The comment above already warned "if acc rises while acc_raw falls, the policy
+        # is buying score with brevity". It did exactly that; a one-sided term removes
+        # the purchase while keeping the anti-verbosity pressure the term exists for.
+        length_adjusted = raw - LENGTH_ADJ_PENALTY_PER_500 * (
+            max(0.0, chars - LENGTH_ADJ_CENTER) / 500.0)
     else:
         length_adjusted = raw
 
