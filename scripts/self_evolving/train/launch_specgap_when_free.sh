@@ -101,7 +101,24 @@ case "$ARM" in
      ARM_ENV=(RETRIEVAL=0 EVOLVE=1 SPEC_GAP=1 SELF_JUDGE=1
               ALLOW_EVOLVE_SELF_JUDGE=1 SUMM_BASE="$SJUDGE_REMOTE")
      EXP_NAME=hb9b_specgap_evolveonly_selfjudge ;;
-  *) echo "FATAL: ARM must be 1..6" >&2; exit 1 ;;
+  7) # THE FULL PIPELINE PLUS RETRIEVAL. Same as ARM=2 with RETRIEVAL=1.
+     #
+     # Why: the val analysis at step 165 put 34% of the remaining unmet positive mass on
+     # criteria that need a specific fact the 9B does not have -- guideline EDITIONS (2024
+     # AUA/SUFU, 2025 ESC/EACTS), trial identities and citations (ACORN, PAPILLON, SOAP
+     # II), exact ICD-10 codes, exact thresholds. That shape is retrieval-shaped, not
+     # scale-shaped, and no curriculum or reward change can invent it. Every other lever
+     # measured (+0.115 traps, +0.03 clarification regressions) leaves that 34% untouched.
+     #
+     # SUMM_BASE points at server5's 9B: RETRIEVAL=1 sets FROZEN_NEEDED=1, and the run
+     # script only spawns a local frozen summarizer when SUMM_BASE is not already
+     # answering -- so naming a live endpoint keeps all four GPUs on training instead of
+     # surrendering one to a summarizer.
+     ARM_ENV=(RETRIEVAL=1 EVOLVE=1 SPEC_GAP=1 SPEC_GAP_SHIP=0 PROBE=1 PATCH=1
+              HACK_MEMO=1 HB_PROBE_MODE=gate HB_REFINE_MODE=rewrite
+              SUMM_BASE="$SJUDGE_REMOTE")
+     EXP_NAME=hb9b_specgap_full_retrieval ;;
+  *) echo "FATAL: ARM must be 1..7" >&2; exit 1 ;;
 esac
 
 EXP_NAME="${EXP_NAME}${EXP_SUFFIX}"

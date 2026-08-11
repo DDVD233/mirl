@@ -270,8 +270,10 @@ curl -sf -m 10 "$EMBED_BASE/models" >/dev/null \
 # ---- retrieval-only wiring -------------------------------------------------------
 AGENT_ARGS=()
 if [ "$RETRIEVAL" = 1 ]; then
-    export HB_SCORE_MIN="${HB_SCORE_MIN:--0.25}"   # headroom so the +/-w bonus is not
-                                                   # clipped one-sidedly at the floor
+    # No floor at all (dvd 2026-08-11). The -0.25 here previously existed only to keep
+    # the +/-w retrieval bonus from being clipped one-sidedly; with no floor that concern
+    # disappears entirely and every rollout keeps its true ordering.
+    export HB_SCORE_MIN="${HB_SCORE_MIN:-none}"
     export HB_RETRIEVAL_WEIGHT="${HB_RETRIEVAL_WEIGHT:-0.20}"
     export HB_RETRIEVAL_GROUP_BASELINE=1
     export HB_RETRIEVAL_NOSEARCH_COVERAGE="${HB_RETRIEVAL_NOSEARCH_COVERAGE:-0.35}"
@@ -311,7 +313,9 @@ else
     # zero-variance"), and the 27B rubric recipe already defaults to -0.5. The 9B arms
     # were the ones still on 0.0. Validation is unaffected: the reported signed metrics
     # are computed unclipped.
-    export HB_SCORE_MIN="${HB_SCORE_MIN:--0.5}"
+    # Disabled entirely rather than floored at -0.5: a floor still collapses everything
+    # below it, and the worst observed val task reaches -2.06.
+    export HB_SCORE_MIN="${HB_SCORE_MIN:-none}"
     VLLM_GPU_UTIL="${VLLM_GPU_UTIL:-0.45}"
 fi
 

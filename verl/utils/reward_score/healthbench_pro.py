@@ -130,7 +130,21 @@ HB_THINK_PENALTY_MAX = float(os.environ.get("HB_THINK_PENALTY_MAX", "0.3"))
 # go zero-variance (v4 ended with clip_ratio 1.0, entropy 3e-5, every group
 # identical). A negative floor (e.g. -0.5) keeps bad rollouts ORDERED. Validation
 # metrics are untouched (signed variants are already reported separately).
-HB_SCORE_MIN = float(os.environ.get("HB_SCORE_MIN", "0.0"))
+# Set HB_SCORE_MIN=none (or off/inf/-inf) to remove the training floor ENTIRELY, so the
+# reward is never clipped from below and every rollout keeps its true ordering however bad
+# it is. That is the strongest form of the fix above: a floor at -0.5 still collapses
+# everything worse than -0.5, and the observed worst val task reaches -2.06.
+#
+# The cost to watch: with norm_adv_by_std_in_grpo=False the advantage is score minus the
+# group mean, so a single catastrophic rollout at -3 against peers near +0.4 produces an
+# advantage ~10x the typical magnitude. That is a real gradient spike, not a clipping
+# artifact -- if actor/grad_norm or entropy destabilises, put a floor back rather than
+# re-clipping silently.
+_score_min_raw = (os.environ.get("HB_SCORE_MIN", "0.0") or "").strip().lower()
+if _score_min_raw in ("none", "off", "inf", "-inf", "disabled"):
+    HB_SCORE_MIN = float("-inf")
+else:
+    HB_SCORE_MIN = float(_score_min_raw)
 
 # Repetition penalty (training only; see the v16 note in compute_score).
 # `dup fraction` = share of 8-gram positions that repeat an earlier 8-gram.
