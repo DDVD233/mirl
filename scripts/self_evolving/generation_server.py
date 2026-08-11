@@ -4999,25 +4999,14 @@ async def _probe_summarizer(s: ServerState) -> None:
     fb = getattr(s.args, "summarizer_fallback_api_base", "")
     if not fb:
         return
-    # The fallback must serve the SAME frozen checkpoint. If it does not, briefs stop
-    # being reproducible the moment the primary hiccups: two rollouts on the same
-    # passages would see text from two different models, which is precisely the
-    # invariant the frozen summarizer exists to hold.
-    fb_model = s.args.summarizer_fallback_model or s.args.summarizer_model
-    if fb_model != s.args.summarizer_model:
-        logger.error(
-            "SUMMARIZER FALLBACK SERVES A DIFFERENT MODEL (%s vs primary %s) -- briefs "
-            "will not be reproducible across a primary outage. Point both at one "
-            "checkpoint.", fb_model, s.args.summarizer_model,
-        )
     try:
         r = await s.http_client.get(
             f"{fb.rstrip('/')}/models",
-            headers={"Authorization": f"Bearer {s.args.summarizer_fallback_api_key}"},
+            headers={"Authorization": f"Bearer {s.args.summarizer_api_key}"},
             timeout=20,
         )
         r.raise_for_status()
-        logger.warning("summarizer FALLBACK OK: %s @ %s", fb_model, fb)
+        logger.warning("summarizer FALLBACK OK: %s @ %s", s.args.summarizer_model, fb)
     except Exception as e:
         logger.error(
             "SUMMARIZER FALLBACK UNREACHABLE (%s: %s) at %s -- a primary outage will "
@@ -5082,19 +5071,19 @@ async def _summarize_passages(s: ServerState, question: str, passages: list[dict
         primary_err = e
         s.stats["summarizer_fail"] = s.stats.get("summarizer_fail", 0) + 1
 
-    # The fallback gets its OWN timeout budget rather than a slice of the primary's.
-    # Sharing one deadline makes the second attempt useless in the case it exists for:
-    # a saturated primary consumes the whole budget before the fallback is dialled.
+    # Same model, same key, same provider -- only the host differs. The fallback gets its
+    # OWN timeout budget rather than a slice of the primary's: sharing one deadline makes
+    # the second attempt useless in the case it exists for, since a saturated primary
+    # consumes the whole budget before the fallback is dialled.
     fb_base = getattr(s.args, "summarizer_fallback_api_base", "")
     if fb_base:
         try:
             brief = await _summarize_once(
                 s, question, raw_text,
                 api_base=fb_base,
-                api_key=s.args.summarizer_fallback_api_key,
-                model_name=(s.args.summarizer_fallback_model
-                            or s.args.summarizer_model),
-                provider=s.args.summarizer_fallback_provider,
+                api_key=s.args.summarizer_api_key,
+                model_name=s.args.summarizer_model,
+                provider=s.args.summarizer_provider,
                 timeout=float(os.environ.get("RETRIEVE_SUMMARY_FALLBACK_TIMEOUT",
                                              str(timeout))),
                 min_chars=min_chars, label="summarize_fallback",
@@ -5886,26 +5875,20 @@ def main():
     parser.add_argument("--summarizer_api_key", default=os.environ.get("SUMMARIZER_API_KEY", "EMPTY"))
     parser.add_argument("--summarizer_model", default=os.environ.get("SUMMARIZER_MODEL", ""))
     parser.add_argument("--summarizer_provider", default=os.environ.get("SUMMARIZER_PROVIDER", "vllm"))
-    # SECOND summarizer endpoint, tried once before degrading to raw passages.
+    # A SECOND ENDPOINT serving the same model, tried once before degrading to raw
+    # passages. Endpoint only -- the summarizer is always the frozen self-model, so model,
+    # key and provider come from the primary and cannot drift apart.
     #
     # Why a fallback and not just the graceful degradation that already exists: the
     # degradation is silent in the only way that matters. A rollout whose brief was
     # replaced by raw passages still trains, still scores, and appears nowhere except a
     # counter -- so an endpoint that browns out under 256 calls/step quietly changes what
     # the policy learns to retrieve, which is exactly the variable this arm is testing.
-    # The primary endpoint is a dedicated multi-GPU box; the fallback is the small shared
-    # one, which is slower but correct, and that ordering is the point.
     parser.add_argument("--summarizer_fallback_api_base",
                         default=os.environ.get("SUMMARIZER_FALLBACK_API_BASE", ""),
-                        help="Second summarizer endpoint, tried once when the primary "
-                             "fails or times out. Empty keeps today's behaviour (a "
-                             "primary failure serves raw passages).")
-    parser.add_argument("--summarizer_fallback_api_key",
-                        default=os.environ.get("SUMMARIZER_FALLBACK_API_KEY", "EMPTY"))
-    parser.add_argument("--summarizer_fallback_model",
-                        default=os.environ.get("SUMMARIZER_FALLBACK_MODEL", ""))
-    parser.add_argument("--summarizer_fallback_provider",
-                        default=os.environ.get("SUMMARIZER_FALLBACK_PROVIDER", "vllm"))
+                        help="Second endpoint serving the SAME model as --summarizer_model, "
+                             "tried once when the primary fails or times out. Empty keeps "
+                             "today's behaviour (a primary failure serves raw passages).")
     parser.add_argument("--n_queries", type=int, default=10)
     parser.add_argument("--questions_per_query", type=int, default=1)
     parser.add_argument(

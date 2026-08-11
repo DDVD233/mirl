@@ -145,12 +145,19 @@ SUMM_PORT="${SUMM_PORT:-8199}"
 
 SUMM_BASE="${SUMM_BASE:-http://localhost:$SUMM_PORT/v1}"
 SUMM_MODEL="${SUMM_MODEL:-Qwen/Qwen3.5-9B}"
-# SECOND summarizer endpoint. Set it when SUMM_BASE is a dedicated inference box, so a
-# hiccup there is absorbed by the small shared server instead of silently turning
-# /retrieve into a raw-passage feed for the rest of the step. Must serve the same
-# checkpoint as SUMM_MODEL -- the gen server logs an error if the names differ.
+# A SECOND HOST serving that same model. Set it when SUMM_BASE is a dedicated inference
+# box, so a hiccup there is absorbed by the small shared server instead of silently
+# turning /retrieve into a raw-passage feed for the rest of the step.
 SUMM_FALLBACK_BASE="${SUMM_FALLBACK_BASE:-}"
-SUMM_FALLBACK_MODEL="${SUMM_FALLBACK_MODEL:-$SUMM_MODEL}"
+# Does the frozen 9B live on a TRAINING GPU, or on another box? It decides how much
+# memory the rollout engine may take, so it must be known before any util default is
+# picked. The retrieval arm's 0.35 was never about retrieval -- it was the concession to
+# a summarizer sharing GPU 3, and applying it to an arm whose summarizer is remote
+# quietly runs the rollout engine on two thirds of the KV cache it could have had.
+case "$SUMM_BASE" in
+    *localhost*|*127.0.0.1*) SUMM_LOCAL=1 ;;
+    *)                       SUMM_LOCAL=0 ;;
+esac
 # The self-judge IS the frozen-9B server: same model, same frozen weights, one
 # process serving both roles.
 SJUDGE_BASE="$SUMM_BASE"
@@ -289,7 +296,6 @@ if [ "$RETRIEVAL" = 1 ]; then
     export VERL_THINK_BUDGET_TOKENS="${VERL_THINK_BUDGET_TOKENS:-3072}"
     export VERL_ANSWER_RESERVE_TOKENS="${VERL_ANSWER_RESERVE_TOKENS:-3500}"
     export VERL_MIN_ANSWER_TOKENS="${VERL_MIN_ANSWER_TOKENS:-1536}"
-    VLLM_GPU_UTIL="${VLLM_GPU_UTIL:-0.35}"         # summarizer shares a GPU
     AGENT_ARGS=(
         actor_rollout_ref.rollout.multi_turn.enable=True
         actor_rollout_ref.rollout.multi_turn.format=qwen3_coder
@@ -342,12 +348,22 @@ FROZEN_NEEDED=0
 [ "$RETRIEVAL" = 1 ] && FROZEN_NEEDED=1
 [ "$SELF_JUDGE" = 1 ] && FROZEN_NEEDED=1
 if [ "$FROZEN_NEEDED" = 1 ]; then
+    # FROZEN_* size a LOCAL server and are inert when SUMM_BASE is remote.
     if [ "$SELF_JUDGE" = 1 ]; then
         FROZEN_MEM="${FROZEN_MEM:-0.30}"; FROZEN_SEQS="${FROZEN_SEQS:-256}"
-        VLLM_GPU_UTIL="${VLLM_GPU_UTIL:-0.30}"
     else
         FROZEN_MEM="${FROZEN_MEM:-0.16}"; FROZEN_SEQS="${FROZEN_SEQS:-96}"
-        VLLM_GPU_UTIL="${VLLM_GPU_UTIL:-0.35}"
+    fi
+    # The rollout engine's share, decided ONCE and only by whether something else is
+    # going to sit on these GPUs. Layered ":-" defaults used to settle this in three
+    # places, and they disagreed: the self-judge line read 0.30 but a retrieval arm had
+    # already pinned 0.35 above it, so the value the code appeared to choose was not the
+    # value it used.
+    if [ "$SUMM_LOCAL" = 1 ]; then
+        [ "$SELF_JUDGE" = 1 ] && VLLM_GPU_UTIL="${VLLM_GPU_UTIL:-0.30}" \
+                              || VLLM_GPU_UTIL="${VLLM_GPU_UTIL:-0.35}"
+    else
+        VLLM_GPU_UTIL="${VLLM_GPU_UTIL:-0.45}"
     fi
     if ! curl -sf -m 5 "$SUMM_BASE/models" >/dev/null 2>&1; then
         # A REMOTE SUMM_BASE that is not answering must stop the launch, not be quietly
@@ -383,7 +399,7 @@ if [ "$FROZEN_NEEDED" = 1 ]; then
         # moment it matters is the moment there is no attention to spare for it.
         curl -sf -m 10 "$SUMM_FALLBACK_BASE/models" >/dev/null \
             || { echo "FATAL: summarizer fallback $SUMM_FALLBACK_BASE unreachable" >&2; exit 1; }
-        echo "summarizer fallback healthy at $SUMM_FALLBACK_BASE ($SUMM_FALLBACK_MODEL)"
+        echo "summarizer fallback healthy at $SUMM_FALLBACK_BASE ($SUMM_MODEL)"
     fi
 fi
 
@@ -421,9 +437,7 @@ if [ "$RETRIEVAL" = 1 ]; then
                 --summarizer_model "$SUMM_MODEL"
                 --summarizer_provider vllm)
     [ -n "$SUMM_FALLBACK_BASE" ] && SUMM_FLAGS+=(
-        --summarizer_fallback_api_base "$SUMM_FALLBACK_BASE"
-        --summarizer_fallback_model "$SUMM_FALLBACK_MODEL"
-        --summarizer_fallback_provider vllm)
+        --summarizer_fallback_api_base "$SUMM_FALLBACK_BASE")
 fi
 /usr/local/bin/python scripts/self_evolving/generation_server.py \
     --rubric_mode --prompt_dir "$PROMPT_DIR" \

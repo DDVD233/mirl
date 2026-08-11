@@ -50,11 +50,12 @@ async def _timed(_s, _label):
 
 def _state(fallback="http://fb/v1"):
     s = types.SimpleNamespace()
+    # Endpoint only. The summarizer is always the frozen self-model, so there is no
+    # per-fallback model/key/provider to get out of step with the primary.
     s.args = types.SimpleNamespace(
         summarizer_api_base="http://primary/v1", summarizer_api_key="K",
         summarizer_model="Qwen/Qwen3.5-9B", summarizer_provider="vllm",
-        summarizer_fallback_api_base=fallback, summarizer_fallback_api_key="K2",
-        summarizer_fallback_model="", summarizer_fallback_provider="vllm",
+        summarizer_fallback_api_base=fallback,
     )
     s.stats = {}
     s.summarizer_warned = False
@@ -130,16 +131,16 @@ def test_no_fallback_configured_reproduces_the_previous_behaviour(monkeypatch):
     assert "summarizer_fallback_fail" not in stats
 
 
-def test_fallback_inherits_the_primary_model_name_when_unset(monkeypatch):
-    """One frozen checkpoint, two endpoints: the model name must not silently change.
+def test_both_endpoints_are_called_with_the_one_frozen_model(monkeypatch):
+    """Two hosts, one model. Briefs must be reproducible across a primary outage.
 
-    Briefs have to be reproducible across a primary outage, so an unset fallback model
-    means "the same model", never "whatever that server happens to host".
+    If the fallback could name its own model, a hiccup would silently switch which model
+    wrote the brief -- the exact invariant the frozen summarizer exists to hold.
     """
     seen = {}
 
     async def fake_api_call(_s, _sys, _user, **kw):
-        seen[kw["api_base"]] = kw["model_name"]
+        seen[kw["api_base"]] = (kw["model_name"], kw["api_key"], kw["provider_override"])
         if kw["api_base"] == "http://primary/v1":
             raise RuntimeError("boom")
         return BRIEF
@@ -148,7 +149,10 @@ def test_fallback_inherits_the_primary_model_name_when_unset(monkeypatch):
     monkeypatch.setattr(G, "timed", _timed)
     s = _state()
     asyncio.run(G._summarize_passages(s, "q", [], RAW))
-    assert seen["http://fb/v1"] == s.args.summarizer_model
+    expected = (s.args.summarizer_model, s.args.summarizer_api_key,
+                s.args.summarizer_provider)
+    assert seen["http://primary/v1"] == expected
+    assert seen["http://fb/v1"] == expected, "the fallback must not diverge from the primary"
 
 
 def test_the_fallback_gets_its_own_timeout_budget(monkeypatch):
@@ -174,11 +178,18 @@ def test_the_fallback_gets_its_own_timeout_budget(monkeypatch):
     assert s.stats["summarizer_fallback_ok"] == 1
 
 
-@pytest.mark.parametrize("flag", [
-    "--summarizer_fallback_api_base", "--summarizer_fallback_api_key",
-    "--summarizer_fallback_model", "--summarizer_fallback_provider",
-])
-def test_the_run_script_can_actually_pass_these(flag):
-    """The flags the launcher emits must exist, or RETRIEVAL=1 dies at startup."""
+def test_the_launcher_passes_exactly_one_fallback_flag():
+    """The flag the launcher emits must exist, or RETRIEVAL=1 dies at startup.
+
+    And it must be the ONLY one: a per-fallback model/key/provider is what would let the
+    two endpoints drift apart, so their absence is the guarantee, not an omission.
+    """
     src = open(G.__file__).read()
-    assert f'"{flag}"' in src
+    assert '"--summarizer_fallback_api_base"' in src
+    for gone in ("--summarizer_fallback_model", "--summarizer_fallback_api_key",
+                 "--summarizer_fallback_provider"):
+        assert gone not in src, f"{gone} reintroduces a second model"
+
+    run_sh = os.path.join(os.path.dirname(__file__), "..", "..", "scripts",
+                          "self_evolving", "train", "run_9b_hb_gen.sh")
+    assert "--summarizer_fallback_api_base" in open(run_sh).read()
