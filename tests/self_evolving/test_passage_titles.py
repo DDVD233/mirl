@@ -242,3 +242,39 @@ def test_title_present_but_metadata_missing_is_a_left_join(tmp_path, monkeypatch
 def test_citation_assembly(author, n, journal, year, expected):
     import retrieval as R
     assert R._citation(author, n, journal, year) == expected
+
+
+def test_it_works_with_NO_env_var_set():
+    """Citations must not depend on an env var being passed at launch.
+
+    retrieval.py's default has to be the same path both build scripts publish to, or a run
+    launched without PUBMED_TITLES_DB silently serves unlabelled passages while every commit
+    message says citations are on. Checked against the builders' own argparse defaults
+    rather than a copy of the string.
+    """
+    import ast
+    import importlib
+    import pathlib
+
+    for var in ("PUBMED_TITLES_DB",):
+        os.environ.pop(var, None)
+    R = importlib.reload(importlib.import_module("retrieval"))
+    default = R._TITLES_DB
+    assert default.endswith("pubmed_titles.sqlite"), default
+
+    kb = pathlib.Path(R.__file__).parent
+    published = set()
+    for script in ("build_pubmed_titles.py", "build_pubmed_meta.py"):
+        tree = ast.parse((kb / script).read_text())
+        for node in ast.walk(tree):
+            # ap.add_argument("--out", default="...")
+            if (isinstance(node, ast.Call)
+                    and getattr(node.func, "attr", "") == "add_argument"
+                    and node.args and getattr(node.args[0], "value", "") == "--out"):
+                for kw in node.keywords:
+                    if kw.arg == "default":
+                        published.add(ast.literal_eval(kw.value))
+    assert published, "could not find the builders' --out defaults"
+    assert published == {default}, (
+        f"retrieval.py defaults to {default!r} but the builders publish to {published!r}; "
+        "a run without the env var would find no database")
