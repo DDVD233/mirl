@@ -126,10 +126,15 @@ case "$ARM" in
      # correct but slow, so it must never be the thing serving 256 calls a step.
      # SUMMARY_CONCURRENCY rises with the primary's replica count -- the default 96 was
      # sized for one GPU and would leave three of four replicas idle.
+     # WEB_EVIDENCE=1: Milvus alone cannot supply post-2019 guidance, and the criteria name
+     # 2022-2025 guidelines and trials. Both the generator and the solver query it, through
+     # one cache service, with a 60s ceiling that degrades to Milvus-only.
      ARM_ENV=(RETRIEVAL=1 EVOLVE=1 SPEC_GAP=1 SPEC_GAP_SHIP=0 PROBE=1 PATCH=1
               HACK_MEMO=1 HB_PROBE_MODE=gate HB_REFINE_MODE=rewrite
               SUMM_BASE="$SUMM_DEDICATED" SUMM_FALLBACK_BASE="$SJUDGE_REMOTE"
-              SUMMARY_CONCURRENCY="${SUMMARY_CONCURRENCY:-320}")
+              SUMMARY_CONCURRENCY="${SUMMARY_CONCURRENCY:-320}"
+              WEB_EVIDENCE="${WEB_EVIDENCE:-1}"
+              WEB_EVIDENCE_CONCURRENCY="${WEB_EVIDENCE_CONCURRENCY:-16}")
      EXP_NAME=hb9b_specgap_full_retrieval ;;
   *) echo "FATAL: ARM must be 1..7" >&2; exit 1 ;;
 esac

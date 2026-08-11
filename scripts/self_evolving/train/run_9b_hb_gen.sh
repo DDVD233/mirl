@@ -149,6 +149,13 @@ SUMM_MODEL="${SUMM_MODEL:-Qwen/Qwen3.5-9B}"
 # box, so a hiccup there is absorbed by the small shared server instead of silently
 # turning /retrieve into a raw-passage feed for the rest of the step.
 SUMM_FALLBACK_BASE="${SUMM_FALLBACK_BASE:-}"
+# WEB EVIDENCE. The embedded corpus effectively ends in 2019, so guideline editions and trials
+# the rubrics name from the last five years are unreachable from Milvus at any ranking quality.
+# With this on, /retrieve queries web search alongside Milvus and the GENERATOR grounds minted
+# tasks the same way, both through one cache service so a fetch for either warms the other.
+WEB_EVIDENCE="${WEB_EVIDENCE:-0}"
+EVIDENCE_CACHE_URL="${EVIDENCE_CACHE_URL:-http://localhost:8055}"
+EVIDENCE_CACHE_DB="${EVIDENCE_CACHE_DB:-/root/evidence_cache.sqlite}"
 # Does the frozen 9B live on a TRAINING GPU, or on another box? It decides how much
 # memory the rollout engine may take, so it must be known before any util default is
 # picked. The retrieval arm's 0.35 was never about retrieval -- it was the concession to
@@ -420,6 +427,30 @@ print("self-judge smoke OK:", t.strip()[:60])
 ' || { echo "FATAL: self-judge smoke failed" >&2; exit 1; }
 fi
 
+# ---- evidence cache service (only when web evidence is on) -----------------------
+# Started here rather than by hand so a relaunched arm never trains with the cache missing:
+# without it every web miss costs a live ~6.6s call and ~8.8k tokens, and nothing would say so
+# except a hit-rate of zero. --restore seeds a fresh pod from the /scratch snapshot, which is
+# what makes the accumulated fetches survive preemption.
+if [ "$WEB_EVIDENCE" = 1 ]; then
+    case "$EVIDENCE_CACHE_URL" in
+      *localhost*|*127.0.0.1*)
+        if ! curl -sf -m 5 "$EVIDENCE_CACHE_URL/healthz" >/dev/null 2>&1; then
+            echo "starting evidence cache service at $EVIDENCE_CACHE_URL"
+            EV_PORT="${EVIDENCE_CACHE_URL##*:}"; EV_PORT="${EV_PORT%%/*}"
+            nohup /usr/local/bin/python scripts/self_evolving/kb/evidence_cache_server.py                 --port "$EV_PORT" --db "$EVIDENCE_CACHE_DB" --restore                 --api_base "$TRAPI_BASE" --model "$JUDGE"                 >> "$LOGDIR/evidence_cache.log" 2>&1 &
+            start=$SECONDS
+            until curl -sf -m 5 "$EVIDENCE_CACHE_URL/healthz" >/dev/null 2>&1; do
+                (( SECONDS - start > 120 )) && { echo "FATAL: evidence cache did not come up" >&2
+                                                 tail -20 "$LOGDIR/evidence_cache.log" >&2; exit 1; }
+                sleep 3
+            done
+        fi
+        ;;
+    esac
+    echo "evidence cache: $(curl -s -m 5 "$EVIDENCE_CACHE_URL/stats")"
+fi
+
 # ---- gen server: co-generates the TRAINING tasks + rubrics (both arms) ------------
 if curl -sf -m 5 "localhost:$GEN_PORT/healthz" >/dev/null 2>&1; then
     echo "FATAL: port $GEN_PORT already serving (orphan?)" >&2; exit 1
@@ -439,6 +470,8 @@ if [ "$RETRIEVAL" = 1 ]; then
     [ -n "$SUMM_FALLBACK_BASE" ] && SUMM_FLAGS+=(
         --summarizer_fallback_api_base "$SUMM_FALLBACK_BASE")
 fi
+[ "$WEB_EVIDENCE" = 1 ] && SUMM_FLAGS+=(--web_evidence
+                                        --evidence_cache_url "$EVIDENCE_CACHE_URL")
 /usr/local/bin/python scripts/self_evolving/generation_server.py \
     --rubric_mode --prompt_dir "$PROMPT_DIR" \
     --coverage_prompt_file "$COVERAGE_PROMPT_FILE" \
