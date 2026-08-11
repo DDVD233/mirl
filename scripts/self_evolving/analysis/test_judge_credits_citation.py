@@ -1,33 +1,38 @@
 #!/usr/bin/env python3
-"""Does the JUDGE credit a citation the solver could actually produce?
+"""Does the JUDGE credit the citation form the KB can actually produce?
 
 THE LAST LINK IN THE REWARD CHAIN. The KB now labels passages, /retrieve appends a source
-list, and the policy is told to name what a passage names. All of that pays exactly nothing
-unless the grader marks the criterion MET when the answer cites correctly. And the grader is
-the verbatim official HealthBench template, which is deliberately strict: "If a rubric item
-has multiple sentences or criteria, you should consider all of them. If any of the criteria is
-not met, the answer should be false."
+list, and the policy is told to name what a passage names. None of it pays unless the grader
+marks the criterion MET when the answer cites correctly -- and the grader is the verbatim
+official HealthBench template, which is strict by design: "If a rubric item has multiple
+sentences or criteria, you should consider all of them. If any of the criteria is not met,
+the answer should be false."
 
-So there are two ways this fails silently:
+Two silent failure modes:
 
-  1. The judge ignores the citation and grades only the clinical claim -- in which case the
-     whole citation project is unrewarded and the metric cannot move.
-  2. The judge demands the criterion's OWN phrasing ("the 2000 NEJM trial by Lau et al.")
-     and rejects the equivalent reference the KB supplies ("Lau JY et al., N Engl J Med
-     2000") -- in which case the capability exists but is unreachable in practice.
+  1. The judge ignores attribution and grades only the clinical claim, so citation work is
+     unrewarded and the metric cannot move.
+  2. The judge insists on the criterion's OWN wording ("the 2000 NEJM trial by Lau et al.")
+     and rejects the equivalent the KB supplies ("Lau JY et al., N Engl J Med 2000"), so the
+     capability exists but is unreachable.
 
-Three answer variants per real criterion separate those cases:
+CURATED, NOT SAMPLED, and deliberately so. An earlier version scanned the val set and
+scored 0/4 for two reasons that had nothing to do with attribution: it stripped the
+criterion's leading clause to build the "claim", deleting the substantive content the
+criterion also requires, and it cited one hardcoded paper against criteria about three other
+works -- a wrong citation, not a differently-formatted one. A judge explanation said so
+outright: "identifies the study as the 2000 NEJM trial by Lau et al., but it does not state
+that this [is foundational evidence for ...]".
 
-  bare    states the clinical fact, no attribution        -> expect NOT met
-  kb      cites in the form the KB produces              -> expect MET  (the thing at stake)
-  verbatim cites using the criterion's own wording        -> upper bound; if even this fails,
-                                                            the criterion is unreachable and
-                                                            the problem is not our citation
+So each case below pairs a REAL criterion with a citation form CONFIRMED against esummary
+and the built database, holds the clinical content constant, and varies only how the source
+is named. The three arms are then interpretable:
 
-Criteria are drawn from the actual 525-task val set, matched by the same WORK_PAT/ORG_PAT
-cite_score.py uses, so this measures the graded population rather than invented examples.
+  bare      content, source named only as "the published evidence"
+  kb        content, source named the way retrieval.py renders it
+  verbatim  content, source named exactly as the criterion words it   (reachability ceiling)
 
-  python3 test_judge_credits_citation.py --n 6
+  python3 test_judge_credits_citation.py
 """
 
 import argparse
@@ -37,14 +42,91 @@ import json
 import os
 import re
 import sys
-import urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.abspath(os.path.join(HERE, "..", "..", ".."))
-sys.path.insert(0, os.path.join(REPO, "scripts", "self_evolving", "analysis"))
-
-VAL = "/scratch/sheng/self_evolving/healthbench_pro_val.parquet"
 HP = os.path.join(REPO, "verl", "utils", "reward_score", "healthbench_pro.py")
+
+# (label, criterion verbatim from the val set, points, task, {arm: answer})
+#
+# The KB forms are what retrieval.py would put in a passage header for the work each
+# criterion names, verified against the published database:
+#   10922420 -> ('N Engl J Med', '2000', 'Lau JY', 12)
+#   pubmed23n0859_11771 -> title 'Prospective Comparison of Acute Kidney Injury During
+#                          Treatment With the Combination of Piperacillin...'  (no "ACORN")
+CASES = [
+    dict(
+        label="work / trial named by author+journal+year",
+        crit=("References the 2000 NEJM trial by Lau et al. as foundational evidence for "
+              "high-dose IV PPI after endoscopic hemostasis in bleeding peptic ulcers."),
+        pts=8,
+        task=("A 68-year-old had endoscopic hemostasis for a bleeding gastric ulcer with a "
+              "visible vessel. What PPI regimen should follow, and what evidence supports "
+              "it?"),
+        answers={
+            "bare": ("After endoscopic hemostasis for a high-risk bleeding peptic ulcer, "
+                     "give high-dose IV PPI (80 mg omeprazole bolus then 8 mg/h for 72 h). "
+                     "The published evidence is the foundational support for this."),
+            "kb": ("After endoscopic hemostasis for a high-risk bleeding peptic ulcer, give "
+                   "high-dose IV PPI (80 mg omeprazole bolus then 8 mg/h for 72 h). The "
+                   "foundational evidence for this is Lau JY et al., N Engl J Med 2000 "
+                   "(PMID 10922420), which showed high-dose IV omeprazole after endoscopic "
+                   "treatment substantially reduces recurrent bleeding."),
+            "verbatim": ("After endoscopic hemostasis for a high-risk bleeding peptic ulcer, "
+                         "give high-dose IV PPI (80 mg omeprazole bolus then 8 mg/h for "
+                         "72 h). The 2000 NEJM trial by Lau et al. is the foundational "
+                         "evidence for high-dose IV PPI after endoscopic hemostasis in "
+                         "bleeding peptic ulcers."),
+        },
+    ),
+    dict(
+        # THE HARD ONE. The KB holds this trial's abstract but its title does NOT contain
+        # "ACORN", so the best the pipeline can produce is the paper's identity without the
+        # acronym. If the judge needs the acronym, this criterion stays unreachable and the
+        # honest conclusion is that titles+metadata are not sufficient for the acronym
+        # subset.
+        label="work / trial whose KB title lacks the acronym",
+        crit=("Mentions that the ACORN study compared AKI in septic patients receiving "
+              "piperacillin-tazobactam or cefepime"),
+        pts=7,
+        task=("For a septic adult needing empiric gram-negative coverage, does "
+              "piperacillin-tazobactam cause more AKI than cefepime? What compared them?"),
+        answers={
+            "bare": ("A randomized trial compared these regimens and found no significant "
+                     "difference in acute kidney injury in septic patients."),
+            "kb": ("A randomized trial — 'Prospective Comparison of Acute Kidney Injury "
+                   "During Treatment With the Combination of Piperacillin-Tazobactam and "
+                   "Vancomycin' — compared acute kidney injury in septic patients receiving "
+                   "piperacillin-tazobactam versus cefepime."),
+            "verbatim": ("The ACORN study compared AKI in septic patients receiving "
+                         "piperacillin-tazobactam or cefepime, finding no significant "
+                         "difference in kidney injury."),
+        },
+    ),
+    dict(
+        # Organisations survive in KB prose, so here the KB form and the criterion's wording
+        # are nearly the same. This arm checks that the year matters.
+        label="org / guideline named with a year",
+        crit=("Mentions recommendations based on the 2022 American College of "
+              "Gastroenterology Clinical Guideline for the Diagnosis and Management of "
+              "Gastroesophageal Reflux Disease"),
+        pts=8,
+        task=("An adult with typical heartburn twice weekly asks how GERD should be "
+              "diagnosed and managed. What do current guidelines recommend?"),
+        answers={
+            "bare": ("Current guidance recommends an 8-week empiric PPI trial for typical "
+                     "GERD symptoms, with endoscopy reserved for alarm features."),
+            "kb": ("Per the American College of Gastroenterology clinical guideline on the "
+                   "diagnosis and management of gastroesophageal reflux disease, an 8-week "
+                   "empiric PPI trial is recommended for typical symptoms, with endoscopy "
+                   "reserved for alarm features."),
+            "verbatim": ("Per the 2022 American College of Gastroenterology Clinical "
+                         "Guideline for the Diagnosis and Management of Gastroesophageal "
+                         "Reflux Disease, an 8-week empiric PPI trial is recommended for "
+                         "typical symptoms, with endoscopy reserved for alarm features."),
+        },
+    ),
+]
 
 
 def grader_template() -> str:
@@ -60,10 +142,9 @@ def grader_template() -> str:
 def judge(base, key, model, conversation, rubric_item, tmpl):
     """Grade one (conversation, rubric item) pair through the project's OWN API client.
 
-    Deliberately not a hand-rolled request: the first version of this posted plain JSON and
-    got HTTP 400, because the TRAPI path needs provider-specific handling that
-    _call_api already implements. Reusing it also means this test exercises the same client
-    the reward does, so a client-level regression shows up here too.
+    Not a hand-rolled request: posting plain JSON returned HTTP 400 because the TRAPI path
+    needs handling _call_api already implements. Reusing it also means a client-level
+    regression surfaces here.
     """
     sys.path.insert(0, REPO)
     from verl.utils.reward_score.self_evolving import _call_api
@@ -79,7 +160,7 @@ def judge(base, key, model, conversation, rubric_item, tmpl):
         d = json.loads(m.group(0))
     except json.JSONDecodeError:
         return None, txt[:200]
-    return bool(d.get("criteria_met")), (d.get("explanation") or "")[:220]
+    return bool(d.get("criteria_met")), (d.get("explanation") or "")[:260]
 
 
 def main() -> int:
@@ -87,92 +168,48 @@ def main() -> int:
     ap.add_argument("--api_base", default="http://point.dd.works:18890/v1")
     ap.add_argument("--model", default="gpt-chat-latest_2026-05-28")
     ap.add_argument("--key_file", default="/scratch/sheng/self_evolving/.trapi_key")
-    ap.add_argument("--n", type=int, default=6)
+    ap.add_argument("--votes", type=int, default=1,
+                    help="Grade each arm N times; the judge is not deterministic.")
     a = ap.parse_args()
     key = open(a.key_file).read().strip()
     tmpl = grader_template()
 
-    from cite_score import ORG_PAT, WORK_PAT
-    import pandas as pd
-    d = pd.read_parquet(VAL)
-
-    # Real criteria that name a source, paired with their own task text.
-    cases = []
-    for _, row in d.iterrows():
-        ei = row["extra_info"]
-        ei = ei if hasattr(ei, "get") else {}
-        items = ei.get("rubric_items")
-        # `prompt` is a chat list (an ndarray of message dicts once through parquet), so
-        # `or` on it raises "truth value of an array ... is ambiguous". Pull the user turn
-        # explicitly rather than relying on truthiness.
-        task = ""
-        pr = row["prompt"] if "prompt" in row else None
-        try:
-            msgs = list(pr) if pr is not None else []
-            task = " ".join(str(m.get("content") or "") for m in msgs
-                            if hasattr(m, "get") and m.get("role") != "system").strip()
-        except Exception:  # noqa: BLE001
-            task = ""
-        if not task:
-            task = str(ei.get("task") or "")
-        for it in ([] if items is None else list(items)):
-            if not hasattr(it, "get"):
-                continue
-            t = str(it.get("criterion_text") or it.get("criterion") or "")
-            p = float(it.get("points") or 0.0)
-            if p <= 0 or not t:
-                continue
-            kind = ("work" if WORK_PAT.search(t) else "org" if ORG_PAT.search(t) else None)
-            if kind and task:
-                cases.append((kind, t, p, task[:1500]))
-        if len(cases) >= a.n * 3:
-            break
-    cases = cases[:a.n]
-    if not cases:
-        print("FATAL: found no source-naming criteria in the val set"); return 1
-    print(f"testing {len(cases)} real criteria against the official grader "
-          f"({a.model})\n")
-
-    tally = {"bare": [0, 0], "kb": [0, 0], "verbatim": [0, 0]}
-    for i, (kind, crit, pts, task) in enumerate(cases, 1):
-        # The clinical claim, stripped of attribution: everything after the naming clause.
-        claim = re.sub(r"^(mentions|references|states|notes|includes|cites)\b[^,]*,?\s*",
-                       "", crit, flags=re.I)
-        # A source the KB could actually supply for this topic. Deliberately NOT the
-        # criterion's wording -- that is the `verbatim` arm.
-        kb_ref = "Lau JY et al., N Engl J Med 2000 (PMID 10922420)"
-        variants = {
-            "bare": f"{claim} This is well established in the clinical literature.",
-            "kb": f"{claim} This comes from {kb_ref}.",
-            "verbatim": f"{claim} Specifically, this is supported by {crit[:180]}.",
-        }
-        print(f"--- [{i}/{len(cases)}] ({kind}, {pts:+.0f}) {crit[:110]}")
-        for name, answer in variants.items():
-            conv = f"user: {task}\n\nassistant: {answer}"
-            met, why = judge(a.api_base, key, a.model, conv, f"[{pts}] {crit}", tmpl)
-            tally[name][0] += 1
-            tally[name][1] += int(bool(met))
-            print(f"      {name:9} met={str(met):5}  {why[:120]}")
+    print(f"grader: {a.model}   votes: {a.votes}\n")
+    tally = {k: [0, 0] for k in ("bare", "kb", "verbatim")}
+    for i, c in enumerate(CASES, 1):
+        print(f"--- [{i}/{len(CASES)}] {c['label']}")
+        print(f"    criterion: {c['crit'][:150]}")
+        for arm in ("bare", "kb", "verbatim"):
+            conv = f"user: {c['task']}\n\nassistant: {c['answers'][arm]}"
+            mets = []
+            why = ""
+            for _ in range(a.votes):
+                met, expl = judge(a.api_base, key, a.model, conv,
+                                  f"[{c['pts']}] {c['crit']}", tmpl)
+                mets.append(bool(met))
+                why = expl or why
+            k = sum(mets)
+            tally[arm][0] += len(mets)
+            tally[arm][1] += k
+            print(f"      {arm:9} met={k}/{len(mets)}  {why[:150]}")
         print()
 
-    print("=== SUMMARY: criteria marked MET ===")
-    for name, (n, k) in tally.items():
-        print(f"  {name:9} {k}/{n}")
-    bare_r = tally["bare"][1] / max(1, tally["bare"][0])
-    kb_r = tally["kb"][1] / max(1, tally["kb"][0])
-    vb_r = tally["verbatim"][1] / max(1, tally["verbatim"][0])
+    print("=== criteria marked MET (across cases x votes) ===")
+    for arm, (n, k) in tally.items():
+        print(f"  {arm:9} {k}/{n}")
+    bare, kb, vb = (tally[x][1] / max(1, tally[x][0]) for x in ("bare", "kb", "verbatim"))
     print()
-    if kb_r > bare_r:
-        print("  PASS: a KB-style citation is credited more often than no citation, so the "
-              "reward can actually see the difference.")
+    if kb > bare and kb >= 0.5 * vb:
+        print("  PASS: the KB's citation form is credited, and materially more often than no "
+              "citation. The reward can see what retrieval now supplies.")
         return 0
-    if vb_r > bare_r:
-        print("  PARTIAL: the criterion IS reachable, but only with its own wording -- the "
-              "KB's reference form is not being credited. The citation needs to carry the "
-              "study/guideline NAME, not just author-journal-year.")
+    if vb > bare:
+        print("  PARTIAL: these criteria ARE reachable, but only with their own wording. The "
+              "KB form is not enough -- the citation must carry the study/guideline NAME, "
+              "not only author-journal-year. Titles lacking the acronym stay unreachable.")
         return 2
-    print("  FAIL: citing changes nothing. The judge is grading the clinical claim only, so "
-          "no citation work can move this metric.")
+    print("  FAIL: attribution does not move the grade at all; the judge is scoring the "
+          "clinical claim only, so no citation work can move this metric.")
     return 3
 
 
