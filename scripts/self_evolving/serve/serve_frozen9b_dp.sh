@@ -30,11 +30,17 @@ MODEL="${MODEL:-Qwen/Qwen3.5-9B}"
 PORT="${PORT:-8188}"
 DP="${DP:-4}"
 TP="${TP:-1}"
-# Per REPLICA, and each replica owns one whole GPU. 0.85 of 183 GB leaves ~160 GB of
-# KV cache against ~18 GB of weights, which is what lets MAXSEQS run this high.
-MEM="${MEM:-0.85}"
+# Per REPLICA, and each replica owns one whole GPU on a box with no other tenant -- so it
+# takes nearly all of it. The 0.30-0.45 numbers elsewhere in this project are for a vLLM
+# sharing GPUs with FSDP training; nothing shares these.
+MEM="${MEM:-0.90}"
 MAXLEN="${MAXLEN:-16384}"
-MAXSEQS="${MAXSEQS:-128}"
+# The cap that actually binds. At MEM=0.90 each replica gets ~145 GiB of KV cache, about
+# 4.2M tokens -- room for ~256 concurrent requests at FULL 16k context, and far more at the
+# ~7k a real summarize call uses (a ~6k passage plan plus a 1k brief). Left at 128 the
+# server would idle on half its cache while requests queued, which is the failure this
+# whole box exists to remove: a queued brief blocks a search turn, which blocks a rollout.
+MAXSEQS="${MAXSEQS:-256}"
 # One API server process becomes the bottleneck before four replicas do: it does all the
 # tokenization, JSON, and HTTP for every request. Scale it with DP.
 ASC="${ASC:-$DP}"
