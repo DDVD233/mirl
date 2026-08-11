@@ -13,6 +13,17 @@ name a specific work (a trial acronym, an author, a journal) and are UNSATISFIAB
 corpus at any level of retrieval skill; a further 22 name only an issuing organisation and
 are satisfiable, because organisations survive in prose.
 
+WHAT A TITLE DOES AND DOES NOT BUY -- checked against the real data, not assumed. The Lau
+et al. paper comes back as "Effect of intravenous omeprazole on recurrent bleeding after
+endoscopic treatment of bleeding peptic ulcers": the paper is identifiable, but a title
+never carries the author, the journal or the year. Trial acronyms survive only where the
+original title carried them ("Coronary artery surgery study (CASS): a randomized trial"),
+which modern trials usually do and older ones often do not. So titles reach the "identify
+the evidence" criteria and the acronym subset; they do NOT reach "the 2000 NEJM trial by
+Lau et al.". PMID is stored for exactly that gap -- it is the canonical handle from which
+author/journal/year can be resolved later, for the handful of passages actually retrieved
+rather than for all 23.9M rows.
+
 WHY THIS IS A JOIN AND NOT A REBUILD. The rows keep their MedRAG chunk ids
 (`pubmed23n0792_18`), and the upstream MedRAG/pubmed corpus ships a `title` per chunk under
 the same id. So titles come back via a lookup keyed on `entry_id` -- no re-embedding, no
@@ -20,7 +31,7 @@ Milvus schema change, and nothing about ranking moves. Retrieval returns the sam
 in the same order; they simply arrive labelled.
 
 DISK. /scratch is a shared NFS mount that has been sitting at 96-97% full, and the corpus is
-55.3 GB across 997 files. So this streams: fetch one ~35 MB file, keep (id, title), delete
+55.3 GB across 997 files. So this streams: fetch one ~35 MB file, keep (id, title, PMID), delete
 it. Peak extra disk is one chunk file plus the database. The DB is built on LOCAL disk
 because SQLite over NFS is both slow and unsafe under concurrent access, then published to
 /scratch at the end so every pod can read it.
@@ -47,8 +58,12 @@ LIST_URL = f"https://huggingface.co/api/datasets/{REPO}/tree/main?recursive=1"
 
 # The identifiers whose absence motivated the job. Checked at the end against the real DB:
 # if these do not come back, the join did not do what it claims.
+# NOTE on the second entry: this row is NOT SOAP II. It is an older
+# norepinephrine-vs-dopamine paper that outranked it for that query -- a reminder that a
+# top hit resembling the asked-for trial is not the asked-for trial, and that a criterion
+# naming a trial needs the NAME, not merely the topic.
 VERIFY = [
-    ("pubmed23n0859_11771", ("acorn",)),
+    ("pubmed23n0859_11771", ("acorn", "kidney")),
     ("pubmed23n0280_2499", ("dopamine", "norepinephrine")),
     ("pubmed23n0558_23219", ("omeprazole",)),
 ]
@@ -69,8 +84,18 @@ def _open_db(path: str) -> sqlite3.Connection:
     db.execute("PRAGMA cache_size=-200000")          # ~200 MB page cache
     # WITHOUT ROWID keeps one b-tree instead of a table plus an index: the id IS the key,
     # and at this row count that is several GB of difference.
-    db.execute("CREATE TABLE IF NOT EXISTS titles (id TEXT PRIMARY KEY, title TEXT) "
-               "WITHOUT ROWID")
+    #
+    # PMID is captured alongside the title even though nothing reads it yet. Titles alone
+    # do NOT satisfy every criterion: measured on the real data, the Lau et al. paper's
+    # title is "Effect of intravenous omeprazole on recurrent bleeding after endoscopic
+    # treatment of bleeding peptic ulcers" -- the paper is identifiable, but the author,
+    # journal and year appear nowhere in a title, ever. Acronyms survive only when the
+    # original title carried them ("Coronary artery surgery study (CASS): ..."). PMID is
+    # the canonical handle that lets author/journal/year be resolved later for the handful
+    # of passages actually retrieved. It costs ~8 bytes a row here and saves re-downloading
+    # 55 GB to get it.
+    db.execute("CREATE TABLE IF NOT EXISTS titles "
+               "(id TEXT PRIMARY KEY, title TEXT, pmid TEXT) WITHOUT ROWID")
     db.execute("CREATE TABLE IF NOT EXISTS done (fname TEXT PRIMARY KEY)")
     db.commit()
     return db
@@ -110,11 +135,12 @@ def build(args) -> int:
                         continue
                     cid = d.get("id")
                     title = (d.get("title") or "").strip()
+                    pmid = str(d.get("PMID") or "").strip()
                     # A chunk with no title contributes nothing; storing an empty string
                     # would make lookups return "" and read as "titled, but blank".
                     if cid and title:
-                        batch.append((cid, title[:400]))
-            db.executemany("INSERT OR REPLACE INTO titles VALUES (?,?)", batch)
+                        batch.append((cid, title[:400], pmid))
+            db.executemany("INSERT OR REPLACE INTO titles VALUES (?,?,?)", batch)
             db.execute("INSERT OR REPLACE INTO done VALUES (?)", (path,))
             db.commit()
             rows_total += len(batch)
@@ -146,10 +172,10 @@ def verify(path: str) -> bool:
     print(f"titles in DB: {n:,}")
     ok = True
     for cid, needles in VERIFY:
-        row = db.execute("SELECT title FROM titles WHERE id=?", (cid,)).fetchone()
+        row = db.execute("SELECT title, pmid FROM titles WHERE id=?", (cid,)).fetchone()
         t = (row[0] if row else "") or ""
         hit = any(x in t.lower() for x in needles)
-        print(f"  {cid:24} {'OK ' if hit else 'MISS'} {t[:110]!r}")
+        print(f"  {cid:24} {'OK ' if hit else 'MISS'} pmid={row[1] if row else '-'} {t[:95]!r}")
         ok = ok and bool(row)
     db.close()
     return ok and n > 0
