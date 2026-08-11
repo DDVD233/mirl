@@ -4976,12 +4976,26 @@ SUMMARY_SYSTEM = (
     # index. Under a 400-word cap the issuing body and year were the first things dropped,
     # so a rubric criterion asking for "the 2022 ACG guideline" could never be met even
     # when that guideline was the passage being summarised.
+    #
+    # ASKING was not enough. Measured end to end against a control on identical passages,
+    # an inline-attribution rule alone left the brief writing bare [p3] tags and naming
+    # nothing -- attribution markers actually fell 2 -> 1. A 9B under a 400-word cap with
+    # eight competing rules drops the optional-looking one, and the rule's only example was
+    # organisation-shaped so a paper TITLE had no obvious rendering. Hence a required
+    # section: a structural slot is either filled or visibly empty, where an inline
+    # instruction fails silently.
     "- Carry SOURCE ATTRIBUTION verbatim whenever a passage states it: the issuing "
     "organisation, the guideline or article title, the year, the journal, the authors. "
-    "Write it next to the claim, e.g. 'per the 2022 American College of "
-    "Gastroenterology guideline [p2]'. A passage header of the form 'title=...' IS the "
-    "citation for that passage -- use it, and never attribute a claim to a source the "
-    "passages do not name.\n"
+    "Write it next to the claim where it is short, e.g. 'per the 2022 American College of "
+    "Gastroenterology guideline [p2]'. Never attribute a claim to a source the passages do "
+    "not name.\n"
+    "- END with a 'Sources:' section, one line per passage you actually cited, copying that "
+    "passage's 'title=' and 'pmid=' header values EXACTLY:\n"
+    "  Sources:\n"
+    "  [p2] <title> (PMID <pmid>)\n"
+    "  [p3] <title>\n"
+    "  Omit the section only if no cited passage has a title= header. It does not count "
+    "against the word limit.\n"
     "- Group by topic as short bullets. Tag each bullet with its passage number, e.g. [p3].\n"
     "- Drop passages that are off-topic, table-of-contents fragments, or duplicates.\n"
     "- Max 400 words. No preamble, no advice, and do NOT answer the request yourself."

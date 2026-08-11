@@ -281,16 +281,25 @@ def attach_titles(passages: list[dict]) -> int:
     if not ids:
         return 0
     try:
-        q = f"SELECT id, title FROM titles WHERE id IN ({','.join('?' * len(ids))})"
-        found = dict(conn.execute(q, ids).fetchall())
+        q = (f"SELECT id, title, pmid FROM titles "
+             f"WHERE id IN ({','.join('?' * len(ids))})")
+        found = {r[0]: (r[1], r[2]) for r in conn.execute(q, ids).fetchall()}
     except Exception as e:  # noqa: BLE001
-        logger.warning("title lookup failed (%s: %s)", type(e).__name__, e)
-        return 0
+        # An older DB has no pmid column. Fall back rather than losing the titles too.
+        try:
+            q = f"SELECT id, title FROM titles WHERE id IN ({','.join('?' * len(ids))})"
+            found = {r[0]: (r[1], "") for r in conn.execute(q, ids).fetchall()}
+        except Exception as e2:  # noqa: BLE001
+            logger.warning("title lookup failed (%s: %s)", type(e2).__name__, e2)
+            return 0
+        logger.info("titles DB has no pmid column (%s); serving titles only", e)
     n = 0
     for p in passages:
-        t = found.get(p.get("entry_id") or "")
-        if t:
-            p["title"] = t
+        hit = found.get(p.get("entry_id") or "")
+        if hit and hit[0]:
+            p["title"] = hit[0]
+            if hit[1]:
+                p["pmid"] = hit[1]
             n += 1
     return n
 
@@ -307,6 +316,11 @@ def format_passages(passages: list[dict]) -> str:
         # mistaking it for a clinical claim from the passage text.
         if p.get("title"):
             head += f" | title={p['title']}"
+        # PMID is a citable handle in its own right and the key for resolving
+        # author/journal/year later, so it travels with the title rather than being
+        # thrown away at the formatting step.
+        if p.get("pmid"):
+            head += f" | pmid={p['pmid']}"
         out.append(f"{head}]\n{p['text']}")
     return "\n\n".join(out)
 

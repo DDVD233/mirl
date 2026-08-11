@@ -113,12 +113,14 @@ def call_summarizer(base: str, model: str, system: str, user: str) -> str:
         return json.loads(r.read())["choices"][0]["message"]["content"] or ""
 
 
-# Does the brief attribute anything? Deliberately generous: any issuing body, any journal,
-# any "per/according to <Proper Noun>", or a quoted title fragment counts.
+# Does the brief attribute anything? Organisation and journal names are matched
+# CASE-SENSITIVELY: a case-insensitive \bWHO\b matched the English word "who" and scored a
+# brief that attributed nothing, which is how the first version of this test reported a pass
+# on a failing pipeline.
 ATTRIB = re.compile(
     r"\b(per the|according to|guideline|American \w+|European \w+|National \w+|"
     r"World Health|ACC|AHA|ESC|NICE|WHO|USPSTF|IDSA|ASCO|NCCN|AUA|ACG|KDIGO|"
-    r"NEJM|New England|Lancet|JAMA|BMJ|PMID|et al)\b", re.I)
+    r"NEJM|New England|Lancet|JAMA|BMJ|PMID|et al)\b")
 
 
 def main() -> int:
@@ -195,21 +197,39 @@ def main() -> int:
               f"{len(hits)} attribution markers {hits[:8]} ---")
         print("   " + brief[:700].replace("\n", "\n   "))
 
-    n_plain = len({m.group(0).lower() for m in ATTRIB.finditer(brief_plain)})
-    n_titled = len({m.group(0).lower() for m in ATTRIB.finditer(brief_titled)})
-    # Did any actual title text survive into the brief? The strongest evidence.
-    quoted = sum(1 for t, _ in got.values()
-                 if any(w in brief_titled.lower()
-                        for w in [w for w in t.lower().split() if len(w) > 7][:4]))
+    n_plain = len({m.group(0) for m in ATTRIB.finditer(brief_plain)})
+    n_titled = len({m.group(0) for m in ATTRIB.finditer(brief_titled)})
 
-    print(f"\n=== VERDICT ===")
-    print(f"  attribution markers: control={n_plain}  titled={n_titled}")
-    print(f"  titles whose wording appears in the titled brief: {quoted}/{len(got)}")
-    if n_titled > n_plain or quoted > 0:
-        print("  PASS: labelling the passages changed what the brief attributes.")
+    # The decisive test: a Sources section naming a real title. NOT "do the title's words
+    # appear in the brief" -- an abstract's conclusion and its title say the same thing
+    # ("High-dose omeprazole reduces recurrent bleeding..."), so word overlap is satisfied
+    # by the passage body alone and scored the previous version of this test as a pass while
+    # the pipeline attributed nothing.
+    def sources_block(b):
+        m = re.search(r"^\s*Sources?\s*:\s*$(.*)", b, re.M | re.S)
+        return (m.group(1) if m else "").strip()
+
+    src_titled, src_plain = sources_block(brief_titled), sources_block(brief_plain)
+    # A title counts as cited only if a distinctive run of it appears INSIDE that section.
+    named = [t for t, _ in got.values()
+             if " ".join([w for w in t.split() if len(w) > 4][:4]).lower()
+             in src_titled.lower()]
+    pmids = [p for _, p in got.values() if p and p in src_titled]
+
+    print("\n=== VERDICT ===")
+    print(f"  attribution markers:   control={n_plain}  titled={n_titled}")
+    print(f"  Sources section:       control={'yes' if src_plain else 'no'}  "
+          f"titled={'yes' if src_titled else 'no'}")
+    print(f"  titles named in it:    {len(named)}/{len(got)}")
+    print(f"  PMIDs carried:         {len(pmids)}/{sum(1 for _, p in got.values() if p)}")
+    if src_titled:
+        print("  --- Sources block as written ---")
+        print("   " + src_titled[:400].replace("\n", "\n   "))
+    if named:
+        print("  PASS: the brief names its sources by title, which it could not do before.")
         return 0
-    print("  FAIL: the summarizer is dropping the titles. The prompt needs another pass;\n"
-          "        the join alone does nothing if the brief discards it.")
+    print("  FAIL: the summarizer is still dropping the labels. The join is inert until\n"
+          "        the brief carries them -- fix the prompt, not the database.")
     return 2
 
 
