@@ -131,6 +131,11 @@ def main() -> int:
     ap.add_argument("--milvus", default="http://mib.media.mit.edu:19531")
     ap.add_argument("--embed", default="http://mib.media.mit.edu:18001/v1")
     ap.add_argument("--top_k", type=int, default=8)
+    ap.add_argument("--real", action="store_true",
+                    help="Use the PUBLISHED database via retrieval.py's own default path, "
+                         "with no env var set -- i.e. exactly what a training run gets. "
+                         "Without this, titles are fetched per-id into a temp DB so the "
+                         "test can run before the build finishes.")
     a = ap.parse_args()
 
     import retrieval as R
@@ -143,40 +148,72 @@ def main() -> int:
     print(f"  {len(passages)} passages; sources: "
           f"{sorted({p['source'] for p in passages})}")
 
-    print("\n=== 2. titles for exactly these ids, from the same chunk files ===")
-    got = fetch_titles([p.get("entry_id", "") for p in passages])
-    print(f"  resolved {len(got)} titles for "
-          f"{sum(1 for p in passages if str(p.get('entry_id','')).startswith('pubmed'))} "
-          f"pubmed passages")
-    for eid, (t, pmid) in list(got.items())[:3]:
-        print(f"    {eid}  pmid={pmid}  {t[:90]!r}")
+    import copy
+    import importlib
+    n_pubmed = sum(1 for p in passages
+                   if str(p.get("entry_id", "")).startswith("pubmed"))
 
-    db = os.path.join(tempfile.mkdtemp(), "t.sqlite")
-    con = sqlite3.connect(db)
-    con.execute("CREATE TABLE titles (id TEXT PRIMARY KEY, title TEXT, pmid TEXT) "
-                "WITHOUT ROWID")
-    con.executemany("INSERT INTO titles VALUES (?,?,?)",
-                    [(k, v[0], v[1]) for k, v in got.items()])
-    con.commit(); con.close()
+    if a.real:
+        # No env var, no temp DB: whatever a training run would see.
+        os.environ.pop("PUBMED_TITLES_DB", None)
+        R = importlib.reload(R)
+        print(f"\n=== 2. PUBLISHED database via the default path (no env var) ===")
+        print(f"  {R._TITLES_DB}")
+        if not os.path.exists(R._TITLES_DB):
+            print("FATAL: the published DB does not exist at the default path"); return 1
+        got = {}
+    else:
+        print("\n=== 2. titles for exactly these ids, from the same chunk files ===")
+        got = fetch_titles([p.get("entry_id", "") for p in passages])
+        print(f"  resolved {len(got)} titles for {n_pubmed} pubmed passages")
+        for eid, (t, pmid) in list(got.items())[:3]:
+            print(f"    {eid}  pmid={pmid}  {t[:90]!r}")
+        db = os.path.join(tempfile.mkdtemp(), "t.sqlite")
+        con = sqlite3.connect(db)
+        con.execute("CREATE TABLE titles (id TEXT PRIMARY KEY, title TEXT, pmid TEXT) "
+                    "WITHOUT ROWID")
+        con.executemany("INSERT INTO titles VALUES (?,?,?)",
+                        [(k, v[0], v[1]) for k, v in got.items()])
+        con.commit(); con.close()
+        os.environ["PUBMED_TITLES_DB"] = db
+        R = importlib.reload(R)
 
     print("\n=== 3. format WITHOUT titles (control) and WITH titles ===")
-    import copy
     plain = copy.deepcopy(passages)
-    block_plain = R.format_passages(plain)
-
-    os.environ["PUBMED_TITLES_DB"] = db
-    import importlib
-    R = importlib.reload(R)
+    # A pristine copy for the control: attach_titles mutates in place, so formatting the
+    # same list twice would leak the labels into the control block.
+    block_plain = "\n\n".join(
+        f"[passage {i + 1} | source={p['source']}]\n{p['text']}"
+        for i, p in enumerate(plain))
     titled = copy.deepcopy(passages)
     n = R.attach_titles(titled)
     block_titled = R.format_passages(titled)
-    print(f"  attach_titles labelled {n}/{len(titled)} passages")
-    print(f"  control header: {block_plain.splitlines()[0][:100]}")
-    print(f"  titled  header: {block_titled.splitlines()[0][:130]}")
+    if a.real:
+        # Report what the REAL db actually supplied, which is the thing being verified.
+        got = {p["entry_id"]: (p.get("title", ""), p.get("pmid", ""))
+               for p in titled if p.get("title")}
+        for p in titled:
+            if p.get("title"):
+                print(f"    {p['entry_id']}  pmid={p.get('pmid')}  "
+                      f"cite={p.get('citation')!r}\n      title={p['title'][:88]!r}")
+        print(f"  labelled {n}/{len(titled)} passages ({n_pubmed} are pubmed)")
     if n == 0:
         print("FATAL: no passage got a title; the join is not working"); return 1
     if "title=" not in block_titled:
         print("FATAL: title missing from the formatted block"); return 1
+
+    # THE RAW BLOCK IS ITSELF AN ANSWER-TIME INPUT, not just an intermediate: /retrieve
+    # serves it verbatim whenever summarization is disabled or both summarizer endpoints
+    # fail, so if the labels were missing here a summarizer outage would silently strip
+    # every citation from the run.
+    print("\n=== 3b. the RAW tool response the model sees (labelled headers) ===")
+    for line in block_titled.splitlines():
+        if line.startswith("[passage"):
+            print(f"  {line[:190]}")
+    raw_titles = sum(1 for line in block_titled.splitlines() if "title=" in line)
+    raw_cites = sum(1 for line in block_titled.splitlines() if "cite=" in line)
+    raw_pmids = sum(1 for line in block_titled.splitlines() if "pmid=" in line)
+    print(f"  raw block carries: {raw_titles} title=, {raw_cites} cite=, {raw_pmids} pmid=")
 
     sysmsg = summary_prompt()
     has_rule = "SOURCE ATTRIBUTION" in sysmsg
