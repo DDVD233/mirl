@@ -153,7 +153,10 @@ SUMM_FALLBACK_BASE="${SUMM_FALLBACK_BASE:-}"
 # the rubrics name from the last five years are unreachable from Milvus at any ranking quality.
 # With this on, /retrieve queries web search alongside Milvus and the GENERATOR grounds minted
 # tasks the same way, both through one cache service so a fetch for either warms the other.
-WEB_EVIDENCE="${WEB_EVIDENCE:-0}"
+# ON BY DEFAULT (dvd, 2026-08-12). The embedded corpus ends in 2019, so every arm that does
+# not query the web is capped on anything the rubrics name from the last five years. Set
+# WEB_EVIDENCE=0 explicitly for a no-web control.
+WEB_EVIDENCE="${WEB_EVIDENCE:-1}"
 EVIDENCE_CACHE_URL="${EVIDENCE_CACHE_URL:-http://localhost:8055}"
 EVIDENCE_CACHE_DB="${EVIDENCE_CACHE_DB:-/root/evidence_cache.sqlite}"
 # Does the frozen 9B live on a TRAINING GPU, or on another box? It decides how much

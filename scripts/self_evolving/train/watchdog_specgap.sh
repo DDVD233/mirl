@@ -48,7 +48,7 @@ DRY="${DRY:-0}"
 # summarizer (see infer_box_state / revive_infer below) and holds GPU memory when HEALTHY,
 # which inverts every check written for a trainer.
 BOXES=("2335:infer:vllm::-"
-       "2336:7:arm7::specgap_arm7_retrieval_launch.log")
+       "2336:7:arm7:_lookup:specgap_arm7_lookup_launch.log")
 
 # The public endpoint the inference box must keep answering -- the same URL the retrieval
 # arm's SUMM_BASE names. Checked from HERE, not on the box, because what matters is not
@@ -212,6 +212,28 @@ revive_infer() {
         "until it answers, the retrieval arm is served by the server5 fallback"
 }
 
+EVIDENCE_PORT="${EVIDENCE_PORT:-8055}"
+EVIDENCE_BOX="${EVIDENCE_BOX:-2336}"
+
+
+# Restart the evidence cache if it died under a LIVE trainer. box_is_dead only watches the
+# trainer, so this failure reads as "healthy" -- and then every web miss costs a live call
+# instead of a lookup, with nothing showing it but a hit rate stuck at zero.
+check_evidence_cache() {
+    local port="$1"
+    sshx "$port" "curl -sf -m 8 localhost:$EVIDENCE_PORT/healthz >/dev/null 2>&1" && return 0
+    log "[$port] evidence cache NOT answering on :$EVIDENCE_PORT -- web misses are costing a" \
+        "live call each; restarting it"
+    [ "$DRY" = "1" ] && { log "[$port] DRY RUN: would restart the evidence cache"; return 0; }
+    # --restore seeds from the /scratch snapshot, so a pod recreation keeps the fetches
+    # accumulated before it died (up to the snapshot interval).
+    sshx "$port" "cd $REPO && nohup /usr/local/bin/python \
+        scripts/self_evolving/kb/evidence_cache_server.py --port $EVIDENCE_PORT --restore \
+        >> $LOGDIR/evidence_cache.log 2>&1 & sleep 10
+        curl -sf -m 8 localhost:$EVIDENCE_PORT/healthz >/dev/null 2>&1 && echo ok || echo FAILED"
+}
+
+
 revive() {
     local port="$1" arm="$2" win="$3" sfx="$4" logf="$5"
     # Refuse if the arm is demonstrably alive somewhere. -1 means the log is missing,
@@ -291,6 +313,8 @@ while :; do
         else
             [ "${STRIKES[$port]}" -ne 0 ] && log "[$port] recovered ($state)"
             STRIKES[$port]=0
+            # Trainer is fine; the cache service beside it may not be.
+            [ "$port" = "$EVIDENCE_BOX" ] && [ "$arm" != "infer" ] && check_evidence_cache "$port"
         fi
     done
 
