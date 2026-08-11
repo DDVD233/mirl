@@ -14,19 +14,27 @@ without any extra request because the metadata table was built from the 2026 Pub
 and holds 4.84M PMIDs from 2023-2025, even though the EMBEDDED corpus stops at 2019. So a
 pubmed.ncbi.nlm.nih.gov/<pmid> annotation becomes author/journal/year by local lookup.
 
-WHY THE CACHE IS LOAD-BEARING, not an optimisation. One measured call used 13,105 tokens
-(12.5k of it input, because search results are stuffed into context). At ~800 retrieve calls
-per training step that is ~10M tokens per step uncached, against a TRAPI cap of ~2000
-requests/60s that the reward judge and the task generator already share. Without a hit, this
-would contend with the reward itself.
+COST AND LATENCY, MEASURED. Five timed calls: 6.0 / 6.5 / 6.6 / 7.3 / 12.3 s, median 6.6s,
+~8.8k tokens each. Latency tracks how many sub-searches the backend runs (one ~6.6s, two
+~12.3s), not a fixed floor. An earlier single call timed out at 90s and I wrongly read that as
+typical; it was one outlier in ~8 and it hit a 90s ceiling of my own making.
+
+So this IS viable synchronously on the retrieve path: 800 calls/step at 6.6s with concurrency
+16 is ~5.5 min/step and ~1.2 req/s against the ~2000 req/60s TRAPI cap shared with the reward
+judge and task generator. The cache is therefore a cost saver (~8.8k tokens a call, ~7M/step
+uncached), not a prerequisite -- a repeat query measured 6.0s, so the backend gives us no
+caching of its own.
 
 WHY NOT MILVUS FOR THE CACHE. Milvus is approximate-nearest-neighbour, so "exact or very
 close" means thresholding cosine -- which is precisely how a cache serves the WRONG evidence
 for a different question. A cache false positive is worse than a miss: a miss costs a call, a
 false hit silently answers question A with question B's evidence. Keys here are a hash of the
-normalised question, exact by construction. The store is an append-only JSONL shard per host
-on shared /scratch, which gives cross-session and cross-host reuse with no locking -- SQLite
-writes over NFS are unsafe under concurrency, which is why the titles DB is opened read-only.
+normalised question, exact by construction.
+
+STORAGE lives in evidence_cache_server.py: SQLite WAL on local disk behind a small HTTP API,
+because the record keeps the ENTIRE response (tens of KB) so a later re-summarisation never
+re-fetches, and a JSONL store would be gigabytes to parse at startup. The local JSONL cache in
+this module is only for standalone offline use -- pre-warming and one-off probes.
 
 Each record carries `fetched_at`. Nothing reads it yet; it is what a future refresh pass would
 use to expire stale guidance.
@@ -50,6 +58,16 @@ import time
 from dataclasses import dataclass, field
 
 logger = logging.getLogger(__name__)
+
+_WARNED: set = set()
+
+
+def _warned_once(key: str) -> bool:
+    """One-shot latch so a degraded dependency logs once, not once per retrieval."""
+    if key in _WARNED:
+        return True
+    _WARNED.add(key)
+    return False
 
 CACHE_DIR = os.environ.get("WEB_EVIDENCE_CACHE_DIR",
                            "/scratch/sheng/self_evolving/kb/web_cache")
@@ -113,6 +131,11 @@ class WebResult:
     cached: bool = False
     fetched_at: str = ""
     error: str = ""
+    # THE COMPLETE RESPONSE, kept verbatim. A brief can always be re-summarised from this
+    # later; it can never be un-thrown-away. One call costs ~13k tokens, so re-fetching
+    # because we stored only a summary would be the expensive mistake.
+    raw: dict | None = None
+    tokens: int = 0
 
 
 def normalize_query(q: str) -> str:
@@ -218,16 +241,19 @@ class WebEvidence:
 
     def __init__(self, api_base: str, api_key: str, model: str,
                  concurrency: int | None = None, cache_dir: str = CACHE_DIR,
-                 timeout_s: float | None = None, titles_db: str = TITLES_DB):
+                 timeout_s: float | None = None, titles_db: str = TITLES_DB,
+                 use_cache: bool = True):
         self.api_base = (api_base or "").rstrip("/")
         self.api_key = api_key
         self.model = model
-        self.cache = WebCache(cache_dir)
+        # The evidence cache SERVICE owns persistence and passes use_cache=False; the local
+        # file cache exists only for standalone/offline use (pre-warming, one-off probes).
+        self.cache = WebCache(cache_dir) if use_cache else None
         self.titles_db = titles_db
         self.sem = asyncio.Semaphore(
             int(concurrency or os.environ.get("WEB_EVIDENCE_CONCURRENCY", "8")))
         self.timeout_s = float(timeout_s
-                               or os.environ.get("WEB_EVIDENCE_TIMEOUT", "90"))
+                               or os.environ.get("WEB_EVIDENCE_TIMEOUT", "60"))
         # CIRCUIT BREAKER. Web search shares the TRAPI request cap with the reward judge and
         # the task generator, so a rate-limit storm here would degrade the reward itself.
         # After `_breaker_trip` consecutive failures the tool is skipped for `_breaker_cool`
@@ -301,7 +327,7 @@ class WebEvidence:
         if not question or not self.api_base:
             return WebResult(error="not configured")
 
-        hit = self.cache.get(question)
+        hit = self.cache.get(question) if self.cache else None
         if hit is not None:
             return WebResult(text=hit.get("text") or "",
                              sources=[WebSource(**{k: v for k, v in s.items()
@@ -315,8 +341,8 @@ class WebEvidence:
 
         try:
             async with self.sem:
-                text, anns = await asyncio.wait_for(self._call(question),
-                                                    timeout=self.timeout_s)
+                text, anns, raw, tokens = await asyncio.wait_for(
+                    self._call(question), timeout=self.timeout_s)
         except Exception as e:  # noqa: BLE001
             self.failures += 1
             self._fails += 1
@@ -331,10 +357,11 @@ class WebEvidence:
         self._fails = 0
         self.calls += 1
         sources = self._sources_from(anns)
-        self.cache.put(question, text, [s.__dict__ for s in sources])
-        return WebResult(text=text, sources=sources, cached=False)
+        if self.cache:
+            self.cache.put(question, text, [s.__dict__ for s in sources])
+        return WebResult(text=text, sources=sources, cached=False, raw=raw, tokens=tokens)
 
-    async def _call(self, question: str) -> tuple[str, list[dict]]:
+    async def _call(self, question: str) -> tuple[str, list[dict], dict, int]:
         import httpx
         body = {"model": self.model,
                 "instructions": SYSTEM,
@@ -355,11 +382,84 @@ class WebEvidence:
                 if c.get("type") in ("output_text", "text"):
                     texts.append(c.get("text") or "")
                 anns.extend(c.get("annotations") or [])
-        return "\n".join(t for t in texts if t).strip(), anns
+        tokens = int((d.get("usage") or {}).get("total_tokens") or 0)
+        return "\n".join(t for t in texts if t).strip(), anns, d, tokens
 
     def stats(self) -> dict:
-        s = self.cache.stats()
+        s = self.cache.stats() if self.cache else {}
         s.update(web_calls=self.calls, web_failures=self.failures,
                  web_breaker_skips=self.breaker_skips,
                  web_breaker_open=time.time() < self._open_until)
         return s
+
+
+class EvidenceCacheClient:
+    """Thin client for evidence_cache_server: shared by the GENERATOR and the SOLVER.
+
+    Both go through one service so a question fetched while minting a task is already cached
+    when a rollout later retrieves for it, and vice versa. That sharing is most of the value:
+    the curriculum and the policy ask about the same clinical topics by construction, since
+    the tasks ARE the topics.
+
+    Every method degrades instead of raising. If the service is down, `get` returns None and
+    the caller proceeds on Milvus alone -- retrieval sits on the generation critical path, so a
+    cache outage must cost evidence quality, never a rollout.
+    """
+
+    def __init__(self, base_url: str = "", timeout_s: float = 10.0):
+        self.base = (base_url or os.environ.get("EVIDENCE_CACHE_URL", "")).rstrip("/")
+        self.timeout_s = timeout_s
+        self.enabled = bool(self.base)
+        self.hits = 0
+        self.misses = 0
+        self.errors = 0
+
+    async def get(self, query: str, enqueue: bool = True) -> WebResult | None:
+        """Cache lookup. None means "not cached" -- including when the service is down."""
+        if not self.enabled or not query:
+            return None
+        try:
+            import httpx
+            async with httpx.AsyncClient(timeout=self.timeout_s) as c:
+                r = await c.post(f"{self.base}/lookup",
+                                 json={"query": query, "enqueue": enqueue})
+                r.raise_for_status()
+                d = r.json()
+        except Exception as e:  # noqa: BLE001
+            self.errors += 1
+            if not _warned_once("cache_client"):
+                logger.warning("evidence cache unreachable at %s (%s: %s); continuing "
+                               "without web evidence", self.base, type(e).__name__, e)
+            return None
+        if not d.get("hit"):
+            self.misses += 1
+            return None
+        self.hits += 1
+        return WebResult(
+            text=d.get("text") or "",
+            sources=[WebSource(**{k: v for k, v in s.items()
+                                  if k in WebSource.__annotations__})
+                     for s in (d.get("sources") or [])],
+            cached=True, fetched_at=d.get("fetched_at") or "",
+            tokens=int(d.get("tokens") or 0))
+
+    async def put(self, query: str, res: WebResult, model: str = "") -> None:
+        """Store a result fetched directly (synchronous path), so the next asker is free."""
+        if not self.enabled or not query or res.error:
+            return
+        try:
+            import httpx
+            async with httpx.AsyncClient(timeout=self.timeout_s) as c:
+                await c.post(f"{self.base}/put", json={
+                    "query": query, "text": res.text,
+                    "sources": [s.__dict__ for s in res.sources],
+                    "raw": res.raw, "model": model, "tokens": res.tokens})
+        except Exception as e:  # noqa: BLE001
+            self.errors += 1
+            logger.debug("evidence cache put failed: %s", e)
+
+    def stats(self) -> dict:
+        tot = self.hits + self.misses
+        return {"evidence_cache_hits": self.hits, "evidence_cache_misses": self.misses,
+                "evidence_cache_errors": self.errors,
+                "evidence_cache_hit_rate": round(self.hits / tot, 4) if tot else None}
