@@ -362,6 +362,28 @@ def _warned_once(key: str) -> bool:
     return False
 
 
+def sources_block(passages: list[dict]) -> str:
+    """A deterministic source list for the labelled passages, or "" if none are labelled.
+
+    APPENDED IN CODE, not requested from the summarizer. Asking for it does not work: the
+    same prompt on the same passages produced a Sources section on one sample and omitted it
+    entirely on the next, because a 9B under a word cap treats a trailing formatting rule as
+    optional. Provenance is exactly the thing that must not be sampled -- so the brief stays
+    LLM-written and the citation list is machine-written, which also makes a fabricated
+    reference impossible here by construction.
+    """
+    lines = []
+    for i, p in enumerate(passages):
+        if not p.get("title"):
+            continue
+        ref = p.get("citation") or ""
+        bits = f"[p{i + 1}] " + (f"{ref} -- " if ref else "") + p["title"]
+        if p.get("pmid"):
+            bits += f" (PMID {p['pmid']})"
+        lines.append(bits)
+    return ("Sources:\n" + "\n".join(lines)) if lines else ""
+
+
 def format_passages(passages: list[dict]) -> str:
     """The exact block handed back to the model as the tool response."""
     if not passages:

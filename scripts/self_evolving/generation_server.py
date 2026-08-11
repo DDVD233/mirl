@@ -4950,6 +4950,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from kb.retrieval import (  # noqa: E402
     MAX_QUERIES, MERGE_PER_SOURCE, MERGE_TOTAL, PER_QUERY_K,
     RetrieveConfig, attach_titles, format_passages, merge_ranked, rank_hits,
+    sources_block,
 )
 
 
@@ -4989,16 +4990,8 @@ SUMMARY_SYSTEM = (
     "Write it next to the claim where it is short, e.g. 'per the 2022 American College of "
     "Gastroenterology guideline [p2]'. Never attribute a claim to a source the passages do "
     "not name.\n"
-    "- END with a 'Sources:' section, one line per passage you actually cited, copying that "
-    "passage's 'title=' and 'pmid=' header values EXACTLY:\n"
-    "  Sources:\n"
-    "  [p2] <cite> -- <title> (PMID <pmid>)\n"
-    "  [p3] <title>\n"
-    "  Prefer the 'cite=' value where the header has one: it is the finished reference "
-    "(author, journal, year) and is what a request for 'the 2000 NEJM trial by Lau et al.' "
-    "needs. Never assemble a reference from parts yourself.\n"
-    "  Omit the section only if no cited passage has a title= header. It does not count "
-    "against the word limit.\n"
+    "- Do NOT write a 'Sources:' section yourself; one is appended for you from the passage "
+    "headers. Never invent a reference.\n"
     "- Group by topic as short bullets. Tag each bullet with its passage number, e.g. [p3].\n"
     "- Drop passages that are off-topic, table-of-contents fragments, or duplicates.\n"
     "- Max 400 words. No preamble, no advice, and do NOT answer the request yourself."
@@ -5260,6 +5253,21 @@ async def retrieve(payload: RetrievePayload):
             text, summarized, reason = await _summarize_passages(
                 s, payload.question or queries[0], passages, raw_text
             )
+            # Provenance appended IN CODE, only on the summarized path -- the raw block
+            # already carries title=/cite=/pmid= in every header, so appending there would
+            # duplicate it.
+            #
+            # Not requested from the model: asked for it, the same prompt on the same
+            # passages produced a Sources section on one sample and none on the next. A
+            # citation list that appears at the summarizer's discretion is worse than no
+            # feature at all, because the metric would move with sampling noise rather
+            # than with what the KB knows.
+            if summarized:
+                blk = sources_block(passages)
+                if blk:
+                    text = f"{text}\n\n{blk}"
+                    s.stats["retrieve_sources_appended"] = (
+                        s.stats.get("retrieve_sources_appended", 0) + 1)
     finally:
         s.retrieve_sem.release()
 

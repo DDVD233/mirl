@@ -278,3 +278,50 @@ def test_it_works_with_NO_env_var_set():
     assert published == {default}, (
         f"retrieval.py defaults to {default!r} but the builders publish to {published!r}; "
         "a run without the env var would find no database")
+
+
+# --------------------------------------------------------------------------
+# The source list is APPENDED IN CODE, never requested from the summarizer.
+# Measured reason: the same prompt on the same passages produced a Sources
+# section on one sample and omitted it entirely on the next. A citation list that
+# appears at the model's discretion is worse than none, because the metric would
+# then move with sampling noise instead of with what the KB knows.
+# --------------------------------------------------------------------------
+def test_sources_block_is_deterministic_and_complete():
+    import retrieval as R
+    ps = [
+        {"source": "statpearls", "text": "x"},                                  # unlabelled
+        {"source": "medrag_pubmed", "text": "y", "title": "A title", "pmid": "111"},
+        {"source": "medrag_pubmed", "text": "z", "title": "B title", "pmid": "222",
+         "citation": "Lau JY et al., N Engl J Med 2000"},
+    ]
+    out = R.sources_block(ps)
+    assert out.startswith("Sources:\n")
+    # Numbering must match the passage positions the brief cites, so [p2]/[p3] not [p1]/[p2].
+    assert "[p2] A title (PMID 111)" in out
+    assert "[p3] Lau JY et al., N Engl J Med 2000 -- B title (PMID 222)" in out
+    assert "[p1]" not in out, "an unlabelled passage must not appear"
+    assert R.sources_block(ps) == out, "must be deterministic"
+
+
+def test_sources_block_empty_when_nothing_is_labelled():
+    """No labels means no section -- not an empty 'Sources:' header."""
+    import retrieval as R
+    assert R.sources_block([{"source": "statpearls", "text": "x"}]) == ""
+    assert R.sources_block([]) == ""
+
+
+def test_the_summarizer_is_told_NOT_to_write_its_own_sources():
+    """Two source lists that disagree is worse than one. The code owns this output."""
+    import ast
+    import pathlib
+    gs = pathlib.Path(__file__).parents[2] / "scripts" / "self_evolving" / "generation_server.py"
+    tree = ast.parse(gs.read_text())
+    prompt = None
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and any(
+                getattr(t, "id", "") == "SUMMARY_SYSTEM" for t in node.targets):
+            prompt = ast.literal_eval(node.value)
+    assert prompt, "SUMMARY_SYSTEM not found"
+    assert "Do NOT write a 'Sources:' section yourself" in prompt
+    assert "Never invent a reference" in prompt
