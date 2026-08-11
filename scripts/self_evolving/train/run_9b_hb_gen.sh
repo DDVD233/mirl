@@ -299,7 +299,19 @@ if [ "$RETRIEVAL" = 1 ]; then
     )
     echo "summarizer will be served by the frozen-9B server at $SUMM_BASE"
 else
-    export HB_SCORE_MIN="${HB_SCORE_MIN:-0.0}"
+    # A floor of 0.0 threw away the gradient exactly where the loss lives. Measured on
+    # hb9b_specgap_full_rewrite at step 165: 26.7% of val tasks score BELOW zero (mean
+    # -0.276), and a tripped trap flips a task from +0.57 to -0.53 -- yet every one of
+    # those rollouts was clipped to the same 0.0 as a bland, safe, content-free answer,
+    # so GRPO had no ordering to learn from in that whole region. critic/score/min was
+    # 0.0 at every logged step, i.e. the floor bound continuously, not occasionally.
+    #
+    # This is the v4 post-mortem documented at healthbench_pro.HB_SCORE_MIN ("slightly
+    # bad and catastrophic become indistinguishable... whole GRPO groups go
+    # zero-variance"), and the 27B rubric recipe already defaults to -0.5. The 9B arms
+    # were the ones still on 0.0. Validation is unaffected: the reported signed metrics
+    # are computed unclipped.
+    export HB_SCORE_MIN="${HB_SCORE_MIN:--0.5}"
     VLLM_GPU_UTIL="${VLLM_GPU_UTIL:-0.45}"
 fi
 
