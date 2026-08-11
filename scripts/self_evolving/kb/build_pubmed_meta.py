@@ -83,6 +83,15 @@ def parse_one(args) -> tuple[str, int, str]:
     try:
         subprocess.run(["curl", "-sSL", "--retry", "3", "--retry-delay", "2",
                         "-m", "900", "-o", dest, f"{BASE}/{fname}"], check=True)
+        # curl exits 0 on an HTTP error page it saved to disk, so check the gzip magic
+        # bytes. Under 12 parallel connections NCBI throttled and returned XML for 60 of
+        # 1334 files, which surfaced as "BadGzipFile: Not a gzipped file (b'<?')" -- a
+        # confusing way to say "you were rate limited". Reported plainly now, and the file
+        # stays out of the done-list so a re-run with fewer workers picks it up.
+        with open(dest, "rb") as probe:
+            if probe.read(2) != b"\x1f\x8b":
+                return fname, 0, ("not gzip -- likely throttled or an error page; "
+                                  "retry with fewer --workers")
         with gzip.open(dest, "rb") as fh, open(shard, "w") as out:
             # iterparse + clear(): the decompressed file is ~250 MB and building a full
             # DOM for each of 1334 of them would trade the whole point of streaming.
