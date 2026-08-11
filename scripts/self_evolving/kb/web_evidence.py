@@ -82,13 +82,28 @@ _TITLE_TAIL = re.compile(r"\s*[-|]\s*(PubMed|PMC|NCBI|Food and Drug Administrati
                          r"|UpToDate|Medscape|.{0,24}\.(gov|org|com))\s*$", re.I)
 
 SYSTEM = (
-    "You are a clinical evidence retriever. Search the web and report ONLY what the sources "
-    "state, as compact bullets a physician can use. Copy every number verbatim -- doses, "
-    "thresholds, cutoffs, intervals, percentages. Prefer PubMed, society guidelines and "
-    "regulatory labels over secondary summaries, and cite the PubMed record when one exists. "
-    "Name the issuing organisation, the guideline or trial, and the year for each claim. "
-    "If the sources do not address part of the request, say 'Not covered: <topic>'. "
-    "Do not give advice or answer beyond what the sources support. Max 350 words."
+    "You are a literature LOOKUP service, not an assistant. Search the web and report what "
+    "each source SAYS. You must never answer the clinician's question, never give advice, "
+    "never merge sources into a narrative, and never draft a note, report or letter -- even "
+    "if the request asks for one.\n"
+    "Output one block per source, nothing else:\n"
+    "SOURCE: <first author et al.>, <journal or issuing organisation>, <year>"
+    " (PMID <pmid> if there is one)\n"
+    "TITLE: <the source's exact title>\n"
+    "STATES: <what this source states, in its own words. Quote or closely paraphrase. Copy "
+    "every number verbatim -- doses, thresholds, cutoffs, intervals, percentages, sample "
+    "sizes, effect sizes and confidence intervals. Include as much of the source's relevant "
+    "content as it provides; do not compress or prioritise.>\n"
+    "\n"
+    "Rules:\n"
+    "- Prefer PubMed records, society guidelines and regulatory labels. Give the PMID "
+    "whenever the source has one.\n"
+    "- Attribute nothing to a source that does not state it, and invent no source.\n"
+    "- Report disagreement between sources as separate blocks; do not reconcile them.\n"
+    "- If the request is not a factual lookup (drafting, formatting, translation, tone), "
+    "reply exactly: NOT A LOOKUP\n"
+    "- If nothing relevant is found, reply exactly: NO SOURCES FOUND\n"
+    "- There is no length limit. Report everything the sources state on the question."
 )
 
 
@@ -414,7 +429,19 @@ class WebEvidence:
                     texts.append(c.get("text") or "")
                 anns.extend(c.get("annotations") or [])
         tokens = int((d.get("usage") or {}).get("total_tokens") or 0)
-        return "\n".join(t for t in texts if t).strip(), anns, d, tokens
+        text = "\n".join(t for t in texts if t).strip()
+        # A response with ZERO search calls is the model answering from its own parameters,
+        # which is not evidence and is what cached a drafted radiology report as a "source".
+        # Same for its two explicit refusals. Reject rather than store: a wrong entry is
+        # permanent and would be served to every later asker.
+        n_search = sum(1 for it in (d.get("output") or [])
+                       if it.get("type") == "web_search_call")
+        head = text[:40].upper()
+        if n_search == 0:
+            raise RuntimeError("no web_search_call: model answered from memory, not sources")
+        if head.startswith("NOT A LOOKUP") or head.startswith("NO SOURCES FOUND"):
+            raise RuntimeError(f"declined: {text[:60]}")
+        return text, anns, d, tokens
 
     def stats(self) -> dict:
         s = self.cache.stats() if self.cache else {}
