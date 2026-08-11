@@ -107,6 +107,25 @@ def score_step(path, criteria):
     for f in ("retrieval_used", "retrieval_coverage", "n_search"):
         vals = [r[f] for r in rows if isinstance(r.get(f), (int, float))]
         out[f] = (sum(vals) / len(vals)) if vals else None
+
+    # CONTENT vs LENGTH, always reported together.
+    #
+    # acc_len_adj_signed is the official metric and it is two-sided around a 2000-char
+    # centre, so a shorter answer earns credit with no reference to content. That is fine
+    # WITHIN one arm, and misleading ACROSS arms whose answer lengths differ for
+    # mechanical reasons. Measured at step 0 of the retrieval arm against the same base
+    # model without retrieval: the official metric rose +0.0671 while acc_raw_signed FELL
+    # -0.0119, because the multi-turn answer budget cut graded length 5954 -> 3265 chars
+    # and the length term alone moved +0.0791 (t=-10.84). The entire headline gain was
+    # brevity. Since acc_len_adj_signed = acc_raw_signed - length_term by construction,
+    # their per-row difference IS the term -- no field-name guessing required.
+    for f in ("acc_raw_signed", "acc_len_adj_signed"):
+        vals = [r[f] for r in rows if isinstance(r.get(f), (int, float))]
+        out[f] = (sum(vals) / len(vals)) if vals else None
+    lt = [r["acc_raw_signed"] - r["acc_len_adj_signed"] for r in rows
+          if isinstance(r.get("acc_raw_signed"), (int, float))
+          and isinstance(r.get("acc_len_adj_signed"), (int, float))]
+    out["len_term"] = (sum(lt) / len(lt)) if lt else None
     return out
 
 
@@ -129,8 +148,11 @@ def main():
         return
 
     print(f"run: {a.run}   (cite = criteria whose text demands a named source)")
-    print(f"{'step':>5} {'cite_met':>9} {'n':>5} {'numeric_met':>12} {'other_met':>10} "
-          f"{'retr_used':>10} {'retr_cov':>9}")
+    print("  content = acc_raw_signed; len_term is what the official metric adds for "
+          "brevity.\n  Compare ARMS on content: len_term differs mechanically when answer "
+          "budgets differ.")
+    print(f"{'step':>5} {'cite_met':>9} {'n':>5} {'numeric':>8} {'other':>7} "
+          f"{'retr_used':>10} {'content':>8} {'official':>9} {'len_term':>9}")
     for step, f in files:
         s = score_step(f, criteria)
         if not s:
@@ -138,8 +160,9 @@ def main():
         def fmt(x, nd=4):
             return "n/a" if x is None else f"{x:.{nd}f}"
         print(f"{step:>5} {fmt(s['cite_met']):>9} {s['cite_n']:>5} "
-              f"{fmt(s['numeric_met']):>12} {fmt(s['other_met']):>10} "
-              f"{fmt(s['retrieval_used'],3):>10} {fmt(s['retrieval_coverage'],3):>9}")
+              f"{fmt(s['numeric_met']):>8} {fmt(s['other_met']):>7} "
+              f"{fmt(s['retrieval_used'],3):>10} {fmt(s['acc_raw_signed']):>8} "
+              f"{fmt(s['acc_len_adj_signed']):>9} {fmt(s['len_term']):>9}")
 
 
 if __name__ == "__main__":
