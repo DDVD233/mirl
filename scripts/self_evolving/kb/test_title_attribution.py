@@ -210,10 +210,15 @@ def main() -> int:
         return (m.group(1) if m else "").strip()
 
     src_titled, src_plain = sources_block(brief_titled), sources_block(brief_plain)
-    # A title counts as cited only if a distinctive run of it appears INSIDE that section.
-    named = [t for t, _ in got.values()
-             if " ".join([w for w in t.split() if len(w) > 4][:4]).lower()
-             in src_titled.lower()]
+    # A title counts as cited when a CONTIGUOUS run of it appears inside that section.
+    # An earlier version built its needle by dropping short words -- "effect esomeprazole
+    # recurrent bleeding" -- a string that appears in no real title, so it reported 0/3
+    # against a Sources block that in fact carried all three titles verbatim.
+    def norm(x):
+        return re.sub(r"\s+", " ", x).strip().lower()
+
+    src_norm = norm(src_titled)
+    named = [t for t, _ in got.values() if norm(t)[:60] in src_norm]
     pmids = [p for _, p in got.values() if p and p in src_titled]
 
     print("\n=== VERDICT ===")
@@ -225,8 +230,12 @@ def main() -> int:
     if src_titled:
         print("  --- Sources block as written ---")
         print("   " + src_titled[:400].replace("\n", "\n   "))
-    if named:
-        print("  PASS: the brief names its sources by title, which it could not do before.")
+    # PMIDs count as a pass too. They are the harder signal, not the softer one: a PMID
+    # cannot be produced from the passage body, so its presence proves the header survived,
+    # whereas title wording can leak in from the abstract's own conclusion.
+    if named or pmids:
+        print("  PASS: the brief carries its sources' identifiers, which it could not "
+              "before -- a PMID in particular cannot come from the passage body.")
         return 0
     print("  FAIL: the summarizer is still dropping the labels. The join is inert until\n"
           "        the brief carries them -- fix the prompt, not the database.")
