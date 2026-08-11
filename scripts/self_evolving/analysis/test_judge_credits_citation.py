@@ -58,16 +58,20 @@ def grader_template() -> str:
 
 
 def judge(base, key, model, conversation, rubric_item, tmpl):
+    """Grade one (conversation, rubric item) pair through the project's OWN API client.
+
+    Deliberately not a hand-rolled request: the first version of this posted plain JSON and
+    got HTTP 400, because the TRAPI path needs provider-specific handling that
+    _call_api already implements. Reusing it also means this test exercises the same client
+    the reward does, so a client-level regression shows up here too.
+    """
+    sys.path.insert(0, REPO)
+    from verl.utils.reward_score.self_evolving import _call_api
+
     prompt = (tmpl.replace("<<conversation>>", conversation)
                   .replace("<<rubric_item>>", rubric_item))
-    body = json.dumps({"model": model,
-                       "messages": [{"role": "user", "content": prompt}],
-                       "max_tokens": 700, "temperature": 0.0}).encode()
-    req = urllib.request.Request(f"{base.rstrip('/')}/chat/completions", data=body,
-                                 headers={"Content-Type": "application/json",
-                                          "Authorization": f"Bearer {key}"})
-    with urllib.request.urlopen(req, timeout=180) as r:
-        txt = json.loads(r.read())["choices"][0]["message"]["content"] or ""
+    txt = asyncio.run(_call_api(base, key, model, "", prompt,
+                                max_tokens=700, provider="trapi", timeout_s=180)) or ""
     m = re.search(r"\{.*\}", txt, re.S)
     if not m:
         return None, txt[:200]
