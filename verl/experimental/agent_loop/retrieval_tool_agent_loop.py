@@ -96,6 +96,20 @@ RETRIEVE_INSTRUCTION = (
 )
 
 # Delivered as a masked user turn after the last tool response.
+#
+# The attribution sentence is the last link in a chain that is useless without it. The KB
+# now carries article titles and assembled references, and the evidence brief ends in a
+# Sources block -- but nothing here previously told the policy to NAME a source, so a
+# rubric criterion like "mentions the 2022 ACG guideline" or "references the 2000 NEJM
+# trial by Lau et al." was unreachable even with the citation sitting in the context. The
+# same omission was found and fixed one layer up in the summarizer; this is the layer that
+# actually writes the graded answer.
+#
+# WORDED AGAINST FABRICATION, deliberately. "Cite your sources" invites a model to invent
+# plausible references, which in a clinical answer is worse than citing nothing and is also
+# a reward-hacking route: a judge may well credit a confident "per the 2020 ACC/AHA
+# guideline" that no passage supports. Hence copy-only, verbatim, and an explicit
+# instruction to attribute nothing when the passages name nothing.
 HARD_ANSWER_INSTRUCTION = (
     "The search tool is now CLOSED and will return nothing further. Do NOT search and do "
     "NOT output any tool call. Write your COMPLETE final answer to the request above now, "
@@ -103,7 +117,13 @@ HARD_ANSWER_INSTRUCTION = (
     "diagnostic uncertainty, asking for missing context where the request is ambiguous, "
     "and including safety / red-flag guidance and contraindications. Use the retrieved "
     "passages where helpful PLUS your own medical knowledge — never say 'the evidence does "
-    "not contain'."
+    "not contain'. "
+    "When a passage NAMES its source — an issuing organisation, a guideline and its year, "
+    "an article title, a journal, an author — name it in your answer next to the claim it "
+    "supports, copying it EXACTLY as given. Do NOT invent, guess or reconstruct a "
+    "reference: no made-up trial names, years, journals or authors, and no citation for a "
+    "claim that came from your own knowledge rather than a passage. If the passages name "
+    "no source, state the fact without attributing it."
 )
 
 # Returned as a tool message when the model calls the tool past its budget. The model
