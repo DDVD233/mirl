@@ -159,21 +159,52 @@ class Store:
             self.db.commit()
         return [(k, q) for k, q in rows]
 
+    MAX_TRIES = 3
+
     async def fail(self, key: str, err: str) -> None:
+        """Record the error, and once the retries are spent, remember the ABSENCE.
+
+        A row left 'dead' is absent from `cache`, so every later lookup misses and the
+        synchronous path pays for it again -- indefinitely. Writing an empty entry makes the
+        next asker a HIT that returns nothing, which is the correct answer for a query that
+        has repeatedly yielded nothing.
+        """
         async with self.lock:
             self.db.execute("UPDATE queue SET last_error=? WHERE key=?", (err[:200], key))
+            row = self.db.execute("SELECT query, tries FROM queue WHERE key=?",
+                                  (key,)).fetchone()
             self.db.commit()
+        if row and (row[1] or 0) >= self.MAX_TRIES:
+            await self.put(row[0], "", [], None, "", 0)
+            return True
+        return False
+
+    async def bury_dead(self) -> int:
+        """One-off: convert existing dead rows into negative entries.
+
+        They predate the rule above and would otherwise be re-queried for the life of the
+        cache.
+        """
+        async with self.lock:
+            rows = self.db.execute(
+                "SELECT key, query FROM queue WHERE tries >= ?", (self.MAX_TRIES,)).fetchall()
+        for _k, q in rows:
+            await self.put(q, "", [], None, "", 0)
+        return len(rows)
 
     def counts(self) -> dict:
         c = self.db.execute("SELECT count(*), coalesce(sum(tokens),0) FROM cache").fetchone()
+        neg = self.db.execute(
+            "SELECT count(*) FROM cache WHERE (text IS NULL OR text='') "
+            "AND (sources IS NULL OR sources='[]')").fetchone()[0]
         q = self.db.execute("SELECT count(*) FROM queue WHERE tries < 3").fetchone()[0]
         dead = self.db.execute("SELECT count(*) FROM queue WHERE tries >= 3").fetchone()[0]
         try:
             size = os.path.getsize(self.path)
         except OSError:
             size = 0
-        return {"entries": c[0], "tokens_saved": c[1], "queued": q, "dead": dead,
-                "db_bytes": size}
+        return {"entries": c[0], "negative": neg, "tokens_saved": c[1], "queued": q,
+                "dead": dead, "db_bytes": size}
 
 
 app = FastAPI()
@@ -303,6 +334,10 @@ async def _drainer():
 
 @app.on_event("startup")
 async def _startup():
+    buried = await STATE["store"].bury_dead()
+    if buried:
+        logger.warning("buried %d dead queue rows as negative cache entries; they will no "
+                       "longer be re-queried", buried)
     STATE["task"] = asyncio.create_task(_drainer())
     STATE["snap_task"] = asyncio.create_task(_snapshotter())
     logger.warning("evidence cache ready: %s", STATE["store"].counts())
