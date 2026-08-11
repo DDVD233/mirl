@@ -325,3 +325,89 @@ def test_the_summarizer_is_told_NOT_to_write_its_own_sources():
     assert prompt, "SUMMARY_SYSTEM not found"
     assert "Do NOT write a 'Sources:' section yourself" in prompt
     assert "Never invent a reference" in prompt
+
+
+# --------------------------------------------------------------------------
+# Web evidence must never stall a rollout. The budget is a HARD ceiling covering
+# queue wait plus the call: with the semaphore acquired inside the deadline, a
+# request arriving while every slot is busy would wait an unbounded time before its
+# own timeout started -- the exact "rate limited, so we hang" failure.
+# --------------------------------------------------------------------------
+def test_web_timeout_covers_queue_wait_not_just_the_call():
+    import asyncio
+    import sys as _sys
+    _sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..",
+                                     "scripts", "self_evolving", "kb"))
+    import web_evidence as W
+
+    async def go():
+        we = W.WebEvidence(api_base="http://x/v1", api_key="k", model="m",
+                           concurrency=1, use_cache=False, timeout_s=1)
+
+        async def slow(_q):
+            await asyncio.sleep(30)
+            return "", [], {}, 0
+
+        we._call = slow
+        t0 = asyncio.get_running_loop().time()
+        r1, r2 = await asyncio.gather(we.search("a"), we.search("b"))
+        return asyncio.get_running_loop().time() - t0, r1, r2
+
+    elapsed, r1, r2 = asyncio.run(go())
+    # The queued call must give up at ITS deadline, not after the first call finishes.
+    assert elapsed < 5, f"queued call waited {elapsed:.1f}s; bound excludes queue time"
+    for r in (r1, r2):
+        assert "Timeout" in (r.error or ""), r.error
+        assert not r.text and not r.sources, "a timeout must yield no evidence, not partial"
+
+
+def test_web_failure_yields_no_evidence_so_the_caller_keeps_milvus():
+    """A failure must be reported as absence, never as an exception or a partial brief."""
+    import asyncio
+    import sys as _sys
+    _sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..",
+                                     "scripts", "self_evolving", "kb"))
+    import web_evidence as W
+
+    async def go():
+        we = W.WebEvidence(api_base="http://x/v1", api_key="k", model="m",
+                           use_cache=False, timeout_s=5)
+
+        async def boom(_q):
+            raise RuntimeError("429 rate limited")
+
+        we._call = boom
+        return await we.search("q")
+
+    r = asyncio.run(go())
+    assert r.error and "RuntimeError" in r.error
+    assert r.text == "" and r.sources == []
+
+
+def test_breaker_opens_and_then_skips_without_calling():
+    """After repeated failures the tool is skipped outright, so a rate-limit storm cannot
+    keep costing 60s per retrieval."""
+    import asyncio
+    import sys as _sys
+    _sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..",
+                                     "scripts", "self_evolving", "kb"))
+    import web_evidence as W
+
+    async def go():
+        we = W.WebEvidence(api_base="http://x/v1", api_key="k", model="m",
+                           use_cache=False, timeout_s=5)
+        we._breaker_trip = 2
+        calls = []
+
+        async def boom(_q):
+            calls.append(1)
+            raise RuntimeError("429")
+
+        we._call = boom
+        for _ in range(4):
+            await we.search("q")
+        return len(calls), we.breaker_skips
+
+    n_calls, skips = asyncio.run(go())
+    assert n_calls == 2, f"breaker should stop calling after 2 failures, made {n_calls}"
+    assert skips >= 1

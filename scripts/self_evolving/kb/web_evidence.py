@@ -360,9 +360,15 @@ class WebEvidence:
             return WebResult(error="breaker open")
 
         try:
-            async with self.sem:
-                text, anns, raw, tokens = await asyncio.wait_for(
-                    self._call(question), timeout=self.timeout_s)
+            # The budget covers QUEUE WAIT PLUS the call, not just the call. With the
+            # semaphore acquired inside the deadline, a request that arrives while 16 calls
+            # are in flight would wait an unbounded time before its own 60s even started --
+            # precisely the "rate limited, so we hang" case this bound exists to prevent.
+            # A timeout is not a failure of retrieval: the caller keeps its Milvus passages
+            # and summarises from those, and the miss is already enqueued on the cache
+            # service, so the next asker gets a hit instead of paying again.
+            text, anns, raw, tokens = await asyncio.wait_for(
+                self._call_guarded(question), timeout=self.timeout_s)
         except Exception as e:  # noqa: BLE001
             self.failures += 1
             self._fails += 1
@@ -380,6 +386,11 @@ class WebEvidence:
         if self.cache:
             self.cache.put(question, text, [s.__dict__ for s in sources])
         return WebResult(text=text, sources=sources, cached=False, raw=raw, tokens=tokens)
+
+    async def _call_guarded(self, question: str) -> tuple[str, list[dict], dict, int]:
+        """Concurrency-limited call, inside the caller's deadline so queueing counts too."""
+        async with self.sem:
+            return await self._call(question)
 
     async def _call(self, question: str) -> tuple[str, list[dict], dict, int]:
         import httpx
