@@ -43,8 +43,19 @@ DRY="${DRY:-0}"
 # the arm to relaunch, so after hb9b_specgap_full_long was deliberately stopped, a row
 # still reading "2336:2:arm2:_long" would have resurrected that exact run from its last
 # checkpoint the first time the pod died -- restarting an experiment the human had ended.
-BOXES=("2335:1:arm1:_fixedprompt:specgap_arm1_fixedprompt_launch.log"
-       "2336:5:arm5::specgap_arm5_selfjudge_launch.log")
+#
+# arm=infer is not a training arm: that box serves the frozen 9B for the retrieval
+# summarizer (see infer_box_state / revive_infer below) and holds GPU memory when HEALTHY,
+# which inverts every check written for a trainer.
+BOXES=("2335:infer:vllm::-"
+       "2336:7:arm7::specgap_arm7_retrieval_launch.log")
+
+# The public endpoint the inference box must keep answering -- the same URL the retrieval
+# arm's SUMM_BASE names. Checked from HERE, not on the box, because what matters is not
+# that a process exists but that the training run can reach it: an frp tunnel that dropped
+# leaves a perfectly healthy vLLM serving nobody.
+INFER_URL="${INFER_URL:-http://point.dd.works:18186/v1}"
+INFER_SERVE="${INFER_SERVE:-scripts/self_evolving/serve/serve_frozen9b_dp.sh}"
 
 # A pod that dies repeatedly is broken in a way relaunching will not fix, and each
 # attempt costs a model load. Stop and leave it for a human.
@@ -163,6 +174,44 @@ arm_log_age_min() {  # arm_log_age_min <port> <logfile>
     echo "${out:--1}"
 }
 
+# --- inference box -----------------------------------------------------------------
+# A trainer is dead when the GPUs are IDLE. An inference server is dead when it stops
+# ANSWERING, and it holds ~150 GB per GPU the whole time it is well -- so box_is_dead
+# would call a perfectly healthy server "HOLDING" forever and a crashed one "DEAD" only
+# after its memory was reclaimed. Hence a separate, simpler test: ask the endpoint.
+#
+# Why this matters enough to automate: the retrieval arm degrades QUIETLY when this box
+# goes. Briefs keep being written by the server5 fallback, every rollout still trains, and
+# the only symptom is a slower step and a counter on /stats. An unattended overnight
+# outage would leave the whole run's retrieval served by one shared GPU.
+infer_box_state() {
+    curl -sf -m 20 "$INFER_URL/models" >/dev/null 2>&1 && { echo SERVING; return 0; }
+    # Not answering. Distinguish a dead pod from a dead process, because only the second
+    # is ours to fix -- and say which, since "pod gone" needs a human and a queue.
+    sshx "$1" true >/dev/null 2>&1 || { echo UNREACHABLE; return 1; }
+    echo NOTSERVING
+    return 1
+}
+
+revive_infer() {
+    local port="$1" win="$2"
+    if [ "$DRY" = "1" ]; then log "[$port] DRY RUN: would relaunch the DP inference server"; return; fi
+    # No resume semantics and no checkpoint to corrupt, so this is safe to retry: the
+    # worst case of a duplicate is a second vLLM that fails to bind the port. The serve
+    # script refuses to start on top of held GPU memory, which covers the case where the
+    # old replicas are still up but wedged -- that needs the kill below to land first.
+    sshx "$port" 'pkill -f "vllm[ ]serve" 2>/dev/null; sleep 5; rm -f /dev/shm/vllm* 2>/dev/null; true'
+    sshx "$port" "tmux has-session -t hb 2>/dev/null || tmux new-session -d -s hb -n idle 'sleep infinity'
+        tmux kill-window -t hb:$win 2>/dev/null
+        tmux new-window -t hb -n $win \"cd $REPO && bash $INFER_SERVE \
+            2>&1 | tee -a $LOGDIR/frozen9b_dp.log\"
+        echo relaunched"
+    REVIVALS[$port]=$(( ${REVIVALS[$port]} + 1 ))
+    LAST_ACTION[$port]=$SECONDS
+    log "[$port] RELAUNCHED the DP inference server (revival ${REVIVALS[$port]}/$MAX_REVIVALS);" \
+        "until it answers, the retrieval arm is served by the server5 fallback"
+}
+
 revive() {
     local port="$1" arm="$2" win="$3" sfx="$4" logf="$5"
     # Refuse if the arm is demonstrably alive somewhere. -1 means the log is missing,
@@ -200,7 +249,11 @@ while :; do
     for b in "${BOXES[@]}"; do
         IFS=: read -r port arm win sfx logf <<< "$b"
 
-        state=$(box_is_dead "$port") && dead=1 || dead=0
+        if [ "$arm" = "infer" ]; then
+            state=$(infer_box_state "$port") && dead=0 || dead=1
+        else
+            state=$(box_is_dead "$port") && dead=1 || dead=0
+        fi
         hb_line="$hb_line ${port}=${state%% *}"
         if [ "$state" = "UNREACHABLE" ]; then
             # A pod mid-recreation refuses ssh for a while. Not evidence of anything
@@ -227,7 +280,11 @@ while :; do
                         log "[$port] only ${free}G free -- pruning non-latest checkpoints before relaunch"
                         prune_checkpoints "$port" | while read -r l; do log "[$port] $l"; done
                     fi
-                    revive "$port" "$arm" "$win" "$sfx" "$logf"
+                    if [ "$arm" = "infer" ]; then
+                        revive_infer "$port" "$win"
+                    else
+                        revive "$port" "$arm" "$win" "$sfx" "$logf"
+                    fi
                 fi
                 STRIKES[$port]=0
             fi

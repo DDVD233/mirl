@@ -350,6 +350,20 @@ if [ "$FROZEN_NEEDED" = 1 ]; then
         VLLM_GPU_UTIL="${VLLM_GPU_UTIL:-0.35}"
     fi
     if ! curl -sf -m 5 "$SUMM_BASE/models" >/dev/null 2>&1; then
+        # A REMOTE SUMM_BASE that is not answering must stop the launch, not be quietly
+        # replaced by a local copy. The fallback path spawns a summarizer on FROZEN_GPU
+        # (default 3) and drops the rollout engine's memory share to match -- so an arm
+        # configured for a dedicated inference box would come up on 3 training GPUs
+        # instead of 4, with a summarizer sized for one shared GPU, and nothing but a
+        # line 300 logs deep would say so. Silent capacity loss is worse than exit 1.
+        case "$SUMM_BASE" in
+            *localhost*|*127.0.0.1*) : ;;   # local by design: spawning it here is correct
+            *) echo "FATAL: SUMM_BASE=$SUMM_BASE is remote but not answering." >&2
+               echo "       Refusing to silently spawn a local summarizer on a training GPU." >&2
+               echo "       Start the dedicated server (serve/serve_frozen9b_dp.sh) or set" >&2
+               echo "       SUMM_BASE=http://localhost:\$SUMM_PORT/v1 to serve it here." >&2
+               exit 1 ;;
+        esac
         CUDA_VISIBLE_DEVICES="${FROZEN_GPU:-3}" MODEL="$SUMM_MODEL" PORT="$SUMM_PORT" \
         TP=1 MEM="$FROZEN_MEM" MAXSEQS="$FROZEN_SEQS" MAXLEN=16384 \
             bash scripts/self_evolving/serve/serve_summarizer.sh \
