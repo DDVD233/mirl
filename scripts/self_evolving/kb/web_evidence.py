@@ -266,37 +266,57 @@ class WebEvidence:
         self.calls = 0
         self.failures = 0
         self.breaker_skips = 0
+        self._db = None
 
     # -- provenance -------------------------------------------------------
+    def _conn(self):
+        """One reused read-only connection, not one per PMID.
+
+        Reopening a 4.86 GB database on NFS per citation is pure latency on a path that runs
+        per retrieval.
+        """
+        if self._db is not None:
+            return self._db or None
+        import sqlite3
+        if not os.path.exists(self.titles_db):
+            self._db = False
+            return None
+        try:
+            self._db = sqlite3.connect(f"file:{self.titles_db}?mode=ro", uri=True,
+                                       check_same_thread=False, timeout=5)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("titles DB unusable for web citations (%s)", e)
+            self._db = False
+            return None
+        return self._db
+
     def _meta(self, pmid: str) -> dict:
-        """journal/year/author for a PMID, from the same local DB the passages use."""
+        """journal/year/author for a PMID. meta.pmid is the PRIMARY KEY, so this is an index
+        lookup.
+
+        It deliberately does NOT read titles.title by pmid: that table is keyed on the chunk
+        id, so a pmid predicate is a FULL SCAN of 19.5M rows over NFS. Doing it per citation
+        blocked the cache service's event loop hard enough that /stats stopped answering while
+        a fetch was in flight. The annotation already carries a usable title, so the canonical
+        one is not worth an unindexed scan.
+        """
         if not pmid:
             return {}
+        con = self._conn()
+        if not con:
+            return {}
         try:
-            import sqlite3
-            if not os.path.exists(self.titles_db):
-                return {}
-            con = sqlite3.connect(f"file:{self.titles_db}?mode=ro", uri=True,
-                                  check_same_thread=False, timeout=5)
-            try:
-                r = con.execute("SELECT journal, year, author, n_authors FROM meta "
-                                "WHERE pmid=?", (pmid,)).fetchone()
-                t = con.execute("SELECT title FROM titles WHERE pmid=? LIMIT 1",
-                                (pmid,)).fetchone()
-            finally:
-                con.close()
-            out = {}
-            if r:
-                out.update(journal=r[0] or "", year=r[1] or "", author=r[2] or "",
-                           n_authors=r[3] or "")
-            if t and t[0]:
-                out["title"] = t[0]
-            return out
+            r = con.execute("SELECT journal, year, author, n_authors FROM meta WHERE pmid=?",
+                            (pmid,)).fetchone()
         except Exception as e:  # noqa: BLE001
             logger.debug("web citation meta lookup failed for %s: %s", pmid, e)
             return {}
+        if not r:
+            return {}
+        return {"journal": r[0] or "", "year": r[1] or "", "author": r[2] or "",
+                "n_authors": r[3] or ""}
 
-    def _sources_from(self, annotations: list[dict]) -> list[WebSource]:
+    async def _sources_from(self, annotations: list[dict]) -> list[WebSource]:
         seen, out = set(), []
         for a in annotations:
             url = (a.get("url") or "").strip()
@@ -309,14 +329,14 @@ class WebEvidence:
             seen.add(key)
             s = WebSource(title=title, pmid=pmid, url=url)
             if pmid:
-                meta = self._meta(pmid)
+                # to_thread: a handful of index lookups is fast, but "fast" on an NFS-backed
+                # 4.86 GB file is not a promise worth making on an event loop that also
+                # serves /lookup for every rollout.
+                meta = await asyncio.to_thread(self._meta, pmid)
                 s.journal = meta.get("journal", "")
                 s.year = meta.get("year", "")
                 s.author = meta.get("author", "")
                 s.n_authors = meta.get("n_authors", "")
-                # Prefer the canonical title over the search backend's truncated one.
-                if meta.get("title"):
-                    s.title = meta["title"]
             out.append(s)
         return out
 
@@ -356,7 +376,7 @@ class WebEvidence:
 
         self._fails = 0
         self.calls += 1
-        sources = self._sources_from(anns)
+        sources = await self._sources_from(anns)
         if self.cache:
             self.cache.put(question, text, [s.__dict__ for s in sources])
         return WebResult(text=text, sources=sources, cached=False, raw=raw, tokens=tokens)
