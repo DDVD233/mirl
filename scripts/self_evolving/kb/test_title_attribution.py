@@ -227,6 +227,16 @@ def main() -> int:
     brief_titled = call_summarizer(a.summarizer, a.model, sysmsg,
                                    summary_user(a.question, block_titled))
 
+    # /retrieve appends the source list ITSELF -- the summarizer is told not to write one,
+    # because when asked it produced a Sources section on one sample and none on the next.
+    # So the tool response is brief + appended block, and that is what must be verified;
+    # checking only the model's own output would test a behaviour we deliberately removed.
+    appended = R.sources_block(titled)
+    if appended:
+        brief_titled = f"{brief_titled}\n\n{appended}"
+    print(f"\n  appended by /retrieve ({len(appended)} chars):")
+    print("   " + (appended or "(nothing -- no passage was labelled)").replace("\n", "\n   "))
+
     for name, brief in (("CONTROL (no titles)", brief_plain),
                         ("TITLED", brief_titled)):
         hits = sorted({m.group(0).lower() for m in ATTRIB.finditer(brief)})
