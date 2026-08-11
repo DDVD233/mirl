@@ -212,7 +212,8 @@ async def stats():
     tot = STATE["hits"] + STATE["misses"]
     out = {"hits": STATE["hits"], "misses": STATE["misses"],
            "hit_rate": round(STATE["hits"] / tot, 4) if tot else None,
-           "fetched": STATE["fetched"], "fetch_failures": STATE["fetch_failures"]}
+           "fetched": STATE["fetched"], "fetch_failures": STATE["fetch_failures"],
+           "refusals": STATE["refusals"]}
     out.update(st.counts())
     out["snapshots"] = STATE.get("snapshots", 0)
     we: WebEvidence | None = STATE.get("web")
@@ -276,6 +277,13 @@ async def _drainer():
             # be a bad trade.
             async def one(k, q):
                 res = await we.search(q)
+                # A refusal is a RESULT: cache it empty so this query is a hit next time
+                # rather than three more retries and a dead row. Roughly a third of tasks
+                # are drafting or formatting and have nothing to look up.
+                if res.refused:
+                    STATE["refusals"] += 1
+                    await st.put(q, "", [], None, we.model, 0)
+                    return
                 if res.error or not (res.text or res.sources):
                     STATE["fetch_failures"] += 1
                     await st.fail(k, res.error or "empty")
@@ -330,6 +338,7 @@ def main() -> int:
     if os.path.exists(a.key_file):
         key = open(a.key_file).read().strip()
     STATE.update(store=Store(a.db), hits=0, misses=0, fetched=0, fetch_failures=0,
+                 refusals=0,
                  snapshot_path=a.snapshot, snapshots=0,
                  web=WebEvidence(api_base=a.api_base, api_key=key, model=a.model,
                                  concurrency=a.concurrency, use_cache=False))

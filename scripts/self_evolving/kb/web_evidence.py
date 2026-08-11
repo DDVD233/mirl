@@ -107,6 +107,18 @@ SYSTEM = (
 )
 
 
+class NotALookup(Exception):
+    """The request has no factual answer to look up, or the sources have none.
+
+    NOT a service failure. Drafting a note, formatting a letter, choosing a tone -- roughly a
+    third of HealthBench tasks -- correctly yield no evidence, and so does a genuine "nothing
+    found". Counting those against the circuit breaker is what opened it after five writing
+    tasks in a row and then failed 43 more queries with "breaker open", each of which counted
+    as another failure and kept it open. The breaker exists for rate limits and outages, and
+    must never react to the CONTENT of a request.
+    """
+
+
 @dataclass
 class WebSource:
     """One citable source, rendered the way a Milvus passage is."""
@@ -151,6 +163,9 @@ class WebResult:
     # because we stored only a summary would be the expensive mistake.
     raw: dict | None = None
     tokens: int = 0
+    # True when there is legitimately nothing to retrieve. Worth CACHING: a drafting task
+    # asked again should cost a lookup, not another live call and another queue retry.
+    refused: bool = False
 
 
 def normalize_query(q: str) -> str:
@@ -280,6 +295,7 @@ class WebEvidence:
         self._breaker_cool = float(os.environ.get("WEB_EVIDENCE_BREAKER_COOL", "120"))
         self.calls = 0
         self.failures = 0
+        self.refusals = 0
         self.breaker_skips = 0
         self._db = None
 
@@ -384,6 +400,11 @@ class WebEvidence:
             # service, so the next asker gets a hit instead of paying again.
             text, anns, raw, tokens = await asyncio.wait_for(
                 self._call_guarded(question), timeout=self.timeout_s)
+        except NotALookup as e:
+            # Correct outcome, not an error: no breaker increment, no retry pressure.
+            self.refusals += 1
+            self._fails = 0
+            return WebResult(error=f"not-a-lookup: {str(e)[:80]}", refused=True)
         except Exception as e:  # noqa: BLE001
             self.failures += 1
             self._fails += 1
@@ -438,14 +459,15 @@ class WebEvidence:
                        if it.get("type") == "web_search_call")
         head = text[:40].upper()
         if n_search == 0:
-            raise RuntimeError("no web_search_call: model answered from memory, not sources")
+            raise NotALookup("no web_search_call: nothing was looked up")
         if head.startswith("NOT A LOOKUP") or head.startswith("NO SOURCES FOUND"):
-            raise RuntimeError(f"declined: {text[:60]}")
+            raise NotALookup(text[:60])
         return text, anns, d, tokens
 
     def stats(self) -> dict:
         s = self.cache.stats() if self.cache else {}
         s.update(web_calls=self.calls, web_failures=self.failures,
+                 web_refusals=self.refusals,
                  web_breaker_skips=self.breaker_skips,
                  web_breaker_open=time.time() < self._open_until)
         return s
@@ -515,6 +537,24 @@ class EvidenceCacheClient:
         except Exception as e:  # noqa: BLE001
             self.errors += 1
             logger.debug("evidence cache put failed: %s", e)
+
+    async def put_empty(self, query: str, model: str = "") -> None:
+        """Record 'there is nothing to retrieve for this' as a real cache entry.
+
+        Without it, every drafting task re-pays a live call each time it is served, and the
+        cache-service queue retries it three times before giving up.
+        """
+        if not self.enabled or not query:
+            return
+        try:
+            import httpx
+            async with httpx.AsyncClient(timeout=self.timeout_s) as c:
+                await c.post(f"{self.base}/put", json={
+                    "query": query, "text": "", "sources": [], "raw": None,
+                    "model": model, "tokens": 0})
+        except Exception as e:  # noqa: BLE001
+            self.errors += 1
+            logger.debug("evidence cache put_empty failed: %s", e)
 
     def stats(self) -> dict:
         tot = self.hits + self.misses

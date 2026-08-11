@@ -411,3 +411,100 @@ def test_breaker_opens_and_then_skips_without_calling():
     n_calls, skips = asyncio.run(go())
     assert n_calls == 2, f"breaker should stop calling after 2 failures, made {n_calls}"
     assert skips >= 1
+
+
+def test_a_refusal_is_not_a_breaker_failure():
+    """A drafting task has nothing to look up. That is a RESULT, not a service failure.
+
+    Counting refusals against the breaker opened it after five writing tasks in a row, and
+    the 43 queries that then failed with "breaker open" each counted as another failure and
+    kept it open -- 178 failures against 14 successes. The breaker is for rate limits and
+    outages; it must never react to the content of a request.
+    """
+    import asyncio
+    import sys as _sys
+    _sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..",
+                                     "scripts", "self_evolving", "kb"))
+    import web_evidence as W
+
+    async def go():
+        we = W.WebEvidence(api_base="http://x/v1", api_key="k", model="m",
+                           use_cache=False, timeout_s=5)
+        we._breaker_trip = 2
+        calls = []
+
+        async def refuse(_q):
+            calls.append(1)
+            raise W.NotALookup("no web_search_call: nothing was looked up")
+
+        we._call = refuse
+        results = [await we.search(f"draft a note {i}") for i in range(6)]
+        return len(calls), we.breaker_skips, we.failures, we.refusals, results
+
+    n_calls, skips, failures, refusals, results = asyncio.run(go())
+    assert n_calls == 6, f"breaker must stay closed through refusals, only {n_calls} calls"
+    assert skips == 0 and failures == 0, (skips, failures)
+    assert refusals == 6
+    for r in results:
+        assert r.refused is True and r.text == "" and r.sources == []
+
+
+def test_a_real_failure_still_trips_the_breaker():
+    """The protection must survive the fix above."""
+    import asyncio
+    import sys as _sys
+    _sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..",
+                                     "scripts", "self_evolving", "kb"))
+    import web_evidence as W
+
+    async def go():
+        we = W.WebEvidence(api_base="http://x/v1", api_key="k", model="m",
+                           use_cache=False, timeout_s=5)
+        we._breaker_trip = 2
+        calls = []
+
+        async def boom(_q):
+            calls.append(1)
+            raise RuntimeError("429 rate limited")
+
+        we._call = boom
+        for _ in range(5):
+            await we.search("what is the eGFR cutoff for metformin")
+        return len(calls), we.breaker_skips
+
+    n_calls, skips = asyncio.run(go())
+    assert n_calls == 2, f"expected the breaker to stop calling after 2, got {n_calls}"
+    assert skips >= 1
+
+
+def test_a_refusal_after_failures_resets_the_streak():
+    """A working service that merely has nothing to look up is evidence it is UP."""
+    import asyncio
+    import sys as _sys
+    _sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..",
+                                     "scripts", "self_evolving", "kb"))
+    import web_evidence as W
+
+    async def go():
+        we = W.WebEvidence(api_base="http://x/v1", api_key="k", model="m",
+                           use_cache=False, timeout_s=5)
+        we._breaker_trip = 3
+        mode = {"v": "boom"}
+
+        async def maybe(_q):
+            if mode["v"] == "boom":
+                raise RuntimeError("timeout")
+            raise W.NotALookup("draft")
+
+        we._call = maybe
+        await we.search("a")
+        await we.search("b")          # 2 failures, one short of tripping
+        mode["v"] = "refuse"
+        await we.search("c")          # refusal -> streak reset
+        mode["v"] = "boom"
+        await we.search("d")          # 1 failure again, must NOT trip
+        return we.breaker_skips, we._fails
+
+    skips, fails = asyncio.run(go())
+    assert skips == 0, "breaker opened despite the streak being broken by a refusal"
+    assert fails == 1

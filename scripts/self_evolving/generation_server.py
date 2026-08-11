@@ -5090,6 +5090,14 @@ async def _web_evidence(s: ServerState, question: str) -> object | None:
                 s.stats["web_evidence_cached"] = s.stats.get("web_evidence_cached", 0) + 1
                 return hit
         res = await s.web.search(question)
+        if getattr(res, "refused", False):
+            # Nothing to look up (drafting, formatting, tone) or genuinely nothing found.
+            # STORE the empty result: a third of tasks are like this, and without a negative
+            # entry each one pays a live call every time it is seen again.
+            s.stats["web_evidence_refused"] = s.stats.get("web_evidence_refused", 0) + 1
+            if s.evidence is not None:
+                await s.evidence.put_empty(question, model=s.web.model)
+            return None
         if res.error or not (res.text or res.sources):
             s.stats["web_evidence_miss"] = s.stats.get("web_evidence_miss", 0) + 1
             return None
