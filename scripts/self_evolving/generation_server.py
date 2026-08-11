@@ -4949,7 +4949,7 @@ async def healthz():
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from kb.retrieval import (  # noqa: E402
     MAX_QUERIES, MERGE_PER_SOURCE, MERGE_TOTAL, PER_QUERY_K,
-    RetrieveConfig, format_passages, merge_ranked, rank_hits,
+    RetrieveConfig, attach_titles, format_passages, merge_ranked, rank_hits,
 )
 
 
@@ -4971,6 +4971,17 @@ SUMMARY_SYSTEM = (
     "- Include ONLY facts stated in the passages. Add nothing from your own knowledge. "
     "If the passages do not address part of the request, write one line: "
     "'Not covered: <topic>'.\n"
+    # Attribution was previously unprotected: the rules named numbers and trial names but
+    # said nothing about WHO said it, and the [p3] tag replaced provenance with an opaque
+    # index. Under a 400-word cap the issuing body and year were the first things dropped,
+    # so a rubric criterion asking for "the 2022 ACG guideline" could never be met even
+    # when that guideline was the passage being summarised.
+    "- Carry SOURCE ATTRIBUTION verbatim whenever a passage states it: the issuing "
+    "organisation, the guideline or article title, the year, the journal, the authors. "
+    "Write it next to the claim, e.g. 'per the 2022 American College of "
+    "Gastroenterology guideline [p2]'. A passage header of the form 'title=...' IS the "
+    "citation for that passage -- use it, and never attribute a claim to a source the "
+    "passages do not name.\n"
     "- Group by topic as short bullets. Tag each bullet with its passage number, e.g. [p3].\n"
     "- Drop passages that are off-topic, table-of-contents fragments, or duplicates.\n"
     "- Max 400 words. No preamble, no advice, and do NOT answer the request yourself."
@@ -5214,6 +5225,14 @@ async def retrieve(payload: RetrievePayload):
         )
         for h in per_query_hits:
             _queue_wikidoc_titles(s, h)
+
+        # Provenance, before formatting: a PubMed passage carries no bibliography in the
+        # KB, so without this the model sees the right evidence and cannot name it. Runs
+        # AFTER merging so the lookup covers only the passages actually served (8-24),
+        # not everything fetched.
+        n_titled = await asyncio.to_thread(attach_titles, passages)
+        s.stats["retrieve_titled"] = s.stats.get("retrieve_titled", 0) + n_titled
+        s.stats["retrieve_passages"] = s.stats.get("retrieve_passages", 0) + len(passages)
 
         raw_text = format_passages(passages)
         text, summarized, reason = raw_text, False, None

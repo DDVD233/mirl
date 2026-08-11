@@ -211,14 +211,104 @@ def merge_ranked(per_query: list[list[dict]], total: int = 0,
     return out, dict(stats)
 
 
+# --------------------------------------------------------------------------
+# Provenance: put the article title back on a PubMed passage.
+# --------------------------------------------------------------------------
+# 23.9M of the KB's 57.2M rows are medrag_pubmed abstracts stored WITHOUT their
+# bibliography -- no title, author, journal or year anywhere in the schema. Measured
+# consequence: the KB returns the ACORN trial's own abstract, the SOAP II abstract and
+# Lau et al.'s NEJM conclusion as top hits for their own questions, while the strings
+# "ACORN", "SOAP" and "Lau" appear nowhere in the text. Retrieval finds exactly the right
+# evidence and the policy cannot attribute it, so every rubric criterion demanding a named
+# source is unreachable however well the model retrieves.
+#
+# The titles come back by a join on entry_id against the upstream MedRAG chunk ids (see
+# kb/build_pubmed_titles.py). Nothing is re-embedded and no ranking changes: the same
+# passages arrive in the same order, labelled.
+#
+# Absent DB == no titles and no error. The path is only ever read, so a run that predates
+# the build behaves exactly as before rather than failing.
+_TITLES_DB = os.environ.get("PUBMED_TITLES_DB",
+                            "/scratch/sheng/self_evolving/kb/pubmed_titles.sqlite")
+_titles_local = None
+_titles_warned = False
+
+
+def _titles_conn():
+    """Per-THREAD read-only connection. sqlite3 objects are not thread-safe, and
+    /retrieve reaches this from asyncio.to_thread workers, so one shared handle would
+    raise 'created in a thread other than the current one' under load."""
+    global _titles_local, _titles_warned
+    import sqlite3
+    import threading
+    if _titles_local is None:
+        _titles_local = threading.local()
+    conn = getattr(_titles_local, "conn", None)
+    if conn is not None:
+        return conn
+    if not _TITLES_DB or not os.path.exists(_TITLES_DB):
+        if not _titles_warned:
+            _titles_warned = True
+            logger.warning("pubmed titles DB absent at %s -- passages will carry no "
+                           "citation. Build it with kb/build_pubmed_titles.py.", _TITLES_DB)
+        _titles_local.conn = False
+        return False
+    try:
+        conn = sqlite3.connect(f"file:{_TITLES_DB}?mode=ro", uri=True,
+                               check_same_thread=False, timeout=5)
+        _titles_local.conn = conn
+        return conn
+    except Exception as e:  # noqa: BLE001
+        if not _titles_warned:
+            _titles_warned = True
+            logger.warning("pubmed titles DB unusable (%s: %s)", type(e).__name__, e)
+        _titles_local.conn = False
+        return False
+
+
+def attach_titles(passages: list[dict]) -> int:
+    """Set p['title'] on any passage whose entry_id has a known title. Returns the count.
+
+    One batched query for the whole passage list, not one per passage: this sits on the
+    generation critical path and the list is 8-24 long.
+    """
+    conn = _titles_conn()
+    if not conn:
+        return 0
+    # Deduped: multi-query merging can leave the same entry_id in the list more than once,
+    # and binding it repeatedly grows the IN clause for no benefit.
+    ids = list(dict.fromkeys(p.get("entry_id") for p in passages if p.get("entry_id")))
+    if not ids:
+        return 0
+    try:
+        q = f"SELECT id, title FROM titles WHERE id IN ({','.join('?' * len(ids))})"
+        found = dict(conn.execute(q, ids).fetchall())
+    except Exception as e:  # noqa: BLE001
+        logger.warning("title lookup failed (%s: %s)", type(e).__name__, e)
+        return 0
+    n = 0
+    for p in passages:
+        t = found.get(p.get("entry_id") or "")
+        if t:
+            p["title"] = t
+            n += 1
+    return n
+
+
 def format_passages(passages: list[dict]) -> str:
     """The exact block handed back to the model as the tool response."""
     if not passages:
         return "No relevant passages found in the medical knowledge base."
-    return "\n\n".join(
-        f"[passage {i + 1} | source={p['source']}]\n{p['text']}"
-        for i, p in enumerate(passages)
-    )
+    out = []
+    for i, p in enumerate(passages):
+        head = f"[passage {i + 1} | source={p['source']}"
+        # The title is the citable handle. It goes in the HEADER rather than being
+        # prepended to the body so the summarizer can quote it as provenance without
+        # mistaking it for a clinical claim from the passage text.
+        if p.get("title"):
+            head += f" | title={p['title']}"
+        out.append(f"{head}]\n{p['text']}")
+    return "\n\n".join(out)
 
 
 # --------------------------------------------------------------------------

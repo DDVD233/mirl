@@ -9,9 +9,22 @@ slice of that: 14.3% of unmet positive mass, and their met rate was FLAT across 
 (0.396 -> 0.406) while everything else moved. If retrieval works, this is the number that
 must rise; overall accuracy is too diluted to show it early.
 
-`has_guideline_cite` is decided from the criterion TEXT (keyword match), which is a
-heuristic and is reported as such -- it selects the criteria that ask for a source, not the
-criteria the model happened to fail.
+Bucketing is decided from the criterion TEXT (keyword match), which is a heuristic and is
+reported as such -- it selects the criteria that ask for a source, not the criteria the
+model happened to fail.
+
+AND THE HEADLINE `cite` NUMBER IS TOO BROAD TO TRUST ALONE. Audited over the 525 val tasks,
+its 118 criteria split three ways:
+
+  81 (69%)  generic "study/trial/reference" about a study ALREADY IN THE PROMPT -- e.g.
+            "Notes that the study compared IV PPI use vs placebo". Needs no retrieval.
+  22 (19%)  names an issuing ORGANISATION. Reachable: orgs appear in KB prose.
+  15 (13%)  names a specific WORK (trial acronym, author, journal). These were
+            UNREACHABLE -- the KB stores those abstracts with the bibliography stripped,
+            so "ACORN", "SOAP" and "Lau" appear in no passage. kb/build_pubmed_titles.py
+            joins the titles back; `work` is the column that tests whether it worked.
+
+So watch `org` and `work`, not `cite`: mixing in the 69% dilutes any real effect ~3x.
 
 Usage:
   python3 cite_score.py --run hb9b_specgap_full_retrieval
@@ -24,12 +37,32 @@ import json
 import os
 import re
 
-# Criterion asks the answer to ground itself in a named source.
+# Criterion mentions sourcing AT ALL. Kept for continuity with the earlier series, but it
+# is far too broad to be the headline: audited over the 525-task val set it matches 118
+# positive criteria, of which only 37 (31%) ask for an identifiable source. The other 81 say
+# "study"/"trial"/"reference" while asking about a study ALREADY DESCRIBED IN THE PROMPT --
+# e.g. "Notes that the study compared IV PPI use vs placebo" -- which needs no retrieval at
+# all. Reporting only this number dilutes any retrieval effect roughly threefold.
 CITE_PAT = re.compile(
     r"\b(cite|citation|citing|reference[sd]?|source[sd]?|per the|according to|"
     r"guideline|guidance|consensus statement|trial|study|studies|RCT|cohort|"
     r"meta-analys|systematic review|society|ACC|AHA|ESC|NICE|WHO|USPSTF|IDSA|ASCO|NCCN)\b",
     re.I,
+)
+# The criterion names an ISSUING ORGANISATION. These are REACHABLE: organisations survive in
+# the KB because they appear in prose ("the American College of Gastroenterology updated its
+# guidelines"). 22 criteria.
+ORG_PAT = re.compile(
+    r"\b(ACC|AHA|ESC|EACTS|NICE|WHO|USPSTF|IDSA|ASCO|NCCN|AUA|SUFU|ACG|ADA|KDIGO|GOLD|"
+    r"CDC|FDA|AAP|ACOG|ACR|ATS|ISTH|American \w+|European \w+|National \w+|World Health)\b"
+)
+# The criterion names a SPECIFIC WORK -- trial acronym, author, journal. 15 criteria, and
+# they were UNREACHABLE before kb/build_pubmed_titles.py: the abstracts are in the KB with
+# their bibliography stripped, so "ACORN", "SOAP" and "Lau" appear nowhere in any passage.
+# This bucket is the direct test of whether the title join worked.
+WORK_PAT = re.compile(
+    r"\b([A-Z]{3,}[- ]?(?:II|III|\d)?\s+(?:trial|study|RCT)|\w+ et al\.?|"
+    r"NEJM|New England Journal|Lancet|JAMA|BMJ|Annals of \w+|Circulation)\b"
 )
 # Criterion demands a concrete quantity (the other half of the knowledge-shaped gap).
 NUM_PAT = re.compile(r"\d")
@@ -86,7 +119,10 @@ def score_step(path, criteria):
                     pass
     if len(rows) != len(criteria):
         return None
-    agg = {k: [0, 0] for k in ("cite", "numeric", "other")}   # [met, total]
+    # cite/numeric/other partition the criteria (each lands in exactly one); org and work
+    # are OVERLAPPING sub-buckets of cite, reported separately because they have different
+    # ceilings against this corpus.
+    agg = {k: [0, 0] for k in ("cite", "numeric", "other", "org", "work")}  # [met, total]
     for row, crits in zip(rows, criteria):
         mm = met_map(row.get("rubric_met"))
         for c in crits:
@@ -95,16 +131,24 @@ def score_step(path, criteria):
             met = mm.get(c["text"])
             if met is None:
                 continue
-            bucket = "cite" if CITE_PAT.search(c["text"]) else (
-                "numeric" if NUM_PAT.search(c["text"]) else "other")
+            t = c["text"]
+            is_cite = bool(CITE_PAT.search(t))
+            bucket = "cite" if is_cite else ("numeric" if NUM_PAT.search(t) else "other")
             agg[bucket][0] += int(met)
             agg[bucket][1] += 1
+            if is_cite:
+                if WORK_PAT.search(t):
+                    agg["work"][0] += int(met)
+                    agg["work"][1] += 1
+                elif ORG_PAT.search(t):
+                    agg["org"][0] += int(met)
+                    agg["org"][1] += 1
     out = {"n_rows": len(rows)}
     for k, (m, t) in agg.items():
         out[f"{k}_met"] = (m / t) if t else None
         out[f"{k}_n"] = t
     # retrieval telemetry, when the arm has it
-    for f in ("retrieval_used", "retrieval_coverage", "n_search"):
+    for f in ("retrieval_used", "retrieval_coverage", "n_search", "titled_frac"):
         vals = [r[f] for r in rows if isinstance(r.get(f), (int, float))]
         out[f] = (sum(vals) / len(vals)) if vals else None
 
@@ -151,18 +195,26 @@ def main():
     print("  content = acc_raw_signed; len_term is what the official metric adds for "
           "brevity.\n  Compare ARMS on content: len_term differs mechanically when answer "
           "budgets differ.")
-    print(f"{'step':>5} {'cite_met':>9} {'n':>5} {'numeric':>8} {'other':>7} "
-          f"{'retr_used':>10} {'content':>8} {'official':>9} {'len_term':>9}")
+    print("  org  = criterion names an issuing body (REACHABLE: orgs appear in KB prose)")
+    print("  work = criterion names a trial/author/journal (needs the title join)")
+    print(f"{'step':>5} {'cite':>7} {'org':>7} {'work':>7} {'numeric':>8} {'other':>7} "
+          f"{'retr':>6} {'titled':>7} {'content':>8} {'official':>9}")
+    first = True
     for step, f in files:
         s = score_step(f, criteria)
         if not s:
             continue
+        if first:
+            print(f"{'':5} {'n=' + str(s['cite_n']):>7} {'n=' + str(s['org_n']):>7} "
+                  f"{'n=' + str(s['work_n']):>7} {'n=' + str(s['numeric_n']):>8} "
+                  f"{'n=' + str(s['other_n']):>7}")
+            first = False
         def fmt(x, nd=4):
             return "n/a" if x is None else f"{x:.{nd}f}"
-        print(f"{step:>5} {fmt(s['cite_met']):>9} {s['cite_n']:>5} "
-              f"{fmt(s['numeric_met']):>8} {fmt(s['other_met']):>7} "
-              f"{fmt(s['retrieval_used'],3):>10} {fmt(s['acc_raw_signed']):>8} "
-              f"{fmt(s['acc_len_adj_signed']):>9} {fmt(s['len_term']):>9}")
+        print(f"{step:>5} {fmt(s['cite_met']):>7} {fmt(s['org_met']):>7} "
+              f"{fmt(s['work_met']):>7} {fmt(s['numeric_met']):>8} {fmt(s['other_met']):>7} "
+              f"{fmt(s['retrieval_used'],2):>6} {fmt(s.get('titled_frac'),2):>7} "
+              f"{fmt(s['acc_raw_signed']):>8} {fmt(s['acc_len_adj_signed']):>9}")
 
 
 if __name__ == "__main__":
