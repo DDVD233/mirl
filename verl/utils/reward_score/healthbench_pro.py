@@ -140,11 +140,30 @@ HB_THINK_PENALTY_MAX = float(os.environ.get("HB_THINK_PENALTY_MAX", "0.3"))
 # advantage ~10x the typical magnitude. That is a real gradient spike, not a clipping
 # artifact -- if actor/grad_norm or entropy destabilises, put a floor back rather than
 # re-clipping silently.
-_score_min_raw = (os.environ.get("HB_SCORE_MIN", "0.0") or "").strip().lower()
-if _score_min_raw in ("none", "off", "inf", "-inf", "disabled"):
-    HB_SCORE_MIN = float("-inf")
-else:
-    HB_SCORE_MIN = float(_score_min_raw)
+#
+# A FUNCTION, not inline parsing, because HB_SCORE_MIN has a second reader: the trainer
+# driver's _fold_retrieval_group_bonus uses it as the lower clip for the retrieval bonus.
+# When the sentinel lived only here, that reader's bare float() raised
+# "could not convert string to float: 'none'" and killed the retrieval arm at step 1 --
+# after step-0 validation had passed, since the bonus only folds during training. Two
+# parsers for one variable is how that happens; there is now one.
+def parse_score_min(raw: str | None) -> float:
+    """HB_SCORE_MIN -> float. The disable sentinels map to -inf (no floor at all).
+
+    Empty or unset means the documented default of 0.0, NOT -inf and not a crash.
+    `float("")` used to raise here, which turns `export HB_SCORE_MIN=` into a ValueError
+    at import time in every reward worker; and mapping empty to -inf would be worse,
+    silently removing the floor because of a typo.
+    """
+    s = (raw or "").strip().lower()
+    if not s:
+        return 0.0
+    if s in ("none", "off", "inf", "-inf", "disabled"):
+        return float("-inf")
+    return float(s)
+
+
+HB_SCORE_MIN = parse_score_min(os.environ.get("HB_SCORE_MIN", "0.0"))
 
 # Repetition penalty (training only; see the v16 note in compute_score).
 # `dup fraction` = share of 8-gram positions that repeat an earlier 8-gram.

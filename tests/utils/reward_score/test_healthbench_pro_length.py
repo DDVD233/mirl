@@ -95,3 +95,49 @@ def test_opt_out_still_exists():
     assert 'os.environ.get("HB_TRAIN_LENGTH_ADJ", "1") == "1"' in src
     # and the training branch must use the clamped form
     assert "max(0.0, chars - LENGTH_ADJ_CENTER)" in src
+
+
+class TestScoreMinSentinel:
+    """HB_SCORE_MIN=none must be parsed by EVERY reader, not just the reward module.
+
+    The bug this pins: the sentinel was added to healthbench_pro while the trainer
+    driver's _fold_retrieval_group_bonus kept its own `float(os.environ[...])`. Step-0
+    validation passed (the retrieval bonus only folds during TRAINING), then step 1 died
+    with "could not convert string to float: 'none'". Two parsers for one variable.
+    """
+
+    @pytest.mark.parametrize("raw,expected", [
+        ("none", float("-inf")), ("off", float("-inf")), ("disabled", float("-inf")),
+        ("-inf", float("-inf")), ("NONE", float("-inf")), ("  none  ", float("-inf")),
+        ("0.0", 0.0), ("-0.5", -0.5), ("-3.7", -3.7),
+    ])
+    def test_parse_score_min(self, raw, expected):
+        assert hp.parse_score_min(raw) == expected
+
+    def test_empty_means_the_default_floor_not_a_crash_and_not_disabled(self):
+        """`export HB_SCORE_MIN=` must not raise, and must not silently remove the floor."""
+        assert hp.parse_score_min(None) == 0.0
+        assert hp.parse_score_min("") == 0.0
+        assert hp.parse_score_min("   ") == 0.0
+
+    def test_the_floor_is_a_no_op_when_disabled(self):
+        """min(0.0, -inf) is -inf, so `lo - w` is -inf and np.clip applies no lower bound."""
+        lo = min(0.0, hp.parse_score_min("none"))
+        assert lo == float("-inf")
+        assert lo - 0.20 == float("-inf")
+
+    def test_no_module_parses_hb_score_min_with_a_bare_float(self):
+        """Any new reader must go through parse_score_min, or 'none' crashes it."""
+        import pathlib
+        import re
+        root = pathlib.Path(hp.__file__).resolve().parents[3]
+        offenders = []
+        pat = re.compile(r"float\(\s*[^)]*HB_SCORE_MIN")
+        for p in list((root / "verl").rglob("*.py")) + list((root / "scripts").rglob("*.py")):
+            try:
+                txt = p.read_text()
+            except (OSError, UnicodeDecodeError):
+                continue
+            if "HB_SCORE_MIN" in txt and pat.search(txt):
+                offenders.append(str(p.relative_to(root)))
+        assert not offenders, f"parse HB_SCORE_MIN via parse_score_min(): {offenders}"

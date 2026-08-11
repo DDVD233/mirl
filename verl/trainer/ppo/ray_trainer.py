@@ -298,7 +298,13 @@ def _fold_retrieval_group_bonus(data: DataProto, reward_tensor, reward_extra_inf
         return reward_tensor, {}
 
     c0 = float(_os.environ.get("HB_RETRIEVAL_NOSEARCH_COVERAGE", "0.35"))
-    lo = min(0.0, float(_os.environ.get("HB_SCORE_MIN", "0.0")))
+    # Shared parser, not a second float(): HB_SCORE_MIN accepts "none" to disable the
+    # floor entirely, and a local float() here crashed the retrieval arm at step 1 on it.
+    # -inf is the correct result and needs no special case -- `lo - w` stays -inf and
+    # np.clip then simply applies no lower bound, which is what "no floor" means.
+    from verl.utils.reward_score.healthbench_pro import parse_score_min
+
+    lo = min(0.0, parse_score_min(_os.environ.get("HB_SCORE_MIN", "0.0")))
     cov = np.asarray(reward_extra_infos_dict["retrieval_coverage"], dtype=np.float64)
     judged = np.asarray(
         reward_extra_infos_dict.get("retrieval_judged", np.zeros_like(cov)), dtype=np.float64
