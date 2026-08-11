@@ -213,6 +213,12 @@ def main() -> int:
         print(f"  FAILED {f}: {e}", flush=True)
 
     n = fold_shards(a.shards, a.db)
+    # A --limit run covers the first N files, i.e. the lowest PMIDs, so the verify set
+    # legitimately will not be there. Treating that as failure would make the smoke test
+    # always report FATAL and train everyone to ignore it.
+    if a.limit:
+        print(f"smoke run over {a.limit} files: {n:,} PMIDs, skipping the verify set")
+        return 0
     if not verify(a.db):
         print("FATAL: verification failed; not publishing", file=sys.stderr)
         return 1

@@ -280,28 +280,86 @@ def attach_titles(passages: list[dict]) -> int:
     ids = list(dict.fromkeys(p.get("entry_id") for p in passages if p.get("entry_id")))
     if not ids:
         return 0
-    try:
-        q = (f"SELECT id, title, pmid FROM titles "
-             f"WHERE id IN ({','.join('?' * len(ids))})")
-        found = {r[0]: (r[1], r[2]) for r in conn.execute(q, ids).fetchall()}
-    except Exception as e:  # noqa: BLE001
-        # An older DB has no pmid column. Fall back rather than losing the titles too.
+    # LEFT JOIN onto meta, which build_pubmed_meta.py fills with journal/year/author keyed
+    # by PMID. A title alone identifies a paper but never carries its author, journal or
+    # year, so "the 2000 NEJM trial by Lau et al." needs this second table. LEFT, not
+    # inner: a passage with a title and no metadata must still get its title.
+    ph = ",".join("?" * len(ids))
+    sql_full = (f"SELECT t.id, t.title, t.pmid, m.journal, m.year, m.author, m.n_authors "
+                f"FROM titles t LEFT JOIN meta m ON m.pmid = t.pmid "
+                f"WHERE t.id IN ({ph})")
+    # Three rungs, because the DB is built in stages and every stage must be usable:
+    #   1. titles + meta      -> full reference
+    #   2. titles with pmid   -> title + PMID (the state between the two build jobs)
+    #   3. titles only        -> title (the very first build, and the unit-test fixture)
+    # Degrading one field at a time matters: partial provenance beats none, and a schema
+    # older than the code must not silently turn retrieval back into unlabelled passages.
+    cascade = [
+        ("titles+meta", sql_full, lambda r: r[1:]),
+        ("titles+pmid", f"SELECT id, title, pmid FROM titles WHERE id IN ({ph})",
+         lambda r: (r[1], r[2], None, None, None, None)),
+        ("titles", f"SELECT id, title FROM titles WHERE id IN ({ph})",
+         lambda r: (r[1], None, None, None, None, None)),
+    ]
+    found, used, last = None, None, None
+    for name, sql, shape in cascade:
         try:
-            q = f"SELECT id, title FROM titles WHERE id IN ({','.join('?' * len(ids))})"
-            found = {r[0]: (r[1], "") for r in conn.execute(q, ids).fetchall()}
-        except Exception as e2:  # noqa: BLE001
-            logger.warning("title lookup failed (%s: %s)", type(e2).__name__, e2)
-            return 0
-        logger.info("titles DB has no pmid column (%s); serving titles only", e)
+            found = {r[0]: shape(r) for r in conn.execute(sql, ids).fetchall()}
+            used = name
+            break
+        except Exception as e:  # noqa: BLE001
+            last = e
+    if found is None:
+        logger.warning("title lookup failed (%s: %s)", type(last).__name__, last)
+        return 0
+    if used != "titles+meta" and not _warned_once(used or "?"):
+        logger.info("titles DB supports only '%s' (%s: %s) -- serving reduced provenance",
+                    used, type(last).__name__, last)
     n = 0
     for p in passages:
         hit = found.get(p.get("entry_id") or "")
-        if hit and hit[0]:
-            p["title"] = hit[0]
-            if hit[1]:
-                p["pmid"] = hit[1]
-            n += 1
+        if not hit or not hit[0]:
+            continue
+        title, pmid, journal, year, author, n_auth = hit
+        p["title"] = title
+        if pmid:
+            p["pmid"] = pmid
+        cite = _citation(author, n_auth, journal, year)
+        if cite:
+            p["citation"] = cite
+        n += 1
     return n
+
+
+def _citation(author: str | None, n_authors: str | None,
+              journal: str | None, year: str | None) -> str:
+    """Assemble "Lau JY et al., N Engl J Med 2000" from the metadata columns.
+
+    Built here, not in the summarizer prompt, so the model copies one finished string
+    instead of composing it from parts it could mismatch -- attributing a claim to the wrong
+    journal is worse than not attributing it.
+
+    "et al." is added only when there ARE co-authors: single-author papers exist and
+    "Smith J et al." invents them.
+    """
+    try:
+        many = int(n_authors or 0) > 1
+    except (TypeError, ValueError):
+        many = False
+    who = f"{author} et al." if (author and many) else (author or "")
+    where = " ".join(x for x in (journal or "", year or "") if x)
+    return ", ".join(x for x in (who, where) if x)
+
+
+_warned: set = set()
+
+
+def _warned_once(key: str) -> bool:
+    """One-shot latch so a degraded DB logs once, not once per retrieval."""
+    if key in _warned:
+        return True
+    _warned.add(key)
+    return False
 
 
 def format_passages(passages: list[dict]) -> str:
@@ -316,9 +374,13 @@ def format_passages(passages: list[dict]) -> str:
         # mistaking it for a clinical claim from the passage text.
         if p.get("title"):
             head += f" | title={p['title']}"
-        # PMID is a citable handle in its own right and the key for resolving
-        # author/journal/year later, so it travels with the title rather than being
-        # thrown away at the formatting step.
+        # cite= is the finished reference ("Lau JY et al., N Engl J Med 2000"), which is
+        # what a rubric criterion naming an author, journal or year actually needs. It
+        # comes first among the identifiers because it is the one the model should copy.
+        if p.get("citation"):
+            head += f" | cite={p['citation']}"
+        # PMID is a citable handle in its own right and the join key for the metadata, so
+        # it travels through rather than being dropped at the formatting step.
         if p.get("pmid"):
             head += f" | pmid={p['pmid']}"
         out.append(f"{head}]\n{p['text']}")

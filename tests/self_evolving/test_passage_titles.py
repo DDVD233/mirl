@@ -139,3 +139,106 @@ def test_lookup_is_one_query_for_the_whole_list(R):
     # from multi-query merging and would otherwise bloat the IN clause.
     assert selects[0].count(ACORN_ID) == 1, f"ids should be deduped: {selects[0][:200]}"
     assert selects[0].count("statpearls_999") == 1
+
+
+# --------------------------------------------------------------------------
+# The DB is built in two stages (titles first, then journal/year/author), so the
+# code must work against every intermediate schema. A schema older than the code
+# must degrade one field at a time -- silently reverting to unlabelled passages
+# would undo the whole point while every log still said retrieval was on.
+# --------------------------------------------------------------------------
+FULL_TITLE = ("Effect of intravenous omeprazole on recurrent bleeding after endoscopic "
+              "treatment of bleeding peptic ulcers.")
+
+
+def _db(tmp_path, *, pmid_col=True, meta=True):
+    p = tmp_path / "t.sqlite"
+    con = sqlite3.connect(p)
+    if pmid_col:
+        con.execute("CREATE TABLE titles (id TEXT PRIMARY KEY, title TEXT, pmid TEXT) "
+                    "WITHOUT ROWID")
+        con.execute("INSERT INTO titles VALUES (?,?,?)",
+                    ("pubmed23n0558_23219", FULL_TITLE, "10891516"))
+    else:
+        con.execute("CREATE TABLE titles (id TEXT PRIMARY KEY, title TEXT) WITHOUT ROWID")
+        con.execute("INSERT INTO titles VALUES (?,?)",
+                    ("pubmed23n0558_23219", FULL_TITLE))
+    if meta:
+        con.execute("CREATE TABLE meta (pmid TEXT PRIMARY KEY, journal TEXT, year TEXT, "
+                    "author TEXT, n_authors TEXT) WITHOUT ROWID")
+        con.execute("INSERT INTO meta VALUES (?,?,?,?,?)",
+                    ("10891516", "N Engl J Med", "2000", "Lau JY", "5"))
+    con.commit()
+    con.close()
+    return p
+
+
+def _load(tmp_path, monkeypatch, **kw):
+    monkeypatch.setenv("PUBMED_TITLES_DB", str(_db(tmp_path, **kw)))
+    return importlib.reload(importlib.import_module("retrieval"))
+
+
+def _one():
+    return [{"source": "medrag_pubmed", "entry_id": "pubmed23n0558_23219", "text": "body"}]
+
+
+def test_full_schema_yields_the_reference_a_rubric_asks_for(tmp_path, monkeypatch):
+    """"the 2000 NEJM trial by Lau et al." is the actual criterion text. This is it."""
+    R = _load(tmp_path, monkeypatch)
+    ps = _one()
+    assert R.attach_titles(ps) == 1
+    assert ps[0]["citation"] == "Lau JY et al., N Engl J Med 2000"
+    head = R.format_passages(ps).splitlines()[0]
+    for want in ("title=", "cite=Lau JY et al., N Engl J Med 2000", "pmid=10891516"):
+        assert want in head, head
+
+
+def test_titles_and_pmid_but_no_meta_still_labels(tmp_path, monkeypatch):
+    """The state between the two build jobs: title + PMID, no reference."""
+    R = _load(tmp_path, monkeypatch, meta=False)
+    ps = _one()
+    assert R.attach_titles(ps) == 1
+    assert ps[0]["title"] == FULL_TITLE
+    assert ps[0].get("pmid") == "10891516"
+    assert "citation" not in ps[0]
+    assert "cite=" not in R.format_passages(ps)
+
+
+def test_oldest_schema_titles_only_still_labels(tmp_path, monkeypatch):
+    """A DB predating the pmid column must still deliver titles, not nothing."""
+    R = _load(tmp_path, monkeypatch, pmid_col=False, meta=False)
+    ps = _one()
+    assert R.attach_titles(ps) == 1
+    assert ps[0]["title"] == FULL_TITLE
+    assert "pmid" not in ps[0] and "citation" not in ps[0]
+
+
+def test_title_present_but_metadata_missing_is_a_left_join(tmp_path, monkeypatch):
+    """A PMID absent from meta must not drop the title -- inner join would lose it."""
+    p = tmp_path / "t.sqlite"
+    con = sqlite3.connect(p)
+    con.execute("CREATE TABLE titles (id TEXT PRIMARY KEY, title TEXT, pmid TEXT) "
+                "WITHOUT ROWID")
+    con.execute("INSERT INTO titles VALUES (?,?,?)", ("x_1", FULL_TITLE, "999999"))
+    con.execute("CREATE TABLE meta (pmid TEXT PRIMARY KEY, journal TEXT, year TEXT, "
+                "author TEXT, n_authors TEXT) WITHOUT ROWID")
+    con.commit(); con.close()
+    monkeypatch.setenv("PUBMED_TITLES_DB", str(p))
+    R = importlib.reload(importlib.import_module("retrieval"))
+    ps = [{"source": "medrag_pubmed", "entry_id": "x_1", "text": "b"}]
+    assert R.attach_titles(ps) == 1
+    assert ps[0]["title"] == FULL_TITLE
+    assert "citation" not in ps[0]
+
+
+@pytest.mark.parametrize("author,n,journal,year,expected", [
+    ("Lau JY", "5", "N Engl J Med", "2000", "Lau JY et al., N Engl J Med 2000"),
+    ("Smith J", "1", "BMJ", "1998", "Smith J, BMJ 1998"),      # no invented co-authors
+    (None, None, "Lancet", "2011", "Lancet 2011"),
+    ("Jones A", "3", None, None, "Jones A et al."),
+    (None, None, None, None, ""),
+    ("Lau JY", "notanumber", "NEJM", "2000", "Lau JY, NEJM 2000"),   # bad n_authors
+])
+def test_citation_assembly(author, n, journal, year, expected):
+    import retrieval as R
+    assert R._citation(author, n, journal, year) == expected
