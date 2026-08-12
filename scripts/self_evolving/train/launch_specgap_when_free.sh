@@ -134,7 +134,13 @@ case "$ARM" in
               SUMM_BASE="$SUMM_DEDICATED" SUMM_FALLBACK_BASE="$SJUDGE_REMOTE"
               SUMMARY_CONCURRENCY="${SUMMARY_CONCURRENCY:-320}"
               WEB_EVIDENCE="${WEB_EVIDENCE:-1}"
-              WEB_EVIDENCE_CONCURRENCY="${WEB_EVIDENCE_CONCURRENCY:-16}")
+              # 16 was under-provisioned and the breaker paid for it. At ~8s a call, 16
+              # slots serve ~2 calls/s while a step's ~800 retrieves arrive at ~2.7/s, so the
+              # queue grew, the 60s budget (which covers queue wait) expired, and 96 timeouts
+              # opened the breaker 19 times -- ~38 min with web evidence off. 32 slots serve
+              # ~4/s, above arrival, and add ~240 req/min against the ~2000/60s TRAPI cap
+              # shared with the judge and the generator.
+              WEB_EVIDENCE_CONCURRENCY="${WEB_EVIDENCE_CONCURRENCY:-32}")
      EXP_NAME=hb9b_specgap_full_retrieval ;;
   *) echo "FATAL: ARM must be 1..7" >&2; exit 1 ;;
 esac
