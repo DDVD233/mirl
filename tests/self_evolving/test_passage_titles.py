@@ -508,3 +508,64 @@ def test_a_refusal_after_failures_resets_the_streak():
     skips, fails = asyncio.run(go())
     assert skips == 0, "breaker opened despite the streak being broken by a refusal"
     assert fails == 1
+
+
+# --------------------------------------------------------------------------
+# The appended Sources block was built only from PubMed-URL annotations, which
+# covered ~26% of entries -- while 98% named an organisation, journal or PMID in
+# the model's own SOURCE: line. A guideline or an FDA label is fully citable and has
+# no PMID, so reading the blocks is what makes the list reflect what was retrieved.
+# --------------------------------------------------------------------------
+BLOCKS = """SOURCE: Qian et al., JAMA, 2023 (PMID 37837651)
+
+TITLE: Cefepime vs Piperacillin-Tazobactam in Adults Hospitalized With Acute Infection
+
+STATES: no significant difference in AKI.
+
+SOURCE: American College of Gastroenterology, 2022
+
+TITLE: ACG Clinical Guideline for the Diagnosis and Management of GERD
+
+STATES: 8-week empiric PPI trial for typical symptoms.
+"""
+
+
+def _we():
+    import sys as _sys
+    _sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..",
+                                     "scripts", "self_evolving", "kb"))
+    import web_evidence as W
+    return W, W.WebEvidence(api_base="http://x/v1", api_key="k", model="m", use_cache=False)
+
+
+def test_source_blocks_parse_pubmed_and_guideline_alike():
+    _W, we = _we()
+    got = we._sources_from_text(BLOCKS)
+    assert len(got) == 2, [s.render() for s in got]
+    paper, guideline = got
+    assert paper.pmid == "37837651"
+    assert "PMID 37837651" in paper.render()
+    # The PMID must not be duplicated inside the citation text.
+    assert paper.cite_text == "Qian et al., JAMA, 2023"
+    # A guideline is citable with no PMID at all -- the case the annotation path missed.
+    assert guideline.pmid == ""
+    assert "American College of Gastroenterology, 2022" in guideline.render()
+    assert "ACG Clinical Guideline" in guideline.render()
+    assert "PMID" not in guideline.render()
+
+
+def test_resolved_metadata_wins_over_the_models_wording():
+    """Verified fields beat self-reported ones; cite_text is the fallback, not the default."""
+    _W, _inst = _we()
+    s = _W.WebSource(title="T", pmid="10922420", cite_text="Somebody, Some Journal, 1999",
+                     author="Lau JY", n_authors="12", journal="N Engl J Med", year="2000")
+    assert s.citation() == "Lau JY et al., N Engl J Med 2000"
+    s2 = _W.WebSource(title="T", cite_text="American College of Gastroenterology, 2022")
+    assert s2.citation() == "American College of Gastroenterology, 2022"
+
+
+def test_no_blocks_means_no_sources_not_a_crash():
+    _W, we = _we()   # noqa: F841 -- `we` is used below
+    assert we._sources_from_text("") == []
+    assert we._sources_from_text("NO SOURCES FOUND") == []
+    assert we._sources_from_text("some prose with no блок structure") == []

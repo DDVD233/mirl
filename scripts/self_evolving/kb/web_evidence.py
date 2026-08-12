@@ -129,16 +129,26 @@ class WebSource:
     author: str = ""
     n_authors: str = ""
     url: str = ""            # kept for provenance/debugging; never shown to the model
+    # Verbatim citation as the source stated it, used when there is no PMID to resolve
+    # against the metadata table -- a guideline or an FDA label is fully citable without one.
+    cite_text: str = ""
 
     def citation(self) -> str:
-        """"Qian ET et al., JAMA 2023" -- or "" when no bibliographic fields are known."""
+        """"Qian ET et al., JAMA 2023" -- or "" when no bibliographic fields are known.
+
+        Prefers the locally RESOLVED fields (author/journal/year from the PMID) over the
+        model's own wording, because those are verified. Falls back to what the source stated,
+        which is the only option for the ~28% of sources with no PubMed record: guidelines,
+        labels and society statements are citable and have no PMID.
+        """
         try:
             many = int(self.n_authors or 0) > 1
         except (TypeError, ValueError):
             many = False
         who = f"{self.author} et al." if (self.author and many) else (self.author or "")
         where = " ".join(x for x in (self.journal, self.year) if x)
-        return ", ".join(x for x in (who, where) if x)
+        resolved = ", ".join(x for x in (who, where) if x)
+        return resolved or self.cite_text
 
     def render(self) -> str:
         """A source line for the brief. Deliberately URL-FREE: a citation is
@@ -347,6 +357,31 @@ class WebEvidence:
         return {"journal": r[0] or "", "year": r[1] or "", "author": r[2] or "",
                 "n_authors": r[3] or ""}
 
+    _BLOCK_RE = re.compile(
+        r"^SOURCE:\s*(?P<cite>.+?)\s*$\n+(?:^TITLE:\s*(?P<title>.+?)\s*$)?",
+        re.M)
+
+    def _sources_from_text(self, text: str) -> list[WebSource]:
+        """Sources as the model reported them, from the SOURCE:/TITLE: blocks.
+
+        The structured `annotations` only carry a bibliography when the citation happens to be
+        a pubmed.ncbi.nlm.nih.gov URL; measured over 517 entries, 98% named an organisation,
+        journal or PMID somewhere in the text while the annotation-derived list covered ~26%.
+        Reading the blocks is what makes the appended Sources list reflect what was retrieved.
+        """
+        out = []
+        for m in self._BLOCK_RE.finditer(text or ""):
+            cite = (m.group("cite") or "").strip()
+            title = (m.group("title") or "").strip()
+            pm = re.search(r"PMID:?\s*(\d{6,9})", cite)
+            pmid = pm.group(1) if pm else ""
+            # Strip the PMID out of the citation text: it is rendered separately.
+            cite = re.sub(r"\s*\(?PMID:?\s*\d{6,9}\)?\.?", "", cite).strip(" .,;")
+            if not (cite or title):
+                continue
+            out.append(WebSource(title=title, pmid=pmid, cite_text=cite))
+        return out
+
     async def _sources_from(self, annotations: list[dict]) -> list[WebSource]:
         seen, out = set(), []
         for a in annotations:
@@ -419,6 +454,20 @@ class WebEvidence:
         self._fails = 0
         self.calls += 1
         sources = await self._sources_from(anns)
+        # Union with what the model itself reported, so a guideline or label with no PubMed URL
+        # still reaches the Sources block.
+        seen = {(x.pmid or x.title.lower()[:60]) for x in sources if (x.pmid or x.title)}
+        for extra in self._sources_from_text(text):
+            k = extra.pmid or extra.title.lower()[:60]
+            if k and k not in seen:
+                seen.add(k)
+                if extra.pmid:
+                    meta = await asyncio.to_thread(self._meta, extra.pmid)
+                    extra.journal = meta.get("journal", "")
+                    extra.year = meta.get("year", "")
+                    extra.author = meta.get("author", "")
+                    extra.n_authors = meta.get("n_authors", "")
+                sources.append(extra)
         if self.cache:
             self.cache.put(question, text, [s.__dict__ for s in sources])
         return WebResult(text=text, sources=sources, cached=False, raw=raw, tokens=tokens)
