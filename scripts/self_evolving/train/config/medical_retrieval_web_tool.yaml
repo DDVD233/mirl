@@ -1,0 +1,108 @@
+# Tool config for the WEB-SEARCH arm: the solver gets BOTH tools and chooses.
+# `search_medical_kb` is unchanged from medical_retrieval_tool.yaml (KB + evidence
+# brief via the gen server's /retrieve). `web_search` goes straight to the Serper
+# cache service (kb/serper_cache_server.py, WEB_SEARCH_URL env, default
+# http://localhost:8056/search) and returns VERBATIM SERP blocks -- no model
+# anywhere on that path, so nothing conditioned on the case composes the evidence.
+# Both count against the same VERL_MAX_SEARCHES budget (see
+# retrieval_tool_agent_loop.py). Keep the sibling yaml untouched: existing arms
+# must stay byte-identical.
+tools:
+  - class_name: verl.tools.medical_retrieval_tool.MedicalRetrievalTool
+    config:
+      type: native
+      # topk/total intentionally UNSET: retrieval depth is a server-side policy
+      # (--retrieve_top_k / --retrieve_total), so one knob configures rollouts,
+      # offline trace generation and the eval harness identically.
+      max_queries: 4
+      # Must exceed the server's RETRIEVE_SUMMARY_TIMEOUT (45s) PLUS the time a
+      # request can spend QUEUED behind the server's concurrency semaphore. A whole
+      # training batch fires its retrievals at once (~800 calls/step at rollout.n=8),
+      # so with 60s here ~60% of calls timed out client-side and the model was
+      # trained on "Retrieval is temporarily unavailable" instead of evidence — while
+      # the server's own timings looked healthy, because they only measure work that
+      # already got past the semaphore.
+      timeout: 240
+      # retrieval_url: http://localhost:8006/retrieve   # else RETRIEVAL_URL env
+    tool_schema:
+      type: function
+      function:
+        name: search_medical_kb
+        description: >-
+          Search the medical knowledge base (clinical reviews, FDA drug labels,
+          consumer-health topics, textbooks, PubMed abstracts) for the SPECIFIC
+          clinical facts this request turns on — exact doses, thresholds,
+          contraindications, staging or diagnostic criteria, guideline details, drug
+          interactions — when you are not fully certain of them and getting them wrong
+          would change the answer. Returns one evidence brief covering all your
+          sub-queries. Skip it for requests you can answer confidently from your own
+          knowledge (general management, explanations, writing or formatting notes,
+          ethics or refusal decisions, translation).
+        parameters:
+          type: object
+          properties:
+            queries:
+              # Declared `array` so the qwen3_coder parser routes the value through
+              # ast.literal_eval and yields a real list (falling back to the raw
+              # string, which the tool also accepts). NOTE: the schema model has no
+              # `items` field — pydantic drops it — so the DESCRIPTION is the whole
+              # contract the model sees.
+              type: array
+              description: >-
+                1-4 search queries as a JSON array of strings, e.g.
+                ["metformin contraindication eGFR threshold",
+                "metformin lactic acidosis risk in renal impairment"].
+                The queries must be DIFFERENT FACETS of the request, never rewordings
+                of each other — rewordings return the same passages and waste the
+                budget. Typical facets: (a) the core diagnosis or management question,
+                (b) the exact number — dose, threshold, timing, staging cutoff, code,
+                (c) safety — contraindications, adverse effects, monitoring,
+                interactions, special populations (pregnancy, paediatrics,
+                renal/hepatic impairment), (d) the alternative or comparison the
+                request implies, (e) patient-facing explanation or red-flag advice.
+                Each query is a specific, information-dense sentence or noun phrase
+                naming the clinical entities explicitly, with every abbreviation
+                expanded. ENGLISH ONLY, even when the request is in another language —
+                the knowledge base is English. If the request states a premise that may
+                be wrong, ALSO query the correct entity, not only the user's wording.
+            query:
+              type: string
+              description: >-
+                Deprecated single-query form, still accepted. Prefer `queries`.
+          required: []
+  - class_name: verl.tools.web_search_tool.WebSearchTool
+    config:
+      type: native
+      # num_results intentionally UNSET: result depth is a server-side policy knob
+      # (serper_cache_server --num_default), mirroring how topk/total are handled
+      # for the KB tool.
+      #
+      # Must cover time QUEUED behind the cache service's fetch semaphore when a
+      # whole training batch misses at once (same lesson as the retrieval tool's
+      # timeout; cache hits return in milliseconds, cold bursts queue).
+      timeout: 240
+      # web_search_url: http://localhost:8056/search   # else WEB_SEARCH_URL env
+    tool_schema:
+      type: function
+      function:
+        name: web_search
+        description: >-
+          Search the live web (Google) for CURRENT information the medical knowledge
+          base is unlikely to hold: guidelines revised or drugs approved in the last
+          few years, recalls and shortages, outbreak or epidemiology questions,
+          region-specific regulation, or a fact search_medical_kb failed to find.
+          Returns raw search results — title, link, snippet — not curated passages:
+          judge each result by its source and prefer guidelines, journals and
+          regulators. For established clinical facts (doses, contraindications,
+          diagnostic criteria) prefer search_medical_kb.
+        parameters:
+          type: object
+          properties:
+            query:
+              type: string
+              description: >-
+                ONE specific, information-dense English search query naming the
+                clinical entities explicitly, every abbreviation expanded. One query
+                per call; call again (within the shared search budget) for a
+                different facet.
+          required: [query]

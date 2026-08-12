@@ -159,6 +159,18 @@ SUMM_FALLBACK_BASE="${SUMM_FALLBACK_BASE:-}"
 WEB_EVIDENCE="${WEB_EVIDENCE:-1}"
 EVIDENCE_CACHE_URL="${EVIDENCE_CACHE_URL:-http://localhost:8055}"
 EVIDENCE_CACHE_DB="${EVIDENCE_CACHE_DB:-/root/evidence_cache.sqlite}"
+# WEB SEARCH TOOL (solver-facing; dvd 2026-08-12). Independent of WEB_EVIDENCE:
+# that one feeds /retrieve through a GPT lookup the solver never sees, while this
+# gives the SOLVER its own `web_search` tool whose results come VERBATIM from the
+# Serper API -- no model composes the evidence, so the search behaviour and the
+# reading of raw results both train. Serper is paid: every query goes through the
+# serper cache service (kb/serper_cache_server.py), started below.
+WEB_SEARCH_TOOL="${WEB_SEARCH_TOOL:-0}"
+WEB_SEARCH_URL="${WEB_SEARCH_URL:-http://localhost:8056/search}"
+SEARCH_CACHE_DB="${SEARCH_CACHE_DB:-/root/search_cache.sqlite}"
+# Secrets (SERPER_API_KEY) live in the gitignored scripts/self_evolving/.env, or in
+# key files under /scratch on the pods (serper_cache_server --key_file fallback).
+if [ -f "$(dirname "$0")/../.env" ]; then set -a; . "$(dirname "$0")/../.env"; set +a; fi
 # Does the frozen 9B live on a TRAINING GPU, or on another box? It decides how much
 # memory the rollout engine may take, so it must be known before any util default is
 # picked. The retrieval arm's 0.35 was never about retrieval -- it was the concession to
@@ -306,12 +318,19 @@ if [ "$RETRIEVAL" = 1 ]; then
     export VERL_THINK_BUDGET_TOKENS="${VERL_THINK_BUDGET_TOKENS:-3072}"
     export VERL_ANSWER_RESERVE_TOKENS="${VERL_ANSWER_RESERVE_TOKENS:-3500}"
     export VERL_MIN_ANSWER_TOKENS="${VERL_MIN_ANSWER_TOKENS:-1536}"
+    # The web arm swaps in the two-tool config; every other line of the rollout
+    # setup is shared, so the tool set is the single factor between the arms.
+    TOOL_CONFIG=scripts/self_evolving/train/config/medical_retrieval_tool.yaml
+    if [ "$WEB_SEARCH_TOOL" = 1 ]; then
+        TOOL_CONFIG=scripts/self_evolving/train/config/medical_retrieval_web_tool.yaml
+        export WEB_SEARCH_URL
+    fi
     AGENT_ARGS=(
         actor_rollout_ref.rollout.multi_turn.enable=True
         actor_rollout_ref.rollout.multi_turn.format=qwen3_coder
         actor_rollout_ref.rollout.multi_turn.max_tool_response_length="${MAX_TOOL_RESP:-6000}"
         actor_rollout_ref.rollout.multi_turn.tool_response_truncate_side=right
-        actor_rollout_ref.rollout.multi_turn.tool_config_path=scripts/self_evolving/train/config/medical_retrieval_tool.yaml
+        actor_rollout_ref.rollout.multi_turn.tool_config_path="$TOOL_CONFIG"
         actor_rollout_ref.rollout.agent.default_agent_loop=retrieval_tool_agent
         # The coverage judge follows the TRAIN judge: in the self-judge arm the
         # model must grade its own retrieval too, or the arm would still be
@@ -452,6 +471,32 @@ if [ "$WEB_EVIDENCE" = 1 ]; then
         ;;
     esac
     echo "evidence cache: $(curl -s -m 5 "$EVIDENCE_CACHE_URL/stats")"
+fi
+
+# ---- serper search cache (only when the solver has the web_search tool) ----------
+# Same rationale as the evidence cache: started here so a relaunched arm never
+# trains with the cache missing and re-buys queries already paid for. --restore
+# seeds a fresh pod from the /scratch snapshot.
+if [ "$WEB_SEARCH_TOOL" = 1 ]; then
+    WS_BASE="${WEB_SEARCH_URL%/search}"
+    case "$WEB_SEARCH_URL" in
+      *localhost*|*127.0.0.1*)
+        if ! curl -sf -m 5 "$WS_BASE/healthz" >/dev/null 2>&1; then
+            echo "starting serper cache service at $WEB_SEARCH_URL"
+            WS_PORT="${WS_BASE##*:}"
+            nohup /usr/local/bin/python scripts/self_evolving/kb/serper_cache_server.py \
+                --port "$WS_PORT" --db "$SEARCH_CACHE_DB" --restore \
+                >> "$LOGDIR/serper_cache.log" 2>&1 &
+            start=$SECONDS
+            until curl -sf -m 5 "$WS_BASE/healthz" >/dev/null 2>&1; do
+                (( SECONDS - start > 60 )) && { echo "FATAL: serper cache did not come up (missing SERPER_API_KEY?)" >&2
+                                                tail -20 "$LOGDIR/serper_cache.log" >&2; exit 1; }
+                sleep 3
+            done
+        fi
+        ;;
+    esac
+    echo "serper cache: $(curl -s -m 5 "$WS_BASE/stats")"
 fi
 
 # ---- gen server: co-generates the TRAINING tasks + rubrics (both arms) ------------

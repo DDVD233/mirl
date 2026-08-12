@@ -48,7 +48,7 @@ DRY="${DRY:-0}"
 # summarizer (see infer_box_state / revive_infer below) and holds GPU memory when HEALTHY,
 # which inverts every check written for a trainer.
 BOXES=("2335:infer:vllm::-"
-       "2336:7:arm7:_lookup:specgap_arm7_lookup_launch.log")
+       "2336:8:arm8:_websearch:specgap_arm8_websearch_launch.log")
 
 # The public endpoint the inference box must keep answering -- the same URL the retrieval
 # arm's SUMM_BASE names. Checked from HERE, not on the box, because what matters is not
@@ -213,7 +213,29 @@ revive_infer() {
 }
 
 EVIDENCE_PORT="${EVIDENCE_PORT:-8055}"
-EVIDENCE_BOX="${EVIDENCE_BOX:-2336}"
+# arm8 (solver web_search) runs WEB_EVIDENCE=0: nothing reads the evidence cache, so
+# nothing should resurrect it. Set EVIDENCE_BOX=2336 again if a lookup arm returns.
+EVIDENCE_BOX="${EVIDENCE_BOX:-none}"
+# The web-search arm's serper cache instead (kb/serper_cache_server.py). Same
+# rationale as the evidence cache: box_is_dead only watches the trainer, and with
+# the cache gone every web_search call degrades to "temporarily unavailable" while
+# the run reads as healthy. Probe TWICE with a generous timeout before declaring it
+# dead -- its event loop blocks during sqlite snapshots, and a single 8s probe
+# false-positived on the evidence cache on 2026-08-12.
+SERPER_BOX="${SERPER_BOX:-2336}"
+SERPER_PORT="${SERPER_PORT:-8056}"
+check_serper_cache() {
+    local port="$1"
+    sshx "$port" "curl -sf -m 20 localhost:$SERPER_PORT/healthz >/dev/null 2>&1 ||
+        { sleep 15; curl -sf -m 20 localhost:$SERPER_PORT/healthz >/dev/null 2>&1; }" && return 0
+    log "[$port] serper cache NOT answering on :$SERPER_PORT after 2 probes -- web_search" \
+        "is degrading to 'unavailable'; restarting it"
+    [ "$DRY" = "1" ] && { log "[$port] DRY RUN: would restart the serper cache"; return 0; }
+    sshx "$port" "cd $REPO && nohup /usr/local/bin/python \
+        scripts/self_evolving/kb/serper_cache_server.py --port $SERPER_PORT --restore \
+        >> $LOGDIR/serper_cache.log 2>&1 & sleep 10
+        curl -sf -m 8 localhost:$SERPER_PORT/healthz >/dev/null 2>&1 && echo ok || echo FAILED"
+}
 
 
 # Restart the evidence cache if it died under a LIVE trainer. box_is_dead only watches the
@@ -313,8 +335,9 @@ while :; do
         else
             [ "${STRIKES[$port]}" -ne 0 ] && log "[$port] recovered ($state)"
             STRIKES[$port]=0
-            # Trainer is fine; the cache service beside it may not be.
+            # Trainer is fine; the cache services beside it may not be.
             [ "$port" = "$EVIDENCE_BOX" ] && [ "$arm" != "infer" ] && check_evidence_cache "$port"
+            [ "$port" = "$SERPER_BOX" ] && [ "$arm" != "infer" ] && check_serper_cache "$port"
         fi
     done
 

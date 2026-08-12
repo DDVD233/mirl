@@ -69,6 +69,12 @@ logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 RETRIEVAL_TOOL_NAME = os.getenv("RETRIEVAL_TOOL_NAME", "search_medical_kb")
+# Optional second tool (WebSearchTool -> Serper). Only ACTIVE when the tool config
+# actually registers it; the name here just tells the loop which calls to execute
+# and count. KB and web calls share ONE search budget: the budget teaches "look
+# things up sparingly", and two separate allowances would double the spend the
+# moment the model learns to alternate tools.
+WEB_TOOL_NAME = os.getenv("WEB_SEARCH_TOOL_NAME", "web_search")
 
 # Markers that mean "the model is starting a tool call". Used as stop strings on the
 # answer turn (detector) and as bad_words on the retry (structural prevention).
@@ -93,6 +99,21 @@ RETRIEVE_INSTRUCTION = (
     "well-established facts you know even if absent from the passages, ask for missing "
     "context when ambiguous, and refuse unsafe requests. Never say 'the retrieved evidence "
     "does not contain...' about something you actually know."
+)
+
+# Appended to RETRIEVE_INSTRUCTION only when the web tool is registered. The KB is
+# embedded and ends in 2019; the web tool is the route to anything newer -- but it
+# returns raw search results (titles, links, snippets), not passages, so the model
+# must judge source reliability itself.
+WEB_INSTRUCTION = (
+    f" You also have a `{WEB_TOOL_NAME}` tool (one query per call) that searches the "
+    "live web and returns raw results — title, link, snippet. Use it instead of "
+    f"`{RETRIEVAL_TOOL_NAME}` for CURRENT information: guidelines revised or drugs "
+    "approved in the last few years, recalls, epidemiology, or anything the knowledge "
+    "base failed to find. Results are unfiltered web content: weigh each by its "
+    "source, prefer guidelines, journals and regulators, and never treat a snippet "
+    "from a low-quality site as fact. Both tools draw from the same total search "
+    "budget of {max_searches}."
 )
 
 # Delivered as a masked user turn after the last tool response.
@@ -161,6 +182,12 @@ def _final_answer_of(text: str) -> str:
 class RetrievalToolAgentLoop(ToolAgentLoop):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        # Which tool calls count as "a search" for budget/telemetry. The web tool
+        # joins only when the tool config registered it, so arms without it are
+        # byte-identical to before.
+        self.search_tool_names = {RETRIEVAL_TOOL_NAME}
+        if WEB_TOOL_NAME in getattr(self, "tools", {}):
+            self.search_tool_names.add(WEB_TOOL_NAME)
         self.answer_think_budget = int(os.getenv("VERL_THINK_BUDGET_TOKENS", "3072"))
         self.search_think_budget = int(os.getenv("VERL_SEARCH_THINK_BUDGET", "1024"))
         self.max_searches = int(os.getenv("VERL_MAX_SEARCHES", "2"))
@@ -273,6 +300,8 @@ class RetrievalToolAgentLoop(ToolAgentLoop):
     # ------------------------------------------------------------- generation
     def _inject_instruction(self, agent_data: AgentData) -> None:
         text = RETRIEVE_INSTRUCTION.format(max_searches=self.max_searches)
+        if WEB_TOOL_NAME in self.search_tool_names:
+            text += WEB_INSTRUCTION.format(max_searches=self.max_searches)
         msgs = agent_data.messages
         if msgs and msgs[0].get("role") == "system":
             c = msgs[0].get("content")
@@ -456,6 +485,7 @@ class RetrievalToolAgentLoop(ToolAgentLoop):
         stats = {
             "n_search": 0, "n_queries": 0, "retrieval_hits": 0, "retrieval_error": 0,
             "retrieval_truncated": 0, "answer_rescued": 0, "budget_exhausted": 0,
+            "n_web": 0,
         }
         contexts: list[str] = []
         queries: list[str] = []
@@ -486,7 +516,7 @@ class RetrievalToolAgentLoop(ToolAgentLoop):
             await self._generate_turn(agent_data, sp, think)
             text = self.tokenizer.decode(agent_data.prompt_ids[turn_start:])
             _, calls = await self.tool_parser.extract_tool_calls(agent_data.response_ids, tool_schemas)
-            search_calls = [c for c in calls if c.name == RETRIEVAL_TOOL_NAME]
+            search_calls = [c for c in calls if c.name in self.search_tool_names]
             # Textual fallback: a call cut short by the stop marker (or a bare
             # `<function=` with no `<tool_call>` wrapper) does not parse, but it is
             # still an attempt to search and still not an answer.
@@ -513,6 +543,9 @@ class RetrievalToolAgentLoop(ToolAgentLoop):
                 break
 
             stats["n_search"] += 1
+            stats["n_web"] += sum(
+                1 for c in search_calls[: self.max_parallel_calls] if c.name == WEB_TOOL_NAME
+            )
             tool_open = (stats["n_search"] < self.max_searches
                          and self._can_afford_search(agent_data))
             await self._run_tool_calls(

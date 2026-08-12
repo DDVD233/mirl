@@ -22,7 +22,7 @@ set -euo pipefail
 
 S=/scratch/sheng/self_evolving
 REPO=${REPO:-$S/verl_specgap}
-ARM="${ARM:?set ARM=1 fixed-prompt | 2 refine-loop | 3 evolve-only | 4 v1+selfjudge | 5 v3+selfjudge | 6 v2+selfjudge}"
+ARM="${ARM:?set ARM=1 fixed-prompt | 2 refine-loop | 3 evolve-only | 4 v1+selfjudge | 5 v3+selfjudge | 6 v2+selfjudge | 7 full+retrieval | 8 full+retrieval+solver-websearch}"
 
 # Where the self-judge arms get their 9B grader. server5 already serves Qwen3.5-9B on a
 # dedicated GPU, exposed through frp, so pointing at it keeps all four GPUs on the
@@ -142,7 +142,28 @@ case "$ARM" in
               # shared with the judge and the generator.
               WEB_EVIDENCE_CONCURRENCY="${WEB_EVIDENCE_CONCURRENCY:-32}")
      EXP_NAME=hb9b_specgap_full_retrieval ;;
-  *) echo "FATAL: ARM must be 1..7" >&2; exit 1 ;;
+  8) # ARM=7 WITH THE WEB PATH MOVED INTO THE SOLVER. Identical pipeline, but the
+     # GPT web lookup is OFF (WEB_EVIDENCE=0) and the solver instead carries its
+     # own `web_search` tool whose results come VERBATIM from the Serper API
+     # (kb/serper_cache_server.py; two-tool config medical_retrieval_web_tool.yaml).
+     # No external model touches the evidence path anywhere: /retrieve is
+     # Milvus + frozen-9B brief, web is raw SERP blocks for queries the policy
+     # itself writes -- so the search behaviour AND the reading of raw results
+     # both train, and no GPT assists answer production (audit 2026-08-12: the
+     # GPT lookup complied in practice, but compliance was prompt-enforced only).
+     #
+     # NOT single-factor vs ARM=7: the web pathway swap necessarily also removes
+     # the GENERATOR's web grounding of minted tasks (WEB_EVIDENCE gates both).
+     # Read arm7-vs-arm8 as "GPT-mediated web vs solver-native web", not as a
+     # controlled ablation of one line.
+     ARM_ENV=(RETRIEVAL=1 EVOLVE=1 SPEC_GAP=1 SPEC_GAP_SHIP=0 PROBE=1 PATCH=1
+              HACK_MEMO=1 HB_PROBE_MODE=gate HB_REFINE_MODE=rewrite
+              SUMM_BASE="$SUMM_DEDICATED" SUMM_FALLBACK_BASE="$SJUDGE_REMOTE"
+              SUMMARY_CONCURRENCY="${SUMMARY_CONCURRENCY:-320}"
+              WEB_EVIDENCE="${WEB_EVIDENCE:-0}"
+              WEB_SEARCH_TOOL=1)
+     EXP_NAME=hb9b_specgap_full_retrieval ;;
+  *) echo "FATAL: ARM must be 1..8" >&2; exit 1 ;;
 esac
 
 EXP_NAME="${EXP_NAME}${EXP_SUFFIX}"
