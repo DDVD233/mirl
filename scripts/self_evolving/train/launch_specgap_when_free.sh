@@ -163,7 +163,19 @@ case "$ARM" in
               WEB_EVIDENCE="${WEB_EVIDENCE:-0}"
               WEB_SEARCH_TOOL=1)
      EXP_NAME=hb9b_specgap_full_retrieval ;;
-  *) echo "FATAL: ARM must be 1..8" >&2; exit 1 ;;
+  9) # THE FIXED-PROMPT CONTROL FOR ARM=8. Same solver stack -- retrieval, the
+     # solver-native web_search tool, the same 9B, WEB_EVIDENCE off -- but the task
+     # prompt is FIXED: no evolution, no probe/patch, no hack memo. SPEC_GAP=1 stays
+     # because measurement is inert (ARM=1's rationale). Arm8 minus arm9 is the
+     # contribution of the evolving pipeline under the web-search stack; arm9 vs the
+     # completed lookup arms reads the web-pathway swap at fixed prompt.
+     ARM_ENV=(RETRIEVAL=1 EVOLVE=0 SPEC_GAP=1
+              SUMM_BASE="$SUMM_DEDICATED" SUMM_FALLBACK_BASE="$SJUDGE_REMOTE"
+              SUMMARY_CONCURRENCY="${SUMMARY_CONCURRENCY:-320}"
+              WEB_EVIDENCE="${WEB_EVIDENCE:-0}"
+              WEB_SEARCH_TOOL=1)
+     EXP_NAME=hb9b_specgap_measure_retrieval ;;
+  *) echo "FATAL: ARM must be 1..9" >&2; exit 1 ;;
 esac
 
 EXP_NAME="${EXP_NAME}${EXP_SUFFIX}"
