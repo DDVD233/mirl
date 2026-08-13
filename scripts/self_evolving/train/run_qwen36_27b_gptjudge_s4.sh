@@ -21,8 +21,10 @@
 # ~2000 req/60s global limit.
 set -xeuo pipefail
 
-REPO=/scratch/sheng/self_evolving/verl
-DATA_DIR=/scratch/sheng/self_evolving/mimiciv_rare
+# Overridable so the same recipe can run from another checkout -- on AICR the repo is
+# bind-mounted at $MSR/verl_specgap, not $MSR/verl. Defaults are unchanged.
+REPO="${REPO:-/scratch/sheng/self_evolving/verl}"
+DATA_DIR="${DATA_DIR:-/scratch/sheng/self_evolving/mimiciv_rare}"
 KEY=$(cat /scratch/sheng/self_evolving/.trapi_key)
 EXP="${EXP:-mimiciv_rare_qwen36_27b_gpt53judge}"
 JUDGE_MODEL="${JUDGE_MODEL:-gpt-5.3-chat_2026-03-03}"

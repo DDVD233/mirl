@@ -169,9 +169,20 @@ case "$ARM" in
      # because measurement is inert (ARM=1's rationale). Arm8 minus arm9 is the
      # contribution of the evolving pipeline under the web-search stack; arm9 vs the
      # completed lookup arms reads the web-pathway swap at fixed prompt.
+     # This arm lives on SERVER1 (2 GPUs), so its box-specific env is baked HERE,
+     # not passed at launch: the watchdog relaunches an arm with nothing but
+     # ARM+EXP_SUFFIX, and defaults tuned for a 4-GPU box would hand verl
+     # n_gpus_per_node=4 on a 2-GPU pod. Summarizer roles are SWAPPED vs arm8:
+     # primary is server5's single 9B (freed when the 27B pipeline stopped,
+     # already serving with the qwen3_coder parser), fallback is the 2335 DP=4
+     # box -- so the two arms do not burst into the same primary. Serper snapshot
+     # is per-arm: two boxes writing one snapshot file would alternate
+     # full-db overwrites.
      ARM_ENV=(RETRIEVAL=1 EVOLVE=0 SPEC_GAP=1
-              SUMM_BASE="$SUMM_DEDICATED" SUMM_FALLBACK_BASE="$SJUDGE_REMOTE"
-              SUMMARY_CONCURRENCY="${SUMMARY_CONCURRENCY:-320}"
+              N_GPUS="${N_GPUS:-2}"
+              SUMM_BASE="$SJUDGE_REMOTE" SUMM_FALLBACK_BASE="$SUMM_DEDICATED"
+              SUMMARY_CONCURRENCY="${SUMMARY_CONCURRENCY:-96}"
+              SEARCH_SNAPSHOT=/scratch/sheng/self_evolving/kb/search_cache_arm9.sqlite
               WEB_EVIDENCE="${WEB_EVIDENCE:-0}"
               WEB_SEARCH_TOOL=1)
      EXP_NAME=hb9b_specgap_measure_retrieval ;;

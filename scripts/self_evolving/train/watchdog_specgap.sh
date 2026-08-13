@@ -48,7 +48,8 @@ DRY="${DRY:-0}"
 # summarizer (see infer_box_state / revive_infer below) and holds GPU memory when HEALTHY,
 # which inverts every check written for a trainer.
 BOXES=("2335:infer:vllm::-"
-       "2336:8:arm8:_websearch:specgap_arm8_websearch_launch.log")
+       "2336:8:arm8:_websearch:specgap_arm8_websearch_launch.log"
+       "2333:9:arm9:_websearch:specgap_arm9_websearch_launch.log")
 
 # The public endpoint the inference box must keep answering -- the same URL the retrieval
 # arm's SUMM_BASE names. Checked from HERE, not on the box, because what matters is not
@@ -222,10 +223,13 @@ EVIDENCE_BOX="${EVIDENCE_BOX:-none}"
 # the run reads as healthy. Probe TWICE with a generous timeout before declaring it
 # dead -- its event loop blocks during sqlite snapshots, and a single 8s probe
 # false-positived on the evidence cache on 2026-08-12.
-SERPER_BOX="${SERPER_BOX:-2336}"
 SERPER_PORT="${SERPER_PORT:-8056}"
-check_serper_cache() {
-    local port="$1"
+check_serper_cache() {  # check_serper_cache <port> <arm>
+    local port="$1" arm="$2"
+    # Snapshot is PER ARM: two boxes writing one snapshot file would alternate
+    # full-db overwrites. arm8 keeps the original path its server already uses.
+    local snap=/scratch/sheng/self_evolving/kb/search_cache.sqlite
+    [ "$arm" = "9" ] && snap=/scratch/sheng/self_evolving/kb/search_cache_arm9.sqlite
     sshx "$port" "curl -sf -m 20 localhost:$SERPER_PORT/healthz >/dev/null 2>&1 ||
         { sleep 15; curl -sf -m 20 localhost:$SERPER_PORT/healthz >/dev/null 2>&1; }" && return 0
     log "[$port] serper cache NOT answering on :$SERPER_PORT after 2 probes -- web_search" \
@@ -233,6 +237,7 @@ check_serper_cache() {
     [ "$DRY" = "1" ] && { log "[$port] DRY RUN: would restart the serper cache"; return 0; }
     sshx "$port" "cd $REPO && nohup /usr/local/bin/python \
         scripts/self_evolving/kb/serper_cache_server.py --port $SERPER_PORT --restore \
+        --snapshot $snap \
         >> $LOGDIR/serper_cache.log 2>&1 & sleep 10
         curl -sf -m 8 localhost:$SERPER_PORT/healthz >/dev/null 2>&1 && echo ok || echo FAILED"
 }
@@ -335,9 +340,10 @@ while :; do
         else
             [ "${STRIKES[$port]}" -ne 0 ] && log "[$port] recovered ($state)"
             STRIKES[$port]=0
-            # Trainer is fine; the cache services beside it may not be.
+            # Trainer is fine; the cache services beside it may not be. Every
+            # websearch-arm box runs a serper cache, so probe them all.
             [ "$port" = "$EVIDENCE_BOX" ] && [ "$arm" != "infer" ] && check_evidence_cache "$port"
-            [ "$port" = "$SERPER_BOX" ] && [ "$arm" != "infer" ] && check_serper_cache "$port"
+            [ "$arm" != "infer" ] && check_serper_cache "$port" "$arm"
         fi
     done
 

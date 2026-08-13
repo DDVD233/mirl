@@ -19,6 +19,29 @@
 #      nine others. All ten are reproduced below; dropping any of them silently
 #      changes the config the run was training under.
 #
+# LOG-PROB MICRO-BATCH: 12288, which is max_prompt(8192) + max_response(4096).
+# That is a HARD FLOOR, not a tuning knob: rearrange_micro_batches asserts
+# max_token_len >= the longest ACTUAL sequence, so 8192 died with "Got
+# max_token_len=8192 and max_seq_len=8215" after 433 otherwise-healthy steps. The
+# memory that made 16384 OOM is fixed properly in transformer_impl.py instead --
+# the non-remove-padding branch now honors entropy_from_logits_with_chunking, which
+# it had been silently ignoring.
+#
+# (Historical note: 8192 was tried, down from the original 16384.) The first resume OOMed
+# in entropy_from_logits during the log-prob INFERENCE pass, asking for 52.54 GiB
+# with 21.76 free. At a ~152k vocab a single logits tensor for 16384 tokens is
+# ~10 GB in fp32 and the entropy op needs several of them at once. Note the
+# original run's ++actor.entropy_from_logits_with_chunking=True does NOT cover
+# this path -- it applies to the ACTOR UPDATE, while this OOM is in
+# compute_log_prob -> infer_batch, so the only lever that bites here is the
+# micro-batch length.
+#
+# STEP BUDGET: effectively unbounded by default. verl has no -1 sentinel; when
+# total_training_steps is set it simply wins over epochs*len(dataloader), and a
+# run that hits it exits as "finished" (which is how the 60-step spec-gap run
+# ended). warmup_style is null so the LR is constant -- a large budget does not
+# stretch any decay schedule, which is what would otherwise make this unsafe.
+#
 # resume_mode=auto picks up the latest checkpoint by itself. WANDB_RUN_ID is
 # pinned so the curve continues the existing run instead of starting a new one;
 # steps already logged before the crash are skipped by wandb and recording
@@ -34,6 +57,8 @@ cd "$REPO"
 WANDB_RUN_ID="${WANDB_RUN_ID:-555gr3yi}"
 export WANDB_RUN_ID WANDB_RESUME=allow
 export WANDB_API_KEY="${WANDB_API_KEY:-$(cat $S/.wandb_key_dvd)}"
+export TOTAL_STEPS="${TOTAL_STEPS:-1000000}"
+export TOTAL_EPOCHS="${TOTAL_EPOCHS:-10000}"
 export ACTOR_MODEL_PATH="${ACTOR_MODEL_PATH:-$S/checkpoints/self_evolving_medical/mimiciv_rare_qwen35_9b_sft_distill/global_step_90/actor/huggingface}"
 CKPT_DIR=$S/checkpoints/self_evolving_medical/mimiciv_rare_qwen35_9b_evolve_from_sft
 TEACHER_BASE="${TEACHER_BASE:-http://point.dd.works:18184/v1}"
@@ -73,8 +98,8 @@ exec bash scripts/self_evolving/train/run_qwen35_9b_evolve_from_sft.sh \
     +actor_rollout_ref.rollout.engine_kwargs.vllm.disable_custom_all_reduce=True \
     ++actor_rollout_ref.actor.entropy_from_logits_with_chunking=True \
     actor_rollout_ref.actor.ppo_max_token_len_per_gpu=12288 \
-    actor_rollout_ref.rollout.log_prob_max_token_len_per_gpu=16384 \
-    actor_rollout_ref.ref.log_prob_max_token_len_per_gpu=16384 \
+    actor_rollout_ref.rollout.log_prob_max_token_len_per_gpu="${LOGPROB_MAX_TOKEN_LEN:-12288}" \
+    actor_rollout_ref.ref.log_prob_max_token_len_per_gpu="${LOGPROB_MAX_TOKEN_LEN:-12288}" \
     ++reward.custom_reward_function.reward_kwargs.model_name="$TEACHER_MODEL" \
     actor_rollout_ref.rollout.val_kwargs.do_sample=True \
     actor_rollout_ref.rollout.val_kwargs.temperature=1.0 \

@@ -168,6 +168,9 @@ EVIDENCE_CACHE_DB="${EVIDENCE_CACHE_DB:-/root/evidence_cache.sqlite}"
 WEB_SEARCH_TOOL="${WEB_SEARCH_TOOL:-0}"
 WEB_SEARCH_URL="${WEB_SEARCH_URL:-http://localhost:8056/search}"
 SEARCH_CACHE_DB="${SEARCH_CACHE_DB:-/root/search_cache.sqlite}"
+# Per-ARM snapshot path: two boxes snapshotting to one file would alternate
+# full-db overwrites and each restore would silently lose the other's entries.
+SEARCH_SNAPSHOT="${SEARCH_SNAPSHOT:-/scratch/sheng/self_evolving/kb/search_cache.sqlite}"
 # Secrets (SERPER_API_KEY) live in the gitignored scripts/self_evolving/.env, or in
 # key files under /scratch on the pods (serper_cache_server --key_file fallback).
 if [ -f "$(dirname "$0")/../.env" ]; then set -a; . "$(dirname "$0")/../.env"; set +a; fi
@@ -217,7 +220,11 @@ export CHAT_PROVIDER=trapi
 export HF_HOME=$S/hf_cache
 export HF_HUB_OFFLINE=0 TRANSFORMERS_OFFLINE=0
 export RAY_ADDRESS=local
-export CUDA_VISIBLE_DEVICES=0,1,2,3
+# N_GPUS=2 runs the identical recipe on a 2-GPU pod (server1): global batch is
+# unchanged -- verl splits it across fewer ranks -- so gradient dynamics match the
+# 4-GPU arms and only wall-clock per step stretches.
+N_GPUS="${N_GPUS:-4}"
+export CUDA_VISIBLE_DEVICES="$(seq -s, 0 $((N_GPUS-1)))"
 export WANDB_MODE="${WANDB_MODE:-online}"
 export WANDB_API_KEY="${WANDB_API_KEY:?export WANDB_API_KEY first}"
 export VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS=600
@@ -486,6 +493,7 @@ if [ "$WEB_SEARCH_TOOL" = 1 ]; then
             WS_PORT="${WS_BASE##*:}"
             nohup /usr/local/bin/python scripts/self_evolving/kb/serper_cache_server.py \
                 --port "$WS_PORT" --db "$SEARCH_CACHE_DB" --restore \
+                --snapshot "$SEARCH_SNAPSHOT" \
                 >> "$LOGDIR/serper_cache.log" 2>&1 &
             start=$SECONDS
             until curl -sf -m 5 "$WS_BASE/healthz" >/dev/null 2>&1; do
@@ -728,7 +736,7 @@ fi
     actor_rollout_ref.rollout.log_prob_max_token_len_per_gpu="$LOGPROB_MAX_TOKEN_LEN" \
     actor_rollout_ref.ref.log_prob_max_token_len_per_gpu="$LOGPROB_MAX_TOKEN_LEN" \
     critic.enable=False \
-    trainer.n_gpus_per_node=4 \
+    trainer.n_gpus_per_node="$N_GPUS" \
     trainer.nnodes=1 \
     trainer.total_epochs=100 \
     trainer.total_training_steps="${STEPS:-60}" \
