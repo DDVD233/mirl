@@ -3451,6 +3451,7 @@ async def _patch_specs(state: ServerState, step: int, cases: list, n_groups) -> 
             continue
         feedback, outcome, case_applied = "", "mint_failed", False
         mode = "none"
+        case_criteria, case_gap_drops = 0, []
         for rnd in range(rounds):
             # The entry's rubric is live and grows as rounds apply; validate against
             # its current state so the item cap and duplicate checks see the truth.
@@ -3497,8 +3498,10 @@ async def _patch_specs(state: ServerState, step: int, cases: list, n_groups) -> 
                 break
             case_applied = True
             n_criteria += len(kept)
+            case_criteria += len(kept)
             for _, cand, ev in kept:
                 gap_drops.append(float(ev.get("gap_drop") or 0.0))
+                case_gap_drops.append(float(ev.get("gap_drop") or 0.0))
                 modes[mode] += 1
                 logger.warning("PATCHED spec %s (%s, round %d): [%+g] %s", qid, mode,
                                rnd + 1, float(cand["points"]),
@@ -3554,7 +3557,8 @@ async def _patch_specs(state: ServerState, step: int, cases: list, n_groups) -> 
         ledger.append({
             "step": int(step), "qid": qid, "mode": mode,
             "accepted": case_applied, "reason": outcome,
-            "n_criteria": n_criteria,
+            "n_criteria": case_criteria,
+            "gap_drop": (sum(case_gap_drops) / len(case_gap_drops)) if case_gap_drops else 0.0,
             "referee_margin": float(case.get("referee_margin") or 0.0),
             "source": str(case.get("source") or "exploit"),
         })
