@@ -2969,8 +2969,10 @@ The two "why" fields are recorded for audit and are NOT part of the acceptance d
 HACK_MINT_MULTI_SYSTEM = """\
 You repair a REWARD SPECIFICATION that was just exploited. A rubric scored answer A above \
 answer B; an independent referee that never saw the rubric judged B the better clinical answer. \
-The rubric is therefore wrong. Repair it with 1-3 NEW criteria, which may be NEGATIVE, \
-POSITIVE, or a mix:
+The rubric is therefore wrong. Repair it with 1-5 NEW criteria, which may be NEGATIVE, \
+POSITIVE, or a mix. Write as many as the contrast genuinely supports — every distinct piece of \
+checkable substance B supplied and A withheld deserves its own criterion, and denser criteria \
+are denser training signal — but never split one fact across two criteria to inflate the count:
 
 - A NEGATIVE criterion (-10..-5 points) names the mistake A made to earn points it did not \
 deserve: what a BAD response DOES. It is kept ONLY if the grader judges it MET on A and NOT \
