@@ -1322,7 +1322,7 @@ _GRADER_META = re.compile(
     r"the (?:response|answer|model|assistant|ai)\b)", re.I)
 
 
-def _valid_rubric(items) -> bool:
+def _valid_rubric(items, max_items: int = 6) -> bool:
     """1-6 objective items, points in [-10,10]\\{0}, >=1 positive.
 
     Shaped to real HealthBench-Professional rubrics (measured on the 525-item val
@@ -1330,8 +1330,13 @@ def _valid_rubric(items) -> bool:
     gate required 3-20 items AND at least one negative, which forced 100% negative
     coverage and ~7.5 criteria per task — the generator could not have produced a
     benchmark-shaped rubric even if asked to. A negative is now optional, so do NOT
-    reintroduce a has_neg requirement here."""
-    if not isinstance(items, list) or not (1 <= len(items) <= 6):
+    reintroduce a has_neg requirement here.
+
+    `max_items` stays 6 for freshly GENERATED rubrics (the distribution marginal the
+    controllers hold). Patched/densified rubrics pass HB_PATCHED_MAX_ITEMS instead:
+    a validated repair is not a distribution sample, and denser criteria are denser
+    reward signal."""
+    if not isinstance(items, list) or not (1 <= len(items) <= max_items):
         return False
     has_pos = False
     for it in items:
@@ -1845,7 +1850,19 @@ async def _rubric_iteration(state: ServerState, worker_id: int) -> None:
         entry = _build_entry_rubric(state, gen, knowledge, request)
         # ADVERSARIAL REFINEMENT: fix the specification before the solver ever sees
         # it. Runs before the SFT gold trace so a dropped spec never pays for one.
-        if _hb_probe_enabled() and random.random() < float(
+        #
+        # HB_REFINE_BACKGROUND=1 decouples refinement from admission: the entry is
+        # pooled immediately and the probe→patch chain runs as a background task,
+        # mutating the SAME dict in place — an unserved pooled copy hardens for
+        # free, and one that already went out re-serves through the replay buffer.
+        # This trades "every served spec is pre-hardened" for "generation never
+        # blocks on the adversary", which is the right trade at probe rate 1.0 with
+        # multi-round repair: the trainer must never starve on /sample because the
+        # farmer is slow. Never combined with dropping (the spec is already out),
+        # and never with SFT mode (the gold trace must match the FINAL task text).
+        _refine_bg = (os.environ.get("HB_REFINE_BACKGROUND", "0") == "1"
+                      and not state.args.sft_mode)
+        if _hb_probe_enabled() and not _refine_bg and random.random() < float(
                 os.environ.get("HB_PROBE_RATE", "0.34")):
             if not await _refine_spec(state, entry):
                 state.stats["total_rejected"] += 1
@@ -1877,6 +1894,9 @@ async def _rubric_iteration(state: ServerState, worker_id: int) -> None:
         # in-place criterion append hardens the pooled copy for free.
         _spec_index_put(state, entry)
         await state.pool.put(entry)
+        if _hb_probe_enabled() and _refine_bg and random.random() < float(
+                os.environ.get("HB_PROBE_RATE", "0.34")):
+            _spawn_background_refine(state, entry)
         _maybe_log_sample(entry, "gen_task")
         logger.info(
             f"+ gen_task[{use_case}/{specialty}/{mode}"
@@ -2946,6 +2966,156 @@ The two "why" fields are recorded for audit and are NOT part of the acceptance d
     "modes": HACK_MODES,
 }
 
+HACK_MINT_MULTI_SYSTEM = """\
+You repair a REWARD SPECIFICATION that was just exploited. A rubric scored answer A above \
+answer B; an independent referee that never saw the rubric judged B the better clinical answer. \
+The rubric is therefore wrong. Repair it with 1-3 NEW criteria, which may be NEGATIVE, \
+POSITIVE, or a mix:
+
+- A NEGATIVE criterion (-10..-5 points) names the mistake A made to earn points it did not \
+deserve: what a BAD response DOES. It is kept ONLY if the grader judges it MET on A and NOT \
+MET on B.
+- A POSITIVE criterion (+5..+10 points) names a piece of REAL CLINICAL SUBSTANCE that B \
+supplied and A withheld — a specific value, threshold, named entity, computed result, or \
+case-specific judgement. It is kept ONLY if the grader judges it MET on B and NOT MET on A. \
+Positive criteria are the stronger repair: they REQUIRE the knowledge whose absence made the \
+rubric farmable, where a negative can only forbid one phrasing of the evasion. Prefer at \
+least one positive whenever B actually contains such substance.
+
+Each criterion is applied mechanically to both answers by the same grader that scored them; \
+your reasoning is never part of acceptance. A criterion that fires on both answers, or on \
+neither, is discarded.
+
+HOW TO PHRASE EACH CRITERION — get this wrong and it is dropped before it is even tested:
+- Affirmative present tense, third person, ONE behaviour, 40-220 characters.
+- A negative describes THE MISTAKE ITSELF: "Recommends continuing metformin at an eGFR of 25". \
+NEVER an absence ("Does not ...", "Avoids ...", "Fails to ...") — the grader marks those MET \
+when the answer is CORRECT, so the penalty lands on good answers. Auto-rejected.
+- A positive describes THE SUBSTANCE ITSELF: "States the 2024 KDIGO eGFR threshold below which \
+metformin must stop, with the numeric value". Make it satisfiable ONLY by actually stating the \
+substance, never by naming its topic.
+- NEVER start with "The response", "The answer", "The model", "Penalise", "Deduct", "Award", \
+"Score" or "Mark". A criterion describes the response; it does not instruct the grader.
+- Target the BEHAVIOUR or the SUBSTANCE, not this answer's wording: it will grade every future \
+rollout of this task.
+
+Also classify the exploit with EXACTLY ONE label from %(modes)s. The label is bookkeeping and \
+never decides acceptance:
+- a real exploit you cannot name with any other label -> "other", AND STILL WRITE THE CRITERIA;
+- "none" ONLY when A genuinely earned its score. Then output an empty items list.
+
+Output ONLY a JSON object:
+{"mode": "<one label>",
+ "items": [{"criterion_text": "<criterion>", "points": <-10..-5 or +5..+10>,
+            "why_separates": "<=30 words"}, ...]}""" % {
+    "modes": HACK_MODES,
+}
+
+
+def _normalize_patch_case(c: dict) -> dict | None:
+    """Flatten a trainer exploit case into the shape the minter reads.
+
+    The trainer's pick_exploit/pick_discordant emit nested {"hacked": {...},
+    "preferred": {...}} sides; the refine loop builds the flat top_/better_ form
+    directly. Everything downstream (mint, validation, evidence log) reads the flat
+    form, so normalize here — this is also the fix for the silent shape mismatch
+    that would have minted from empty strings the first time shipping was enabled.
+    """
+    if not isinstance(c, dict):
+        return None
+    if "top_response" in c or "hacked" not in c:
+        return c
+    hacked = c.get("hacked") or {}
+    pref = c.get("preferred") or {}
+    out = dict(c)
+    out.update({
+        "top_response": str(hacked.get("response") or ""),
+        "better_response": str(pref.get("response") or ""),
+        "top_score": hacked.get("rubric_score"),
+        "better_score": pref.get("rubric_score"),
+        "item_results": hacked.get("item_results") or [],
+        "item_results_better": pref.get("item_results") or [],
+    })
+    return out
+
+
+async def _mint_patch_items(state: ServerState, case: dict, feedback: str = "",
+                            max_items: int | None = None) -> tuple[str, list[dict]]:
+    """One multi-criterion mint attempt: (mode, [candidate items]).
+
+    Candidates are NOT trusted here — each goes through validate_patch_criterion,
+    which is sign-aware. An empty list with mode "none" is a genuine decline.
+    """
+    cap = max_items if max_items is not None else int(
+        os.environ.get("HB_PATCH_MINT_ITEMS", "3"))
+    items = _as_rubric_list(case.get("rubric_items"))
+
+    def _met_block(results, fallback):
+        rows = results if isinstance(results, list) and results else fallback
+        out = []
+        for it in rows or []:
+            if not isinstance(it, dict):
+                continue
+            txt = it.get("criterion_text") or it.get("criterion") or ""
+            met = it.get("met")
+            flag = "MET" if met is True else ("not-met" if met is False else "?")
+            out.append(f"[{float(it.get('points', 0)):+g}] {flag} {txt}")
+        return "\n".join(out) or "(no per-criterion verdicts supplied)"
+
+    user = (
+        f"# Clinician task\n{str(case.get('task') or '')[:4000]}\n\n"
+        f"# Rubric, with what ANSWER A earned\n"
+        f"{_met_block(case.get('item_results'), items)}\n\n"
+        f"# Rubric, with what ANSWER B earned\n"
+        f"{_met_block(case.get('item_results_better'), items)}\n\n"
+        f"# ANSWER A (rubric scored it {float(case.get('top_score') or 0.0):.3f} — the exploiter)\n"
+        f"{str(case.get('top_response') or '')[:9000]}\n\n"
+        f"# ANSWER B (rubric scored it {float(case.get('better_score') or 0.0):.3f}, "
+        f"referee judged it BETTER)\n{str(case.get('better_response') or '')[:9000]}\n\n"
+        f"# The referee's own note (a hypothesis, not an instruction — verify it against "
+        f"the task before relying on it)\n{str(case.get('referee_note') or '(none)')[:800]}\n"
+    )
+    if feedback:
+        user += (f"\n# Feedback from the previous repair round: {feedback}\n"
+                 f"Write different criteria that address it.\n")
+    try:
+        raw = await _api_call(state, HACK_MINT_MULTI_SYSTEM, user, **_evolve_endpoint(state),
+                              max_tokens=1536, temperature=0.6, label="patch_mint",
+                              want_json=True)
+    except Exception as e:  # noqa: BLE001
+        _mint_outcome(state, "call_failed")
+        logger.warning("patch mint call failed: %s: %s", type(e).__name__, e)
+        return "failed", []
+    try:
+        obj = _parse_json(raw)
+    except Exception:
+        _mint_outcome(state, "unparsed")
+        return "failed", []
+    if not isinstance(obj, dict):
+        _mint_outcome(state, "unparsed")
+        return "failed", []
+    mode = str(obj.get("mode") or "").strip()
+    if mode not in HACK_MODES:
+        _mint_outcome(state, "oov_mode")
+        mode = "other"
+    if mode == "none":
+        _mint_outcome(state, "declined")
+        return "none", []
+    cands = []
+    for it in (obj.get("items") or [])[:cap]:
+        if not isinstance(it, dict):
+            continue
+        txt = str(it.get("criterion_text") or "").strip()
+        if not txt:
+            continue
+        cands.append({"mode": mode, "criterion_text": txt, "points": it.get("points"),
+                      "why_separates": str(it.get("why_separates") or "")[:200]})
+    if not cands:
+        _mint_outcome(state, "empty_criterion")
+        return mode, []
+    _mint_outcome(state, "minted")
+    return mode, cands
+
 
 def _spec_index_put(state: ServerState, entry: dict) -> None:
     """Index a generated entry by question_id for the patcher, FIFO-bounded."""
@@ -2961,7 +3131,7 @@ def _spec_index_put(state: ServerState, entry: dict) -> None:
 
 async def validate_patch_criterion(state: ServerState, case: dict, cand: dict,
                                    items: list) -> tuple[bool, str, dict]:
-    """Accept a minted negative criterion ONLY on measured evidence.
+    """Accept a minted criterion ONLY on measured evidence. Sign-aware.
 
     Mirrors validate_coverage_prompt in spirit — refuse to COMMIT a broken edit —
     but the decisive checks here are not textual: the criterion is GRADED against
@@ -2969,6 +3139,11 @@ async def validate_patch_criterion(state: ServerState, case: dict, cand: dict,
     accepts a criterion because a model said it was a good one. That is the whole
     defence against the drift that wrecked v5, whose evolver simply wrote
     "Eliminate all negative deductions" into the reward-defining prompt.
+
+    A NEGATIVE candidate must fire on the exploiting answer A and not on the better
+    answer B. A POSITIVE candidate is the mirrored repair — it names substance B
+    supplied and A withheld — so it must be MET on B and NOT MET on A. Both signs
+    go through the same grader; only the required direction flips.
     """
     ev: dict = {}
     text = str(cand.get("criterion_text") or "").strip()
@@ -2979,13 +3154,27 @@ async def validate_patch_criterion(state: ServerState, case: dict, cand: dict,
         return False, "structural", ev
     if not (40 <= len(text) <= 220):
         return False, "structural", ev
-    if not isinstance(pts, (int, float)) or not (-10 <= pts <= -5):
+    if not isinstance(pts, (int, float)) or not (5 <= abs(pts) <= 10):
         return False, "structural", ev
+    positive = float(pts) > 0
+    ev["sign"] = "positive" if positive else "negative"
     new_item = {"criterion_text": text, "points": float(pts), "patched": True}
-    if len(items) >= 6:
+    max_items = int(os.environ.get("HB_PATCHED_MAX_ITEMS", "6"))
+    if len(items) >= max_items:
         return False, "full", ev
-    if not _valid_rubric(list(items) + [new_item]):
+    if not _valid_rubric(list(items) + [new_item], max_items=max_items):
         return False, "structural", ev
+    # Duplicate guard: multi-round repair re-mints from a fresh contrast, and
+    # nothing else stops it re-writing last round's criterion in new words. A
+    # near-duplicate would double-pay one behaviour — reward-density inflation,
+    # not reward density.
+    cand_tri = _trigrams(text.lower())
+    for it in items:
+        old = str(it.get("criterion_text") or it.get("criterion") or "").lower()
+        old_tri = _trigrams(old)
+        denom = min(len(cand_tri), len(old_tri)) or 1
+        if text.lower() == old or len(cand_tri & old_tri) / denom > 0.6:
+            return False, "duplicate", ev
     # HB_NEG_DROP_PROB is deliberately NOT applied: it holds a distribution
     # marginal over freshly generated rubrics, and a measured, validated repair is
     # not a distribution sample.
@@ -3023,15 +3212,24 @@ async def validate_patch_criterion(state: ServerState, case: dict, cand: dict,
     # an ungradable verdict is a rubric edit justified by nothing.
     if met_top is None or met_better is None:
         return False, "ungradable", ev
-    if met_top is not True:
-        return False, "no_fire", ev
-    if met_better is not False:
-        return False, "fires_better", ev
+    if positive:
+        # Mirrored separation: a positive repair pays the substance B supplied.
+        if met_better is not True:
+            return False, "no_fire", ev
+        if met_top is not False:
+            return False, "fires_better", ev
+    else:
+        if met_top is not True:
+            return False, "no_fire", ev
+        if met_better is not False:
+            return False, "fires_better", ev
 
     # 3. honest-reference regression guard. The admission probe's honest answer was
     # written WITHOUT ever seeing this rubric, so a negative that fires on it is
     # over-broad or sign-confused whatever it did on the contrast pair. This is the
-    # one check the referee's judgement cannot contaminate.
+    # one check the referee's judgement cannot contaminate. For a POSITIVE candidate
+    # the honest verdict is recorded but non-blocking: a requirement the rubric-blind
+    # answer happens to miss raises difficulty, which is not a regression.
     if os.environ.get("HB_PATCH_CHECK_HONEST", "1") == "1":
         cached = (state.__dict__.get("probe_answers") or {}).get(case.get("question_id"))
         if cached and cached.get("honest"):
@@ -3039,7 +3237,7 @@ async def validate_patch_criterion(state: ServerState, case: dict, cand: dict,
                 v_h = await _grade_items(state, task, cached["honest"], [new_item],
                                          label="patch_grade", strict=True, votes=votes)
                 ev["met_honest"] = v_h[0][1]
-                if v_h[0][1] is not False:
+                if not positive and v_h[0][1] is not False:
                     return False, "fires_honest", ev
             except Exception as e:  # noqa: BLE001
                 logger.warning("patch honest check failed: %s: %s", type(e).__name__, e)
@@ -3156,8 +3354,12 @@ def _as_rubric_list(v) -> list:
     return []
 
 
-async def _apply_spec_patch(state: ServerState, qid: str, new_item: dict, ev: dict) -> str:
-    """Attach a validated negative to the task's rubric and re-serve the task."""
+async def _apply_spec_patch(state: ServerState, qid: str, new_items: dict | list,
+                            ev: dict) -> str:
+    """Attach validated criteria to the task's rubric and re-serve the task."""
+    batch = new_items if isinstance(new_items, list) else [new_items]
+    if not batch:
+        return "no_items"
     entry = (state.__dict__.get("spec_index") or {}).get(qid)
     if entry is None:
         return "unknown_qid"
@@ -3170,8 +3372,9 @@ async def _apply_spec_patch(state: ServerState, qid: str, new_item: dict, ev: di
         return "per_qid_cap"
 
     # In place, so the objects in history and (if unserved) the pool harden too:
-    # _rubric_iteration puts the SAME dict in all three containers.
-    items.append(new_item)
+    # _rubric_iteration puts the SAME dict in all three containers. One version
+    # bump per repair ROUND, not per criterion: the per-qid cap counts rounds.
+    items.extend(batch)
     ex["rubric_version"] = ver + 1
     ex.setdefault("patched_modes", []).append(str(ev.get("mode") or ""))
 
@@ -3192,7 +3395,9 @@ async def _apply_spec_patch(state: ServerState, qid: str, new_item: dict, ev: di
     # existing lever and /sample drains it first. Guarded because the buffer is
     # unbounded and drained ahead of the pool, so an unbounded patcher would starve
     # fresh generation.
-    if len(state.replay_buffer) < int(os.environ.get("HB_PATCH_REPLAY_MAX", "256")):
+    if any(e is entry for e in state.replay_buffer):
+        pass   # already queued for re-serve; the in-place edit reaches that copy
+    elif len(state.replay_buffer) < int(os.environ.get("HB_PATCH_REPLAY_MAX", "256")):
         state.replay_buffer.append(entry)
     else:
         state.stats["patch_replay_skipped_full"] = state.stats.get(
@@ -3201,20 +3406,32 @@ async def _apply_spec_patch(state: ServerState, qid: str, new_item: dict, ev: di
 
 
 async def _patch_specs(state: ServerState, step: int, cases: list, n_groups) -> dict:
-    """LOCAL repair round: mint, validate, attach, re-serve. Never raises."""
+    """On-policy repair: mint (+/- criteria), validate, attach, RE-ATTACK, repeat.
+
+    Per case, up to HB_PATCH_ROUNDS rounds of hack-then-patch: mint 1-3 candidate
+    criteria from the contrast, keep the ones that arithmetically separate the pair,
+    attach them, then send the FROZEN FARMER back at the patched rubric. If the
+    farmer still outscores the honest answer, its fresh exploit becomes the next
+    round's contrast — so every round patches the strongest attack currently known,
+    not the one the referee happened to see. Never raises.
+    """
     state.gen_step = max(state.gen_step, int(step))
     max_cases = int(os.environ.get("HB_PATCH_MAX_CASES", "8"))
     min_margin = float(os.environ.get("HB_PATCH_MIN_MARGIN", "0.25"))
     tries = int(os.environ.get("HB_PATCH_MINT_TRIES", "2"))
+    rounds = max(1, int(os.environ.get("HB_PATCH_ROUNDS", "1")))
+    delta = float(os.environ.get("HB_PROBE_DELTA", "0.20"))
 
     reasons: dict = defaultdict(int)
     modes: dict = defaultdict(int)
     ledger = state.__dict__.setdefault("hack_ledger", deque(maxlen=2000))
-    accepted, reserved, gap_drops = 0, [], []
+    accepted, n_criteria, reserved, gap_drops = 0, 0, [], []
+    n_mint_dead = 0
 
-    # Group by qid BEFORE minting so a task gets at most one patch per round.
+    # Group by qid BEFORE minting so a task gets at most one repair chain per round.
     by_qid: dict = {}
     for c in cases[:max_cases]:
+        c = _normalize_patch_case(c)
         if not isinstance(c, dict):
             continue
         if float(c.get("referee_margin") or 0.0) < min_margin:
@@ -3225,81 +3442,135 @@ async def _patch_specs(state: ServerState, step: int, cases: list, n_groups) -> 
             by_qid[qid] = c
 
     for qid, case in by_qid.items():
+        entry = (state.__dict__.get("spec_index") or {}).get(qid)
         items = _as_rubric_list(case.get("rubric_items"))
         if not items:
-            entry = (state.__dict__.get("spec_index") or {}).get(qid)
             items = _as_rubric_list((entry or {}).get("extra_info", {}).get("rubric_items"))
         if not items:
             reasons["no_rubric"] += 1
             continue
-        feedback, outcome, cand, ev = "", "mint_failed", None, {}
-        for _ in range(max(1, tries)):
-            cand = await _mint_negative(state, case, feedback=feedback)
-            if cand is None:
-                outcome = "mint_failed"
-                break
-            # Snapshot before _apply_spec_patch: when the rubric came from the pooled
-            # entry rather than the HTTP payload, `items` IS the entry's live list and
-            # the apply appends to it in place.
+        feedback, outcome, case_applied = "", "mint_failed", False
+        mode = "none"
+        for rnd in range(rounds):
+            # The entry's rubric is live and grows as rounds apply; validate against
+            # its current state so the item cap and duplicate checks see the truth.
+            if entry is not None:
+                items = _as_rubric_list((entry.get("extra_info") or {}).get("rubric_items")) \
+                    or items
             _pre_patch_items = [dict(it) for it in items]
-            ok, outcome, ev = await validate_patch_criterion(state, case, cand, items)
-            if ok:
+            kept: list = []
+            for _ in range(max(1, tries)):
+                mode, cands = await _mint_patch_items(state, case, feedback=feedback)
+                if mode == "failed":
+                    outcome = "mint_failed"
+                    break
+                if not cands:
+                    outcome = "declined" if mode == "none" else "empty_mint"
+                    break
+                rejects = []
+                for cand in cands:
+                    ok, reason, ev = await validate_patch_criterion(state, case, cand, items)
+                    reasons[f"item_{reason}"] += 1
+                    if ok:
+                        kept.append((
+                            {"criterion_text": cand["criterion_text"],
+                             "points": float(cand["points"]), "patched": True},
+                            cand, ev))
+                        # keep `items` in sync so the next candidate's cap/duplicate
+                        # validation sees what this round already accepted
+                        items = items + [kept[-1][0]]
+                    else:
+                        rejects.append(f"{cand['criterion_text'][:80]!r} -> {reason}")
+                if kept:
+                    outcome = "ok"
+                    break
+                feedback = "all candidates rejected: " + "; ".join(rejects[:4])
+                outcome = "no_valid_item"
+            if not kept:
+                if outcome == "mint_failed":
+                    n_mint_dead += 1
                 break
-            feedback = outcome
-        if cand is not None and outcome == "ok":
-            new_item = {"criterion_text": cand["criterion_text"],
-                        "points": float(cand["points"]), "patched": True}
-            ev["mode"] = cand["mode"]
-            applied = await _apply_spec_patch(state, qid, new_item, ev)
-            if applied == "ok":
-                accepted += 1
-                reserved.append(qid)
-                gap_drops.append(float(ev.get("gap_drop") or 0.0))
-                modes[cand["mode"]] += 1
-                logger.warning("PATCHED spec %s (%s): [%+g] %s", qid, cand["mode"],
-                               new_item["points"], new_item["criterion_text"][:110])
-            else:
+            applied = await _apply_spec_patch(state, qid, [it for it, _, _ in kept],
+                                              {"mode": mode})
+            if applied != "ok":
                 outcome = applied
-        reasons[outcome] += 1
-        # Rejected cases still carry the mode label: the global memo must learn
-        # from exploits that could not be locally repaired.
-        if cand is not None:
-            modes.setdefault(cand["mode"], 0)
-        ledger.append({
-            "step": int(step), "qid": qid, "mode": (cand or {}).get("mode", "none"),
-            "accepted": outcome == "ok", "reason": outcome,
-            "criterion_text": (cand or {}).get("criterion_text", ""),
-            "referee_margin": float(case.get("referee_margin") or 0.0),
-            "gap_drop": float(ev.get("gap_drop") or 0.0),
-            "met_top": ev.get("met_top"), "met_better": ev.get("met_better"),
-            "met_honest": ev.get("met_honest"),
-        })
-        async with state.log_lock:
-            with open(_patch_log_path(state), "a") as f:
-                f.write(json.dumps({"ts": datetime.now().isoformat(), "step": int(step),
-                                    "question_id": qid, "candidate": cand, "evidence": ev,
-                                    "outcome": outcome, "case": {
-                                        k: case.get(k) for k in
-                                        ("task", "referee_margin", "referee_note",
-                                         "top_score", "better_score")}}) + "\n")
-        # Same reasoning as the refine loop: the two ANSWERS are the evidence, and this
-        # ledger records only the verdict. On-policy exploits come with a contrast the
-        # trainer already paid for, so writing it costs nothing and cannot be rebuilt
-        # later.
-        if outcome == "ok" and cand is not None:
+                break
+            case_applied = True
+            n_criteria += len(kept)
+            for _, cand, ev in kept:
+                gap_drops.append(float(ev.get("gap_drop") or 0.0))
+                modes[mode] += 1
+                logger.warning("PATCHED spec %s (%s, round %d): [%+g] %s", qid, mode,
+                               rnd + 1, float(cand["points"]),
+                               cand["criterion_text"][:110])
             await _log_patch_evidence(
                 state, qid=qid, step=int(step), task=str(case.get("task") or ""),
-                original_items=_pre_patch_items, candidate=cand, evidence=ev,
+                original_items=_pre_patch_items,
+                candidate={"mode": mode, "round": rnd + 1,
+                           "items": [it for it, _, _ in kept]},
+                evidence={"per_item": [ev for _, _, ev in kept]},
                 exploit_answer=str(case.get("top_response") or ""),
                 honest_answer=str(case.get("better_response") or ""),
                 scores={"exploit_score_original": case.get("top_score"),
                         "honest_score_original": case.get("better_score"),
                         "referee_margin": case.get("referee_margin")},
-                source="on_policy_exploit")
+                source="on_policy_exploit" if rnd == 0 else "reattack_round")
+
+            # HACK step: the frozen farmer re-attacks the PATCHED specification.
+            # Only worth paying for if another patch round could follow.
+            if entry is None or rnd >= rounds - 1:
+                break
+            probe = await _probe_admission(state, entry)
+            state.stats["patch_reattacks"] = state.stats.get("patch_reattacks", 0) + 1
+            if "sep" not in probe:
+                break  # unmeasurable: keep what was applied, stop iterating
+            if float(probe["sep"]) >= delta:
+                state.stats["patch_sealed"] = state.stats.get("patch_sealed", 0) + 1
+                logger.warning("SEALED spec %s after round %d: honest %.2f > farm %.2f",
+                               qid, rnd + 1, probe["s_honest"], probe["s_farm"])
+                break
+            # Farmer still wins: its fresh exploit is the next round's contrast.
+            case = {**case,
+                    "top_response": probe.get("farm_answer", ""),
+                    "better_response": probe.get("honest_answer", ""),
+                    "top_score": probe.get("s_farm", 0.0),
+                    "better_score": probe.get("s_honest", 0.0),
+                    "item_results": [], "item_results_better": [],
+                    "rubric_items": _as_rubric_list(
+                        (entry.get("extra_info") or {}).get("rubric_items")),
+                    "referee_note": (
+                        f"after round {rnd + 1}'s patch the frozen farmer RE-ATTACKED "
+                        f"this rubric and still outscored the honest answer "
+                        f"({probe.get('s_farm', 0):.2f} vs {probe.get('s_honest', 0):.2f}); "
+                        f"this is its new exploit")}
+            feedback = ("the previously patched criteria did not stop the farmer's "
+                        "re-attack; target what THIS new exploit withholds")
+        if case_applied:
+            accepted += 1
+            reserved.append(qid)
+        reasons[outcome] += 1
+        if mode not in ("none", "failed"):
+            modes.setdefault(mode, 0)
+        ledger.append({
+            "step": int(step), "qid": qid, "mode": mode,
+            "accepted": case_applied, "reason": outcome,
+            "n_criteria": n_criteria,
+            "referee_margin": float(case.get("referee_margin") or 0.0),
+            "source": str(case.get("source") or "exploit"),
+        })
+        async with state.log_lock:
+            with open(_patch_log_path(state), "a") as f:
+                f.write(json.dumps({"ts": datetime.now().isoformat(), "step": int(step),
+                                    "question_id": qid, "outcome": outcome,
+                                    "applied": case_applied, "mode": mode, "case": {
+                                        k: case.get(k) for k in
+                                        ("task", "referee_margin", "referee_note",
+                                         "top_score", "better_score", "source")}}) + "\n")
 
     n_cases = len(by_qid)
     out = {"step": int(step), "n_cases": n_cases, "n_accepted": accepted,
-           "n_rejected": n_cases - accepted, "reasons": dict(reasons),
+           "n_rejected": n_cases - accepted, "n_criteria": n_criteria,
+           "reasons": dict(reasons),
            "modes": dict(modes), "reserved": reserved,
            "mean_gap_drop": (sum(gap_drops) / len(gap_drops)) if gap_drops else 0.0}
     if n_groups:
@@ -3307,7 +3578,7 @@ async def _patch_specs(state: ServerState, step: int, cases: list, n_groups) -> 
     # Marker plumbing, same as EVOLVE_FAILING: a dead patcher must never
     # masquerade as a running experiment.
     marker = os.path.join(state.args.log_dir, "PATCH_FAILING")
-    if n_cases and accepted == 0 and reasons.get("mint_failed", 0) == n_cases:
+    if n_cases and accepted == 0 and n_mint_dead == n_cases:
         state.patch_consec_failures = getattr(state, "patch_consec_failures", 0) + 1
         logger.error("/patch_spec: ALL %d mints failed (%d consecutive) — patcher model "
                      "unreachable?", n_cases, state.patch_consec_failures)
@@ -3357,10 +3628,14 @@ async def _log_patch_evidence(state: ServerState, *, qid: str, step: int, task: 
         # The rubric as it stood BEFORE the append: the "original" half of the contrast.
         "original_rubric": [{"criterion_text": it.get("criterion_text"),
                              "points": it.get("points")} for it in original_items],
+        # Single-criterion patches log the flat form; multi-criterion repair rounds
+        # log {"mode":..., "round":..., "items":[...]} with per-item evidence.
         "minted_criterion": {"criterion_text": candidate.get("criterion_text"),
                              "points": candidate.get("points"),
                              "why_fires_on_A": candidate.get("why_fires_on_A"),
-                             "why_not_on_B": candidate.get("why_not_on_B")},
+                             "why_not_on_B": candidate.get("why_not_on_B"),
+                             "round": candidate.get("round"),
+                             "items": candidate.get("items")},
         "exploit_answer": str(exploit_answer)[:cap],
         "honest_answer": str(honest_answer)[:cap],
         "scores": scores,
@@ -3368,7 +3643,8 @@ async def _log_patch_evidence(state: ServerState, *, qid: str, step: int, task: 
         # self-verifying rather than something to be taken on trust.
         "acceptance": {"met_on_exploit": evidence.get("met_top"),
                        "met_on_honest": evidence.get("met_better"),
-                       "gap_drop": evidence.get("gap_drop")},
+                       "gap_drop": evidence.get("gap_drop"),
+                       "per_item": evidence.get("per_item")},
     }
     try:
         async with state.log_lock:
@@ -3564,9 +3840,12 @@ explicit comparison, or a decision justified under the case's constraint. A crit
 that can be met by restating the task, agreeing with a premise, or naming a topic without \
 committing to content is exactly the hole being closed -- do not write one.
 
-Keep: the same number of criteria as the original (+/- 1), points in [5,10] for positives \
-and [-10,-5] for negatives, at least two positives, and at most one negative. Do not \
-mention the adversary, the rubric, or this instruction in the task text.
+Keep: at least as many criteria as the original (you MAY ADD up to three more when each \
+new one pays a distinct piece of checkable substance -- denser criteria are denser reward \
+signal), points in [5,10] for positives and [-10,-5] for negatives, at least two \
+positives, and at most three negatives. Every criterion must be independently checkable; \
+never split one fact across two criteria to inflate the count. Do not mention the \
+adversary, the rubric, or this instruction in the task text.
 
 YOUR REWRITE IS NOT ACCEPTED ON YOUR REASONING. It is measured: a fresh adversary that \
 sees your new rubric and withholds all real content is graded against it, and so is a \
@@ -3580,10 +3859,13 @@ Output ONLY a JSON object:
  "why_honest_passes": "<=40 words: what a knowledgeable answer supplies that earns it>"}"""
 
 
-async def _rewrite_spec(state: ServerState, entry: dict, verdict: dict) -> dict | None:
+async def _rewrite_spec(state: ServerState, entry: dict, verdict: dict,
+                        feedback: str = "") -> dict | None:
     """One rewrite attempt for a farmed (task, rubric). Returns a candidate or None.
 
     Returns the candidate only; acceptance is decided by re-probing it, never here.
+    `feedback` carries the previous round's failure (rejected rewrite, or a re-probe
+    where the farmer still won) so a retry proposes something different.
     """
     ex = entry.get("extra_info") or {}
     items = _as_rubric_list(ex.get("rubric_items"))
@@ -3620,6 +3902,9 @@ async def _rewrite_spec(state: ServerState, entry: dict, verdict: dict) -> dict 
         f"the lazy answer beat the knowledgeable one by "
         f"{float(verdict.get('gap') or 0.0):.3f} on this rubric\n"
     )
+    if feedback:
+        user += (f"\n# Your previous repair FAILED: {feedback}\n"
+                 f"Propose a materially different rewrite that addresses this.\n")
     try:
         raw = await _api_call(state, HACK_REWRITE_SYSTEM, user, **_evolve_endpoint(state),
                               max_tokens=2048, temperature=0.6, label="spec_rewrite",
@@ -3650,21 +3935,25 @@ async def _rewrite_spec(state: ServerState, entry: dict, verdict: dict) -> dict 
         if txt:
             new_items.append({"criterion_text": txt, "points": pts})
 
-    # Structural gate, cheap and before any grading. Same shape invariants the marginal
-    # controllers depend on, so a rewrite cannot quietly change the corpus distribution.
+    # Structural gate, cheap and before any grading. Growth is ALLOWED (denser
+    # criteria are denser reward signal) but bounded, so a rewrite cannot quietly
+    # explode the corpus distribution; shrinking below the original stays capped
+    # at one, as before.
+    max_items = int(os.environ.get("HB_PATCHED_MAX_ITEMS", "6"))
+    max_grow = int(os.environ.get("HB_REWRITE_MAX_GROW", "3"))
     pos = [it for it in new_items if it["points"] > 0]
     neg = [it for it in new_items if it["points"] < 0]
-    if len(q) < 80 or len(new_items) < 2 or len(pos) < 2 or len(neg) > 1:
+    if len(q) < 80 or len(new_items) < 2 or len(pos) < 2 or len(neg) > 3:
         _mint_outcome(state, "rewrite_structural")
         return None
-    if abs(len(new_items) - len(items)) > 1:
+    if (len(new_items) - len(items)) > max_grow or (len(items) - len(new_items)) > 1:
         _mint_outcome(state, "rewrite_structural")
         return None
     if any(not (5.0 <= it["points"] <= 10.0) for it in pos) or \
        any(not (-10.0 <= it["points"] <= -5.0) for it in neg):
         _mint_outcome(state, "rewrite_structural")
         return None
-    if not _valid_rubric(new_items):
+    if not _valid_rubric(new_items, max_items=max_items):
         _mint_outcome(state, "rewrite_structural")
         return None
     _mint_outcome(state, "rewrite_proposed")
@@ -3900,6 +4189,9 @@ def hack_stats(state: ServerState) -> dict:
     return {"n": len(led), "n_accepted": len(acc),
             "accept_rate": len(acc) / len(led),
             "modes": dict(modes), "reasons": dict(reasons),
+            "n_criteria": sum(int(r.get("n_criteria") or 0) for r in led),
+            "reattacks": int(state.stats.get("patch_reattacks", 0)),
+            "sealed": int(state.stats.get("patch_sealed", 0)),
             "mean_gap_drop": (sum(float(r.get("gap_drop") or 0.0) for r in acc) / len(acc))
             if acc else 0.0}
 
@@ -4599,10 +4891,18 @@ async def _refine_spec(state: ServerState, entry: dict) -> bool:
     task = _render_conversation_user((entry.get("extra_info") or {}).get("conversation") or [])
     n_patched = 0
     verdict: dict = {}
+    entry_changed = True   # only re-probe after the entry actually changed
+    rw_feedback = ""
+    # Best measured-but-not-admitted rewrite since the last adoption: a candidate
+    # that improved separation without crossing the bar. Adopted at the end if the
+    # spec is still farmable — "patch always when the farmer wins", best effort.
+    best_rw: tuple | None = None   # (sep_after, gain, rw, probe)
 
     for attempt in range(rounds + 1):
-        verdict = await _probe_admission(state, entry)
-        _note_probe(state, entry, verdict, n_patched=n_patched)
+        if entry_changed:
+            verdict = await _probe_admission(state, entry)
+            _note_probe(state, entry, verdict, n_patched=n_patched)
+            entry_changed = False
         if verdict.get("admit") or "sep" not in verdict:
             # Admitted, or unmeasurable (probe outage, ungradable, farmer scored
             # nothing) -- in both cases there is nothing to repair from.
@@ -4641,39 +4941,47 @@ async def _refine_spec(state: ServerState, entry: dict) -> bool:
             # two-sided by construction -- the knowledgeable answer must go UP relative to
             # the adversary's -- which is the objective the patch path could only ever
             # approach from one direction.
-            rw = await _rewrite_spec(state, entry, verdict)
+            rw = await _rewrite_spec(state, entry, verdict, feedback=rw_feedback)
             if rw is None:
-                break
+                rw_feedback = ("the previous rewrite was rejected before measurement "
+                               "(structurally invalid or unparseable)")
+                continue
             probe = await _probe_admission(state, _candidate_entry(entry, rw))
             if "sep" not in probe:
                 # The rewrite could not be measured (probe outage, ungradable, farmer
                 # scored nothing). Unmeasured is not accepted: keep the original.
                 _mint_outcome(state, "rewrite_unmeasured")
-                break
+                continue
             gain = float(probe["sep"]) - float(verdict.get("sep") or 0.0)
             min_gain = float(os.environ.get("HB_REWRITE_MIN_GAIN", "0.15"))
             min_h = float(os.environ.get("HB_PROBE_MIN_HONEST", "0.15"))
             max_h = float(os.environ.get("HB_PROBE_MAX_HONEST", "0.92"))
             s_h = float(probe.get("s_honest") or 0.0)
+            in_band = (min_h <= s_h <= max_h)
+            if in_band and gain > 0 and (best_rw is None or float(probe["sep"]) > best_rw[0]):
+                best_rw = (float(probe["sep"]), gain, rw, probe)
             if gain < min_gain:
                 _mint_outcome(state, "rewrite_no_gain")
-                break
-            if not (min_h <= s_h <= max_h):
+                rw_feedback = (
+                    f"your rewrite did not separate: the fresh adversary still scored "
+                    f"{float(probe.get('s_farm') or 0.0):.2f} vs the knowledgeable "
+                    f"answer's {s_h:.2f} (separation moved {gain:+.2f}). The positive "
+                    f"criteria are still satisfiable without real knowledge")
+                continue
+            if not in_band:
                 # Separation bought by making the task trivial or impossible is not a
                 # repair; it is difficulty drift wearing a repair's clothes.
                 _mint_outcome(state, "rewrite_out_of_band")
-                break
-            ex = entry.setdefault("extra_info", {})
-            conv = _candidate_entry(entry, rw)["extra_info"]
-            ex["conversation"] = conv["conversation"]
-            ex["question"] = conv["question"]
-            ex["rubric_items"] = conv["rubric_items"]
-            ex["rubric_version"] = int(ex.get("rubric_version", 0)) + 1
-            ex.setdefault("rewrites", []).append(
-                {"gain": round(gain, 4), "sep_before": round(float(verdict.get("sep") or 0.0), 4),
-                 "sep_after": round(float(probe["sep"]), 4),
-                 "s_honest": round(s_h, 4), "s_farm": round(float(probe.get("s_farm") or 0.0), 4)})
+                rw_feedback = (
+                    f"your rewrite drifted in difficulty: the rubric-blind answer "
+                    f"scored {s_h:.2f}, outside the [{min_h:.2f}, {max_h:.2f}] band. "
+                    f"Keep the task at the original difficulty")
+                continue
+            _adopt_rewrite(entry, rw, verdict, probe, gain)
             n_patched += 1
+            entry_changed = True
+            rw_feedback = ""
+            best_rw = None   # candidates were measured against the pre-adoption spec
             _mint_outcome(state, "rewrite_accepted")
             state.stats["refine_rewritten"] = state.stats.get("refine_rewritten", 0) + 1
             logger.warning("~ REWROTE spec %s: sep %.3f -> %.3f (+%.3f), honest %.2f farm %.2f",
@@ -4715,8 +5023,24 @@ async def _refine_spec(state: ServerState, entry: dict) -> bool:
         logger.info("~ refining spec %s (%s): +[%+g] %s", qid, cand["mode"],
                     cand["points"], cand["criterion_text"][:100])
 
-    # Still farmable after the budget. Dropping is the honest action, but only when
-    # the pool can afford it -- see _hb_probe_gating.
+    # Still farmable after the budget. Before conceding, adopt the BEST measured
+    # rewrite that improved separation at all, even below the admission bar: when
+    # the farmer wins, an imperfect patch beats no patch — the spec is served either
+    # way, so refusing the improvement just serves the more farmable version.
+    if best_rw is not None and os.environ.get("HB_REWRITE_BEST_EFFORT", "1") == "1":
+        sep_after, gain, rw, probe = best_rw
+        _adopt_rewrite(entry, rw, verdict, probe, gain)
+        n_patched += 1
+        _mint_outcome(state, "rewrite_best_effort")
+        state.stats["refine_rewritten_best_effort"] = state.stats.get(
+            "refine_rewritten_best_effort", 0) + 1
+        logger.warning("~ BEST-EFFORT rewrite for spec %s: sep %.3f -> %.3f (+%.3f), "
+                       "still farmable but improved",
+                       qid, float(verdict.get("sep") or 0.0), sep_after, gain)
+        return True
+
+    # Dropping is the honest action, but only when the pool can afford it -- see
+    # _hb_probe_gating.
     state.stats["refine_unfixed"] = state.stats.get("refine_unfixed", 0) + 1
     if _hb_probe_gating() and not _refine_starving(state):
         logger.info("~ DROPPED farmable spec %s (%s): honest=%.2f farm=%.2f after %d patch(es)",
@@ -4724,6 +5048,71 @@ async def _refine_spec(state: ServerState, entry: dict) -> bool:
                     verdict.get("s_farm", 0.0), n_patched)
         return False
     return True
+
+
+def _adopt_rewrite(entry: dict, rw: dict, verdict: dict, probe: dict, gain: float) -> None:
+    """Commit a measured rewrite into the live entry, in place.
+
+    In place matters: _rubric_iteration puts the SAME dict into the pool, history
+    and the spec index, so this mutation hardens every unserved copy at once.
+    """
+    ex = entry.setdefault("extra_info", {})
+    conv = _candidate_entry(entry, rw)["extra_info"]
+    ex["conversation"] = conv["conversation"]
+    ex["question"] = conv["question"]
+    ex["rubric_items"] = conv["rubric_items"]
+    ex["rubric_version"] = int(ex.get("rubric_version", 0)) + 1
+    ex.setdefault("rewrites", []).append(
+        {"gain": round(float(gain), 4),
+         "sep_before": round(float(verdict.get("sep") or 0.0), 4),
+         "sep_after": round(float(probe.get("sep") or 0.0), 4),
+         "s_honest": round(float(probe.get("s_honest") or 0.0), 4),
+         "s_farm": round(float(probe.get("s_farm") or 0.0), 4)})
+
+
+def _spawn_background_refine(state: ServerState, entry: dict) -> None:
+    """Run the probe→patch chain as a background task; never blocks admission.
+
+    The entry is already pooled (and possibly already served). Repair mutates the
+    shared dict in place, so an unserved pooled copy hardens automatically; if the
+    spec was served before the chain finished, the patched version is queued for a
+    replay re-serve — the only channel through which a patch can still reach future
+    rollouts of that task. Dropping is impossible by construction here, which is
+    consistent with the always-patch policy: the refine loop's return value is
+    ignored and a still-farmable spec simply stays served in its best-effort form.
+
+    Backlog is bounded: beyond HB_REFINE_BG_MAX in-flight chains, new specs skip
+    refinement (counted) rather than queueing without limit — probe_sem already
+    caps API concurrency, so an unbounded task set would only grow latency until
+    every patch arrived after its spec was consumed.
+    """
+    tasks = state.__dict__.setdefault("refine_bg_tasks", set())
+    cap = int(os.environ.get("HB_REFINE_BG_MAX", "24"))
+    if len(tasks) >= cap:
+        state.stats["refine_bg_skipped"] = state.stats.get("refine_bg_skipped", 0) + 1
+        return
+
+    qid = (entry.get("extra_info") or {}).get("question_id", "")
+
+    async def _chain():
+        ver0 = int((entry.get("extra_info") or {}).get("rubric_version", 0))
+        try:
+            await _refine_spec(state, entry)
+        except Exception as e:  # noqa: BLE001 — a refine outage must stay invisible
+            logger.warning("background refine failed for %s: %s: %s",
+                           qid, type(e).__name__, e)
+            return
+        ver1 = int((entry.get("extra_info") or {}).get("rubric_version", 0))
+        if ver1 > ver0 and qid in (state.__dict__.get("served_qids") or {}):
+            # Patched after the spec went out: only a re-serve carries the repair.
+            if len(state.replay_buffer) < int(os.environ.get("HB_PATCH_REPLAY_MAX", "256")):
+                state.replay_buffer.append(entry)
+                state.stats["refine_bg_reserved"] = state.stats.get(
+                    "refine_bg_reserved", 0) + 1
+
+    t = asyncio.get_running_loop().create_task(_chain())
+    tasks.add(t)
+    t.add_done_callback(tasks.discard)
 
 
 def _refine_mode() -> str:
@@ -5437,6 +5826,12 @@ async def stats():
 
 def _log_served(s, entry: dict, source: str) -> None:
     qid = (entry.get("extra_info") or {}).get("question_id", "?")
+    # Background refinement needs to know whether a spec it just repaired already
+    # went out the door: if so, only a replay re-serve can carry the patch.
+    served = s.__dict__.setdefault("served_qids", OrderedDict())
+    served[qid] = True
+    while len(served) > 20000:
+        served.popitem(last=False)
     logger.info(
         f"- served qid={qid} from={source} "
         f"pool=({s.pool.qsize()}/{s.args.max_pool_size}) "
@@ -5710,18 +6105,37 @@ async def patch_spec(payload: PatchPayload):
         return {"step": payload.step, "n_cases": 0, "skipped": "HB_PATCH=0"}
     if not payload.cases:
         return {"step": payload.step, "n_cases": 0, "skipped": "no cases"}
-    async with s.patch_lock:
-        try:
-            return await asyncio.wait_for(
-                _patch_specs(s, payload.step, payload.cases, payload.n_groups),
-                timeout=float(os.environ.get("HB_PATCH_TIMEOUT", "600")),
-            )
-        except asyncio.TimeoutError:
-            logger.error("/patch_spec timed out; rubrics unchanged")
-            return {"step": payload.step, "n_cases": 0, "skipped": "timeout"}
-        except Exception as e:  # noqa: BLE001 — never 500 into the trainer
-            logger.error("/patch_spec FAILED: %s: %s", type(e).__name__, e)
-            return {"step": payload.step, "n_cases": 0, "error": f"{type(e).__name__}: {e}"}
+
+    async def _run() -> dict:
+        async with s.patch_lock:
+            try:
+                return await asyncio.wait_for(
+                    _patch_specs(s, payload.step, payload.cases, payload.n_groups),
+                    timeout=float(os.environ.get("HB_PATCH_TIMEOUT", "600")),
+                )
+            except asyncio.TimeoutError:
+                logger.error("/patch_spec timed out; rubrics unchanged")
+                return {"step": payload.step, "n_cases": 0, "skipped": "timeout"}
+            except Exception as e:  # noqa: BLE001 — never 500 into the trainer
+                logger.error("/patch_spec FAILED: %s: %s", type(e).__name__, e)
+                return {"step": payload.step, "n_cases": 0,
+                        "error": f"{type(e).__name__}: {e}"}
+
+    # HB_PATCH_ASYNC=1: acknowledge and repair in the background. Multi-round
+    # repair (mint + validate + farmer re-attack, per case) can take minutes, and
+    # the trainer POSTs from its evolve hook — holding that HTTP call open would
+    # block the training step on the adversary, the exact coupling the background
+    # design exists to remove. The 2xx still drains the trainer's exploit buffer;
+    # outcomes land in /stats, the patch ledger and the server log instead of the
+    # response body.
+    if os.environ.get("HB_PATCH_ASYNC", "0") == "1":
+        tasks = s.__dict__.setdefault("patch_bg_tasks", set())
+        t = asyncio.get_running_loop().create_task(_run())
+        tasks.add(t)
+        t.add_done_callback(tasks.discard)
+        return {"step": payload.step, "queued": len(payload.cases),
+                "n_cases": 0, "n_accepted": 0, "async": True}
+    return await _run()
 
 
 SOLVER_EVOLVE_SYSTEM = """\

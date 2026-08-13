@@ -360,6 +360,64 @@ def pick_exploit(uid: str, st: GroupStats, scores: dict, answers: dict,
     }
 
 
+def pick_discordant(uid: str, st: GroupStats, scores: dict, answers: dict,
+                    item_results: dict, question_id: str = "", task: str = "",
+                    use_case: str = "", min_gap: float = 0.15,
+                    step: int = 0) -> dict | None:
+    """Ordering-disagreement contrast: the widest stable pair the rubric got backwards.
+
+    `pick_exploit` only fires when the rubric's TOP rollout falls outside the
+    referee's best tier; a group can carry H > 0.5 — the rubric's ordering mostly
+    contradicting the referee — without ever tripping that shape. This is the
+    fallback for exactly those groups: among stable pairs where the rubric prefers
+    one answer by >= `min_gap` while the referee stably prefers the other, take the
+    pair with the largest rubric-score gap. Same case shape as pick_exploit, so the
+    patcher needs no second code path; the note names it as an ordering
+    disagreement so the minter treats the referee's view as a hypothesis, as it
+    already must.
+    """
+    if not st.measured or not st.tier_of:
+        return None
+    best = None  # (gap, rubric_favored_row, referee_favored_row)
+    for a, b, ref_a_better in st.stable_pairs():
+        if a not in scores or b not in scores:
+            continue
+        ds = float(scores[a]) - float(scores[b])
+        # discordant = rubric and referee point opposite ways on this pair
+        if ds > 0 and not ref_a_better:
+            gap, hi, lo = ds, a, b
+        elif ds < 0 and ref_a_better:
+            gap, hi, lo = -ds, b, a
+        else:
+            continue
+        if gap >= min_gap and (best is None or gap > best[0]):
+            best = (gap, hi, lo)
+    if best is None:
+        return None
+    gap, hi, lo = best
+
+    def side(i):
+        return {
+            "response": answers.get(i, ""),
+            "rubric_score": float(scores.get(i, 0.0)),
+            "referee_tier": int(st.tier_of.get(i, -1)),
+            "answer_chars": len(answers.get(i, "")),
+            "item_results": item_results.get(i) or [],
+        }
+
+    note = (f"ordering disagreement (H={st.h:.2f}, {st.n_disc}/{st.n_dec} decisive "
+            f"pairs discordant): the referee stably prefers the lower-scoring answer "
+            f"in this pair. {st.notes}").strip()
+    return {
+        "step": int(step), "uid": str(uid), "question_id": str(question_id),
+        "use_case": str(use_case), "task": task,
+        "H": st.h, "C": st.c, "D": st.d_std, "n_decisive_pairs": st.n_dec,
+        "swap_confirmed": True, "source": "ordering_disagreement",
+        "referee_margin": min(1.0, gap), "referee_note": note[:800],
+        "hacked": side(hi), "preferred": side(lo),
+    }
+
+
 # ----------------------------------------------------------------------
 # I/O
 # ----------------------------------------------------------------------

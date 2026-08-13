@@ -134,6 +134,7 @@ _ARM=$([ "$RETRIEVAL" = 1 ] && echo retrieval || echo control)
 [ "$SPEC_GAP" = 1 ] && _ARM="${_ARM}_sg"
 [ "$PROBE" = 1 ] && _ARM="${_ARM}_probe"
 [ "$PATCH" = 1 ] && _ARM="${_ARM}_patch"
+[ "$SPEC_GAP_SHIP" = 1 ] && _ARM="${_ARM}_ship"
 EXP="${EXP:-hb9b_gen_$_ARM}"
 LOGDIR=$S/logs_hb9b; mkdir -p "$LOGDIR"
 
@@ -274,6 +275,31 @@ export HB_PROBE_MODE="${HB_PROBE_MODE:-log}"     # log = measure without rejecti
 export HB_PROBE_RATE="${HB_PROBE_RATE:-0.34}"
 export HB_PATCH="$PATCH"
 export HB_REFINE_ROUNDS="${HB_REFINE_ROUNDS:-1}"
+# ---- adversary v2 knobs (dvd 2026-08-13; defaults preserve v1 behaviour) ----
+# HB_REFINE_BACKGROUND=1  admit specs immediately, run probe->patch chains as
+#                         background tasks; patched-after-serving specs re-serve
+#                         through the replay buffer. Generation never blocks on
+#                         the adversary.
+# HB_PATCH_ROUNDS=2       on-policy repair iterates: patch -> frozen-farmer
+#                         re-attack -> patch the NEW exploit. 2 rounds max.
+# HB_PATCH_ASYNC=1        /patch_spec ACKs and repairs in the background so the
+#                         trainer's evolve hook never waits on minting.
+# HB_PATCH_MAX_PER_QID    repair ROUNDS a single task may accumulate.
+# HB_PATCH_MIN_MARGIN     0.15 aligns with the trainer's spec_gap_exploit_margin;
+#                         the old 0.25 silently dropped every 0.15-0.25 exploit.
+# HB_PATCHED_MAX_ITEMS    patched/rewritten rubrics may densify to this many
+#                         criteria (fresh generation stays capped at 6).
+# HB_MEMO_MAX_CHARS       2400: the memo writer runs ~2.1k chars and the old 2000
+#                         cap burned half its update rounds on "too long".
+export HB_REFINE_BACKGROUND="${HB_REFINE_BACKGROUND:-0}"
+export HB_PATCH_ROUNDS="${HB_PATCH_ROUNDS:-1}"
+export HB_PATCH_ASYNC="${HB_PATCH_ASYNC:-0}"
+export HB_PATCH_MAX_PER_QID="${HB_PATCH_MAX_PER_QID:-1}"
+export HB_PATCH_MIN_MARGIN="${HB_PATCH_MIN_MARGIN:-0.25}"
+export HB_PATCHED_MAX_ITEMS="${HB_PATCHED_MAX_ITEMS:-6}"
+export HB_PATCH_MINT_ITEMS="${HB_PATCH_MINT_ITEMS:-3}"
+export HB_MEMO_MAX_CHARS="${HB_MEMO_MAX_CHARS:-2000}"
+export HB_REWRITE_BEST_EFFORT="${HB_REWRITE_BEST_EFFORT:-1}"
 # Refinement makes a specification ~2.5x more expensive to produce (2 extra
 # generations + per-criterion grading for the probe, plus a mint and its validation
 # per repair round), and a worker is SERIAL within one spec. Same worker count would

@@ -1007,6 +1007,10 @@ class RayPPOTrainer:
             "concurrency": int(se_cfg.get("spec_gap_concurrency", 16)),
             "call_timeout_s": float(se_cfg.get("spec_gap_call_timeout_s", 90)),
             "exploit_margin": float(se_cfg.get("spec_gap_exploit_margin", 0.15)),
+            # Ordering-disagreement fallback: for a measured group whose H exceeds
+            # this and where pick_exploit found no top-tier inversion, ship the
+            # widest stably-discordant pair instead. 1.0 disables.
+            "disagree_h": float(se_cfg.get("spec_gap_disagree_h", 0.5)),
             "exploits_per_round": int(se_cfg.get("spec_gap_exploits_per_round", 8)),
             "max_fail_steps": int(se_cfg.get("spec_gap_max_fail_steps", 3)),
             "api_base": str(se_cfg.get("referee_api_base", "") or rk.get("val_api_base", "")),
@@ -1247,10 +1251,12 @@ class RayPPOTrainer:
         # Confirmed exploits: the rollout the RUBRIC ranked top while the referee
         # judged another better. Buffered across the steps between evolve rounds.
         if cfg["ship"]:
+            from verl.utils.reward_score.spec_gap import pick_discordant
+
             buf = getattr(self, "_spec_gap_exploits", None)
             if buf is None:
                 buf = self._spec_gap_exploits = deque(maxlen=64)
-            found = 0
+            found = n_disagree = 0
             for uid, st in stats.items():
                 md = meta.get(uid) or {}
                 ex = pick_exploit(uid, st, md.get("scores", {}), md.get("answers", {}),
@@ -1259,10 +1265,27 @@ class RayPPOTrainer:
                                   task=md.get("task", ""), use_case=md.get("use_case", ""),
                                   exploit_margin=cfg["exploit_margin"],
                                   step=int(self.global_steps))
+                # Ordering-disagreement fallback: the rubric's ordering mostly
+                # contradicts the referee (H > threshold) yet no top-tier inversion
+                # exists for pick_exploit to name. The widest stably-discordant pair
+                # is still a repairable contrast, and the patcher validates any
+                # minted criterion arithmetically before it touches the rubric — so
+                # a referee mistake here costs a rejected mint, not a bad patch.
+                if ex is None and st.measured and st.h is not None \
+                        and st.h > cfg["disagree_h"]:
+                    ex = pick_discordant(
+                        uid, st, md.get("scores", {}), md.get("answers", {}),
+                        md.get("item_results", {}),
+                        question_id=md.get("question_id", ""),
+                        task=md.get("task", ""), use_case=md.get("use_case", ""),
+                        min_gap=cfg["exploit_margin"], step=int(self.global_steps))
+                    if ex is not None:
+                        n_disagree += 1
                 if ex is not None:
                     buf.append(ex)
                     found += 1
             metrics["spec_gap/exploits/found"] = float(found)
+            metrics["spec_gap/exploits/disagreements"] = float(n_disagree)
             metrics["spec_gap/exploits/buffered"] = float(len(buf))
         return metrics
 

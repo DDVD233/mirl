@@ -22,7 +22,7 @@ set -euo pipefail
 
 S=/scratch/sheng/self_evolving
 REPO=${REPO:-$S/verl_specgap}
-ARM="${ARM:?set ARM=1 fixed-prompt | 2 refine-loop | 3 evolve-only | 4 v1+selfjudge | 5 v3+selfjudge | 6 v2+selfjudge | 7 full+retrieval | 8 full+retrieval+solver-websearch}"
+ARM="${ARM:?set ARM=1 fixed-prompt | 2 refine-loop | 3 evolve-only | 4 v1+selfjudge | 5 v3+selfjudge | 6 v2+selfjudge | 7 full+retrieval | 8 full+retrieval+solver-websearch | 9 fixed-prompt+websearch | 10 adversary-v2 (ship+always-patch+multi-round)}"
 
 # Where the self-judge arms get their 9B grader. server5 already serves Qwen3.5-9B on a
 # dedicated GPU, exposed through frp, so pointing at it keeps all four GPUs on the
@@ -186,7 +186,42 @@ case "$ARM" in
               WEB_EVIDENCE="${WEB_EVIDENCE:-0}"
               WEB_SEARCH_TOOL=1)
      EXP_NAME=hb9b_specgap_measure_retrieval ;;
-  *) echo "FATAL: ARM must be 1..9" >&2; exit 1 ;;
+  10) # ADVERSARY V2: ARM=8's stack with the repair loop fully connected, after the
+      # 0812 audit showed the v1 adversary never treated the training distribution
+      # (SPEC_GAP_SHIP=0 meant zero on-policy patches; probe rate 0.34 + one weak
+      # rewrite round touched 5.7% of served specs). Four changes, all measured-in:
+      #
+      #  SHIP ON. The referee's confirmed exploits (and, new, its ordering
+      #  disagreements on H>0.5 groups) POST to /patch_spec. The ARM=2-era concern
+      #  -- the referee is wrong on 41% of decisive pairs, so its verdicts must not
+      #  write the reward -- is answered ARITHMETICALLY now: every minted criterion
+      #  is graded against the contrast pair and kept only if it separates it, and
+      #  the frozen farmer re-attacks the patched rubric between rounds. A wrong
+      #  referee verdict costs a rejected mint, never a bad patch.
+      #
+      #  ALWAYS PATCH. Probe rate 1.0 (was 0.34), and when the farmer wins the spec
+      #  is repaired best-effort even when no rewrite clears the admission bar --
+      #  serving the least-farmable version measured beats serving the original.
+      #
+      #  MULTI-ROUND, DENSER. Two hack->patch rounds at admission AND on-policy;
+      #  patches may add several positive and negative criteria (positives pay the
+      #  substance the exploit withheld -- denser signal, and the repair direction a
+      #  lone negative could never express). Patched rubrics may grow to 9 items.
+      #
+      #  BACKGROUND. Refinement chains and /patch_spec run as background tasks;
+      #  admission and the trainer's evolve hook never block on the adversary.
+      ARM_ENV=(RETRIEVAL=1 EVOLVE=1 SPEC_GAP=1 SPEC_GAP_SHIP=1 PROBE=1 PATCH=1
+               HACK_MEMO=1 HB_PROBE_MODE=gate HB_REFINE_MODE=rewrite
+               HB_PROBE_RATE=1.0 HB_REFINE_ROUNDS=2 HB_REFINE_BACKGROUND=1
+               HB_PATCH_ROUNDS=2 HB_PATCH_ASYNC=1 HB_PATCH_MAX_PER_QID=6
+               HB_PATCH_MIN_MARGIN=0.15 HB_PATCHED_MAX_ITEMS=9
+               HB_MEMO_MAX_CHARS=2400
+               SUMM_BASE="$SUMM_DEDICATED" SUMM_FALLBACK_BASE="$SJUDGE_REMOTE"
+               SUMMARY_CONCURRENCY="${SUMMARY_CONCURRENCY:-320}"
+               WEB_EVIDENCE="${WEB_EVIDENCE:-0}"
+               WEB_SEARCH_TOOL=1)
+      EXP_NAME=hb9b_specgap_ship_retrieval ;;
+  *) echo "FATAL: ARM must be 1..10" >&2; exit 1 ;;
 esac
 
 EXP_NAME="${EXP_NAME}${EXP_SUFFIX}"
