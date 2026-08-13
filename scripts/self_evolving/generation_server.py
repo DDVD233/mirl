@@ -3932,29 +3932,53 @@ async def _rewrite_spec(state: ServerState, entry: dict, verdict: dict,
             pts = float(it.get("points"))
         except (TypeError, ValueError):
             continue
-        if txt:
-            new_items.append({"criterion_text": txt, "points": pts})
+        if not txt or pts == 0:
+            continue
+        # SALVAGE, not reject: a proposal whose only defect is a +4 or a -12 is a
+        # measurable repair wearing the wrong point value. Clamp into the band the
+        # grader expects; the re-probe still decides acceptance.
+        pts = min(10.0, max(5.0, pts)) if pts > 0 else max(-10.0, min(-5.0, pts))
+        new_items.append({"criterion_text": txt, "points": pts})
 
     # Structural gate, cheap and before any grading. Growth is ALLOWED (denser
     # criteria are denser reward signal) but bounded, so a rewrite cannot quietly
     # explode the corpus distribution; shrinking below the original stays capped
-    # at one, as before.
+    # at one, as before. Overgrowth and excess negatives are TRIMMED rather than
+    # rejected — the model reliably overshoots a "you may add up to three" budget,
+    # and throwing away the whole proposal for that starves the repair path (the
+    # 0813 restart measured 55 structural rejections against 3 survivors).
     max_items = int(os.environ.get("HB_PATCHED_MAX_ITEMS", "6"))
     max_grow = int(os.environ.get("HB_REWRITE_MAX_GROW", "3"))
+    cap = min(max_items, len(items) + max_grow)
+    negs_seen = 0
+    trimmed, kept = [], 0
+    for it in new_items:
+        if kept >= cap:
+            break
+        if it["points"] < 0:
+            if negs_seen >= 3:
+                continue
+            negs_seen += 1
+        trimmed.append(it)
+        kept += 1
+    if len(trimmed) != len(new_items):
+        _mint_outcome(state, "rewrite_trimmed")
+    new_items = trimmed
     pos = [it for it in new_items if it["points"] > 0]
-    neg = [it for it in new_items if it["points"] < 0]
-    if len(q) < 80 or len(new_items) < 2 or len(pos) < 2 or len(neg) > 3:
+    reject = None
+    if len(q) < 80:
+        reject = "rewrite_structural_qshort"
+    elif len(new_items) < 2 or len(pos) < 2:
+        reject = "rewrite_structural_fewpos"
+    elif (len(items) - len(new_items)) > 1:
+        reject = "rewrite_structural_shrunk"
+    elif not _valid_rubric(new_items, max_items=max_items):
+        reject = "rewrite_structural_invalid"
+    if reject:
+        _mint_outcome(state, reject)
         _mint_outcome(state, "rewrite_structural")
-        return None
-    if (len(new_items) - len(items)) > max_grow or (len(items) - len(new_items)) > 1:
-        _mint_outcome(state, "rewrite_structural")
-        return None
-    if any(not (5.0 <= it["points"] <= 10.0) for it in pos) or \
-       any(not (-10.0 <= it["points"] <= -5.0) for it in neg):
-        _mint_outcome(state, "rewrite_structural")
-        return None
-    if not _valid_rubric(new_items, max_items=max_items):
-        _mint_outcome(state, "rewrite_structural")
+        logger.info("~ rewrite structurally rejected (%s): items %d->%d pos=%d q=%d",
+                    reject, len(items), len(new_items), len(pos), len(q))
         return None
     _mint_outcome(state, "rewrite_proposed")
     return {"question": q, "rubric_items": new_items,
