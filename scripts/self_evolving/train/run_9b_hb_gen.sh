@@ -223,11 +223,22 @@ fi
 VAL_SELF_JUDGE="${VAL_SELF_JUDGE:-0}"
 VAL_JUDGE_BASE="$TRAPI_BASE"; VAL_JUDGE_KEY="$TRAPI_KEY"
 VAL_JUDGE_MODEL="$JUDGE";     VAL_JUDGE_PROVIDER=trapi
+REFEREE_HYDRA=()
 if [ "$VAL_SELF_JUDGE" = 1 ]; then
     VAL_JUDGE_BASE="$SJUDGE_BASE"; VAL_JUDGE_KEY=EMPTY
     VAL_JUDGE_MODEL="$SJUDGE_MODEL"; VAL_JUDGE_PROVIDER=vllm
-    export REFEREE_BASE="$SJUDGE_BASE" REFEREE_KEY=EMPTY
-    export REFEREE_MODEL="$SJUDGE_MODEL" REFEREE_PROVIDER=vllm
+    # The REFEREE deliberately stays on the GPT path even here: the 9B FAILS the
+    # referee competence smoke (2026-08-14: ranked a long unsafe answer above the
+    # short correct one — pure length bias), and in the ship arms referee
+    # verdicts feed patches. The trainer resolves the referee from
+    # data.self_evolving.referee_* which defaults to reward_kwargs.val_*, so pin
+    # it back to the GPT judge explicitly.
+    REFEREE_HYDRA=(
+        +data.self_evolving.referee_api_base="$TRAPI_BASE"
+        +data.self_evolving.referee_api_key="$TRAPI_KEY"
+        +data.self_evolving.referee_model_name="$JUDGE"
+        +data.self_evolving.referee_provider=trapi
+    )
 fi
 EMBED_BASE="${EMBED_BASE:-http://mib.media.mit.edu:18001/v1}"
 MILVUS_URI="${MILVUS_URI:-http://mib.media.mit.edu:19531}"
@@ -795,6 +806,7 @@ fi
     'trainer.logger=["console","wandb"]' \
     +ray_init.address=local \
     "${AGENT_ARGS[@]}" \
+    "${REFEREE_HYDRA[@]}" \
     "$@"
 rc=$?
 kill "$GEN_PID" "${SUMM_PID:-}" 2>/dev/null || true
