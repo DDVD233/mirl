@@ -36,7 +36,7 @@ MSR=/scratch/sheng/self_evolving
 # was TRIED AND ROLLED BACK, and the first AICR SIF was unfortunately built from it.
 SIF="${SIF:-$S/sif/verl-selfevolving-cu130.sif}"
 REPO_HOST="$S/verl_specgap"
-ARM="${ARM:?set ARM=1..6}"
+ARM="${ARM:?set ARM=1..12 (see launch_specgap_when_free.sh; 11/12 = the no-retrieval adversary/fixed pair)}"
 EXP_SUFFIX="${EXP_SUFFIX:-_aicr}"
 # The version the MSR pods run, and the only one this stack is known to work on.
 EXPECT_VLLM="${EXPECT_VLLM:-0.20}"

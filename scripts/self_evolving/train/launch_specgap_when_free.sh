@@ -222,7 +222,30 @@ case "$ARM" in
                WEB_EVIDENCE="${WEB_EVIDENCE:-0}"
                WEB_SEARCH_TOOL=1)
       EXP_NAME=hb9b_specgap_ship_retrieval ;;
-  *) echo "FATAL: ARM must be 1..10" >&2; exit 1 ;;
+  # 11/12: the AICR no-retrieval pair (2026-08-14). The adversary-v2 question --
+  # does hack-then-patch beat a fixed prompt -- rerun with the retrieval stack
+  # REMOVED as a factor: no KB tool, no web tool, no web evidence, and therefore
+  # no 9B endpoint of any kind (FROZEN_NEEDED stays 0; the "frozen farmer",
+  # probe grading, patch minter, memo writer and /evolve all run on the TRAPI
+  # gpt-chat-latest default). Identical 4-GPU allocations on AICR also remove
+  # the GPU-count confound the arm10-vs-arm9 MSR pair carries.
+  11) # Adversary v2 minus retrieval: ARM=10's exact knob set with the tools off.
+     ARM_ENV=(RETRIEVAL=0 EVOLVE=1 SPEC_GAP=1 SPEC_GAP_SHIP=1 PROBE=1 PATCH=1
+              HACK_MEMO=1 HB_PROBE_MODE=gate HB_REFINE_MODE=rewrite
+              HB_PROBE_RATE=1.0 HB_REFINE_ROUNDS=2 HB_REFINE_BACKGROUND=1
+              HB_PATCH_ROUNDS=2 HB_PATCH_ASYNC=1 HB_PATCH_MAX_PER_QID=6
+              HB_PATCH_MIN_MARGIN=0.15 HB_PATCHED_MAX_ITEMS=12
+              HB_PATCH_MINT_ITEMS=5 HB_REWRITE_MAX_GROW=4 HB_REFINE_BG_MAX=48
+              HB_MEMO_MAX_CHARS=2400
+              WEB_EVIDENCE=0 WEB_SEARCH_TOOL=0)
+     EXP_NAME=hb9b_specgap_ship_noretrieval ;;
+  12) # The fixed-prompt control for ARM=11. WEB_EVIDENCE=0 is explicit because
+      # the run script defaults it ON, and the plain ARM=1 triple would silently
+      # start the GPT web-evidence service.
+     ARM_ENV=(RETRIEVAL=0 EVOLVE=0 SPEC_GAP=1
+              WEB_EVIDENCE=0 WEB_SEARCH_TOOL=0)
+     EXP_NAME=hb9b_specgap_measure_noretrieval ;;
+  *) echo "FATAL: ARM must be 1..12" >&2; exit 1 ;;
 esac
 
 EXP_NAME="${EXP_NAME}${EXP_SUFFIX}"
