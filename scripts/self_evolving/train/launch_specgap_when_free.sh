@@ -229,6 +229,14 @@ case "$ARM" in
   # probe grading, patch minter, memo writer and /evolve all run on the TRAPI
   # gpt-chat-latest default). Identical 4-GPU allocations on AICR also remove
   # the GPU-count confound the arm10-vs-arm9 MSR pair carries.
+  # Both arms are SELF-JUDGE (dvd 2026-08-14): the TRAIN judge is the frozen 9B
+  # on the DP=4 box (SUMM_DEDICATED :18186 -- reachable from AICR now that the
+  # frp collision is fixed), NOT gpt-chat-latest, so two more runs don't eat the
+  # shared TRAPI ~2000 req/60s quota with 3-vote judging. TRAPI still serves the
+  # lighter roles: referee, probe/farmer/minter/memo, /evolve (ARM=11 only), and
+  # the validation judge -- val stays pinned to gpt-chat-latest in every arm, so
+  # held-out numbers remain one comparable series. Both arms share the judge, so
+  # the judge is not a factor between them.
   11) # Adversary v2 minus retrieval: ARM=10's exact knob set with the tools off.
      ARM_ENV=(RETRIEVAL=0 EVOLVE=1 SPEC_GAP=1 SPEC_GAP_SHIP=1 PROBE=1 PATCH=1
               HACK_MEMO=1 HB_PROBE_MODE=gate HB_REFINE_MODE=rewrite
@@ -237,14 +245,18 @@ case "$ARM" in
               HB_PATCH_MIN_MARGIN=0.15 HB_PATCHED_MAX_ITEMS=12
               HB_PATCH_MINT_ITEMS=5 HB_REWRITE_MAX_GROW=4 HB_REFINE_BG_MAX=48
               HB_MEMO_MAX_CHARS=2400
+              SELF_JUDGE=1 ALLOW_EVOLVE_SELF_JUDGE=1
+              SUMM_BASE="$SUMM_DEDICATED" SUMM_FALLBACK_BASE="$SJUDGE_REMOTE"
               WEB_EVIDENCE=0 WEB_SEARCH_TOOL=0)
-     EXP_NAME=hb9b_specgap_ship_noretrieval ;;
+     EXP_NAME=hb9b_specgap_ship_noretrieval_sj ;;
   12) # The fixed-prompt control for ARM=11. WEB_EVIDENCE=0 is explicit because
       # the run script defaults it ON, and the plain ARM=1 triple would silently
       # start the GPT web-evidence service.
      ARM_ENV=(RETRIEVAL=0 EVOLVE=0 SPEC_GAP=1
+              SELF_JUDGE=1
+              SUMM_BASE="$SUMM_DEDICATED" SUMM_FALLBACK_BASE="$SJUDGE_REMOTE"
               WEB_EVIDENCE=0 WEB_SEARCH_TOOL=0)
-     EXP_NAME=hb9b_specgap_measure_noretrieval ;;
+     EXP_NAME=hb9b_specgap_measure_noretrieval_sj ;;
   *) echo "FATAL: ARM must be 1..12" >&2; exit 1 ;;
 esac
 
