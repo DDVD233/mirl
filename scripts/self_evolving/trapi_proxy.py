@@ -107,6 +107,24 @@ def _parse_rate_overrides(s: str) -> dict[str, float]:
 
 RATE_OVERRIDES = _parse_rate_overrides(os.environ.get("TRAPI_RATE_OVERRIDES", ""))
 
+# Emergency deployment remap, "dead_model=live_model,...". When a deployment
+# goes Unhealthy upstream (gpt-chat-latest_2026-05-28, 2026-08-14) its hung
+# calls sit in the shared connection pool and semaphore for UPSTREAM_TIMEOUT_S
+# each, and four training runs' retries keep the slots saturated — starving
+# every OTHER model too, per-model rate buckets notwithstanding. Rewriting the
+# model name here redirects all traffic to a healthy deployment without
+# touching a single client, and stops the poison at its source.
+def _parse_model_rewrites(s: str) -> dict[str, str]:
+    out: dict[str, str] = {}
+    for part in s.split(","):
+        if "=" in part:
+            k, v = part.split("=", 1)
+            if k.strip() and v.strip():
+                out[k.strip()] = v.strip()
+    return out
+
+MODEL_REWRITE = _parse_model_rewrites(os.environ.get("TRAPI_MODEL_REWRITE", ""))
+
 # Hop-by-hop headers must not be forwarded (RFC 7230 §6.1). We also drop host
 # (set by httpx), authorization (we inject our own), and content-length /
 # transfer-encoding (recomputed by the respective layers).
@@ -319,7 +337,14 @@ async def proxy(full_path: str, request: Request) -> Response:
     model = "_default"
     if body:
         try:
-            model = json.loads(body).get("model", "_default")
+            parsed = json.loads(body)
+            model = parsed.get("model", "_default")
+            target = MODEL_REWRITE.get(model)
+            if target:
+                parsed["model"] = target
+                body = json.dumps(parsed).encode()
+                logger.info("model rewrite: %s -> %s", model, target)
+                model = target
         except (ValueError, AttributeError):
             pass
     bucket = await request.app.state.bucket_for(model)
