@@ -78,5 +78,7 @@ exec apptainer exec --nv --writable-tmpfs \
     --env "EXP_SUFFIX=$EXP_SUFFIX" \
     --env "SJUDGE_REMOTE=${SJUDGE_REMOTE:-http://point.dd.works:18184/v1}" \
     --env "HB_REFINE_MODE=${HB_REFINE_MODE:-rewrite}" \
+    --env "GEN_WORKERS=${GEN_WORKERS:-8}" \
+    --env "GEN_WARMUP_S=${GEN_WARMUP_S:-5400}" \
     "$SIF" \
     bash -lc "cd $MSR/verl_specgap && bash scripts/self_evolving/train/launch_specgap_when_free.sh"

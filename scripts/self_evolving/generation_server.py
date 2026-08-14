@@ -933,11 +933,31 @@ async def _api_call(state: ServerState, system_prompt: str, user_prompt: str,
     # start streaming. Override via GEN_CHAT_TIMEOUT env if you keep getting
     # ReadTimeouts.
     timeout = float(os.environ.get("GEN_CHAT_TIMEOUT", "1800"))
+    # TRAPI's ~2000 req/60s cap is GLOBAL across every run and cluster sharing
+    # the proxy. Without backoff a 429 kills the caller's whole work item (a
+    # proposer attempt, a probe round), the worker immediately re-enters the
+    # same call, and 20 workers turn one throttle into a self-sustaining storm
+    # that also starves the OTHER runs' judges — the AICR sg-adv pool warm sat
+    # at 0/64 for 30 min this way (2026-08-14). Retry HERE, once, for every
+    # call site, honoring Retry-After, with jitter so workers desynchronize.
+    attempts = int(os.environ.get("GEN_RETRY_ATTEMPTS", "6"))
     async with timed(state, label):
-        resp = await state.http_client.post(
-            f"{(api_base or state.args.api_base).rstrip(chr(47))}/chat/completions",
-            json=payload, headers=headers, timeout=timeout,
-        )
+        for _try in range(attempts):
+            resp = await state.http_client.post(
+                f"{(api_base or state.args.api_base).rstrip(chr(47))}/chat/completions",
+                json=payload, headers=headers, timeout=timeout,
+            )
+            if resp.status_code in (429, 500, 502, 503, 504) and _try < attempts - 1:
+                try:
+                    delay = float(resp.headers.get("retry-after") or 0.0)
+                except ValueError:
+                    delay = 0.0
+                delay = max(delay, min(60.0, 2.0 * (2 ** _try))) * (0.5 + random.random())
+                logger.warning("chat %s: HTTP %s, retry %d/%d in %.1fs",
+                               label, resp.status_code, _try + 1, attempts, delay)
+                await asyncio.sleep(delay)
+                continue
+            break
         resp.raise_for_status()
         msg = resp.json()["choices"][0]["message"]
         # With vLLM `--reasoning-parser qwen3`, the `<think>...</think>` block
