@@ -245,7 +245,7 @@ case "$ARM" in
               HB_PATCH_MIN_MARGIN=0.15 HB_PATCHED_MAX_ITEMS=12
               HB_PATCH_MINT_ITEMS=5 HB_REWRITE_MAX_GROW=4 HB_REFINE_BG_MAX=48
               HB_MEMO_MAX_CHARS=2400
-              SELF_JUDGE=1 ALLOW_EVOLVE_SELF_JUDGE=1
+              SELF_JUDGE=1 ALLOW_EVOLVE_SELF_JUDGE=1 VAL_SELF_JUDGE=1
               SUMM_BASE="$SUMM_DEDICATED" SUMM_FALLBACK_BASE="$SJUDGE_REMOTE"
               WEB_EVIDENCE=0 WEB_SEARCH_TOOL=0)
      EXP_NAME=hb9b_specgap_ship_noretrieval_sj ;;
@@ -253,7 +253,7 @@ case "$ARM" in
       # the run script defaults it ON, and the plain ARM=1 triple would silently
       # start the GPT web-evidence service.
      ARM_ENV=(RETRIEVAL=0 EVOLVE=0 SPEC_GAP=1
-              SELF_JUDGE=1
+              SELF_JUDGE=1 VAL_SELF_JUDGE=1
               SUMM_BASE="$SUMM_DEDICATED" SUMM_FALLBACK_BASE="$SJUDGE_REMOTE"
               WEB_EVIDENCE=0 WEB_SEARCH_TOOL=0)
      EXP_NAME=hb9b_specgap_measure_noretrieval_sj ;;

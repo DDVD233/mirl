@@ -213,6 +213,22 @@ if [ "$SELF_JUDGE" = 1 ]; then
     # misconfigured judge.
     REWARD_JUDGE_CONCURRENCY="${REWARD_JUDGE_CONCURRENCY:-48}"
 fi
+# PURE self-judge (dvd 2026-08-14, adopted during the gpt-chat-latest outage):
+# VALIDATION is graded by the frozen 9B as well, removing TRAPI from the judging
+# path entirely -- only generation/probe/evolve still touch GPT. The spec-gap
+# referee resolves from the val_* judge, so it follows automatically, and the
+# referee smoke env is pointed the same way so the pre-flight checks the
+# endpoint the trainer will actually use. ⚠ Val numbers are comparable ONLY
+# within runs sharing this flag, never against gpt-judged val series.
+VAL_SELF_JUDGE="${VAL_SELF_JUDGE:-0}"
+VAL_JUDGE_BASE="$TRAPI_BASE"; VAL_JUDGE_KEY="$TRAPI_KEY"
+VAL_JUDGE_MODEL="$JUDGE";     VAL_JUDGE_PROVIDER=trapi
+if [ "$VAL_SELF_JUDGE" = 1 ]; then
+    VAL_JUDGE_BASE="$SJUDGE_BASE"; VAL_JUDGE_KEY=EMPTY
+    VAL_JUDGE_MODEL="$SJUDGE_MODEL"; VAL_JUDGE_PROVIDER=vllm
+    export REFEREE_BASE="$SJUDGE_BASE" REFEREE_KEY=EMPTY
+    export REFEREE_MODEL="$SJUDGE_MODEL" REFEREE_PROVIDER=vllm
+fi
 EMBED_BASE="${EMBED_BASE:-http://mib.media.mit.edu:18001/v1}"
 MILVUS_URI="${MILVUS_URI:-http://mib.media.mit.edu:19531}"
 VAL=$S/healthbench_pro_val.parquet
@@ -716,10 +732,10 @@ fi
     +reward.custom_reward_function.reward_kwargs.fallback_api_key="$FALLBACK_JUDGE_KEY" \
     +reward.custom_reward_function.reward_kwargs.fallback_model_name="$FALLBACK_JUDGE_MODEL" \
     +reward.custom_reward_function.reward_kwargs.fallback_provider="$FALLBACK_JUDGE_PROVIDER" \
-    +reward.custom_reward_function.reward_kwargs.val_api_base="$TRAPI_BASE" \
-    +reward.custom_reward_function.reward_kwargs.val_api_key="$TRAPI_KEY" \
-    +reward.custom_reward_function.reward_kwargs.val_model_name="$JUDGE" \
-    +reward.custom_reward_function.reward_kwargs.val_provider=trapi \
+    +reward.custom_reward_function.reward_kwargs.val_api_base="$VAL_JUDGE_BASE" \
+    +reward.custom_reward_function.reward_kwargs.val_api_key="$VAL_JUDGE_KEY" \
+    +reward.custom_reward_function.reward_kwargs.val_model_name="$VAL_JUDGE_MODEL" \
+    +reward.custom_reward_function.reward_kwargs.val_provider="$VAL_JUDGE_PROVIDER" \
     +reward.custom_reward_function.reward_kwargs.gen_server_url="http://localhost:$GEN_PORT" \
     reward.reward_manager.name=dapo \
     actor_rollout_ref.model.path="${ACTOR_MODEL_PATH:-Qwen/Qwen3.5-9B}" \
