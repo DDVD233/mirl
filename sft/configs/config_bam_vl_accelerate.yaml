@@ -23,9 +23,22 @@ model:
   # for MoE). Set this only to force a specific class.
   backbone_class: null
   attn_implementation: "flash_attention_2"
-  training_strategy: "head_only"                  # head_only | lora | full  (bam_only freezes base anyway)
+  # head_only | lora | full. For the bam_only -> bam_and_full_model curriculum keep this
+  # FIXED across stages so checkpoints share the module tree: "lora" makes stage 2 unfreeze
+  # LoRA (memory-safe on 27B/2 GPUs). Under bam_only (stage 1) the whole base — LoRA
+  # included — is frozen, so this only affects which params stage 2 trains, not stage 1's
+  # behavior. lora_config below MUST be identical across stages or the load will key-mismatch.
+  training_strategy: "lora"
   device_map: null                                # null for Accelerate/FSDP
   torch_dtype: "bfloat16"                          # Qwen3-VL native dtype
+  # A1 memory fix (pure bf16, no fp32 master). "no" makes accelerate skip the FSDP upcast
+  # that otherwise holds an fp32 master copy of ALL params (under LoRA every decoder layer's
+  # flat param is requires_grad=True, so the whole 27B gets upcast). Keeping params in bf16
+  # ~halves the per-GPU parameter footprint (~54 GB -> ~27 GB on 27B/2 GPUs). Tradeoff: Adam
+  # updates run in bf16, which can be less stable for tiny LoRA updates — watch train/loss for
+  # stalling. MUST match `mixed_precision` in the accelerate launch YAML (quote it: bare `no`
+  # is YAML boolean false).
+  mixed_precision: "no"
   lora_config:
     r: 32
     alpha: 64
@@ -37,7 +50,7 @@ bam:
   dataset_name: "default"
   qa_datasets: ["default"]                        # rows whose dataset is here are QA (lm_labels=answer)
 
-  bam_stage: "bam_only"                           # bam_only | bam_and_classifier_heads_only | bam_and_full_model
+  bam_stage: "bam_only"                           # bam_only | bam_and_full_model
   bam_fresh_start: false
   qa_loss_weight: 1.0
 
@@ -75,20 +88,25 @@ bam:
   bam_audio_alpha_init: 1.0
 
 train:
-  train_batch_size: 2
-  val_batch_size: 2
+  train_batch_size: 1
+  val_batch_size: 1
   test_batch_size: 1
-  lr: 1e-6
-  base_lr: 1e-4        # backbone (0 effective under bam_only)
-  bam_lr: 2e-4           # adapters learn fast
+  lr: 1e-5
+  base_lr: 1e-5        # backbone (0 effective under bam_only)
+  bam_lr: 1e-4           # adapters learn fast
   max_grad_norm: 1.0     # gradient clipping (verl fsdp_sft default); pre-clip norm logged as train/grad_norm
 
   epochs: 1
   # Curriculum stage cap, counted in dataloader micro-batches (same clock as
   # save/validate_every_n_steps) A final checkpoint is always written when this is hit.
-  max_steps: 500
+  max_steps: null
   save_checkpoint_dir: "/orcd/scratch/orcd/011/emorfin/ados/checkpoints/bam_vl_qwen35_27b_qa_sft_stage1_bam_only"
   load_checkpoint_path: null
+  # Curriculum chaining: when true, load_checkpoint_path is treated as INITIALIZATION for a
+  # new stage (weights + adapters only, step counter reset, fresh optimizer for this stage's
+  # param groups) rather than a resume. Stage 1 = false; stage 2 sets it true (see
+  # run_bam_vl_stage2.sh). Ignored when bam_fresh_start is set.
+  load_as_init: false
   # With load_checkpoint_path null, training starts FRESH and ignores any checkpoints already
   # in save_checkpoint_dir (so a prior run there can't contaminate this one). Set
   # resume_from_latest: true to opt back into auto-resuming the most recent checkpoint.
@@ -100,11 +118,11 @@ train:
   # save_every_n_steps.
   # Set validate_every_n_steps to null to validate only at epoch end.
   validate_every_n_epochs: 1
-  validate_every_n_steps: 400
+  validate_every_n_steps: 2000
   early_stopping_patience: 99999
-  gradient_accumulation_steps: 32
+  gradient_accumulation_steps: 64
   num_workers: 8 
-  use_scheduler: false
+  use_scheduler: true
   scheduler_type: "cosine"
   warmup_steps: 100
 
@@ -133,8 +151,8 @@ dataset_config:
 
 wandb:
   use: true
-  project: "bam-vl-qwen3-5-27B-sft"   # all BAM-VL runs land here so loss curves overlay for comparison
+  project: "bam-vl-qwen3-5-27B-sft-full-fine-tune-and-BAM"   # all BAM-VL runs land here so loss curves overlay for comparison
   entity: null                # null -> your default wandb entity (from `wandb login`)
   # Explicit run name shown in wandb. If null, an auto descriptive name is used
   # (bamvl_<task>_<stage>_<datasplit>_feats-<streams>_<timestamp>).
-  run_name: "sft-27B-lr-2e-4-test-bam-only"
+  run_name: "sft-27B-lr-1e-5-5-epoch-resumed"

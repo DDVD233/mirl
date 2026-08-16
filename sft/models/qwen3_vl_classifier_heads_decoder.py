@@ -28,7 +28,7 @@ from .qwen2_5_omni_classifier_heads_decoder import build_domain_specs_from_label
 
 NEG_INF = -1e9  # safe mask for "irrelevant" classes
 
-DEFAULT_BACKBONE_NAME = "Qwen/Qwen3-VL-8B-Instruct"
+DEFAULT_BACKBONE_NAME = "Qwen/Qwen3.5-27B"
 
 
 def _resolve_backbone_loader(backbone_class):
@@ -140,6 +140,55 @@ class MultiHeadVLClassifier(nn.Module):
                 return cur
         return None
 
+    def _resolve_backbone_root(self):
+        """HF model to resolve norm/lm_head against.
+
+        With LoRA, get_peft_model wraps the backbone so the module tree gains a
+        base_model.model.* prefix (e.g. model.language_model.norm becomes
+        base_model.model.model.language_model.norm). Unwrap via get_base_model() so the
+        original dotted paths match; for a plain (non-PEFT) backbone return it as-is.
+        """
+        bb = self.backbone
+        get_base = getattr(bb, "get_base_model", None)
+        if callable(get_base):
+            try:
+                return get_base()
+            except Exception:
+                pass
+        return bb
+
+    def _check_head_convention_once(self, out, hs_last) -> None:
+        """Verify (once per process) that hidden_states[-1] is the POST-final-norm state.
+
+        transformers ties out.hidden_states[-1] to out.last_hidden_state — see the
+        @capture_outputs decorator's tie_last_hidden_states argument — so the last entry has
+        already been through the final norm and lm_head must consume it directly. Norming it
+        a second time squares the RMSNorm gain profile and collapses the logits toward
+        uniform (loss ~= ln(vocab), token accuracy ~= 0) while training happily for hours.
+
+        The backbone computes out.logits as lm_head(last_hidden_state[:, slice, :]) with
+        nothing in between, so reconstructing its last position from hs_last is an exact
+        check. Costs one [B, 1, H] matmul.
+        """
+        if getattr(self, "_head_convention_checked", False):
+            return
+        self._head_convention_checked = True
+        ref = getattr(out, "logits", None)
+        if ref is None or hs_last is None or ref.ndim != 3 or ref.size(1) < 1:
+            return
+        with torch.no_grad():
+            ours = self._resolve_lm_head()(hs_last[:, -1:, :]).float()
+            ref = ref[:, -1:, :].float()
+            rel = (ours - ref).abs().max() / ref.abs().max().clamp_min(1e-6)
+        if rel > 5e-2:
+            raise RuntimeError(
+                f"[head] hidden_states[-1] does not reproduce the backbone's own logits "
+                f"(max relative deviation {rel:.3f}). This transformers version appears to "
+                f"expose a PRE-final-norm last hidden state, so the QA head must apply "
+                f"_resolve_final_norm() before lm_head. Fix the head before training — "
+                f"otherwise the LM loss is computed on mis-normalized logits."
+            )
+
     def _resolve_final_norm(self):
         """
         Locate the backbone's final RMSNorm. Qwen3-VL keeps it at
@@ -147,12 +196,16 @@ class MultiHeadVLClassifier(nn.Module):
         VL path first and fall back, raising rather than silently skipping the norm
         (the silent-skip would feed un-normed states to lm_head and corrupt QA logits).
         """
-        norm = self._resolve_attr(self.backbone, [
+        paths = [
             "model.language_model.norm",   # Qwen3-VL / Qwen2.5-VL
             "language_model.norm",         # top-level alias on some VL wrappers
             "model.norm",                  # Qwen2.5-Omni Thinker / plain decoders
             "transformer.ln_f",            # GPT-style
-        ])
+        ]
+        root = self._resolve_backbone_root()
+        norm = self._resolve_attr(root, paths)
+        if norm is None and root is not self.backbone:
+            norm = self._resolve_attr(self.backbone, paths)  # fallback: PEFT-prefixed tree
         if norm is None:
             raise RuntimeError(
                 "Could not locate a final norm on the backbone; checked "
@@ -161,7 +214,11 @@ class MultiHeadVLClassifier(nn.Module):
         return norm
 
     def _resolve_lm_head(self):
-        head = self._resolve_attr(self.backbone, ["lm_head", "model.lm_head"])
+        paths = ["lm_head", "model.lm_head"]
+        root = self._resolve_backbone_root()
+        head = self._resolve_attr(root, paths)
+        if head is None and root is not self.backbone:
+            head = self._resolve_attr(self.backbone, paths)  # fallback: PEFT-prefixed tree
         if head is None:
             raise RuntimeError("Backbone has no resolvable lm_head")
         return head
@@ -177,8 +234,22 @@ class MultiHeadVLClassifier(nn.Module):
             r=cfg['r'], lora_alpha=cfg['alpha'], lora_dropout=cfg['dropout'],
             target_modules=cfg['target_modules'], bias="none",
         )
+        # Backbone compute dtype (bf16) BEFORE wrapping — captured first because after
+        # get_peft_model the first parameter may be a freshly-added LoRA tensor.
+        base_dtype = next(self.backbone.parameters()).dtype
         self.backbone = get_peft_model(self.backbone, peft_config)
-        print(f"Applied LoRA r={cfg['r']} alpha={cfg['alpha']} dropout={cfg['dropout']}")
+        # PEFT initializes lora_A/lora_B in fp32 regardless of the bf16 base. FSDP flattens
+        # each wrapped unit (a Qwen3VLTextDecoderLayer = bf16 base + fp32 LoRA) into ONE
+        # tensor and requires a uniform dtype, so cast the fp32 LoRA params to the base
+        # dtype. Without this, accelerator.prepare() raises
+        # "Must flatten tensors with uniform dtype but got torch.bfloat16 and torch.float32".
+        n_cast = 0
+        for p in self.backbone.parameters():
+            if p.dtype == torch.float32:
+                p.data = p.data.to(base_dtype)
+                n_cast += 1
+        print(f"Applied LoRA r={cfg['r']} alpha={cfg['alpha']} dropout={cfg['dropout']} "
+              f"(cast {n_cast} fp32 LoRA params -> {base_dtype})")
 
     def _setup_training_strategy(self, freeze_backbone, lora_config):
         if freeze_backbone == "lora":
@@ -257,8 +328,11 @@ class MultiHeadVLClassifier(nn.Module):
 
         # --- QA path ---
         cls_logits = self._heads_from_pooled(pooled, domain_ids)
-        h_for_lm = self._resolve_final_norm()(hidden_states[-1])
-        lm_logits = self._resolve_lm_head()(h_for_lm)
+        # hidden_states[-1] is POST-final-norm (transformers ties it to last_hidden_state),
+        # so feed lm_head directly; norming again would double-normalize and destroy the
+        # logits. See _check_head_convention_once.
+        self._check_head_convention_once(out, hidden_states[-1])
+        lm_logits = self._resolve_lm_head()(hidden_states[-1])
 
         shift_logits = lm_logits[:, :-1, :].contiguous()
         shift_labels = lm_labels[:, 1:].contiguous()

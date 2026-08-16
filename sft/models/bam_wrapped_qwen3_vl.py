@@ -5,7 +5,7 @@ BAM-augmented Qwen3-VL wrappers (parallel to bam_wrapped_qwen.py for Omni).
   BAMVLBase — shared base (3 adapter slots, penultimate pooling, adapter application)
   BAMVLCLS  — classification-only forward
   BAMVLQA   — QA forward with teacher-forcing LM loss; injects the pooled BAM delta
-              into the pre-norm last hidden state, then re-runs norm + lm_head.
+              into the (post-final-norm) last hidden state, then re-runs lm_head.
 
 Differences vs the Omni wrappers:
   * Three side-channel adapters (facial, pose, audio) instead of two (video, audio),
@@ -38,9 +38,16 @@ class BAMVLBase(MultiHeadVLClassifier):
         self.pose_adapter = None
         self.audio_adapter = None
 
-    def _pool_penultimate(self, hidden_states, attention_mask) -> torch.Tensor:
-        """Attention-masked mean of the penultimate (pre-norm) hidden layer -> [B, H]."""
-        h = hidden_states[-2]
+    def _compute_dtype(self) -> torch.dtype:
+        """Dtype the custom head (adapters / final-norm / lm_head) runs in — the lm_head
+        weight dtype (bf16). Used to keep the head consistent when there is no autocast
+        (mixed_precision="no"), since Qwen3.5's fp32-preserving RMSNorm / linear-attention
+        sublayers can emit fp32 hidden states."""
+        return self._resolve_lm_head().weight.dtype
+
+    def _pool_penultimate(self, h, attention_mask) -> torch.Tensor:
+        """Attention-masked mean of the penultimate (pre-norm) hidden layer [B,T,H] -> [B, H].
+        `h` is the penultimate tensor (already cast to the compute dtype by the caller)."""
         if attention_mask is not None:
             mask = attention_mask.unsqueeze(-1).to(h.dtype)
             return (h * mask).sum(1) / mask.sum(1).clamp_min(1.0)
@@ -126,7 +133,9 @@ class BAMVLCLS(BAMVLBase):
             **mm,
             **kwargs,
         )
-        pooled_base = self._pool_penultimate(out.hidden_states, attention_mask)
+        # Cast the penultimate state to the head compute dtype (no autocast under
+        # mixed_precision="no"; backbone may emit fp32 states while heads/adapters are bf16).
+        pooled_base = self._pool_penultimate(out.hidden_states[-2].to(self._compute_dtype()), attention_mask)
         pooled_eff = self._apply_adapters(pooled_base, facial_feats, pose_feats, audio_feats, train_mode,
                                           facial_mask=facial_mask, pose_mask=pose_mask, audio_mask=audio_mask)
         logits = self._heads_from_pooled(pooled_eff, domain_ids)
@@ -138,8 +147,8 @@ class BAMVLQA(BAMVLBase):
     BAM-augmented Qwen3-VL with QA (teacher-forcing LM) training.
 
     Returns {"cls_logits", "lm_loss", "lm_output"}. The pooled BAM delta is injected
-    into the pre-norm last hidden state and broadcast across all positions; loss is
-    computed only over answer tokens (lm_labels with -100 elsewhere).
+    into the (post-final-norm) last hidden state and broadcast across all positions; loss
+    is computed only over answer tokens (lm_labels with -100 elsewhere).
     """
 
     def __init__(self, *args, **kwargs):
@@ -149,12 +158,16 @@ class BAMVLQA(BAMVLBase):
             self.backbone.config.use_cache = False
         if hasattr(self.backbone.config, "text_config") and hasattr(self.backbone.config.text_config, "use_cache"):
             self.backbone.config.text_config.use_cache = False
+        # Log the outcome on BOTH paths so the training log unambiguously shows whether
+        # gradient checkpointing is active — if it silently failed, stage-2 (full backbone
+        # in the backward graph) keeps all activations and OOMs.
         try:
             self.backbone.gradient_checkpointing_enable(
                 gradient_checkpointing_kwargs={"use_reentrant": False}
             )
+            print("[BAMVLQA] gradient checkpointing ENABLED (use_reentrant=False)")
         except Exception as e:
-            print(f"[BAMVLQA] gradient_checkpointing_enable skipped: {type(e).__name__}: {e}")
+            print(f"[BAMVLQA] gradient checkpointing SKIPPED: {type(e).__name__}: {e}")
 
     def forward(
         self,
@@ -196,28 +209,42 @@ class BAMVLQA(BAMVLBase):
             **mm,
             **kwargs,
         )
-        hidden_states = out.hidden_states
+        # With mixed_precision="no" there is no accelerate autocast, so Qwen3.5's
+        # fp32-preserving sublayers (RMSNorm / linear-attention) can emit fp32 hidden states
+        # while the BAM adapters / lm_head are bf16 -> "mat1 and mat2 must have the same
+        # dtype". Cast the two states the custom head consumes to the compute dtype (what
+        # autocast used to do implicitly) so pool -> adapters -> delta -> lm_head is
+        # dtype-consistent.
+        cdt = self._compute_dtype()
+        hs_penult = out.hidden_states[-2].to(cdt)
+        # POST-final-norm: transformers ties hidden_states[-1] to last_hidden_state, which the
+        # text model returns *after* self.norm. Do NOT norm it again (see
+        # _check_head_convention_once for why that silently destroys the logits).
+        hs_last = out.hidden_states[-1].to(cdt)
+        self._check_head_convention_once(out, hs_last)
 
         # 2) Pool penultimate + apply BAM adapter deltas
-        pooled_base = self._pool_penultimate(hidden_states, attention_mask)
+        pooled_base = self._pool_penultimate(hs_penult, attention_mask)
         pooled_eff = self._apply_adapters(pooled_base, facial_feats, pose_feats, audio_feats, train_mode,
                                           facial_mask=facial_mask, pose_mask=pose_mask, audio_mask=audio_mask)
 
-        # 3) Inject delta into pre-norm last hidden state. The expensive final-norm + lm_head
-        #    are deferred to step 4 so they run on ONLY the supervised positions.
-        #    hidden_states[-1] is pre-final-norm on Qwen3-VL, so official-equivalent logits
-        #    are lm_head(norm(hidden_states[-1] + delta)).
-        delta = (pooled_eff - pooled_base).to(hidden_states[-1].dtype)  # [B, H]
-        h_last_mod = hidden_states[-1] + delta.unsqueeze(1)             # [B, T, H]
+        # 3) Inject delta into the normed last hidden state, so official-equivalent logits are
+        #    lm_head(hidden_states[-1] + delta) — matching how the backbone itself builds
+        #    out.logits. The lm_head is deferred to step 4 so it runs on ONLY the supervised
+        #    positions. Injecting after the norm also keeps the delta meaningful: the norm's
+        #    output has O(1) scale, whereas the pre-norm state carries Qwen's massive
+        #    activations, against which an adapter delta would be normalized away.
+        delta = (pooled_eff - pooled_base).to(hs_last.dtype)           # [B, H]
+        h_last_mod = hs_last + delta.unsqueeze(1)                      # [B, T, H]
 
         # 4) Teacher-forcing LM loss + token accuracy, computed on answer tokens only.
         #    Position p predicts token p+1, so position p is supervised iff lm_labels[:, p+1]
-        #    != -100. Gathering those positions BEFORE the final-norm + lm_head shrinks the
-        #    head from [B, T, V] to [N, V] (N = #answer tokens, tiny vs. a long video seq),
-        #    cutting both forward compute and the backward activation/grad memory that drove
-        #    the earlier OOM. Mathematically identical to masking a full-sequence CE with
-        #    ignore_index=-100: ignored positions contribute zero gradient either way, and the
-        #    delta still receives gradient from exactly the supervised positions it broadcasts to.
+        #    != -100. Gathering those positions BEFORE the lm_head shrinks it from [B, T, V]
+        #    to [N, V] (N = #answer tokens, tiny vs. a long video seq), cutting both forward
+        #    compute and the backward activation/grad memory that drove the earlier OOM.
+        #    Mathematically identical to masking a full-sequence CE with ignore_index=-100:
+        #    ignored positions contribute zero gradient either way, and the delta still
+        #    receives gradient from exactly the supervised positions it broadcasts to.
         lm_loss = None
         lm_token_correct = lm_token_total = None
         if lm_labels is not None:
@@ -228,8 +255,7 @@ class BAMVLQA(BAMVLBase):
             if lm_token_total > 0:
                 h_pred = h_last_mod[:, :-1, :][valid]                # [N, H] supervised states
                 target = shift_labels[valid]                        # [N]
-                h_for_lm = self._resolve_final_norm()(h_pred)       # [N, H]
-                sel_logits = self._resolve_lm_head()(h_for_lm)     # [N, V]
+                sel_logits = self._resolve_lm_head()(h_pred)       # [N, V]
                 lm_loss = F.cross_entropy(sel_logits, target)
                 with torch.no_grad():
                     lm_token_correct = (sel_logits.argmax(dim=-1) == target).sum()

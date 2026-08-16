@@ -5,6 +5,8 @@ fsdp_config:
   fsdp_auto_wrap_policy: "TRANSFORMER_BASED_WRAP"
   fsdp_backward_prefetch: "BACKWARD_PRE"
   fsdp_offload_params: false
+  fsdp_cpu_ram_efficient_loading: true
+  fsdp_sync_module_states: true
   fsdp_state_dict_type: "FULL_STATE_DICT"
   fsdp_transformer_layer_cls_to_wrap: "Qwen3_5DecoderLayer,Qwen3_5VisionBlock"
   fsdp_use_orig_params: true
@@ -13,7 +15,7 @@ machine_rank: 0
 main_process_ip: localhost
 main_process_port: 29500
 main_training_function: main
-mixed_precision: bf16
+mixed_precision: 'no'   # A1: pure bf16 params (skip FSDP fp32-master upcast); must match config model.mixed_precision
 num_machines: 1
 num_processes: 2
 rdzv_backend: static

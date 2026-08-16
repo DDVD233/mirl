@@ -47,6 +47,11 @@ def parse_parameters():
     parser.add_argument("--epochs", type=int)
     parser.add_argument("--bam_stage", type=str,
                         choices=["bam_only", "bam_and_classifier_heads_only", "bam_and_full_model"])
+    # Curriculum chaining: seed a new stage from a previous stage's checkpoint (weights only,
+    # reset step counter, fresh optimizer). Pair with --load_checkpoint_path + --bam_stage.
+    parser.add_argument("--load_as_init", action="store_true")
+    # Stage duration cap in dataloader micro-batches; overrides config train.max_steps.
+    parser.add_argument("--max_steps", type=int)
     parser.add_argument("--use_wandb", action="store_true")
     args = parser.parse_args()
 
@@ -63,6 +68,8 @@ def parse_parameters():
     if args.load_checkpoint_path is not None: cfg.train.load_checkpoint_path = args.load_checkpoint_path
     if args.epochs is not None:              cfg.train.epochs = args.epochs
     if args.bam_stage is not None:           cfg.bam.bam_stage = args.bam_stage
+    if args.load_as_init:                    cfg.train.load_as_init = True
+    if args.max_steps is not None:           cfg.train.max_steps = args.max_steps
     if args.use_wandb:                       cfg.wandb.use = True
 
     with open(cfg.data.label_map_path, "r") as f:
@@ -105,6 +112,9 @@ def build_global_config(cfg, label_config):
         "MAX_GRAD_NORM":           float(train.get("max_grad_norm", 1.0)),
         # Default: no explicit checkpoint -> fresh run. Set true to auto-resume the latest.
         "RESUME_FROM_LATEST":      bool(train.get("resume_from_latest", False)),
+        # Curriculum chaining: load_checkpoint_path is INIT (weights only, reset step counter,
+        # fresh optimizer) rather than a resume. Used for stage 2+ of the BAM curriculum.
+        "LOAD_AS_INIT":            bool(train.get("load_as_init", False)),
         # wandb
         "USE_WANDB":               bool(cfg.wandb.use),
         "WANDB_PROJECT":           cfg.wandb.project,

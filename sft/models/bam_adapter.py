@@ -43,7 +43,11 @@ class BehavioralAdapterModule(nn.Module):
     def _maybe_drop(self, feats: torch.Tensor, train_mode: bool) -> torch.Tensor:
         if not train_mode or self.p_moddrop <= 0:
             return feats
-        keep = (torch.rand(feats.size(0), device=feats.device) >= self.p_moddrop).float().unsqueeze(-1)
+        # Build the keep-mask in feats' dtype: a .float() mask would type-promote the
+        # product to fp32 (bf16 * fp32 -> fp32), which crashes the bf16 MLP when running
+        # without autocast (mixed_precision="no").
+        keep = (torch.rand(feats.size(0), device=feats.device) >= self.p_moddrop) \
+            .to(feats.dtype).unsqueeze(-1)
         return feats * keep
 
     def forward(

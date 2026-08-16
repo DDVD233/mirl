@@ -94,6 +94,16 @@ class BAMVLTrainer(BaseMultiHeadTrainer):
         # to opt back into auto-resume.
         self.resume_from_latest = bool(cfg.get("RESUME_FROM_LATEST", False))
 
+        # Curriculum chaining: treat load_checkpoint_path as INITIALIZATION for a new stage,
+        # not a resume. Loads model + adapter weights ONLY (no optimizer/RNG/step state),
+        # resets the epoch/step counter to 0, and lets this stage build a fresh optimizer for
+        # its own (different) param groups. Use this for stage 2+ of the bam_only ->
+        # bam_and_full_model curriculum. Ignored when bam_fresh_start is set (that path
+        # rebuilds adapters from scratch). NOTE: the loaded checkpoint must share the model
+        # architecture of this run — in particular, a LoRA stage must load a checkpoint that
+        # also has LoRA modules (train both stages with training_strategy="lora").
+        self.load_as_init = bool(cfg.get("LOAD_AS_INIT", False))
+
         self.adapters = {s: None for s in STREAMS}
         self.prepared_opts, self.prepared_scheds = [], []
 
@@ -168,34 +178,40 @@ class BAMVLTrainer(BaseMultiHeadTrainer):
 
     def load_checkpoint_unified(self, accelerator, model, base_ckpt_dir,
                                 explicit_dir=None, expect_training_strategy=None,
-                                inference_only=False, auto_resume=False):
+                                inference_only=False, auto_resume=False, strict=False):
         from math import floor
         # By default (auto_resume=False) we only load when an explicit checkpoint path is
         # given. With no explicit path we start a FRESH run rather than silently picking up
         # the latest checkpoint in the save dir — so a prior training in the same save dir
         # can't bleed into a new one. Set auto_resume=True (RESUME_FROM_LATEST) to opt back
         # into resuming the most recent checkpoint.
+        #
+        # strict=True (used for load_as_init curriculum chaining): a missing/incompatible/
+        # failed load is a hard error instead of a silent fresh start, so a botched chain
+        # (e.g. LoRA/non-LoRA structure mismatch) can't quietly train from the base weights.
+        def _fail_or_fresh(msg):
+            if strict:
+                raise RuntimeError(f"[load][strict] {msg}")
+            accelerator.print(f"[load] {msg}; starting fresh.")
+            return 0, 0, 0, None, None
+
         ckpt_dir = explicit_dir
         if ckpt_dir is None and auto_resume:
             ckpt_dir = self._latest_checkpoint_dir(base_ckpt_dir)
         if ckpt_dir is None:
             if not auto_resume:
-                accelerator.print("[load] no load_checkpoint_path given; starting a FRESH run "
-                                  "(prior checkpoints in the save dir are ignored; set "
-                                  "RESUME_FROM_LATEST=true or load_checkpoint_path to resume).")
-            else:
-                accelerator.print("[load] no checkpoint found; starting fresh.")
-            return 0, 0, 0, None, None
+                return _fail_or_fresh(
+                    "no load_checkpoint_path given (prior checkpoints in the save dir are "
+                    "ignored; set RESUME_FROM_LATEST=true or load_checkpoint_path to resume)")
+            return _fail_or_fresh("no checkpoint found")
         meta_path = os.path.join(ckpt_dir, "meta.json")
         if not os.path.isfile(meta_path):
-            accelerator.print(f"[load] missing meta.json in {ckpt_dir}; starting fresh.")
-            return 0, 0, 0, None, None
+            return _fail_or_fresh(f"missing meta.json in {ckpt_dir}")
         # Hardening: skip checkpoints with no compatible model weights (incomplete save or
         # FSDP/non-FSDP format mismatch) rather than crashing on the load.
         if not self._checkpoint_is_loadable(ckpt_dir, inference_only):
-            accelerator.print(f"[load] {ckpt_dir} has no compatible model weights "
-                              f"(incomplete or wrong format); starting fresh.")
-            return 0, 0, 0, None, None
+            return _fail_or_fresh(f"{ckpt_dir} has no compatible model weights "
+                                  f"(incomplete or wrong format)")
         with open(meta_path, "r") as f:
             meta = json.load(f)
         if expect_training_strategy and meta.get("training_strategy") != expect_training_strategy:
@@ -209,7 +225,11 @@ class BAMVLTrainer(BaseMultiHeadTrainer):
                 accelerator.load_state(ckpt_dir)
         except Exception as e:
             # Backstop: any load failure (corruption, partial save, version skew) -> fresh
-            # start with a clear message instead of aborting the whole run.
+            # start with a clear message instead of aborting the whole run — unless strict.
+            if strict:
+                raise RuntimeError(
+                    f"[load][strict] failed to load checkpoint {ckpt_dir} "
+                    f"({type(e).__name__}: {e})") from e
             accelerator.print(f"[load] failed to load checkpoint {ckpt_dir} "
                               f"({type(e).__name__}: {e}); starting fresh.")
             return 0, 0, 0, None, None
@@ -658,12 +678,21 @@ class BAMVLTrainer(BaseMultiHeadTrainer):
         else:
             self._build_adapters()
             train_dl, val_dl = self._prepare_modules(train_dl, val_dl)
+            # load_as_init: weights-only load (model + adapters), so a new curriculum stage is
+            # seeded from the previous stage's checkpoint without dragging its optimizer state
+            # or step counter. Otherwise this is a normal resume (full accelerate state).
             start_epoch, start_batch_offset, _, _, _ = self.load_checkpoint_unified(
                 accelerator=self.accelerator, model=self.model, base_ckpt_dir=self.checkpoint_dir,
                 explicit_dir=self.load_checkpoint_path or None,
                 expect_training_strategy=self.global_config.get("TRAINING_STRATEGY"),
+                inference_only=self.load_as_init,
                 auto_resume=self.resume_from_latest,
+                strict=self.load_as_init,
             )
+            if self.load_as_init:
+                # New stage starts at step 0 with a fresh optimizer (built below over this
+                # stage's param groups), keeping the loaded model + adapter weights.
+                start_epoch, start_batch_offset = 0, 0
 
         bundles = self.prepare_params_for_training(base_lr=base_lr, bam_lr=bam_lr)
         opts, _ = self._build_per_module_optimizers(bundles)
@@ -771,6 +800,9 @@ class BAMVLTrainer(BaseMultiHeadTrainer):
                             "grad_norm": float(grad_norm) if grad_norm is not None else 0.0,
                             "token_accuracy": (tok_correct / tok_total.clamp_min(1)).item(),
                             "learning_rate": self._current_lr(),
+                            "global_step": current_step,
+                            # fractional epoch (smooth x-axis; matches HF/ms-swift convention)
+                            "epoch": epoch + (batch_idx + 1) / max(1, len(train_dataloader)),
                         }, step=current_step)
                     win_loss_sum, win_micro = 0.0, 0
                     win_correct.zero_(); win_total.zero_()
