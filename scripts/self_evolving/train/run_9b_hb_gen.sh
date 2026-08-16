@@ -581,6 +581,10 @@ if [ "$RETRIEVAL" = 1 ]; then
 fi
 [ "$WEB_EVIDENCE" = 1 ] && SUMM_FLAGS+=(--web_evidence
                                         --evidence_cache_url "$EVIDENCE_CACHE_URL")
+# SIMPLE_PROMPT=1: the minimal 1-2 sentence proposer/generator templates (the
+# untuned baseline) instead of the calibrated defaults. Fresh EXP names only --
+# an existing prompt_dir would carry the old structural prompts.
+[ "${SIMPLE_PROMPT:-0}" = 1 ] && SUMM_FLAGS+=(--simple_prompt)
 /usr/local/bin/python scripts/self_evolving/generation_server.py \
     --rubric_mode --prompt_dir "$PROMPT_DIR" \
     --coverage_prompt_file "$COVERAGE_PROMPT_FILE" \

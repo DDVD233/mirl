@@ -213,6 +213,30 @@ HB_MODE_INSTR = {
 # query_proposer.txt — proposes diverse clinician REQUESTS for a use_case x
 # specialty. The requests double as Milvus retrieval queries (the "database
 # query prompt" the user wants evolvable). [[GAP_GUIDANCE]] is filled by /evolve.
+# SIMPLE-PROMPT baseline templates (--simple_prompt, dvd 2026-08-16). The default
+# templates below them encode years of measured calibration (criterion counts,
+# lengths, hedging, negative-trap policy) — which makes "fixed prompt" arms an
+# ALREADY-OPTIMIZED pipeline rather than a baseline. These strip everything but
+# the task in 1-2 sentences plus the JSON format contract the parser needs, so a
+# fixed-prompt arm using them measures the untuned floor.
+SIMPLE_PROPOSER_DEFAULT = """\
+Propose [[K]] realistic, diverse requests that a [[SPECIALTY]] physician might send to a \
+medical AI for the use case "[[USE_CASE]]" ([[USE_CASE_DESC]]).
+
+Output ONLY a JSON array of [[K]] strings. No markdown, no commentary."""
+
+SIMPLE_GENERATOR_DEFAULT = """\
+Write ONE evaluation example for a clinician-facing medical AI: a realistic [[SPECIALTY]] \
+clinician request for the use case "[[USE_CASE]]" ([[USE_CASE_DESC]]), plus a grading rubric \
+for judging an answer to it.
+
+Output ONLY a JSON object with:
+- "use_case": "[[USE_CASE]]"
+- "conversation": a list of messages [{"role":"user","content":...}] ending in the clinician's request
+- "rubric_items": a list of grading criteria, each {"criterion_text": str, "points": int} \
+(positive points for things a good answer should do, negative points for errors it must avoid)
+- "difficulty": "typical" or "difficult"."""
+
 RUBRIC_PROPOSER_DEFAULT = """\
 You are a clinician-informatics expert designing realistic tasks that physicians bring to a \
 medical AI for HealthBench Professional evaluation. The three target domains are care consult, \
@@ -627,8 +651,10 @@ class ServerState:
                 # Structural prompts keep their [[GAP_GUIDANCE]] token; the
                 # *_guidance entries are what /evolve rewrites each step (so the
                 # evolvable text can never drop a placeholder and break generation).
-                {"query_proposer": RUBRIC_PROPOSER_DEFAULT,
-                 "task_rubric_generator": RUBRIC_GENERATOR_DEFAULT,
+                {"query_proposer": (SIMPLE_PROPOSER_DEFAULT if args.simple_prompt
+                                    else RUBRIC_PROPOSER_DEFAULT),
+                 "task_rubric_generator": (SIMPLE_GENERATOR_DEFAULT if args.simple_prompt
+                                           else RUBRIC_GENERATOR_DEFAULT),
                  "query_proposer_guidance": "",
                  "task_rubric_generator_guidance": "",
                  # MUST end in _guidance: PromptStore re-syncs any non-guidance
@@ -6403,6 +6429,9 @@ async def evolve_retrieval(payload: EvolveRetrievalPayload):
 def main():
     parser = argparse.ArgumentParser()
     # --- Rubric mode (HealthBench-Professional task + rubric co-generation) ---
+    parser.add_argument("--simple_prompt", action="store_true",
+                        help="Use the minimal 1-2 sentence proposer/generator templates "
+                             "(untuned baseline) instead of the calibrated defaults.")
     parser.add_argument("--rubric_mode", action="store_true",
                         help="Generate open-ended clinician TASK + co-generated "
                              "HealthBench-Professional rubric per item (no MCQ/"

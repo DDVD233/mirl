@@ -49,7 +49,7 @@ DRY="${DRY:-0}"
 # which inverts every check written for a trainer.
 BOXES=("2335:infer:vllm::-"
        "2336:10:arm10:_websearch:specgap_arm10_websearch_launch.log"
-       "2333:9:arm9:_websearch:specgap_arm9_websearch_launch.log")
+       "2333:13:arm13:_websearch:specgap_arm13_websearch_launch.log")
 
 # The public endpoint the inference box must keep answering -- the same URL the retrieval
 # arm's SUMM_BASE names. Checked from HERE, not on the box, because what matters is not
@@ -229,7 +229,8 @@ check_serper_cache() {  # check_serper_cache <port> <arm>
     # Snapshot is PER ARM: two boxes writing one snapshot file would alternate
     # full-db overwrites. arm8 keeps the original path its server already uses.
     local snap=/scratch/sheng/self_evolving/kb/search_cache.sqlite
-    [ "$arm" = "9" ] && snap=/scratch/sheng/self_evolving/kb/search_cache_arm9.sqlite
+    # arm13 (server1) inherits arm9's snapshot: same box, arm9 retired into it.
+    case "$arm" in 9|13) snap=/scratch/sheng/self_evolving/kb/search_cache_arm9.sqlite ;; esac
     sshx "$port" "curl -sf -m 20 localhost:$SERPER_PORT/healthz >/dev/null 2>&1 ||
         { sleep 15; curl -sf -m 20 localhost:$SERPER_PORT/healthz >/dev/null 2>&1; }" && return 0
     log "[$port] serper cache NOT answering on :$SERPER_PORT after 2 probes -- web_search" \

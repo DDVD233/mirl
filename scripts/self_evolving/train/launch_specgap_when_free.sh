@@ -257,7 +257,29 @@ case "$ARM" in
               SUMM_BASE="$SUMM_DEDICATED" SUMM_FALLBACK_BASE="$SJUDGE_REMOTE"
               WEB_EVIDENCE=0 WEB_SEARCH_TOOL=0)
      EXP_NAME=hb9b_specgap_measure_noretrieval_sj ;;
-  *) echo "FATAL: ARM must be 1..12" >&2; exit 1 ;;
+  # 13/14: SIMPLE-PROMPT fixed baselines (dvd 2026-08-16). The "fixed prompt"
+  # controls run the CALIBRATED generator templates -- years of measured tuning --
+  # so adversary-vs-fixed compares against an already-optimized pipeline.
+  # SIMPLE_PROMPT=1 swaps in 1-2 sentence templates (format contract only), so
+  # these arms measure the untuned floor the adversary should be judged against.
+  13) # MSR server1 (2 GPUs): simple-prompt fixed + retrieval + websearch --
+      # the fair baseline for arm10. Summarizer PRIMARY is the DP=4 box
+      # (server5 is being freed; no fallback -- 18184 goes dark).
+     ARM_ENV=(RETRIEVAL=1 EVOLVE=0 SPEC_GAP=1 SIMPLE_PROMPT=1
+              N_GPUS="${N_GPUS:-2}"
+              SUMM_BASE="$SUMM_DEDICATED" SUMM_FALLBACK_BASE=""
+              SUMMARY_CONCURRENCY="${SUMMARY_CONCURRENCY:-320}"
+              SEARCH_SNAPSHOT=/scratch/sheng/self_evolving/kb/search_cache_arm9.sqlite
+              WEB_EVIDENCE=0 WEB_SEARCH_TOOL=1)
+     EXP_NAME=hb9b_specgap_simple_retrieval ;;
+  14) # AICR: simple-prompt fixed, no retrieval, pure self-judge -- the fair
+      # baseline for ARM=11 (sg-adv). Identical to ARM=12 plus SIMPLE_PROMPT.
+     ARM_ENV=(RETRIEVAL=0 EVOLVE=0 SPEC_GAP=1 SIMPLE_PROMPT=1
+              SELF_JUDGE=1 VAL_SELF_JUDGE=1
+              SUMM_BASE="$SUMM_DEDICATED" SUMM_FALLBACK_BASE="$SJUDGE_REMOTE"
+              WEB_EVIDENCE=0 WEB_SEARCH_TOOL=0)
+     EXP_NAME=hb9b_specgap_simple_noretrieval_sj ;;
+  *) echo "FATAL: ARM must be 1..14" >&2; exit 1 ;;
 esac
 
 EXP_NAME="${EXP_NAME}${EXP_SUFFIX}"
