@@ -131,7 +131,7 @@ case "$ARM" in
      # one cache service, with a 60s ceiling that degrades to Milvus-only.
      ARM_ENV=(RETRIEVAL=1 EVOLVE=1 SPEC_GAP=1 SPEC_GAP_SHIP=0 PROBE=1 PATCH=1
               HACK_MEMO=1 HB_PROBE_MODE=gate HB_REFINE_MODE=rewrite
-              SUMM_BASE="$SUMM_DEDICATED" SUMM_FALLBACK_BASE="$SJUDGE_REMOTE"
+              SUMM_BASE="$SUMM_DEDICATED" SUMM_FALLBACK_BASE=""  # server5 (18184) retired 2026-08-16
               SUMMARY_CONCURRENCY="${SUMMARY_CONCURRENCY:-320}"
               WEB_EVIDENCE="${WEB_EVIDENCE:-1}"
               # 16 was under-provisioned and the breaker paid for it. At ~8s a call, 16
@@ -158,7 +158,7 @@ case "$ARM" in
      # controlled ablation of one line.
      ARM_ENV=(RETRIEVAL=1 EVOLVE=1 SPEC_GAP=1 SPEC_GAP_SHIP=0 PROBE=1 PATCH=1
               HACK_MEMO=1 HB_PROBE_MODE=gate HB_REFINE_MODE=rewrite
-              SUMM_BASE="$SUMM_DEDICATED" SUMM_FALLBACK_BASE="$SJUDGE_REMOTE"
+              SUMM_BASE="$SUMM_DEDICATED" SUMM_FALLBACK_BASE=""  # server5 (18184) retired 2026-08-16
               SUMMARY_CONCURRENCY="${SUMMARY_CONCURRENCY:-320}"
               WEB_EVIDENCE="${WEB_EVIDENCE:-0}"
               WEB_SEARCH_TOOL=1)
@@ -217,7 +217,7 @@ case "$ARM" in
                HB_PATCH_MIN_MARGIN=0.15 HB_PATCHED_MAX_ITEMS=12
                HB_PATCH_MINT_ITEMS=5 HB_REWRITE_MAX_GROW=4 HB_REFINE_BG_MAX=48
                HB_MEMO_MAX_CHARS=2400
-               SUMM_BASE="$SUMM_DEDICATED" SUMM_FALLBACK_BASE="$SJUDGE_REMOTE"
+               SUMM_BASE="$SUMM_DEDICATED" SUMM_FALLBACK_BASE=""  # server5 (18184) retired 2026-08-16
                SUMMARY_CONCURRENCY="${SUMMARY_CONCURRENCY:-320}"
                WEB_EVIDENCE="${WEB_EVIDENCE:-0}"
                WEB_SEARCH_TOOL=1)
@@ -246,7 +246,7 @@ case "$ARM" in
               HB_PATCH_MINT_ITEMS=5 HB_REWRITE_MAX_GROW=4 HB_REFINE_BG_MAX=48
               HB_MEMO_MAX_CHARS=2400
               SELF_JUDGE=1 ALLOW_EVOLVE_SELF_JUDGE=1 VAL_SELF_JUDGE=1
-              SUMM_BASE="$SUMM_DEDICATED" SUMM_FALLBACK_BASE="$SJUDGE_REMOTE"
+              SUMM_BASE="$SUMM_DEDICATED" SUMM_FALLBACK_BASE=""  # server5 (18184) retired 2026-08-16
               WEB_EVIDENCE=0 WEB_SEARCH_TOOL=0)
      EXP_NAME=hb9b_specgap_ship_noretrieval_sj ;;
   12) # The fixed-prompt control for ARM=11. WEB_EVIDENCE=0 is explicit because
@@ -254,7 +254,7 @@ case "$ARM" in
       # start the GPT web-evidence service.
      ARM_ENV=(RETRIEVAL=0 EVOLVE=0 SPEC_GAP=1
               SELF_JUDGE=1 VAL_SELF_JUDGE=1
-              SUMM_BASE="$SUMM_DEDICATED" SUMM_FALLBACK_BASE="$SJUDGE_REMOTE"
+              SUMM_BASE="$SUMM_DEDICATED" SUMM_FALLBACK_BASE=""  # server5 (18184) retired 2026-08-16
               WEB_EVIDENCE=0 WEB_SEARCH_TOOL=0)
      EXP_NAME=hb9b_specgap_measure_noretrieval_sj ;;
   # 13/14: SIMPLE-PROMPT fixed baselines (dvd 2026-08-16). The "fixed prompt"
@@ -276,7 +276,7 @@ case "$ARM" in
       # baseline for ARM=11 (sg-adv). Identical to ARM=12 plus SIMPLE_PROMPT.
      ARM_ENV=(RETRIEVAL=0 EVOLVE=0 SPEC_GAP=1 SIMPLE_PROMPT=1
               SELF_JUDGE=1 VAL_SELF_JUDGE=1
-              SUMM_BASE="$SUMM_DEDICATED" SUMM_FALLBACK_BASE="$SJUDGE_REMOTE"
+              SUMM_BASE="$SUMM_DEDICATED" SUMM_FALLBACK_BASE=""  # server5 (18184) retired 2026-08-16
               WEB_EVIDENCE=0 WEB_SEARCH_TOOL=0)
      EXP_NAME=hb9b_specgap_simple_noretrieval_sj ;;
   *) echo "FATAL: ARM must be 1..14" >&2; exit 1 ;;
