@@ -895,6 +895,12 @@ async def _api_call(state: ServerState, system_prompt: str, user_prompt: str,
     # model (e.g. a frontier GPT via TRAPI) while generation stays on the local
     # teacher — the self-referential loop was narrowing the curriculum.
     provider = (provider_override or os.environ.get("CHAT_PROVIDER", "vllm")).lower()
+    # All-self arms: on the vllm path, thinking tokens count against max_tokens,
+    # so a budget sized for GPT (which reasons off-budget) truncates the 9B's
+    # JSON mid-output. The floor guarantees every call at least this much room.
+    _floor = int(os.environ.get("GEN_MAX_TOKENS_FLOOR", "0"))
+    if _floor > max_tokens:
+        max_tokens = _floor
     eff_model = model_name or state.args.model_name
     eff_key = api_key or state.args.api_key
     want_thinking = temperature >= 0.5

@@ -224,27 +224,52 @@ VAL_SELF_JUDGE="${VAL_SELF_JUDGE:-0}"
 VAL_JUDGE_BASE="$TRAPI_BASE"; VAL_JUDGE_KEY="$TRAPI_KEY"
 VAL_JUDGE_MODEL="$JUDGE";     VAL_JUDGE_PROVIDER=trapi
 REFEREE_HYDRA=()
+# SELF_ALL=1 (dvd 2026-08-16): EVERY model role runs on the frozen 9B -- task
+# proposer, rubric generator, farmer/probe grading, patch minter, memo writer,
+# /evolve, coverage judge AND the referee. Zero GPT anywhere in the run. Requires
+# SELF_JUDGE=1 VAL_SELF_JUDGE=1 (train/val judges). The referee smoke is known
+# to FAIL on the 9B (length bias, 2026-08-14) -- REFEREE_SMOKE_SOFT downgrades
+# that gate to a loud warning, so spec_gap/H and ship decisions in this arm are
+# measured by a referee with a documented bias: interpret accordingly.
+# GEN_MAX_TOKENS_FLOOR keeps 9B thinking from truncating JSON outputs GPT would
+# have completed (thinking tokens count against max_tokens on the vllm path).
+SELF_ALL="${SELF_ALL:-0}"
+GEN_CHAT_BASE="$TRAPI_BASE"; GEN_CHAT_KEY="$TRAPI_KEY"
+GEN_CHAT_MODEL="$JUDGE";     GEN_CHAT_PROVIDER=trapi
+if [ "$SELF_ALL" = 1 ]; then
+    [ "$SELF_JUDGE" = 1 ] && [ "$VAL_SELF_JUDGE" = 1 ] || {
+        echo "FATAL: SELF_ALL=1 requires SELF_JUDGE=1 and VAL_SELF_JUDGE=1" >&2; exit 1; }
+    GEN_CHAT_BASE="$SJUDGE_BASE"; GEN_CHAT_KEY=EMPTY
+    GEN_CHAT_MODEL="$SJUDGE_MODEL"; GEN_CHAT_PROVIDER=vllm
+    export REFEREE_BASE="$SJUDGE_BASE" REFEREE_KEY=EMPTY
+    export REFEREE_MODEL="$SJUDGE_MODEL" REFEREE_PROVIDER=vllm
+    REFEREE_SMOKE_SOFT="${REFEREE_SMOKE_SOFT:-1}"
+    export GEN_MAX_TOKENS_FLOOR="${GEN_MAX_TOKENS_FLOOR:-6144}"
+fi
 if [ "$VAL_SELF_JUDGE" = 1 ]; then
     VAL_JUDGE_BASE="$SJUDGE_BASE"; VAL_JUDGE_KEY=EMPTY
     VAL_JUDGE_MODEL="$SJUDGE_MODEL"; VAL_JUDGE_PROVIDER=vllm
+  if [ "$SELF_ALL" != 1 ]; then
     # The REFEREE deliberately stays on the GPT path even here: the 9B FAILS the
     # referee competence smoke (2026-08-14: ranked a long unsafe answer above the
     # short correct one — pure length bias), and in the ship arms referee
     # verdicts feed patches. The trainer resolves the referee from
     # data.self_evolving.referee_* which defaults to reward_kwargs.val_*, so pin
-    # it back to the GPT judge explicitly.
+    # it back to the GPT judge explicitly. (Under SELF_ALL=1 this pin is SKIPPED
+    # -- see the SELF_ALL block: the referee is the 9B there, by design.)
     REFEREE_HYDRA=(
         +data.self_evolving.referee_api_base="$TRAPI_BASE"
         +data.self_evolving.referee_api_key="$TRAPI_KEY"
         +data.self_evolving.referee_model_name="$JUDGE"
         +data.self_evolving.referee_provider=trapi
     )
+  fi
 fi
 EMBED_BASE="${EMBED_BASE:-http://mib.media.mit.edu:18001/v1}"
 MILVUS_URI="${MILVUS_URI:-http://mib.media.mit.edu:19531}"
 VAL=$S/healthbench_pro_val.parquet
 
-export CHAT_PROVIDER=trapi
+export CHAT_PROVIDER="$GEN_CHAT_PROVIDER"
 export HF_HOME=$S/hf_cache
 export HF_HUB_OFFLINE=0 TRANSFORMERS_OFFLINE=0
 export RAY_ADDRESS=local
@@ -588,7 +613,7 @@ fi
 /usr/local/bin/python scripts/self_evolving/generation_server.py \
     --rubric_mode --prompt_dir "$PROMPT_DIR" \
     --coverage_prompt_file "$COVERAGE_PROMPT_FILE" \
-    --api_base "$TRAPI_BASE" --api_key "$TRAPI_KEY" --model_name "$JUDGE" \
+    --api_base "$GEN_CHAT_BASE" --api_key "$GEN_CHAT_KEY" --model_name "$GEN_CHAT_MODEL" \
     --embed_api_base "$EMBED_BASE" --embed_model Qwen/Qwen3-VL-Embedding-2B \
     --milvus_uri "$MILVUS_URI" --milvus_token root:Milvus \
     --milvus_collection medical_knowledge_v2 --milvus_top_k 8 \
@@ -697,8 +722,14 @@ if [ "$SPEC_GAP" = 1 ]; then
     REFEREE_MODEL="${REFEREE_MODEL:-$JUDGE}" \
     REFEREE_PROVIDER="${REFEREE_PROVIDER:-trapi}" \
     /usr/local/bin/python scripts/self_evolving/analysis/referee_smoke.py || {
-        echo "FATAL: referee smoke failed; the specification-gap measurement would silently never run" >&2
-        exit 1; }
+        if [ "${REFEREE_SMOKE_SOFT:-0}" = 1 ]; then
+            echo "WARNING: referee smoke FAILED but REFEREE_SMOKE_SOFT=1 (all-self arm):" >&2
+            echo "         spec_gap/H and ship decisions come from a referee with a" >&2
+            echo "         documented length bias -- interpret those metrics accordingly." >&2
+        else
+            echo "FATAL: referee smoke failed; the specification-gap measurement would silently never run" >&2
+            exit 1
+        fi; }
 fi
 
 # ---- trainer ---------------------------------------------------------------------

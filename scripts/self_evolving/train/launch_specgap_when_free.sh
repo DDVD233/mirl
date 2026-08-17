@@ -279,7 +279,29 @@ case "$ARM" in
               SUMM_BASE="$SUMM_DEDICATED" SUMM_FALLBACK_BASE=""  # server5 (18184) retired 2026-08-16
               WEB_EVIDENCE=0 WEB_SEARCH_TOOL=0)
      EXP_NAME=hb9b_specgap_simple_noretrieval_sj ;;
-  *) echo "FATAL: ARM must be 1..14" >&2; exit 1 ;;
+  15) # ALL-SELF adversary (dvd 2026-08-16): ARM=10's exact recipe -- evolve,
+      # probe/patch/memo, ship, retrieval, websearch -- with EVERY model role on
+      # the frozen 9B at SUMM_DEDICATED. Zero GPT: proposer, rubric generator,
+      # farmer, patch minter, memo, /evolve, train judge, VAL judge, coverage
+      # judge and the REFEREE (which fails the length-bias smoke; softened to a
+      # warning here by design -- read spec_gap/H with that in mind). Val numbers
+      # are 9B-judged: comparable to the AICR _sj arms' scale, never to the
+      # gpt-judged MSR series. GEN_MAX_TOKENS_FLOOR stops 9B thinking from
+      # truncating JSON that GPT (off-budget reasoning) would have completed.
+     ARM_ENV=(RETRIEVAL=1 EVOLVE=1 SPEC_GAP=1 SPEC_GAP_SHIP=1 PROBE=1 PATCH=1
+              HACK_MEMO=1 HB_PROBE_MODE=gate HB_REFINE_MODE=rewrite
+              HB_PROBE_RATE=1.0 HB_REFINE_ROUNDS=2 HB_REFINE_BACKGROUND=1
+              HB_PATCH_ROUNDS=2 HB_PATCH_ASYNC=1 HB_PATCH_MAX_PER_QID=6
+              HB_PATCH_MIN_MARGIN=0.15 HB_PATCHED_MAX_ITEMS=12
+              HB_PATCH_MINT_ITEMS=5 HB_REWRITE_MAX_GROW=4 HB_REFINE_BG_MAX=48
+              HB_MEMO_MAX_CHARS=2400
+              SELF_JUDGE=1 ALLOW_EVOLVE_SELF_JUDGE=1 VAL_SELF_JUDGE=1
+              SELF_ALL=1
+              SUMM_BASE="$SUMM_DEDICATED" SUMM_FALLBACK_BASE=""
+              SUMMARY_CONCURRENCY="${SUMMARY_CONCURRENCY:-320}"
+              WEB_EVIDENCE=0 WEB_SEARCH_TOOL=1)
+     EXP_NAME=hb9b_specgap_ship_retrieval_self9b ;;
+  *) echo "FATAL: ARM must be 1..15" >&2; exit 1 ;;
 esac
 
 EXP_NAME="${EXP_NAME}${EXP_SUFFIX}"
