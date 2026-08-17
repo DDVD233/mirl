@@ -208,10 +208,18 @@ async def _snapshotter():
             continue
         try:
             tmp = tempfile.mktemp(dir=os.path.dirname(dest), prefix=".serper_snap_")
-            async with STATE["store"].lock:
+            # The backup must NOT run on the event loop: at ~50k entries it blocks
+            # for long enough that healthz fails the monitor's AND the watchdog's
+            # probes, triggering spurious restart attempts (2026-08-17). sqlite's
+            # backup API tolerates concurrent writers (it restarts the copy), so
+            # run it in a worker thread without holding the store lock.
+            def _backup() -> None:
                 out = sqlite3.connect(tmp)
-                STATE["store"].db.backup(out)
-                out.close()
+                try:
+                    STATE["store"].db.backup(out)
+                finally:
+                    out.close()
+            await asyncio.get_running_loop().run_in_executor(None, _backup)
             shutil.move(tmp, dest)
             STATE["snapshots"] += 1
             logger.info("snapshot -> %s (%s)", dest, STATE["store"].counts())
