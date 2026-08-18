@@ -316,10 +316,13 @@ case "$ARM" in
               HB_PATCH_MINT_ITEMS=5 HB_REWRITE_MAX_GROW=4 HB_REFINE_BG_MAX=48
               HB_MEMO_MAX_CHARS=2400
               ACTOR_MODEL_PATH=Qwen/Qwen3.6-27B
-              N_GPUS="${N_GPUS:-2}"
+              # 4 GPUs on the config2 half-node (2334). The first home, the
+              # 2-GPU gljtx pod, was OOMKilled at 3.6h: that pod flavor's host
+              # RAM cannot hold the 27B's FSDP param+optimizer offload.
+              N_GPUS="${N_GPUS:-4}"
               SUMM_BASE="$SUMM_DEDICATED" SUMM_FALLBACK_BASE=""
               SUMMARY_CONCURRENCY="${SUMMARY_CONCURRENCY:-320}"
-              SEARCH_SNAPSHOT=/scratch/sheng/self_evolving/kb/search_cache_arm9.sqlite
+              SEARCH_SNAPSHOT=/scratch/sheng/self_evolving/kb/search_cache_arm16.sqlite
               WEB_EVIDENCE=0 WEB_SEARCH_TOOL=1)
      EXP_NAME=hb27b_specgap_ship_retrieval ;;
   17) # ALL-9B SIMPLE BASELINE (dvd 2026-08-18): the control for ARM=15,
