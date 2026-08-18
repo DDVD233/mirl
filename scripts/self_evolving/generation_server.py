@@ -1454,7 +1454,13 @@ def _normalize_conversation(conv):
         if role in _ASSISTANT_ROLES:
             role = "assistant"
         elif role == "system":
-            role = "system"
+            # Qwen's chat template hard-errors on a system message anywhere but
+            # index 0 ("System message must be at the beginning") -- a 9B-minted
+            # mid-conversation system turn crashed arm15's trainer at step 83
+            # (2026-08-18). A LEADING system turn is fine (the agent loop merges
+            # its instruction into it); any later one is generator confusion --
+            # keep the content as clinician context instead of dropping it.
+            role = "system" if not norm else "user"
         else:
             role = "user"  # default unknown / user-like roles to the clinician
         norm.append({"role": role, "content": content})
