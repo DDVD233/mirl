@@ -301,7 +301,28 @@ case "$ARM" in
               SUMMARY_CONCURRENCY="${SUMMARY_CONCURRENCY:-320}"
               WEB_EVIDENCE=0 WEB_SEARCH_TOOL=1)
      EXP_NAME=hb9b_specgap_ship_retrieval_self9b ;;
-  *) echo "FATAL: ARM must be 1..15" >&2; exit 1 ;;
+  16) # 27B ADVERSARY (dvd 2026-08-18): ARM=10's exact recipe -- gpt judge+val,
+      # evolve, probe/patch/memo, ship, retrieval, solver websearch -- with the
+      # policy scaled to Qwen3.6-27B on server1's 2 B200s (proven ground: the
+      # 27B self-improve run trained on this box at n_gpus_per_node=2 with FSDP
+      # param+optimizer offload). Expect ~1h/step; the curve is the point, not
+      # the pace. Val is gpt-chat-latest -- same scale as the retired 9B MSR
+      # arms, so the size comparison reads directly.
+     ARM_ENV=(RETRIEVAL=1 EVOLVE=1 SPEC_GAP=1 SPEC_GAP_SHIP=1 PROBE=1 PATCH=1
+              HACK_MEMO=1 HB_PROBE_MODE=gate HB_REFINE_MODE=rewrite
+              HB_PROBE_RATE=1.0 HB_REFINE_ROUNDS=2 HB_REFINE_BACKGROUND=1
+              HB_PATCH_ROUNDS=2 HB_PATCH_ASYNC=1 HB_PATCH_MAX_PER_QID=6
+              HB_PATCH_MIN_MARGIN=0.15 HB_PATCHED_MAX_ITEMS=12
+              HB_PATCH_MINT_ITEMS=5 HB_REWRITE_MAX_GROW=4 HB_REFINE_BG_MAX=48
+              HB_MEMO_MAX_CHARS=2400
+              ACTOR_MODEL_PATH=Qwen/Qwen3.6-27B
+              N_GPUS="${N_GPUS:-2}"
+              SUMM_BASE="$SUMM_DEDICATED" SUMM_FALLBACK_BASE=""
+              SUMMARY_CONCURRENCY="${SUMMARY_CONCURRENCY:-320}"
+              SEARCH_SNAPSHOT=/scratch/sheng/self_evolving/kb/search_cache_arm9.sqlite
+              WEB_EVIDENCE=0 WEB_SEARCH_TOOL=1)
+     EXP_NAME=hb27b_specgap_ship_retrieval ;;
+  *) echo "FATAL: ARM must be 1..16" >&2; exit 1 ;;
 esac
 
 EXP_NAME="${EXP_NAME}${EXP_SUFFIX}"
