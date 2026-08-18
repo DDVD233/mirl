@@ -322,7 +322,18 @@ case "$ARM" in
               SEARCH_SNAPSHOT=/scratch/sheng/self_evolving/kb/search_cache_arm9.sqlite
               WEB_EVIDENCE=0 WEB_SEARCH_TOOL=1)
      EXP_NAME=hb27b_specgap_ship_retrieval ;;
-  *) echo "FATAL: ARM must be 1..16" >&2; exit 1 ;;
+  17) # ALL-9B SIMPLE BASELINE (dvd 2026-08-18): the control for ARM=15,
+      # completing the 2x2 {gpt vs all-9B} x {adversary vs honest floor}. Same
+      # retrieval+websearch stack and all-self roles as ARM=15, but the untuned
+      # 1-2 sentence templates and NO adversary machinery (EVOLVE=0, no
+      # probe/patch/ship/memo; SPEC_GAP=1 stays -- measurement is inert).
+     ARM_ENV=(RETRIEVAL=1 EVOLVE=0 SPEC_GAP=1 SIMPLE_PROMPT=1
+              SELF_JUDGE=1 VAL_SELF_JUDGE=1 SELF_ALL=1
+              SUMM_BASE="$SUMM_DEDICATED" SUMM_FALLBACK_BASE=""
+              SUMMARY_CONCURRENCY="${SUMMARY_CONCURRENCY:-320}"
+              WEB_EVIDENCE=0 WEB_SEARCH_TOOL=1)
+     EXP_NAME=hb9b_specgap_simple_retrieval_self9b ;;
+  *) echo "FATAL: ARM must be 1..17" >&2; exit 1 ;;
 esac
 
 EXP_NAME="${EXP_NAME}${EXP_SUFFIX}"
