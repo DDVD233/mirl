@@ -48,7 +48,7 @@ DRY="${DRY:-0}"
 # summarizer (see infer_box_state / revive_infer below) and holds GPU memory when HEALTHY,
 # which inverts every check written for a trainer.
 BOXES=("2335:infer:vllm::-"
-       "2336:15:arm15:_websearch:specgap_arm15_websearch_launch.log"
+       "2336:17:arm17:_websearch:specgap_arm17_websearch_launch.log"
        "2334:16:arm16:_websearch:specgap_arm16_websearch_launch.log")
 
 # The public endpoint the inference box must keep answering -- the same URL the retrieval
