@@ -336,7 +336,20 @@ case "$ARM" in
               SUMMARY_CONCURRENCY="${SUMMARY_CONCURRENCY:-320}"
               WEB_EVIDENCE=0 WEB_SEARCH_TOOL=1)
      EXP_NAME=hb9b_specgap_simple_retrieval_self9b ;;
-  *) echo "FATAL: ARM must be 1..17" >&2; exit 1 ;;
+  18) # 27B SIMPLE BASELINE (dvd 2026-08-19): the untuned floor at 27B scale --
+      # the control for ARM=16. ARM=13's exact recipe (simple templates, fixed
+      # prompt, retrieval + solver websearch, gpt judge+val) with the policy at
+      # Qwen3.6-27B on 4 GPUs. Runs as the sg-27bsimp AICR chain (both MSR
+      # 4-GPU boxes are occupied; needs --mem=800G at sbatch -- the 27B's FSDP
+      # offload OOMKilled a 512G-class pod on 2026-08-18).
+     ARM_ENV=(RETRIEVAL=1 EVOLVE=0 SPEC_GAP=1 SIMPLE_PROMPT=1
+              ACTOR_MODEL_PATH=Qwen/Qwen3.6-27B
+              N_GPUS="${N_GPUS:-4}"
+              SUMM_BASE="$SUMM_DEDICATED" SUMM_FALLBACK_BASE=""
+              SUMMARY_CONCURRENCY="${SUMMARY_CONCURRENCY:-320}"
+              WEB_EVIDENCE=0 WEB_SEARCH_TOOL=1)
+     EXP_NAME=hb27b_specgap_simple_retrieval ;;
+  *) echo "FATAL: ARM must be 1..18" >&2; exit 1 ;;
 esac
 
 EXP_NAME="${EXP_NAME}${EXP_SUFFIX}"
