@@ -89,6 +89,18 @@ HOMOGENEOUS_DEFAULTS: dict = {
 # Length-adjustment constants from the HealthBench Professional paper.
 LENGTH_ADJ_CENTER = float(os.environ.get("HB_LENGTH_CENTER", "2000"))
 LENGTH_ADJ_PENALTY_PER_500 = float(os.environ.get("HB_LENGTH_PENALTY_PER_500", "0.0147"))
+# VALIDATION-only override (dvd 2026-08-21): benchmarks other than HealthBench-Pro
+# publish no length rule, so their held-out number must be the raw rubric score
+# (set HB_VAL_LENGTH_PENALTY_PER_500=0). Defaults to the shared constant so every
+# HealthBench arm is untouched; the TRAIN charge keeps using the shared constant.
+VAL_LENGTH_ADJ_PENALTY_PER_500 = float(
+    os.environ.get("HB_VAL_LENGTH_PENALTY_PER_500", str(LENGTH_ADJ_PENALTY_PER_500)))
+
+# data_source prefixes of REAL held-out benchmark rows. Routes them to the official
+# (val) judge + grading protocol and keeps them away from the gen server's /report.
+# `healthbench_professional/*` is the original; `prbench/*` and `profbench/*` are the
+# non-medical rubric benchmarks added 2026-08-21 (same row schema, same grader).
+BENCHMARK_DATA_SOURCE_PREFIXES = ("healthbench_professional", "prbench", "profbench")
 
 # TRAINING-ONLY anti-runaway-thinking shaping. The solver always thinks (the chat
 # template opens the reasoning channel), so a response with no ``</think>`` means
@@ -423,7 +435,7 @@ async def compute_score(
     # self-generated training tasks are `healthbench_self`. So the official data always
     # gets the official (TRAPI) judge regardless of the flag.
     is_val = bool(extra_info.get("_is_validation", False)) or str(data_source or "").startswith(
-        "healthbench_professional"
+        BENCHMARK_DATA_SOURCE_PREFIXES
     )
     # `is_val` above is the GRADING-PROTOCOL switch (judge routing, length
     # adjustment, benchmark clip) and must keep exactly that meaning. It is NOT a
@@ -612,7 +624,7 @@ async def compute_score(
         # VALIDATION: the official HealthBench-Professional term, two-sided and
         # unchanged. Held-out numbers must stay comparable with published results, so
         # nothing below touches this branch.
-        length_adjusted = raw - LENGTH_ADJ_PENALTY_PER_500 * ((chars - LENGTH_ADJ_CENTER) / 500.0)
+        length_adjusted = raw - VAL_LENGTH_ADJ_PENALTY_PER_500 * ((chars - LENGTH_ADJ_CENTER) / 500.0)
     elif os.environ.get("HB_TRAIN_LENGTH_ADJ", "1") == "1":
         # TRAINING: penalty ONLY above the centre. The two-sided form paid for brevity:
         # below 2000 chars (chars - CENTER) is negative, so the term ADDS reward, up to

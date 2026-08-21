@@ -1,0 +1,45 @@
+# Tool config for the NON-MEDICAL arms (WEB_ONLY=1 in run_9b_hb_gen.sh; ARM=19/20 in
+# launch_specgap_when_free.sh): the solver gets ONLY `web_search`. The KB tool
+# (search_medical_kb -> Milvus medical_knowledge_v2 + frozen-9B brief) is medical by
+# construction and would be noise on finance / legal / science tasks, so it is absent
+# here rather than merely unused. `web_search` goes straight to the Serper cache
+# service (kb/serper_cache_server.py, WEB_SEARCH_URL env, default
+# http://localhost:8056/search) and returns VERBATIM SERP blocks -- no model anywhere
+# on that path. Counts against the VERL_MAX_SEARCHES budget (retrieval_tool_agent_loop).
+# The entry mirrors the web_search block of medical_retrieval_web_tool.yaml (type
+# native, timeout 240) with a domain-neutral description; keep the sibling yamls
+# untouched so existing arms stay byte-identical.
+tools:
+  - class_name: verl.tools.web_search_tool.WebSearchTool
+    config:
+      type: native
+      # num_results intentionally UNSET: result depth is a server-side policy knob
+      # (serper_cache_server --num_default).
+      #
+      # Must cover time QUEUED behind the cache service's fetch semaphore when a
+      # whole training batch misses at once (cache hits return in milliseconds, cold
+      # bursts queue).
+      timeout: 240
+      # web_search_url: http://localhost:8056/search   # else WEB_SEARCH_URL env
+    tool_schema:
+      type: function
+      function:
+        name: web_search
+        description: >-
+          Search the live web (Google) for specific facts the answer turns on — exact
+          rules, thresholds, rates, deadlines, constants, standards, current
+          regulations or recent changes — when you are not fully certain of them and
+          getting them wrong would change the answer. Returns raw search results
+          (title, link, snippet), not curated passages: judge each result by its
+          source and prefer primary and authoritative sources. Skip it for requests
+          you can answer confidently from your own knowledge.
+        parameters:
+          type: object
+          properties:
+            query:
+              type: string
+              description: >-
+                ONE specific, information-dense English search query naming the
+                entities explicitly, every abbreviation expanded. One query per call;
+                call again (within the shared search budget) for a different facet.
+          required: [query]

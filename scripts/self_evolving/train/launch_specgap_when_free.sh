@@ -22,7 +22,7 @@ set -euo pipefail
 
 S=/scratch/sheng/self_evolving
 REPO=${REPO:-$S/verl_specgap}
-ARM="${ARM:?set ARM=1 fixed-prompt | 2 refine-loop | 3 evolve-only | 4 v1+selfjudge | 5 v3+selfjudge | 6 v2+selfjudge | 7 full+retrieval | 8 full+retrieval+solver-websearch | 9 fixed-prompt+websearch | 10 adversary-v2 (ship+always-patch+multi-round)}"
+ARM="${ARM:?set ARM=1 fixed-prompt | 2 refine-loop | 3 evolve-only | 4 v1+selfjudge | 5 v3+selfjudge | 6 v2+selfjudge | 7 full+retrieval | 8 full+retrieval+solver-websearch | 9 fixed-prompt+websearch | 10 adversary-v2 (ship+always-patch+multi-round) | 19 PRBench adversary (web-only) | 20 ProfBench adversary (web-only)}"
 
 # Where the self-judge arms get their 9B grader. server5 already serves Qwen3.5-9B on a
 # dedicated GPU, exposed through frp, so pointing at it keeps all four GPUs on the
@@ -349,7 +349,76 @@ case "$ARM" in
               SUMMARY_CONCURRENCY="${SUMMARY_CONCURRENCY:-320}"
               WEB_EVIDENCE=0 WEB_SEARCH_TOOL=1)
      EXP_NAME=hb27b_specgap_simple_retrieval ;;
-  *) echo "FATAL: ARM must be 1..18" >&2; exit 1 ;;
+  # 19/20: NON-MEDICAL adversary arms (dvd 2026-08-21). The hack-then-patch
+  # pipeline run against rubric benchmarks outside medicine, to show the method is
+  # not a HealthBench artifact. ARM=16's exact adversary recipe at 9B (gpt judge +
+  # gpt val, as arm16) with the medical stack swapped out:
+  #   RETRIEVAL=0 WEB_ONLY=1   the solver's only tool is `web_search` (Serper, raw
+  #                            SERP blocks; config/web_search_tool_only.yaml). The
+  #                            KB is medical-only, so the frozen summarizer and the
+  #                            coverage judge go with it -- no 18186 dependency.
+  #   SE_DOMAIN=<bench>        the generator sees ONLY the paper-level description
+  #                            of the benchmark (scripts/self_evolving/domains.py
+  #                            bundle) -- never its tasks, rubrics or splits.
+  #   HB_KB_ANCHOR_SHARE=0     KB-anchored task minting and the HealthBench style
+  #   HB_STYLE_SEED_SHARE=0    seeds are medical; both off.
+  #   HB_VAL_LENGTH_PENALTY_PER_500=0  these benchmarks have no length rule, so the
+  #                            reported val is the raw weighted rubric score.
+  #   HB_LENGTH_CENTER=4000    the TRAIN length charge stays (one-sided, above the
+  #                            centre) but centred at 4000 chars, not 2000: PRBench
+  #                            rubrics average ~17 criteria and a 2000-char charge
+  #                            would teach a brevity the benchmark does not reward.
+  #   REFEREE_SMOKE_SOFT=1     the referee smoke is a medical case; the run script
+  #                            skips it for SE_DOMAIN!=medical, this is belt-and-braces.
+  19) # PRBench adversary: held-out PRBench Hard -- 550 finance + legal tasks with
+      # expert-written rubrics, val = prbench_hard_val.parquet. 4 GPUs on 2336.
+     ARM_ENV=(RETRIEVAL=0 WEB_ONLY=1 WEB_SEARCH_TOOL=1 WEB_EVIDENCE=0
+              EVOLVE=1 SPEC_GAP=1 SPEC_GAP_SHIP=1 PROBE=1 PATCH=1
+              HACK_MEMO=1 HB_PROBE_MODE=gate HB_REFINE_MODE=rewrite
+              HB_PROBE_RATE=1.0 HB_REFINE_ROUNDS=2 HB_REFINE_BACKGROUND=1
+              HB_PATCH_ROUNDS=2 HB_PATCH_ASYNC=1 HB_PATCH_MAX_PER_QID=6
+              HB_PATCH_MIN_MARGIN=0.15 HB_PATCHED_MAX_ITEMS=12
+              HB_PATCH_MINT_ITEMS=5 HB_REWRITE_MAX_GROW=4 HB_REFINE_BG_MAX=48
+              HB_MEMO_MAX_CHARS=2400
+              SE_DOMAIN=prbench
+              VAL_PARQUET=/scratch/sheng/self_evolving/prbench_hard_val.parquet
+              # 83/550 PRBench-Hard prompts exceed 6144 tokens (multi-turn threads
+              # with long prior assistant turns; max 40k). 12288 covers all but 26,
+              # which are left-truncated (the final user turn survives); max_model_len
+              # grows with it (12288 + 8192 response).
+              MAX_PROMPT_LEN=12288 ROLLOUT_MAX_LEN=20480
+              HB_KB_ANCHOR_SHARE=0 HB_STYLE_SEED_SHARE=0
+              HB_VAL_LENGTH_PENALTY_PER_500=0 HB_LENGTH_CENTER=4000
+              REFEREE_SMOKE_SOFT=1
+              N_GPUS="${N_GPUS:-4}"
+              SUMM_FALLBACK_BASE=""
+              SEARCH_SNAPSHOT=/scratch/sheng/self_evolving/kb/search_cache_arm19.sqlite)
+     EXP_NAME=prbench9b_specgap_ship ;;   # + EXP_SUFFIX=_websearch from the launcher
+  20) # ProfBench adversary: same knobs, val = profbench_val.parquet -- 40 expert
+      # report tasks across Chemistry/Physics PhD + Finance/Consulting MBA, rubric
+      # weights Critical 4 / Major 3 / Minor 2 / Additional 1; the official score
+      # is the weighted fulfilment fraction, which is exactly our grader. Runs on
+      # the 2-GPU gljtx pod (2333): global batch is unchanged (verl splits it
+      # across fewer ranks, dynamic bsz sizes the micro-batches per GPU), as for
+      # ARM=9/13 -- only wall-clock per step stretches.
+     ARM_ENV=(RETRIEVAL=0 WEB_ONLY=1 WEB_SEARCH_TOOL=1 WEB_EVIDENCE=0
+              EVOLVE=1 SPEC_GAP=1 SPEC_GAP_SHIP=1 PROBE=1 PATCH=1
+              HACK_MEMO=1 HB_PROBE_MODE=gate HB_REFINE_MODE=rewrite
+              HB_PROBE_RATE=1.0 HB_REFINE_ROUNDS=2 HB_REFINE_BACKGROUND=1
+              HB_PATCH_ROUNDS=2 HB_PATCH_ASYNC=1 HB_PATCH_MAX_PER_QID=6
+              HB_PATCH_MIN_MARGIN=0.15 HB_PATCHED_MAX_ITEMS=12
+              HB_PATCH_MINT_ITEMS=5 HB_REWRITE_MAX_GROW=4 HB_REFINE_BG_MAX=48
+              HB_MEMO_MAX_CHARS=2400
+              SE_DOMAIN=profbench
+              VAL_PARQUET=/scratch/sheng/self_evolving/profbench_val.parquet
+              HB_KB_ANCHOR_SHARE=0 HB_STYLE_SEED_SHARE=0
+              HB_VAL_LENGTH_PENALTY_PER_500=0 HB_LENGTH_CENTER=4000
+              REFEREE_SMOKE_SOFT=1
+              N_GPUS="${N_GPUS:-2}"
+              SUMM_FALLBACK_BASE=""
+              SEARCH_SNAPSHOT=/scratch/sheng/self_evolving/kb/search_cache_arm20.sqlite)
+     EXP_NAME=profbench9b_specgap_ship ;;   # + EXP_SUFFIX=_websearch from the launcher
+  *) echo "FATAL: ARM must be 1..20" >&2; exit 1 ;;
 esac
 
 EXP_NAME="${EXP_NAME}${EXP_SUFFIX}"

@@ -67,7 +67,34 @@ logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 _LABELS = "ABCDEFGHIJKLMNOP"
 
 
-REFEREE_SYSTEM = """\
+def _domain_rebrand():
+    """``domains.rebrand`` from scripts/self_evolving/domains.py (env SE_DOMAIN).
+
+    Located relative to the repo root; identity when the file is missing so a medical
+    run can never fail on it. An UNKNOWN SE_DOMAIN still raises (SystemExit from the
+    bundle) -- silently running medical prompts under a misspelled domain is worse.
+    """
+    try:
+        import importlib.util
+        from pathlib import Path
+
+        import verl
+
+        path = Path(verl.__file__).resolve().parents[1] / "scripts" / "self_evolving" / "domains.py"
+        if not path.is_file():
+            return lambda t: t
+        spec = importlib.util.spec_from_file_location("se_domains", path)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)  # type: ignore[union-attr]
+        return mod.rebrand
+    except Exception:  # noqa: BLE001
+        return lambda t: t
+
+
+_rebrand = _domain_rebrand()
+
+
+REFEREE_SYSTEM = _rebrand("""\
 You are a senior attending physician acting as a blind referee. You are shown one \
 clinician request and several candidate answers written by different models, each \
 labelled with a letter. You do not see any grading rubric, reference answer, or score, \
@@ -92,9 +119,9 @@ not a little.
 Two answers you would trust equally MUST go in the same tier. Do not invent a difference \
 to break a tie: a tie is information, a fabricated ordering is not.
 
-Return ONLY valid JSON, no prose, no markdown fence."""
+Return ONLY valid JSON, no prose, no markdown fence.""")
 
-REFEREE_TEMPLATE = """\
+REFEREE_TEMPLATE = _rebrand("""\
 # Clinician request
 {task}
 
@@ -109,7 +136,7 @@ equivalent).
 
 Return {{"tiers": [["<label>", ...], ["<label>", ...], ...], \
 "notes": "<=40 words, in clinical terms, on what separates your top tier from your \
-bottom tier"}}"""
+bottom tier"}}""")
 
 
 # ----------------------------------------------------------------------

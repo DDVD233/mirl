@@ -108,6 +108,33 @@ fi
 SPEC_GAP="${SPEC_GAP:-0}"
 SPEC_GAP_SHIP="${SPEC_GAP_SHIP:-0}"
 PROBE="${PROBE:-0}"
+# ---- non-medical arms (dvd 2026-08-21) ----
+# SE_DOMAIN selects the generator's domain bundle (scripts/self_evolving/domains.py:
+# paper-level benchmark description, seeds, judge wording). Exported so the gen server
+# (os.environ) and the Ray reward / agent-loop workers (which inherit this shell's
+# environment -- same path every HB_* knob below takes) all see the same value.
+# VAL_PARQUET swaps the held-out set; default is the HealthBench-Pro val, so every
+# existing arm is unchanged.
+# WEB_ONLY=1: the solver gets the `web_search` tool WITHOUT the medical KB retrieval
+# tool and WITHOUT the frozen summarizer (FROZEN_NEEDED stays 0, no 18186 dependency).
+# Requires RETRIEVAL=0 (no KB) and WEB_SEARCH_TOOL=1 (the serper cache is what serves
+# it). No coverage judge exists without KB retrieval, so none of the HB_RETRIEVAL_* /
+# cov_* reward wiring is set on this path.
+SE_DOMAIN="${SE_DOMAIN:-medical}"
+export SE_DOMAIN
+VAL_PARQUET="${VAL_PARQUET:-$S/healthbench_pro_val.parquet}"
+WEB_ONLY="${WEB_ONLY:-0}"
+if [ "$WEB_ONLY" = 1 ] && { [ "$RETRIEVAL" != 0 ] || [ "${WEB_SEARCH_TOOL:-0}" != 1 ]; }; then
+    echo "FATAL: WEB_ONLY=1 needs RETRIEVAL=0 and WEB_SEARCH_TOOL=1 (web_search tool" \
+         "only, no KB tool, no summarizer)" >&2
+    exit 1
+fi
+# Plain pass-throughs read by the gen server / reward code; exported only when the arm
+# sets them so every default stays exactly where the python side defines it.
+for _v in HB_KB_ANCHOR_SHARE HB_STYLE_SEED_SHARE HB_VAL_LENGTH_PENALTY_PER_500 HB_LENGTH_CENTER; do
+    [ -n "${!_v:-}" ] && export "$_v"
+done
+echo "domain=$SE_DOMAIN val_parquet=$VAL_PARQUET web_only=$WEB_ONLY"
 PATCH="${PATCH:-0}"
 HACK_MEMO="${HACK_MEMO:-0}"
 if [ "$SPEC_GAP_SHIP" = 1 ] && [ "$EVOLVE" != 1 ]; then
@@ -267,7 +294,8 @@ if [ "$VAL_SELF_JUDGE" = 1 ]; then
 fi
 EMBED_BASE="${EMBED_BASE:-http://mib.media.mit.edu:18001/v1}"
 MILVUS_URI="${MILVUS_URI:-http://mib.media.mit.edu:19531}"
-VAL=$S/healthbench_pro_val.parquet
+VAL="$VAL_PARQUET"
+[ -f "$VAL" ] || { echo "FATAL: VAL_PARQUET=$VAL does not exist" >&2; exit 1; }
 
 export CHAT_PROVIDER="$GEN_CHAT_PROVIDER"
 export HF_HOME=$S/hf_cache
@@ -426,6 +454,30 @@ if [ "$RETRIEVAL" = 1 ]; then
         +reward.custom_reward_function.reward_kwargs.cov_provider="$TRAIN_JUDGE_PROVIDER"
     )
     echo "summarizer will be served by the frozen-9B server at $SUMM_BASE"
+elif [ "$WEB_ONLY" = 1 ]; then
+    # WEB-ONLY solver tools (non-medical arms). Same agent loop, same budgets and
+    # truncation as the RETRIEVAL=1 branch so the tool SET is the only difference --
+    # but the yaml carries just `web_search`, nothing points at /retrieve, and there
+    # is no coverage judge (no HB_RETRIEVAL_*, no cov_* kwargs). Score floor matches
+    # the control branch below.
+    export HB_SCORE_MIN="${HB_SCORE_MIN:-none}"
+    export WEB_SEARCH_URL
+    export VERL_MAX_SEARCHES="${VERL_MAX_SEARCHES:-2}"
+    export VERL_SEARCH_THINK_BUDGET="${VERL_SEARCH_THINK_BUDGET:-1024}"
+    export VERL_THINK_BUDGET_TOKENS="${VERL_THINK_BUDGET_TOKENS:-3072}"
+    export VERL_ANSWER_RESERVE_TOKENS="${VERL_ANSWER_RESERVE_TOKENS:-3500}"
+    export VERL_MIN_ANSWER_TOKENS="${VERL_MIN_ANSWER_TOKENS:-1536}"
+    TOOL_CONFIG=scripts/self_evolving/train/config/web_search_tool_only.yaml
+    AGENT_ARGS=(
+        actor_rollout_ref.rollout.multi_turn.enable=True
+        actor_rollout_ref.rollout.multi_turn.format=qwen3_coder
+        actor_rollout_ref.rollout.multi_turn.max_tool_response_length="${MAX_TOOL_RESP:-6000}"
+        actor_rollout_ref.rollout.multi_turn.tool_response_truncate_side=right
+        actor_rollout_ref.rollout.multi_turn.tool_config_path="$TOOL_CONFIG"
+        actor_rollout_ref.rollout.agent.default_agent_loop=retrieval_tool_agent
+    )
+    VLLM_GPU_UTIL="${VLLM_GPU_UTIL:-0.45}"
+    echo "web-only tools: $TOOL_CONFIG (no KB retrieval, no summarizer, no coverage judge)"
 else
     # A floor of 0.0 threw away the gradient exactly where the loss lives. Measured on
     # hb9b_specgap_full_rewrite at step 165: 26.7% of val tasks score BELOW zero (mean
@@ -712,7 +764,12 @@ done
 # Also asserts the referee prefers the SHORT CORRECT answer over the long unsafe
 # one, which is the prompt's whole premise -- a referee that reads as a length proxy
 # would down-weight exactly the groups where the rubric correctly punished verbosity.
-if [ "$SPEC_GAP" = 1 ]; then
+if [ "$SPEC_GAP" = 1 ] && [ "$SE_DOMAIN" != medical ]; then
+    # The smoke's hand-built group is a MEDICAL case (short correct vs long unsafe
+    # answer); its preference assertion says nothing about a finance/legal/science
+    # referee. Skip rather than fail -- referee failures still surface per step.
+    echo "referee smoke SKIPPED: SE_DOMAIN=$SE_DOMAIN (the smoke file is a medical case)"
+elif [ "$SPEC_GAP" = 1 ]; then
     # Defaults to the VAL judge, which is gpt-chat-latest in every arm. Never
     # TRAIN_JUDGE_*: under SELF_JUDGE=1 that flips to the frozen local 9B, i.e. the
     # policy's own family, and a referee sharing the policy's blind spots cannot
@@ -722,8 +779,10 @@ if [ "$SPEC_GAP" = 1 ]; then
     REFEREE_MODEL="${REFEREE_MODEL:-$JUDGE}" \
     REFEREE_PROVIDER="${REFEREE_PROVIDER:-trapi}" \
     /usr/local/bin/python scripts/self_evolving/analysis/referee_smoke.py || {
+        # REFEREE_SMOKE_SOFT may also be set explicitly by an arm (it is only
+        # DEFAULTED under SELF_ALL above, never overwritten).
         if [ "${REFEREE_SMOKE_SOFT:-0}" = 1 ]; then
-            echo "WARNING: referee smoke FAILED but REFEREE_SMOKE_SOFT=1 (all-self arm):" >&2
+            echo "WARNING: referee smoke FAILED but REFEREE_SMOKE_SOFT=1:" >&2
             echo "         spec_gap/H and ship decisions come from a referee with a" >&2
             echo "         documented length bias -- interpret those metrics accordingly." >&2
         else
@@ -759,7 +818,7 @@ fi
     +data.self_evolving.spec_gap_exploit_margin="${SPEC_GAP_EXPLOIT_MARGIN:-0.15}" \
     data.val_files="$VAL" \
     data.train_batch_size="${TRAIN_BS:-32}" \
-    data.max_prompt_length=6144 \
+    data.max_prompt_length="${MAX_PROMPT_LEN:-6144}" \
     data.max_response_length="$MAX_RESP_LEN" \
     +data.apply_chat_template_kwargs.enable_thinking=True \
     data.shuffle=True \

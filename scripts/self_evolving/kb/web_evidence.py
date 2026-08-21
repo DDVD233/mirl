@@ -81,7 +81,33 @@ _PMC_RE = re.compile(r"pmc\.ncbi\.nlm\.nih\.gov/articles/(PMC\d+)")
 _TITLE_TAIL = re.compile(r"\s*[-|]\s*(PubMed|PMC|NCBI|Food and Drug Administration"
                          r"|UpToDate|Medscape|.{0,24}\.(gov|org|com))\s*$", re.I)
 
-SYSTEM = (
+def _domain_rebrand():
+    """``domains.rebrand`` for the SE_DOMAIN bundle (identity for medical / if absent).
+
+    ``domains.py`` lives one directory up. It is on sys.path when this module is imported
+    by generation_server (which inserts its own directory); otherwise load it by path.
+    """
+    try:
+        try:
+            from domains import rebrand  # type: ignore
+            return rebrand
+        except ImportError:
+            import importlib.util
+            from pathlib import Path
+            path = Path(__file__).resolve().parents[1] / "domains.py"
+            if not path.is_file():
+                return lambda t: t
+            spec = importlib.util.spec_from_file_location("se_domains", path)
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)  # type: ignore[union-attr]
+            return mod.rebrand
+    except Exception:  # noqa: BLE001 — a missing bundle must never break a medical run
+        return lambda t: t
+
+
+_rebrand = _domain_rebrand()
+
+SYSTEM = _rebrand(
     "You are a literature LOOKUP service, not an assistant. Search the web and report what "
     "each source SAYS. You must never answer the clinician's question, never give advice, "
     "never merge sources into a narrative, and never draft a note, report or letter -- even "

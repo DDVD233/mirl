@@ -807,7 +807,8 @@ async def compute_score(
         # data_source: real-benchmark rows must never reach /report (a 525-item
         # val burst flushes the gen server's 64-item accuracy window and poisons
         # its difficulty controller — observed in healthbench_diag_seeded).
-        is_benchmark_row = str(data_source or "").startswith("healthbench_professional")
+        from verl.utils.reward_score.healthbench_pro import BENCHMARK_DATA_SOURCE_PREFIXES
+        is_benchmark_row = str(data_source or "").startswith(BENCHMARK_DATA_SOURCE_PREFIXES)
         if server_url and question_id and not extra_info.get("_is_validation", False) \
                 and not is_benchmark_row:
             await _report_to_gen_server(server_url, question_id, float(result.get("acc", 0.0)))

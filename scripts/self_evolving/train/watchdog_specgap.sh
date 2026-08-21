@@ -47,9 +47,12 @@ DRY="${DRY:-0}"
 # arm=infer is not a training arm: that box serves the frozen 9B for the retrieval
 # summarizer (see infer_box_state / revive_infer below) and holds GPU memory when HEALTHY,
 # which inverts every check written for a trainer.
+# 2026-08-21: arm17 (all-9B simple baseline) row REMOVED -- 2336 was reassigned to the
+# PRBench adversary arm (first priority per dvd); arm17 stays parked at ckpt 20.
 BOXES=("2335:infer:vllm::-"
-       "2336:17:arm17:_websearch:specgap_arm17_websearch_launch.log"
-       "2334:16:arm16:_websearch:specgap_arm16_websearch_launch.log")
+       "2334:16:arm16:_websearch:specgap_arm16_websearch_launch.log"
+       "2336:19:arm19:_websearch:specgap_arm19_websearch_launch.log"
+       "2333:20:arm20:_websearch:specgap_arm20_websearch_launch.log")
 
 # The public endpoint the inference box must keep answering -- the same URL the retrieval
 # arm's SUMM_BASE names. Checked from HERE, not on the box, because what matters is not
@@ -233,6 +236,8 @@ check_serper_cache() {  # check_serper_cache <port> <arm>
     case "$arm" in
       9|13) snap=/scratch/sheng/self_evolving/kb/search_cache_arm9.sqlite ;;
       16)   snap=/scratch/sheng/self_evolving/kb/search_cache_arm16.sqlite ;;
+      19)   snap=/scratch/sheng/self_evolving/kb/search_cache_arm19.sqlite ;;
+      20)   snap=/scratch/sheng/self_evolving/kb/search_cache_arm20.sqlite ;;
     esac
     sshx "$port" "curl -sf -m 20 localhost:$SERPER_PORT/healthz >/dev/null 2>&1 ||
         { sleep 15; curl -sf -m 20 localhost:$SERPER_PORT/healthz >/dev/null 2>&1; }" && return 0

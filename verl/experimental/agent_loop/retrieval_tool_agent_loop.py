@@ -85,8 +85,36 @@ TOOL_MARKERS = ("<tool_call>", "<function=")
 # over-anchoring (30%) — the model suppressed correct parametric knowledge because
 # it wasn't in the passages — and unnecessary retrieval distracting non-factual
 # tasks (ethics/formatting/translation). See healthbench-v7-retrieval memory.
-RETRIEVE_INSTRUCTION = (
-    f"You are an expert physician. You may look facts up with the `{RETRIEVAL_TOOL_NAME}` "
+def _domain_rebrand():
+    """``domains.rebrand`` from scripts/self_evolving/domains.py (env SE_DOMAIN).
+
+    Located relative to the repo root; identity when the file is missing so a medical
+    run can never fail on it. An UNKNOWN SE_DOMAIN still raises (SystemExit from the
+    bundle) -- silently running medical prompts under a misspelled domain is worse.
+    """
+    try:
+        import importlib.util
+        from pathlib import Path
+
+        import verl
+
+        path = Path(verl.__file__).resolve().parents[1] / "scripts" / "self_evolving" / "domains.py"
+        if not path.is_file():
+            return lambda t: t
+        spec = importlib.util.spec_from_file_location("se_domains", path)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)  # type: ignore[union-attr]
+        return mod.rebrand
+    except Exception:  # noqa: BLE001
+        return lambda t: t
+
+
+_rebrand = _domain_rebrand()
+
+# Tool names are substituted AFTER rebranding: the default KB tool is called
+# `search_medical_kb`, and the bundle's "medical" rule must not rewrite an identifier.
+RETRIEVE_INSTRUCTION = _rebrand(
+    "You are an expert physician. You may look facts up with the `[[TOOL]]` "
     "tool before answering, at most {max_searches} time(s) in total. Search when the "
     "request turns on a specific fact you cannot recall with confidence — an exact dose, "
     "threshold, contraindication, code, or current guideline — and getting it wrong would "
@@ -99,22 +127,47 @@ RETRIEVE_INSTRUCTION = (
     "well-established facts you know even if absent from the passages, ask for missing "
     "context when ambiguous, and refuse unsafe requests. Never say 'the retrieved evidence "
     "does not contain...' about something you actually know."
-)
+).replace("[[TOOL]]", RETRIEVAL_TOOL_NAME)
 
 # Appended to RETRIEVE_INSTRUCTION only when the web tool is registered. The KB is
 # embedded and ends in 2019; the web tool is the route to anything newer -- but it
 # returns raw search results (titles, links, snippets), not passages, so the model
 # must judge source reliability itself.
-WEB_INSTRUCTION = (
-    f" You also have a `{WEB_TOOL_NAME}` tool (one query per call) that searches the "
+WEB_INSTRUCTION = _rebrand(
+    " You also have a `[[WEB]]` tool (one query per call) that searches the "
     "live web and returns raw results — title, link, snippet. Use it instead of "
-    f"`{RETRIEVAL_TOOL_NAME}` for CURRENT information: guidelines revised or drugs "
+    "`[[TOOL]]` for CURRENT information: guidelines revised or drugs "
     "approved in the last few years, recalls, epidemiology, or anything the knowledge "
     "base failed to find. Results are unfiltered web content: weigh each by its "
     "source, prefer guidelines, journals and regulators, and never treat a snippet "
     "from a low-quality site as fact. Both tools draw from the same total search "
     "budget of {max_searches}."
-)
+).replace("[[WEB]]", WEB_TOOL_NAME).replace("[[TOOL]]", RETRIEVAL_TOOL_NAME)
+
+# WEB-ONLY arms (the non-medical domains register just `web_search`, no KB tool):
+# the same search policy as RETRIEVE_INSTRUCTION, with the web tool as the only tool.
+# Used INSTEAD of RETRIEVE_INSTRUCTION + WEB_INSTRUCTION when the KB tool is absent.
+WEB_ONLY_INSTRUCTION = _rebrand(
+    "You are an expert physician. You may look facts up with the `[[WEB]]` tool before "
+    "answering, at most {max_searches} time(s) in total, one query per call. Search when "
+    "the request turns on a specific fact you cannot recall with confidence — an exact "
+    "dose, threshold, contraindication, code, or current guideline — and getting it wrong "
+    "would change the answer. Answer directly, without searching, for requests you already "
+    "know or that are not factual lookups (writing or formatting notes and letters, "
+    "explanations, ethics or refusal decisions, translation, general management). The "
+    "tool returns raw, unfiltered web results — title, link, snippet: weigh each by its "
+    "source, prefer primary and authoritative sources (guidelines, journals and "
+    "regulators), and never treat a snippet from a low-quality site as fact. Retrieved "
+    "material AUGMENTS your knowledge, it does not limit it: still state well-established "
+    "facts you know even if absent from the results, ask for missing context when "
+    "ambiguous, and refuse unsafe requests. Never say 'the retrieved evidence does not "
+    "contain...' about something you actually know."
+).replace("[[WEB]]", WEB_TOOL_NAME)
+
+
+def _web_only_variant(text: str) -> str:
+    """The masked-turn texts speak of KB 'passages'; the web tool returns results."""
+    return text.replace("passages", "results").replace("passage", "result")
 
 # Delivered as a masked user turn after the last tool response.
 #
@@ -131,7 +184,7 @@ WEB_INSTRUCTION = (
 # a reward-hacking route: a judge may well credit a confident "per the 2020 ACC/AHA
 # guideline" that no passage supports. Hence copy-only, verbatim, and an explicit
 # instruction to attribute nothing when the passages name nothing.
-HARD_ANSWER_INSTRUCTION = (
+HARD_ANSWER_INSTRUCTION = _rebrand(
     "The search tool is now CLOSED and will return nothing further. Do NOT search and do "
     "NOT output any tool call. Write your COMPLETE final answer to the request above now, "
     "as plain prose: clinically sound and well-structured, preserving appropriate "
@@ -149,7 +202,7 @@ HARD_ANSWER_INSTRUCTION = (
 
 # Returned as a tool message when the model calls the tool past its budget. The model
 # gets an explicit refusal rather than silence, so the behaviour is learnable.
-BUDGET_EXHAUSTED_ERROR = (
+BUDGET_EXHAUSTED_ERROR = _rebrand(
     "ERROR: retrieval budget exhausted ({n}/{n} searches used). The search tool is now "
     "CLOSED and will return nothing further. You must answer now from the passages already "
     "retrieved plus your own medical knowledge. Do NOT output another tool call."
@@ -158,11 +211,16 @@ BUDGET_EXHAUSTED_ERROR = (
 # Injected INSIDE the assistant turn (loss-masked) when the answer turn tries to call
 # the tool. Think-wrapped on purpose: the reward grades only the text after the LAST
 # </think>, so this never reaches the graded answer or the length penalty.
-CLOSED_NOTICE = (
+CLOSED_NOTICE = _rebrand(
     "\n\n<think>\nThe retrieval tool is closed and a further call returns nothing. "
     "I will write the complete final answer now, using the passages above plus my own "
     "medical knowledge.\n</think>\n\n"
 )
+
+# Web-only counterparts of the three masked texts (see WEB_ONLY_INSTRUCTION).
+WEB_ONLY_HARD_ANSWER_INSTRUCTION = _web_only_variant(HARD_ANSWER_INSTRUCTION)
+WEB_ONLY_BUDGET_EXHAUSTED_ERROR = _web_only_variant(BUDGET_EXHAUSTED_ERROR)
+WEB_ONLY_CLOSED_NOTICE = _web_only_variant(CLOSED_NOTICE)
 
 # Closing tag is optional so a span truncated at the response cap is still stripped.
 _TOOL_SPAN_RE = re.compile(
@@ -185,9 +243,21 @@ class RetrievalToolAgentLoop(ToolAgentLoop):
         # Which tool calls count as "a search" for budget/telemetry. The web tool
         # joins only when the tool config registered it, so arms without it are
         # byte-identical to before.
-        self.search_tool_names = {RETRIEVAL_TOOL_NAME}
-        if WEB_TOOL_NAME in getattr(self, "tools", {}):
+        tools = getattr(self, "tools", {}) or {}
+        # WEB-ONLY: the tool config registered the web tool and NOT the KB tool (the
+        # non-medical arms). The KB name then stays out of the search set, the
+        # instruction names only the web tool, and the masked turns speak of results
+        # rather than passages. Any other configuration is byte-identical to before.
+        self.web_only = WEB_TOOL_NAME in tools and RETRIEVAL_TOOL_NAME not in tools
+        self.search_tool_names = set() if self.web_only else {RETRIEVAL_TOOL_NAME}
+        if WEB_TOOL_NAME in tools:
             self.search_tool_names.add(WEB_TOOL_NAME)
+        self.hard_answer_instruction = (
+            WEB_ONLY_HARD_ANSWER_INSTRUCTION if self.web_only else HARD_ANSWER_INSTRUCTION
+        )
+        self.budget_exhausted_error = (
+            WEB_ONLY_BUDGET_EXHAUSTED_ERROR if self.web_only else BUDGET_EXHAUSTED_ERROR
+        )
         self.answer_think_budget = int(os.getenv("VERL_THINK_BUDGET_TOKENS", "3072"))
         self.search_think_budget = int(os.getenv("VERL_SEARCH_THINK_BUDGET", "1024"))
         self.max_searches = int(os.getenv("VERL_MAX_SEARCHES", "2"))
@@ -208,7 +278,7 @@ class RetrievalToolAgentLoop(ToolAgentLoop):
             "</think>\n\n", add_special_tokens=False
         )
         self.closed_notice_ids: list[int] = self.tokenizer.encode(
-            CLOSED_NOTICE, add_special_tokens=False
+            WEB_ONLY_CLOSED_NOTICE if self.web_only else CLOSED_NOTICE, add_special_tokens=False
         )
         self.tool_marker_ids: list[int] = []
         for m in TOOL_MARKERS:
@@ -299,9 +369,12 @@ class RetrievalToolAgentLoop(ToolAgentLoop):
 
     # ------------------------------------------------------------- generation
     def _inject_instruction(self, agent_data: AgentData) -> None:
-        text = RETRIEVE_INSTRUCTION.format(max_searches=self.max_searches)
-        if WEB_TOOL_NAME in self.search_tool_names:
-            text += WEB_INSTRUCTION.format(max_searches=self.max_searches)
+        if self.web_only:
+            text = WEB_ONLY_INSTRUCTION.format(max_searches=self.max_searches)
+        else:
+            text = RETRIEVE_INSTRUCTION.format(max_searches=self.max_searches)
+            if WEB_TOOL_NAME in self.search_tool_names:
+                text += WEB_INSTRUCTION.format(max_searches=self.max_searches)
         msgs = agent_data.messages
         if msgs and msgs[0].get("role") == "system":
             c = msgs[0].get("content")
@@ -415,7 +488,7 @@ class RetrievalToolAgentLoop(ToolAgentLoop):
                 agent_data.tool_rewards.append(tool_reward)
 
         if close:
-            add_messages.append({"role": "user", "content": HARD_ANSWER_INSTRUCTION})
+            add_messages.append({"role": "user", "content": self.hard_answer_instruction})
         await self._append_masked(agent_data, add_messages)
         agent_data.user_turns += 1
 
@@ -533,8 +606,8 @@ class RetrievalToolAgentLoop(ToolAgentLoop):
                 stats["budget_exhausted"] = 1
                 await self._append_masked(agent_data, [
                     {"role": "tool",
-                     "content": BUDGET_EXHAUSTED_ERROR.format(n=self.max_searches)},
-                    {"role": "user", "content": HARD_ANSWER_INSTRUCTION},
+                     "content": self.budget_exhausted_error.format(n=self.max_searches)},
+                    {"role": "user", "content": self.hard_answer_instruction},
                 ])
                 agent_data.user_turns += 1
                 break

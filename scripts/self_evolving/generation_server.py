@@ -81,6 +81,22 @@ import uvicorn
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
+# Domain bundle (env SE_DOMAIN = medical | prbench | profbench; default medical). The
+# medical bundle is the identity: every prompt below is byte-identical to the pre-bundle
+# text, and a test asserts that. Imported by directory so it resolves when this file is
+# launched as a script (sys.path[0] is then this directory already) and under module
+# launchers (where it is not).
+_SE_DIR = os.path.dirname(os.path.abspath(__file__))
+if _SE_DIR not in sys.path:
+    sys.path.insert(0, _SE_DIR)
+from domains import (  # noqa: E402
+    BUNDLE as _DOMAIN,
+    IS_MEDICAL as _IS_MEDICAL,
+    brief_paragraph as _brief_paragraph,
+    fill_domain as _fill_domain,
+    rebrand as _rebrand,
+)
+
 logger = logging.getLogger("gen_server")
 
 
@@ -131,6 +147,16 @@ HB_SPECIALTIES = [
     "general_internal_medicine", "family_medicine", "surgery", "ent", "radiology",
 ]
 HB_REDTEAM_SHARE = 0.33
+# Non-medical domains carry their own taxonomy; "specialty" keeps its name as the
+# sub-topic axis. SPECIALTIES_BY_USE_CASE (None for medical = full cross product)
+# restricts which sub-topics a use case may be paired with.
+HB_SPECIALTIES_BY_USE_CASE = None
+if not _IS_MEDICAL:
+    HB_USE_CASES = dict(_DOMAIN["USE_CASES"])
+    HB_USE_CASE_DESC = dict(_DOMAIN["USE_CASE_DESC"])
+    HB_SPECIALTIES = list(_DOMAIN["SPECIALTIES"])
+    HB_REDTEAM_SHARE = float(_DOMAIN["REDTEAM_SHARE"])
+    HB_SPECIALTIES_BY_USE_CASE = _DOMAIN["SPECIALTIES_BY_USE_CASE"]
 
 # Rubric-size distribution measured on healthbench_pro_val.parquet (525 tasks):
 # 1 crit x104, 2 x269, 3 x117, 4 x33, 5 x2  -> mean 2.16. A target count is drawn
@@ -204,6 +230,8 @@ HB_MODE_INSTR = {
         "The rubric MUST reward the AI for catching the problem and penalize going along with it."
     ),
 }
+if not _IS_MEDICAL:
+    HB_MODE_INSTR = dict(_DOMAIN["MODE_INSTR"])
 
 # ---- Default (seed) contents of the two evolvable, file-backed prompts ----
 # Placeholders use [[TOKEN]] (not str.format) because the /evolve loop lets an
@@ -219,33 +247,39 @@ HB_MODE_INSTR = {
 # ALREADY-OPTIMIZED pipeline rather than a baseline. These strip everything but
 # the task in 1-2 sentences plus the JSON format contract the parser needs, so a
 # fixed-prompt arm using them measures the untuned floor.
-SIMPLE_PROPOSER_DEFAULT = """\
-Propose [[K]] realistic, diverse requests that a [[SPECIALTY]] physician might send to a \
-medical AI for the use case "[[USE_CASE]]" ([[USE_CASE_DESC]]).
+#
+# DOMAIN TOKENS. [[DOMAIN_*]] placeholders are filled ONCE at import from the domain
+# bundle (domains.fill_domain) and the result is then passed through domains.rebrand;
+# the runtime _fill never sees them. The medical bundle reproduces the original text
+# byte for byte (tests/test_domains.py). Keep the backslash line continuations where
+# they are: inside a triple-quoted string they preserve the next line's indentation,
+# and those space runs are part of the bytes the medical arms are running on.
+_SIMPLE_PROPOSER_TEMPLATE = """\
+[[DOMAIN_DATASET_BRIEF_PARA]]Propose [[K]] realistic, diverse requests that a [[SPECIALTY]] [[DOMAIN_PRACTITIONER]] might send to \
+[[DOMAIN_AI_SHORT]] for the use case "[[USE_CASE]]" ([[USE_CASE_DESC]]).
 
 Output ONLY a JSON array of [[K]] strings. No markdown, no commentary."""
 
-SIMPLE_GENERATOR_DEFAULT = """\
-Write ONE evaluation example for a clinician-facing medical AI: a realistic [[SPECIALTY]] \
-clinician request for the use case "[[USE_CASE]]" ([[USE_CASE_DESC]]), plus a grading rubric \
+_SIMPLE_GENERATOR_TEMPLATE = """\
+[[DOMAIN_DATASET_BRIEF_PARA]]Write ONE evaluation example for [[DOMAIN_AI_DESC]]: a realistic [[SPECIALTY]] \
+[[DOMAIN_REQUEST_NOUN]] for the use case "[[USE_CASE]]" ([[USE_CASE_DESC]]), plus a grading rubric \
 for judging an answer to it.
 
 Output ONLY a JSON object with:
 - "use_case": "[[USE_CASE]]"
-- "conversation": a list of messages [{"role":"user","content":...}] ending in the clinician's request
+- "conversation": a list of messages [{"role":"user","content":...}] ending in the [[DOMAIN_USER_ROLE]]'s request
 - "rubric_items": a list of grading criteria, each {"criterion_text": str, "points": int} \
 (positive points for things a good answer should do, negative points for errors it must avoid)
 - "difficulty": "typical" or "difficult"."""
 
-RUBRIC_PROPOSER_DEFAULT = """\
-You are a clinician-informatics expert designing realistic tasks that physicians bring to a \
-medical AI for HealthBench Professional evaluation. The three target domains are care consult, \
-writing & documentation, and medical research — NOT simple diagnosis.
+_RUBRIC_PROPOSER_TEMPLATE = """\
+[[DOMAIN_DATASET_BRIEF_PARA]]You are [[DOMAIN_PROPOSER_ROLE]] designing realistic tasks that [[DOMAIN_PRACTITIONER]]s bring to \
+[[DOMAIN_AI_SHORT]] for [[DOMAIN_BENCH_NAME]] evaluation. [[DOMAIN_TARGET_DOMAINS_SENTENCE]]
 
-Given a use case and specialty, propose [[K]] DIVERSE, realistic clinician requests (one sentence \
-each) that a [[SPECIALTY]] physician might send for the use case "[[USE_CASE]]" \
-([[USE_CASE_DESC]]). Vary sub-topic, patient context, document type, and difficulty. Each request \
-should also work as a search query for retrieving grounding medical literature.
+Given a use case and specialty, propose [[K]] DIVERSE, realistic [[DOMAIN_REQUEST_NOUN]]s (one sentence \
+each) that a [[SPECIALTY]] [[DOMAIN_PRACTITIONER]] might send for the use case "[[USE_CASE]]" \
+([[USE_CASE_DESC]]). Vary [[DOMAIN_VARY_AXES]]. Each request \
+should also work as a search query for retrieving [[DOMAIN_GROUNDING_LITERATURE]].
 
 [[GAP_GUIDANCE]]
 
@@ -253,18 +287,18 @@ Output ONLY a JSON array of [[K]] strings. No markdown, no commentary."""
 
 # task_rubric_generator.txt — generates the clinician task + rubric in one call.
 # [[GAP_GUIDANCE]] is filled by /evolve to target missing capabilities.
-RUBRIC_GENERATOR_DEFAULT = """\
-You are a panel of physicians authoring ONE HealthBench-Professional-style evaluation example \
-for a clinician-facing medical AI. Use case: "[[USE_CASE]]" ([[USE_CASE_DESC]]); specialty: \
-[[SPECIALTY]]. You are given a target clinician request and (optionally) retrieved reference \
+_RUBRIC_GENERATOR_TEMPLATE = """\
+[[DOMAIN_DATASET_BRIEF_PARA]]You are [[DOMAIN_PANEL]] authoring ONE [[DOMAIN_BENCH_NAME_HYPHEN]]-style evaluation example \
+for [[DOMAIN_AI_DESC]]. Use case: "[[USE_CASE]]" ([[USE_CASE_DESC]]); specialty: \
+[[SPECIALTY]]. You are given a target [[DOMAIN_REQUEST_NOUN]] and (optionally) retrieved reference \
 passages.
 
 Produce a JSON object with:
 - "use_case": "[[USE_CASE]]".
 - "conversation": a list of messages [{"role":"user","content":...}] (optionally prior turns) \
-  ENDING in a user (clinician) turn — the realistic, specialty-appropriate task the AI must answer.
+  ENDING in a user ([[DOMAIN_USER_ROLE]]) turn — the realistic, specialty-appropriate task the AI must answer.
 - "rubric_items": a list of 1-5 grading criteria, each {"criterion_text": str, "points": int}. \
-  Rules (these mirror the MEASURED shape of real HealthBench-Professional rubrics; earlier \
+  Rules (these mirror the MEASURED shape of real [[DOMAIN_BENCH_NAME_HYPHEN]] rubrics; earlier \
   versions of this generator produced 7.5 long conjunctive criteria per task against the real \
   benchmark's 2.2 short ones, and the policy learned to cover ground rather than to be right):
     * HOW MANY POSITIVES, and whether a negative is added on top, is fixed per task below — \
@@ -280,14 +314,11 @@ Produce a JSON object with:
       real forms often:
         - "Mentions in some way that ..."  (about half of real criteria hedge like this)
         - "Does at least one of the following: A, B, or C"  (about a quarter are disjunctive)
-      But what follows the hedge must be a specific, checkable fact — a value, threshold, dose, \
-      interval, contraindication or named guideline. "Mentions in some way that renal function \
-      matters" is a wasted criterion; "Mentions in some way that metformin is contraindicated \
-      below an eGFR of 30 mL/min/1.73m2" is a real one. Avoid "such as"/"for example" \
+      But what follows the hedge must be a specific, checkable fact — [[DOMAIN_EXAMPLE_SPECIFIC_FACT]]. \
+[[DOMAIN_EXAMPLE_WASTED]] is a wasted criterion; [[DOMAIN_EXAMPLE_REAL]] is a real one. Avoid "such as"/"for example" \
       illustrative lists — real rubrics do not use them.
     * NEGATIVE criteria are worth -5..-10 and describe a specific, plausible clinical error the \
-      model actually makes here (wrong dose, missed red flag, unsafe reassurance, fabricated \
-      trial/guideline). Whether THIS task carries one is already decided below; when it does, \
+      model actually makes here ([[DOMAIN_EXAMPLE_NEG_ERRORS]]). Whether THIS task carries one is already decided below; when it does, \
       find the genuine trap in the case rather than inventing a generic one.
 - "difficulty": "typical" or "difficult" (aim for a roughly even split overall).
 
@@ -314,7 +345,7 @@ write a fourth criterion, the honest move is almost always three good ones inste
 full clinical sentence naming a specific fact and its condition. Do not compress to a terse \
 fragment: the generated corpus drifted to 83 characters against the benchmark's 135, which \
 means criteria that are too vague to grade consistently. Length comes from SPECIFICITY (the \
-value, the threshold, the population it applies to), never from welding several requirements \
+value, the threshold, the [[DOMAIN_EXAMPLE_SCOPE]] it applies to), never from welding several requirements \
 together with "and".
 - Positive criteria are worth +5..+10 each; there is NO required total.
 - [[NEGATIVE_INSTR]]
@@ -329,23 +360,32 @@ trained by comparing rollouts of the same task against each other, so when they 
 same the task contributes exactly zero learning signal. Recent curricula ran at 0.88 with 65% \
 of rollouts scoring a perfect 1.0, which is most of the compute wasted.
   Difficulty must come from the CRITERIA being genuinely hard to satisfy, not from the task \
-prose sounding complicated. Do NOT reach for length, rare diseases, or baroque scenarios — \
+prose sounding complicated. Do NOT reach for length, [[DOMAIN_RARE_THING]], or baroque scenarios — \
 those produce long answers that still satisfy a vague rubric. Make criteria that demand:
-    * a SPECIFIC value the model must actually know — an exact threshold, dose, interval, \
-      cutoff, or staging boundary, with the units and the population it applies to. Vague \
-      criteria ("discusses renal dosing") are satisfied by any competent-sounding paragraph; \
-      "states the eGFR threshold below which metformin is contraindicated (30 mL/min/1.73m2)" \
+    * a SPECIFIC value the model must actually know — an exact [[DOMAIN_EXAMPLE_NUMBER_KINDS]], with the units and the [[DOMAIN_EXAMPLE_SCOPE]] it applies to. Vague \
+      criteria ([[DOMAIN_EXAMPLE_VAGUE2]]) are satisfied by any competent-sounding paragraph; \
+      [[DOMAIN_EXAMPLE_SPECIFIC2]] \
       is not.
     * a fact the model is likely to get WRONG rather than merely omit — a common \
-      misconception, a value frequently confused with a neighbouring one, a guideline that \
+      misconception, a value frequently confused with a neighbouring one, [[DOMAIN_EXAMPLE_CHANGED_SUBJECT]] that \
       changed recently.
-    * a required QUALIFICATION or contraindication that a fluent but shallow answer omits.
+    * a required QUALIFICATION or [[DOMAIN_EXAMPLE_QUALIFIER]] that a fluent but shallow answer omits.
     * correct handling of a detail stated in the case that changes the standard answer.
   A useful check before you finish: could a well-written but generic answer that never \
 commits to a specific number satisfy this rubric? If yes, the rubric is too easy — rewrite it \
 so it cannot.
 
 Output ONLY the JSON object. No markdown, no commentary."""
+
+# Filled at import. Medical: byte-identical to the pre-bundle constants.
+SIMPLE_PROPOSER_DEFAULT = _rebrand(_fill_domain(_SIMPLE_PROPOSER_TEMPLATE))
+SIMPLE_GENERATOR_DEFAULT = _rebrand(_fill_domain(_SIMPLE_GENERATOR_TEMPLATE))
+RUBRIC_PROPOSER_DEFAULT = _rebrand(_fill_domain(_RUBRIC_PROPOSER_TEMPLATE))
+RUBRIC_GENERATOR_DEFAULT = _rebrand(_fill_domain(_RUBRIC_GENERATOR_TEMPLATE))
+for _t in (SIMPLE_PROPOSER_DEFAULT, SIMPLE_GENERATOR_DEFAULT,
+           RUBRIC_PROPOSER_DEFAULT, RUBRIC_GENERATOR_DEFAULT):
+    assert "[[DOMAIN_" not in _t, f"unfilled domain token: {_t[:200]!r}"
+del _t
 
 
 def _note_criteria_outcome(state, requested_n: int, delivered_n: int) -> None:
@@ -473,7 +513,7 @@ def _criteria_spec(state=None, mode: str | None = None) -> dict:
     wants = True if force_neg else _sample_wants_negative(n_pos, p)
     n = n_pos + (1 if wants else 0)
     if wants:
-        neg = (
+        neg = _rebrand(
             f"IN ADDITION to those {n_pos} positive criteria, add EXACTLY ONE NEGATIVE "
             f"criterion worth -5..-10 ({n} criteria in total), naming a specific, plausible "
             f"clinical error a model could actually make on THIS case (a wrong dose, a missed "
@@ -497,6 +537,14 @@ def _criteria_spec(state=None, mode: str | None = None) -> dict:
             "wants_negative": wants}
 
 
+def _specialties_for(use_case: str) -> list[str]:
+    """Specialties a use case may be crossed with: the full list (medical), or the
+    bundle's per-use-case subset when it provides one."""
+    if HB_SPECIALTIES_BY_USE_CASE:
+        return list(HB_SPECIALTIES_BY_USE_CASE.get(use_case) or HB_SPECIALTIES)
+    return HB_SPECIALTIES
+
+
 def _fill(template: str, mapping: dict[str, str]) -> str:
     """Substitute [[TOKEN]] placeholders via str.replace (robust to LLM rewrites
     of the evolvable prompt files). Unknown [[...]] tokens are left untouched."""
@@ -515,6 +563,8 @@ RUBRIC_SOLVER_SYSTEM = (
     "context when it materially changes the answer, and never include unsafe or fabricated "
     "recommendations. Prioritize patient safety."
 )
+if _DOMAIN["SOLVER_SYSTEM"] is not None:
+    RUBRIC_SOLVER_SYSTEM = _DOMAIN["SOLVER_SYSTEM"]
 
 
 def _atomic_write(path: str, text: str) -> None:
@@ -705,7 +755,7 @@ class ServerState:
         """
         seeds = []
         for uc in HB_USE_CASES:
-            for sp in HB_SPECIALTIES:
+            for sp in _specialties_for(uc):
                 seeds.append({
                     "extra_info": {
                         "use_case": uc,
@@ -1511,10 +1561,13 @@ HB_LANGUAGES = {
 
 
 def _hb_nonenglish_share() -> float:
+    # PRBench / ProfBench prompts are English: non-medical domains default to 0
+    # unless HB_NONENGLISH_SHARE is set explicitly.
+    default = "0.10" if _IS_MEDICAL else "0"
     try:
-        return float(os.environ.get("HB_NONENGLISH_SHARE", "0.10"))
+        return float(os.environ.get("HB_NONENGLISH_SHARE", default))
     except ValueError:
-        return 0.10
+        return float(default)
 
 
 def _hb_anchor_share() -> float:
@@ -1639,32 +1692,33 @@ async def agent_task_proposer(state: ServerState, use_case: str, specialty: str,
         "USE_CASE_DESC": HB_USE_CASE_DESC.get(use_case, use_case), "SPECIALTY": specialty,
         "GAP_GUIDANCE": state.prompt_store.get("query_proposer_guidance"),
     })
-    user_prompt = (
+    user_prompt = _rebrand(
         f"Use case: {use_case} ({HB_USE_CASE_DESC.get(use_case, use_case)}).\n"
         f"Specialty: {specialty}.\n"
         f"Propose {state.args.n_queries} diverse clinician requests."
     )
     if anchor:
-        user_prompt += (
+        user_prompt += _rebrand(
             f"\n\nGround these requests in the following real reference material. Write "
             f"requests a clinician would plausibly send that genuinely DEPEND on the "
             f"specific facts here (doses, thresholds, codes, criteria, management steps) "
-            f"— do not quote it, and do not mention that you were given it:\n{anchor}"
-        )
+            f"— do not quote it, and do not mention that you were given it:\n"
+        ) + anchor
     if language:
-        user_prompt += (
+        user_prompt += _rebrand(
             f"\n\nWrite ALL {state.args.n_queries} requests in {language}, as a "
             f"{language}-speaking clinician would actually write them (natural clinical "
             f"register and abbreviations, not translated English)."
         )
     if style_seed and style_seed.get("text"):
         ex = style_seed["text"][:600]
-        user_prompt += (
+        user_prompt += _rebrand(
             "\n\nMATCH THE WRITING STYLE of this real example — its length, tone, "
             "punctuation and level of polish. Real clinician messages are short and "
             "unpolished: they run to a sentence or two, often skip capitalisation, "
             "contain typos and abbreviations, and state the situation without preamble.\n"
-            f"STYLE EXAMPLE (copy the STYLE, never the CONTENT):\n\"\"\"{ex}\"\"\"\n"
+            "STYLE EXAMPLE (copy the STYLE, never the CONTENT):\n"
+        ) + f"\"\"\"{ex}\"\"\"\n" + _rebrand(
             "Your requests must be about COMPLETELY DIFFERENT clinical situations than "
             "the example: different condition, different drug, different specialty focus. "
             "Reusing its topic or any of its specifics makes the request unusable."
@@ -1700,7 +1754,7 @@ async def agent_task_rubric_generator(state: ServerState, request: str, use_case
         "HACK_MEMO": _render_hack_memo(state),
         "RECENT_SCORE": recent, **{k: v for k, v in _spec.items() if k != "wants_negative"},
     })
-    parts = [f"Target clinician request:\n{request}"]
+    parts = [_rebrand("Target clinician request:\n") + request]
     if knowledge:
         parts.append(f"Retrieved reference passages:\n{knowledge}")
     # Real-benchmark rubric style exemplars (from the style-seed pool, which for
@@ -1803,7 +1857,7 @@ def _render_conversation_user(conv: list[dict]) -> str:
     lines = []
     for m in conv:
         role = m.get("role", "user")
-        who = "Clinician" if role == "user" else "Assistant"
+        who = _rebrand("Clinician") if role == "user" else "Assistant"
         lines.append(f"{who}: {m.get('content', '')}")
     return "\n\n".join(lines)
 
@@ -1846,6 +1900,10 @@ async def _rubric_iteration(state: ServerState, worker_id: int) -> None:
     seed = random.choice(state.train_seeds)
     use_case = _weighted_choice(HB_USE_CASES)
     specialty = seed["extra_info"]["specialty"]
+    if HB_SPECIALTIES_BY_USE_CASE and specialty not in _specialties_for(use_case):
+        # The seed's sub-topic belongs to another use case (e.g. a legal topic drawn
+        # for a finance task): resample within the use case's own list.
+        specialty = random.choice(_specialties_for(use_case))
     mode = "red_teaming" if random.random() < HB_REDTEAM_SHARE else "good_faith"
     # Diversity sampling (see _random_kb_anchor). The use_case marginal is left
     # alone on purpose: it already matches val (45/28/27), so only the axes that
@@ -2005,8 +2063,9 @@ HB_REF_STATS = {
     # generated mix, so every share reads 0.0 and the DRIFT flag can NEVER clear —
     # which then tells the meta-optimizer, in the one arm whose whole purpose is
     # prompt evolution, to keep "fixing" a distribution that was never off.
-    "use_case_mix": {"care_consult": 0.45, "medical_research": 0.28,
-                     "writing_documentation": 0.27},
+    "use_case_mix": ({"care_consult": 0.45, "medical_research": 0.28,
+                      "writing_documentation": 0.27} if _IS_MEDICAL
+                     else dict(_DOMAIN["REF_STATS_USE_CASE_MIX"])),
     # DELIBERATE DEVIATION from the benchmark on this axis, and the reference is
     # set to the TARGET rather than to the benchmark on purpose. These numbers
     # drive the DRIFT flags shown to the curriculum meta-optimizer, so leaving
@@ -2045,6 +2104,9 @@ Consequences you must design around:
 - Verbosity is taxed continuously: 4000 chars costs 0.059, 6000 costs 0.118. Rubrics that demand
   exhaustive coverage push the solver straight into that tax, so it can lose more to length than
   it gains from the extra criterion it satisfied."""
+if not _IS_MEDICAL:
+    HB_SCORE_FORMULA += ("\n- The held-out benchmark itself applies NO length adjustment (its length "
+                         "term is 0); the tax above is a training-time reward term only.")
 
 # Fixed error taxonomy. Closed-vocabulary so it can be COUNTED; the categories
 # are the failure modes actually observed in val error reviews (translation and
@@ -2084,7 +2146,9 @@ EVOLVE_TASK_DEFECTS = [
     "wrong_use_case",           # does not exercise its stated domain
 ]
 
-EVOLVE_PER_CASE_SYSTEM = """\
+# Rebranded BEFORE the %-substitution so the closed-vocabulary labels (e.g.
+# "targets_format_not_medicine") are never rewritten: they are counted in code.
+EVOLVE_PER_CASE_SYSTEM = _rebrand("""\
 You are the ERROR ANALYST for an automatic curriculum that trains a medical AI for HealthBench \
 Professional (domains: care consult, writing & documentation, medical research). You are shown ONE \
 training case: the clinician task, the model's FINAL ANSWER, the rubric, which criteria were met, \
@@ -2117,13 +2181,13 @@ Output ONLY a JSON object, no markdown:
 }
 Choose the SINGLE most decisive value for each field. "gap" is the field the curriculum is
 actually steered by, so make it concrete enough that a task author could write a new task
-targeting it."""% {
+targeting it.""") % {
     "modes": EVOLVE_FAILURE_MODES,
     "rdefects": EVOLVE_RUBRIC_DEFECTS,
     "tdefects": EVOLVE_TASK_DEFECTS,
 }
 
-EVOLVE_AGGREGATE_SYSTEM = """\
+EVOLVE_AGGREGATE_SYSTEM = _brief_paragraph() + _rebrand("""\
 You are the meta-optimizer for a self-evolving curriculum that trains a medical AI for HealthBench \
 Professional (care consult, writing & documentation, medical research — NOT diagnosis). You rewrite \
 the appended guidance of two generation prompts:
@@ -2201,7 +2265,7 @@ the evidence shows is working; replace what it does not. Each block <= 300 words
   direction rather than returning to either.
 
 Output ONLY a JSON object:
-{"query_proposer_guidance": "<new guidance text>", "task_rubric_generator_guidance": "<new guidance text>", "summary": "<2-3 sentences: what the evidence showed and what you changed because of it>"}"""
+{"query_proposer_guidance": "<new guidance text>", "task_rubric_generator_guidance": "<new guidance text>", "summary": "<2-3 sentences: what the evidence showed and what you changed because of it>"}""")
 
 
 def _evolve_endpoint(state: ServerState) -> dict:
@@ -2245,7 +2309,7 @@ def _evolve_endpoint(state: ServerState) -> dict:
 # log says it is on.
 # ======================================================================
 
-COVERAGE_EVOLVE_SYSTEM = """\
+COVERAGE_EVOLVE_SYSTEM = _rebrand("""\
 You tune the COVERAGE JUDGE that provides the retrieval-quality reward in a medical RL run.
 
 Setup you are tuning inside of. A policy answers a clinician task and may issue up to two
@@ -2296,7 +2360,7 @@ HARD CONSTRAINTS -- the reward breaks, silently, if you violate any of these:
 - Output must stay compact JSON: this runs on every searching rollout of every step.
 
 Output ONLY a JSON object:
-{"system": "<new system prompt>", "template": "<new template>", "summary": "<2-3 sentences: what the evidence showed and what you changed>"}"""
+{"system": "<new system prompt>", "template": "<new template>", "summary": "<2-3 sentences: what the evidence showed and what you changed>"}""")
 
 
 def _coverage_evidence(cases: list[dict]) -> tuple[str, dict]:
@@ -2984,7 +3048,7 @@ HACK_MODES = [
     "none",                  # no repairable exploit here -- a genuine decline
 ]
 
-HACK_MINT_SYSTEM = """\
+HACK_MINT_SYSTEM = _rebrand("""\
 You repair a REWARD SPECIFICATION that was just exploited. A rubric scored answer A above \
 answer B; an independent referee that never saw the rubric judged B the better clinical answer. \
 The rubric is therefore wrong, and your job is to name what A did to earn points it did not \
@@ -3020,11 +3084,11 @@ criterion_text empty. Declining when a trap does exist leaves the reward open to
 Output ONLY a JSON object:
 {"mode": "<one label>", "criterion_text": "<the negative criterion>", "points": <-10..-5>,
  "why_fires_on_A": "<=30 words", "why_not_on_B": "<=30 words"}
-The two "why" fields are recorded for audit and are NOT part of the acceptance decision.""" % {
+The two "why" fields are recorded for audit and are NOT part of the acceptance decision.""") % {
     "modes": HACK_MODES,
 }
 
-HACK_MINT_MULTI_SYSTEM = """\
+HACK_MINT_MULTI_SYSTEM = _rebrand("""\
 You repair a REWARD SPECIFICATION that was just exploited. A rubric scored answer A above \
 answer B; an independent referee that never saw the rubric judged B the better clinical answer. \
 The rubric is therefore wrong. Repair it with 1-5 NEW criteria, which may be NEGATIVE, \
@@ -3067,7 +3131,7 @@ never decides acceptance:
 Output ONLY a JSON object:
 {"mode": "<one label>",
  "items": [{"criterion_text": "<criterion>", "points": <-10..-5 or +5..+10>,
-            "why_separates": "<=30 words"}, ...]}""" % {
+            "why_separates": "<=30 words"}, ...]}""") % {
     "modes": HACK_MODES,
 }
 
@@ -3123,7 +3187,7 @@ async def _mint_patch_items(state: ServerState, case: dict, feedback: str = "",
         return "\n".join(out) or "(no per-criterion verdicts supplied)"
 
     user = (
-        f"# Clinician task\n{str(case.get('task') or '')[:4000]}\n\n"
+        _rebrand("# Clinician task\n") + f"{str(case.get('task') or '')[:4000]}\n\n"
         f"# Rubric, with what ANSWER A earned\n"
         f"{_met_block(case.get('item_results'), items)}\n\n"
         f"# Rubric, with what ANSWER B earned\n"
@@ -3346,7 +3410,7 @@ async def _mint_negative(state: ServerState, case: dict, feedback: str = "") -> 
         return "\n".join(out) or "(no per-criterion verdicts supplied)"
 
     user = (
-        f"# Clinician task\n{str(case.get('task') or '')[:4000]}\n\n"
+        _rebrand("# Clinician task\n") + f"{str(case.get('task') or '')[:4000]}\n\n"
         f"# Rubric, with what ANSWER A earned\n"
         f"{_met_block(case.get('item_results'), items)}\n\n"
         f"# Rubric, with what ANSWER B earned\n"
@@ -3797,7 +3861,7 @@ def validate_hack_memo(text: str, probe_honest_mean=None) -> str:
     return ""
 
 
-HACK_MEMO_SYSTEM = """\
+HACK_MEMO_SYSTEM = _brief_paragraph() + _rebrand("""\
 You maintain a short memo of KNOWN EXPLOITS for an automatic curriculum that writes medical tasks \
 and the grading rubrics used as the RL reward. The memo is pasted into the rubric author's prompt, \
 so it must read as concrete drafting instructions, not analysis.
@@ -3829,7 +3893,7 @@ author's actual instructions.
 so in your rationale and propose nothing.
 
 Output ONLY a JSON object:
-{"memo": "<the full replacement memo text>", "summary": "<=200 chars on what you changed and why>"}"""
+{"memo": "<the full replacement memo text>", "summary": "<=200 chars on what you changed and why>"}""")
 
 
 def _format_hack_block(state: ServerState, patch_metrics: dict | None = None) -> str:
@@ -3846,8 +3910,8 @@ def _format_hack_block(state: ServerState, patch_metrics: dict | None = None) ->
     if p:
         lines += [
             "ADMISSION PROBE — a FIXED adversary that sees the rubric and is forbidden from doing",
-            "clinical work, vs an honest answer that never sees the rubric. "
-            f"{p['n']} specs probed.",
+            _rebrand("clinical work, vs an honest answer that never sees the rubric. ")
+            + f"{p['n']} specs probed.",
             f"  mean margin the farmer wins by (farm - honest)  {p['gap_mean']:+.3f}"
             f"   <-- THE OBJECTIVE, drive it DOWN (target <= "
             f"{os.environ.get('HB_MEMO_TARGET', '0.0')}; negative = the spec pays for real work)",
@@ -3876,7 +3940,7 @@ def _format_hack_block(state: ServerState, patch_metrics: dict | None = None) ->
     return "\n".join(lines)
 
 
-HACK_REWRITE_SYSTEM = """\
+HACK_REWRITE_SYSTEM = _rebrand("""\
 You repair a REWARD SPECIFICATION that an adversary just farmed. You are given a \
 clinician task, its grading rubric, an answer that scored HIGH by exploiting the rubric \
 without doing any clinical work, and a rubric-blind answer that did the work and scored \
@@ -3920,7 +3984,7 @@ Output ONLY a JSON object:
 {"question": "<the rewritten clinician task, self-contained>",
  "rubric_items": [{"criterion_text": "<...>", "points": <number>}, ...],
  "why_farmer_fails": "<=40 words: what the lazy answer can no longer get away with",
- "why_honest_passes": "<=40 words: what a knowledgeable answer supplies that earns it>"}"""
+ "why_honest_passes": "<=40 words: what a knowledgeable answer supplies that earns it>"}""")
 
 
 async def _rewrite_spec(state: ServerState, entry: dict, verdict: dict,
@@ -3952,9 +4016,9 @@ async def _rewrite_spec(state: ServerState, entry: dict, verdict: dict,
         return "\n".join(out) or "(no per-criterion verdicts)"
 
     user = (
-        f"# Clinician task (rewrite this)\n{task[:4000]}\n\n"
+        _rebrand("# Clinician task (rewrite this)\n") + f"{task[:4000]}\n\n"
         f"# Rubric, and what the FARMED answer earned -- every MET positive here is a\n"
-        f"# criterion that paid for no clinical work\n"
+        + _rebrand("# criterion that paid for no clinical work\n") +
         f"{_block(verdict.get('met_farm'))}\n\n"
         f"# The same rubric, and what the RUBRIC-BLIND answer earned\n"
         f"{_block(verdict.get('met_honest'))}\n\n"
@@ -4555,7 +4619,7 @@ _REFUSAL_RE = re.compile(
     re.I)
 
 
-RUBRIC_GOLD_SYSTEM_PROMPT = (
+RUBRIC_GOLD_SYSTEM_PROMPT = _rebrand(
     "You are a senior physician writing the IDEAL response to a clinician's request, "
     "for use as a teaching example. You are shown the grading rubric that will be used "
     "to score responses. Write the response that earns EVERY positive criterion and "
@@ -4603,7 +4667,7 @@ async def attach_rubric_gold_trace(state: ServerState, entry: dict) -> bool:
 
     rubric_block = _format_rubric_for_teacher(items)
     user_prompt = (
-        f"Clinician request:\n{task_text}\n\n"
+        _rebrand("Clinician request:\n") + f"{task_text}\n\n"
         f"Grading rubric (positive points must be earned, negative points must be avoided):\n"
         f"{rubric_block}\n\n"
         "Write <think>reasoning</think> then the final response."
@@ -4659,7 +4723,7 @@ async def attach_rubric_gold_trace(state: ServerState, entry: dict) -> bool:
 # criterion. _grade_items' own prompt does not carry the official template's
 # Example 2, and every fire/no-fire decision in the admission probe and the spec
 # patcher turns on exactly that semantics — so those paths pass strict=True.
-_GRADER_STRICT_NOTE = (
+_GRADER_STRICT_NOTE = _rebrand(
     "\nNote: a criterion may describe something UNDESIRABLE and carry negative points. "
     "Report whether the criterion is MET, not whether the response is good. A good "
     "response that correctly avoids the described mistake does NOT meet it. "
@@ -4774,7 +4838,7 @@ def _hb_length_adj(raw: float, n_chars: int) -> float:
 # for the run, so probe/farm_win_rate is a clean readout of the CURRENT rubrics,
 # comparable over the whole run, and it reaches 100% of specifications before any
 # GPU time is spent on them.
-HB_FARMER_SYSTEM_PROMPT = (
+HB_FARMER_SYSTEM_PROMPT = _rebrand(
     "You are a RED-TEAM evaluator stress-testing a grading rubric. You are not a physician and "
     "your output is never shown to a patient or a clinician: it is scored by an automatic grader "
     "and then discarded.\n"
@@ -4876,7 +4940,7 @@ async def _probe_admission(state: ServerState, entry: dict) -> dict:
 
     ep = _probe_endpoint(state)
     farm_user = (
-        f"Clinician request:\n{task_text}\n\n"
+        _rebrand("Clinician request:\n") + f"{task_text}\n\n"
         f"Rubric that will score the answer:\n{_format_rubric_for_teacher(items)}\n\n"
         "Write the response."
     )
@@ -5464,7 +5528,7 @@ from kb.web_evidence import EvidenceCacheClient, WebEvidence  # noqa: E402
 # RL rollouts then see byte-identical evidence briefs. If the summarizer lived in
 # the agent loop instead, the warm start would teach a passage distribution that
 # does not exist at train time — the invariant kb/retrieval.py exists to protect.
-SUMMARY_SYSTEM = (
+SUMMARY_SYSTEM = _rebrand(
     "You are a clinical evidence summarizer. You are given a clinician's request and "
     "reference passages retrieved from a medical knowledge base. Write a compact "
     "EVIDENCE BRIEF that a physician will use to answer the request.\n"
@@ -5499,7 +5563,7 @@ SUMMARY_SYSTEM = (
     "- Drop passages that are off-topic, table-of-contents fragments, or duplicates.\n"
     "- Max 400 words. No preamble, no advice, and do NOT answer the request yourself."
 )
-SUMMARY_USER = "# Clinician request\n{question}\n\n# Retrieved passages\n{passages}\n\n# Evidence brief"
+SUMMARY_USER = _rebrand("# Clinician request\n{question}\n\n# Retrieved passages\n{passages}\n\n# Evidence brief")
 
 
 async def _probe_summarizer(s: ServerState) -> None:
@@ -6226,7 +6290,7 @@ async def patch_spec(payload: PatchPayload):
     return await _run()
 
 
-SOLVER_EVOLVE_SYSTEM = """\
+SOLVER_EVOLVE_SYSTEM = _rebrand("""\
 You tune the SYSTEM PROMPT of a medical AI being trained with RL on multi-image
 diagnostic radiology. Each case gives it a clinical history, up to four images of the
 study, and five candidate diagnoses; it must reason and answer with one letter in
@@ -6263,7 +6327,7 @@ HARD CONSTRAINTS -- violate these and the run breaks or the number stops meaning
   sample of every step.
 
 Output ONLY a JSON object:
-{"system_prompt": "<the new full system prompt>", "summary": "<2-3 sentences: what the failures showed and what you changed>"}"""
+{"system_prompt": "<the new full system prompt>", "summary": "<2-3 sentences: what the failures showed and what you changed>"}""")
 
 
 def _format_solver_case(c: dict) -> str:
