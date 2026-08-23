@@ -175,6 +175,23 @@ if not _IS_MEDICAL:
 # achievable scores, so rollouts of the same task can actually be ranked against
 # each other, which is the only thing GRPO learns from.
 HB_N_POSITIVE_DIST = [(2, 15), (3, 70), (4, 15)]
+# Domain-overridable rubric shape (dvd 2026-08-23, PRBench step-134 autopsy). The
+# held-out PRBench-Hard rubrics carry ~17 criteria with importance tiers 1-10 and are
+# scored as the positive-weight FRACTION, while minted rubrics ran 3.2 criteria
+# clumped at 8-10 points: 46% of solver reports came back exactly 0 or 1 and 31% of
+# GRPO groups went zero-variance. A bundle may therefore override the distribution
+# (PRBench: 6-12 short tiered positives -> partial credit and ranking room); the
+# medical literal above is untouched and stays the default.
+_HB_SHAPE_OVERRIDDEN = bool(not _IS_MEDICAL and _DOMAIN.get("N_POSITIVE_DIST"))
+if _HB_SHAPE_OVERRIDDEN:
+    HB_N_POSITIVE_DIST = [(int(n), float(w)) for n, w in _DOMAIN["N_POSITIVE_DIST"]]
+_HB_N_POS_MAX = max(n for n, _ in HB_N_POSITIVE_DIST)
+_HB_N_POS_MEAN = (sum(n * w for n, w in HB_N_POSITIVE_DIST)
+                  / sum(w for _, w in HB_N_POSITIVE_DIST))
+_HB_N_POS_MEDIAN = next(
+    n for n, c in ((n, sum(w for m, w in HB_N_POSITIVE_DIST if m <= n))
+                   for n, _ in sorted(HB_N_POSITIVE_DIST))
+    if c >= 0.5 * sum(w for _, w in HB_N_POSITIVE_DIST))
 
 
 # Share of benchmark tasks carrying at least one negative criterion. Sampled
@@ -188,7 +205,48 @@ HB_N_POSITIVE_DIST = [(2, 15), (3, 70), (4, 15)]
 # range below zero, which adds ranking room inside the group. The controller
 # solves for the request rate needed to deliver this; if generator compliance
 # cannot reach it, the ceiling is logged rather than silently absorbed.
-HB_NEGATIVE_SHARE = float(os.environ.get("HB_NEGATIVE_SHARE", "0.75"))
+_HB_NEG_SHARE_DEFAULT = ("0.75" if _IS_MEDICAL or _DOMAIN.get("NEGATIVE_SHARE_DEFAULT") is None
+                         else str(_DOMAIN["NEGATIVE_SHARE_DEFAULT"]))
+HB_NEGATIVE_SHARE = float(os.environ.get("HB_NEGATIVE_SHARE", _HB_NEG_SHARE_DEFAULT))
+
+# Per-domain validity cap for freshly GENERATED rubrics (patched/densified rubrics
+# use HB_PATCHED_MAX_ITEMS). Medical stays at the measured 6; PRBench draws 6-12
+# positives plus an optional negative, so the gate must not reject a 13-item rubric.
+HB_RUBRIC_MAX_ITEMS = int(_DOMAIN["RUBRIC_MAX_ITEMS"]) if (
+    not _IS_MEDICAL and _DOMAIN.get("RUBRIC_MAX_ITEMS")) else 6
+_HB_PATCHED_MAX_DEFAULT = str(max(6, HB_RUBRIC_MAX_ITEMS))
+_HB_REWRITE_GROW_DEFAULT = "3" if HB_RUBRIC_MAX_ITEMS <= 6 else "6"
+# The 0.55 probabilistic negative drop exists to pull medical's instruction-driven
+# 70% overshoot down toward its target. A domain that sets its own share leaves the
+# marginal to the request-rate controller alone (the drop would halve compliance and
+# put the 0.5 target behind the p=1.0 ceiling).
+_HB_NEG_DROP_DEFAULT = ("0.55" if _IS_MEDICAL or _DOMAIN.get("NEGATIVE_SHARE_DEFAULT") is None
+                        else "0.0")
+
+# THREAD-MODE minting (PRBench: ~45% of the benchmark's tasks are informal multi-turn
+# working threads whose prior assistant turns come from a weaker model; minted tasks
+# were 99.96% single-turn formal memos and the val multi-turn slice REGRESSED during
+# training). Drawn per generation request; fills the [[THREAD_INSTR]] runtime token
+# that only non-medical templates carry, so medical prompts are byte-identical.
+HB_THREAD_SHARE = float(os.environ.get(
+    "HB_THREAD_SHARE", str(_DOMAIN.get("THREAD_SHARE") or 0.0)))
+HB_THREAD_INSTR = _rebrand("""\
+THREAD MODE -- for THIS task, write the "conversation" as a realistic working THREAD, \
+not a single formal memo:
+- 1-3 earlier user turns PLUS plausible assistant replies between them, ENDING in a final \
+user turn. Strictly alternate user/assistant and end on the user.
+- The earlier ASSISTANT replies must be competent but GENERIC -- correct-sounding, organized, \
+and missing the expert specifics (in the real benchmark the prior turns come from a weaker \
+model). They must NOT already answer the final question.
+- Earlier USER turns establish concrete facts and constraints (figures, dates, entity names, \
+jurisdictions or settings) that the final question DEPENDS on. The final turn asks the \
+decisive follow-up: it must be unanswerable correctly without the facts stated earlier in \
+the thread, so an answer that ignores the thread and responds generically scores poorly.
+- REGISTER: informal-professional, a colleague typing quickly -- contractions, occasional \
+typos, lowercase sentence starts, abbreviations. Keep the FACTS precise even where the \
+typing is sloppy.
+- Rubric criteria MAY (and where natural, should) test constraints stated in ANY turn of \
+the thread, not only the last one.""")
 
 
 def _sample_wants_negative(n_positive: int, request_p: float | None = None) -> bool:
@@ -297,7 +355,7 @@ Produce a JSON object with:
 - "use_case": "[[USE_CASE]]".
 - "conversation": a list of messages [{"role":"user","content":...}] (optionally prior turns) \
   ENDING in a user ([[DOMAIN_USER_ROLE]]) turn — the realistic, specialty-appropriate task the AI must answer.
-- "rubric_items": a list of 1-5 grading criteria, each {"criterion_text": str, "points": int}. \
+- "rubric_items": a list of [[DOMAIN_RUBRIC_RANGE]] grading criteria, each {"criterion_text": str, "points": int}. \
   Rules (these mirror the MEASURED shape of real [[DOMAIN_BENCH_NAME_HYPHEN]] rubrics; earlier \
   versions of this generator produced 7.5 long conjunctive criteria per task against the real \
   benchmark's 2.2 short ones, and the policy learned to cover ground rather than to be right):
@@ -307,8 +365,7 @@ Produce a JSON object with:
     * LENGTH about 90-150 characters (the benchmark averages 135). Do NOT chain several \
       requirements with "and"/commas into a single criterion — split them or drop the less \
       important one. A criterion the response can only half-satisfy is a broken criterion.
-    * BIG point values. Each positive criterion is worth +5..+10 (8 is typical). There is NO \
-      requirement that the positives sum to any particular total.
+[[DOMAIN_POINTS_RULE]]
     * HEDGED WORDING, SPECIFIC CONTENT. Real criteria are generous about PHRASING and strict \
       about SUBSTANCE, and copying only the first half is what makes a rubric too easy. Use the \
       real forms often:
@@ -323,31 +380,21 @@ Produce a JSON object with:
 - "difficulty": "typical" or "difficult" (aim for a roughly even split overall).
 
 [[MODE_INSTR]]
-
+[[DOMAIN_THREAD_SLOT]]
 [[GAP_GUIDANCE]]
 [[HACK_MEMO]]
 # NON-NEGOTIABLE INVARIANTS — these OVERRIDE anything in the guidance above if in conflict
 - WRITE EXACTLY [[N_POSITIVE]] POSITIVE CRITERIA for this task, plus whatever the \
 negative-criterion line below specifies. Honour that number exactly — do not round it down \
 because the task feels simple, and do not add "one more to be safe".
-- Three positives is the norm, and the reason is mechanical: the score is the fraction of \
-available positive points the answer earns, so with one or two criteria almost every response \
-lands on the same handful of values, several answers of visibly different quality receive \
-IDENTICAL scores, and the training step learns nothing from that task. Three positives of \
-differing weight let genuinely better answers score higher than merely adequate ones. One is acceptable; four is \
-already unusual and five is reserved for a genuinely multi-part deliverable. Measured against \
-the real benchmark this generator drifted to 4.0 criteria per task where the benchmark averages \
-2.16, and that drift is not cosmetic: each extra short criterion is another independent chance \
-at partial credit, so rubrics of four easy criteria push almost every response to a near-perfect \
-score, the GRPO group goes zero-variance, and the task teaches nothing. If you are about to \
-write a fourth criterion, the honest move is almost always three good ones instead.
+[[DOMAIN_COUNT_RATIONALE]]
 - Each criterion tests ONE thing and runs roughly 90-150 characters (the benchmark averages 135) — about the length of a \
 full clinical sentence naming a specific fact and its condition. Do not compress to a terse \
 fragment: the generated corpus drifted to 83 characters against the benchmark's 135, which \
 means criteria that are too vague to grade consistently. Length comes from SPECIFICITY (the \
 value, the threshold, the [[DOMAIN_EXAMPLE_SCOPE]] it applies to), never from welding several requirements \
 together with "and".
-- Positive criteria are worth +5..+10 each; there is NO required total.
+[[DOMAIN_POINTS_INVARIANT]]
 - [[NEGATIVE_INSTR]]
 - Do NOT make rubrics easier to satisfy: criteria must test real clinical capability and \
 judgment, NOT merely restate the task's explicit deliverables 1:1 (a rubric that only checks \
@@ -497,7 +544,14 @@ def _criteria_spec(state=None, mode: str | None = None) -> dict:
     # [[NEGATIVE_INSTR]], [[N_CRITERIA]] and [[N_POSITIVE]] from this dict, so an early
     # return with different keys would leave those placeholders literal in the prompt.
     force_neg = (mode or "") == "red_teaming"
-    n_pos = (1 if random.random() < 0.5 else 2) if force_neg else _sample_n_positive()
+    # The 1-2-positive shrink below is the HealthBench trap-cost calibration. A
+    # domain that overrides the positive-count distribution (PRBench: 6-12 tiered
+    # positives) keeps full-size rubrics on red-team tasks too: a -10 negative
+    # against ~50 points of tiered positives already carries a proportional trap
+    # cost, and shrinking to 1-2 positives would recreate the all-or-nothing
+    # groups the override exists to remove.
+    force_small = force_neg and not _HB_SHAPE_OVERRIDDEN
+    n_pos = (1 if random.random() < 0.5 else 2) if force_small else _sample_n_positive()
     off = 0.0 if state is None else state.__dict__.get("_crit_offset", 0.0)
     # The difficulty controller may add a positive, but not to a red-team task: that is
     # the knob that would silently restore the trap-dilution this branch exists to remove.
@@ -506,7 +560,7 @@ def _criteria_spec(state=None, mode: str | None = None) -> dict:
         # _valid_rubric rejects more than 6 items, and a 6-criterion rubric is
         # past the point where extra granularity buys anything -- it just makes
         # each criterion cheaper and the task longer to grade.
-        n_pos = min(4, n_pos + 1)   # stochastic, so spread survives, not just the mean
+        n_pos = min(_HB_N_POS_MAX, n_pos + 1)   # stochastic, so spread survives, not just the mean
     p = None if state is None else state.__dict__.get("_neg_request_p")
     # A red-team task without its trap is just a good_faith task wearing the label, so
     # the negative is mandatory there rather than sampled.
@@ -1424,8 +1478,12 @@ _GRADER_META = re.compile(
     r"the (?:response|answer|model|assistant|ai)\b)", re.I)
 
 
-def _valid_rubric(items, max_items: int = 6) -> bool:
-    """1-6 objective items, points in [-10,10]\\{0}, >=1 positive.
+def _valid_rubric(items, max_items: int | None = None) -> bool:
+    """1..max_items objective items, points in [-10,10]\\{0}, >=1 positive.
+
+    The default cap is HB_RUBRIC_MAX_ITEMS: 6 for medical (the measured marginal),
+    raised by domain bundles that target denser rubrics (PRBench 16, so a 12-positive
+    + negative tiered rubric is not rejected at the gate).
 
     Shaped to real HealthBench-Professional rubrics (measured on the 525-item val
     set: mean 2.16 criteria, 36% carrying a negative, modal +8 points). The old
@@ -1438,6 +1496,8 @@ def _valid_rubric(items, max_items: int = 6) -> bool:
     controllers hold). Patched/densified rubrics pass HB_PATCHED_MAX_ITEMS instead:
     a validated repair is not a distribution sample, and denser criteria are denser
     reward signal."""
+    if max_items is None:
+        max_items = HB_RUBRIC_MAX_ITEMS
     if not isinstance(items, list) or not (1 <= len(items) <= max_items):
         return False
     has_pos = False
@@ -1518,6 +1578,19 @@ def _normalize_conversation(conv):
     while norm and norm[-1]["role"] != "user":
         norm.pop()
     return norm if (norm and norm[-1]["role"] == "user") else None
+
+
+def _merge_same_role(conv: list[dict]) -> list[dict]:
+    """Collapse consecutive same-role turns so the served conversation strictly
+    alternates (THREAD-mode generations sometimes emit user,user,... which breaks
+    chat templates with role-alternation asserts). A leading system turn is kept."""
+    out: list[dict] = []
+    for m in conv:
+        if out and out[-1].get("role") == m.get("role"):
+            out[-1]["content"] = f"{out[-1]['content']}\n\n{m['content']}"
+        else:
+            out.append(dict(m))
+    return out
 
 
 # --- Training-task diversity -----------------------------------------------
@@ -1747,11 +1820,16 @@ async def agent_task_rubric_generator(state: ServerState, request: str, use_case
     # requested 0.364, because a rubric that quietly drops its negative still
     # looks like a perfectly good rubric downstream.
     _spec = _criteria_spec(state, mode)
+    # THREAD mode (HB_THREAD_SHARE): drawn per request. Only non-medical templates
+    # carry the [[THREAD_INSTR]] runtime token ([[DOMAIN_THREAD_SLOT]] fills to ""
+    # for medical at import), so the mapping entry is inert for medical arms.
+    _thread = HB_THREAD_SHARE > 0.0 and random.random() < HB_THREAD_SHARE
     sys_prompt = _fill(state.prompt_store.get("task_rubric_generator"), {
         "USE_CASE": use_case, "USE_CASE_DESC": HB_USE_CASE_DESC.get(use_case, use_case),
         "SPECIALTY": specialty, "MODE_INSTR": HB_MODE_INSTR.get(mode, HB_MODE_INSTR["good_faith"]),
         "GAP_GUIDANCE": state.prompt_store.get("task_rubric_generator_guidance"),
         "HACK_MEMO": _render_hack_memo(state),
+        "THREAD_INSTR": HB_THREAD_INSTR if _thread else "",
         "RECENT_SCORE": recent, **{k: v for k, v in _spec.items() if k != "wants_negative"},
     })
     parts = [_rebrand("Target clinician request:\n") + request]
@@ -1789,6 +1867,15 @@ async def agent_task_rubric_generator(state: ServerState, request: str, use_case
             repr(obj.get("conversation"))[:200],
         )
         raise ValueError("invalid conversation (no usable clinician/user turn)")
+    if not _IS_MEDICAL:
+        # Chat templates with strict role-alternation asserts choke on back-to-back
+        # same-role turns, which THREAD-mode generations sometimes emit. Merge them;
+        # gated off medical so that path's behavior stays byte-identical.
+        conv = _merge_same_role(conv)
+    if _thread:
+        state.stats["thread_requested"] = state.stats.get("thread_requested", 0) + 1
+        if any(m.get("role") == "assistant" for m in conv):
+            state.stats["thread_delivered"] = state.stats.get("thread_delivered", 0) + 1
     # Drop sign-inverted or grader-meta NEGATIVE criteria (see _INVERTED: a
     # pre-measurement heuristic, used only because no answer pair exists yet).
     if isinstance(items, list):
@@ -1811,12 +1898,12 @@ async def agent_task_rubric_generator(state: ServerState, request: str, use_case
     if isinstance(items, list) and any(
             isinstance(it, dict) and isinstance(it.get("points"), (int, float)) and it["points"] < 0
             for it in items):
-        if random.random() < float(os.environ.get("HB_NEG_DROP_PROB", "0.55")):
+        if random.random() < float(os.environ.get("HB_NEG_DROP_PROB", _HB_NEG_DROP_DEFAULT)):
             items = [it for it in items
                      if not (isinstance(it, dict) and isinstance(it.get("points"), (int, float))
                              and it["points"] < 0)]
     if not _valid_rubric(items):
-        raise ValueError("invalid rubric (need 1-6 items, >=1 positive, points in [-10,10])")
+        raise ValueError(f"invalid rubric (need 1-{HB_RUBRIC_MAX_ITEMS} items, >=1 positive, points in [-10,10])")
     # Enforce the sampled shape. Rejected candidates are regenerated by the worker
     # loop, which costs one generation but is the only thing that actually holds
     # the marginal: the benchmark's 36.4% negative share exists to train away from
@@ -1963,6 +2050,16 @@ async def _rubric_iteration(state: ServerState, worker_id: int) -> None:
             logger.warning(f"worker {worker_id}: rubric generator failed: {type(e).__name__}: {e!r}")
             state.stats["total_rejected"] += 1
             continue
+        # Full-text leak gate for non-medical domains: the proposer REQUEST was
+        # checked above, but a THREAD-mode conversation is far longer than the
+        # request, so re-check the whole minted conversation against the style
+        # seed. Medical path unchanged (no new rejection there).
+        if not _IS_MEDICAL and style_seed and _seed_leak(
+                style_seed.get("text", ""),
+                _render_conversation_user(gen["conversation"])):
+            state.stats["seed_leak_rejected"] = state.stats.get("seed_leak_rejected", 0) + 1
+            logger.info("seed-leak reject (full generated conversation)")
+            continue
         entry = _build_entry_rubric(state, gen, knowledge, request)
         # ADVERSARIAL REFINEMENT: fix the specification before the solver ever sees
         # it. Runs before the SFT gold trace so a dropped spec never pays for one.
@@ -2073,13 +2170,23 @@ HB_REF_STATS = {
     # permanent drift and push the evolver to undo the change every round — the
     # same stuck-flag failure as the use_case label mismatch.
     # Benchmark truth, for the record: mean 2.16, median 2, max 5.
-    "criteria_per_task_mean": 3.75,     # 3 positives + a negative on most tasks
-    "criteria_per_task_median": 4.0,
-    "criteria_per_task_max": 5,
+    # When a bundle overrides the rubric shape (PRBench), the reference derives
+    # from the SAMPLER'S own targets for the same stuck-flag reason as above: the
+    # drift rows exist to catch the generator missing its target, not to re-argue
+    # the target against the meta-optimizer every round.
+    "criteria_per_task_mean": (3.75 if not _HB_SHAPE_OVERRIDDEN     # 3 pos + a negative on most tasks
+                               else round(_HB_N_POS_MEAN + HB_NEGATIVE_SHARE, 2)),
+    "criteria_per_task_median": (4.0 if not _HB_SHAPE_OVERRIDDEN
+                                 else float(_HB_N_POS_MEDIAN
+                                            + (1 if HB_NEGATIVE_SHARE >= 0.5 else 0))),
+    "criteria_per_task_max": 5 if not _HB_SHAPE_OVERRIDDEN else _HB_N_POS_MAX + 1,
     "criterion_chars_mean": 135,
     "criterion_chars_median": 111,
-    "modal_positive_points": 8,
-    "frac_tasks_with_negative": 0.75,   # benchmark truth: 0.364; raised for gradient
+    # Tiered domains spread positive weights 1-10 (few decisive 9-10, core 5-8,
+    # context 1-4), so the informational points reference sits near 6, not 8.
+    "modal_positive_points": 8 if not _HB_SHAPE_OVERRIDDEN else 6,
+    "frac_tasks_with_negative": (0.75 if not _HB_SHAPE_OVERRIDDEN   # benchmark truth: 0.364; raised for gradient
+                                 else HB_NEGATIVE_SHARE),
 }
 
 # Fail at import if the reference labels ever drift from the ones the generator
@@ -2107,6 +2214,12 @@ Consequences you must design around:
 if not _IS_MEDICAL:
     HB_SCORE_FORMULA += ("\n- The held-out benchmark itself applies NO length adjustment (its length "
                          "term is 0); the tax above is a training-time reward term only.")
+if _HB_SHAPE_OVERRIDDEN:
+    # Keep the meta-optimizer's count advice coherent with the overridden shape:
+    # with 6-12 tiered positives, "prefer 2-3" would argue against the sampler's
+    # own targets and re-open the zero-variance failure the override removes.
+    HB_SCORE_FORMULA = HB_SCORE_FORMULA.replace(
+        "Prefer 2-3 so the reward is", "Prefer many short tiered criteria so the reward is")
 
 # Fixed error taxonomy. Closed-vocabulary so it can be COUNTED; the categories
 # are the failure modes actually observed in val error reviews (translation and
@@ -2597,7 +2710,8 @@ def _format_corpus_block(cur: dict) -> str:
         _row("use-case mix", gm, ref["use_case_mix"],
              any(abs(gm.get(k, 0.0) - v) > 0.10 for k, v in ref["use_case_mix"].items()))
     _row("criteria per task (mean)", cur.get("criteria_per_task_mean"), ref["criteria_per_task_mean"],
-         abs((cur.get("criteria_per_task_mean") or 0) - ref["criteria_per_task_mean"]) > 0.8)
+         abs((cur.get("criteria_per_task_mean") or 0) - ref["criteria_per_task_mean"])
+         > max(0.8, 0.2 * ref["criteria_per_task_mean"]))
     _row("criteria per task (median/max)",
          f"{cur.get('criteria_per_task_median')}/{cur.get('criteria_per_task_max')}",
          f"{ref['criteria_per_task_median']}/{ref['criteria_per_task_max']}")
@@ -3283,7 +3397,7 @@ async def validate_patch_criterion(state: ServerState, case: dict, cand: dict,
     positive = float(pts) > 0
     ev["sign"] = "positive" if positive else "negative"
     new_item = {"criterion_text": text, "points": float(pts), "patched": True}
-    max_items = int(os.environ.get("HB_PATCHED_MAX_ITEMS", "6"))
+    max_items = int(os.environ.get("HB_PATCHED_MAX_ITEMS", _HB_PATCHED_MAX_DEFAULT))
     if len(items) >= max_items:
         return False, "full", ev
     if not _valid_rubric(list(items) + [new_item], max_items=max_items):
@@ -4075,8 +4189,8 @@ async def _rewrite_spec(state: ServerState, entry: dict, verdict: dict,
     # rejected — the model reliably overshoots a "you may add up to three" budget,
     # and throwing away the whole proposal for that starves the repair path (the
     # 0813 restart measured 55 structural rejections against 3 survivors).
-    max_items = int(os.environ.get("HB_PATCHED_MAX_ITEMS", "6"))
-    max_grow = int(os.environ.get("HB_REWRITE_MAX_GROW", "3"))
+    max_items = int(os.environ.get("HB_PATCHED_MAX_ITEMS", _HB_PATCHED_MAX_DEFAULT))
+    max_grow = int(os.environ.get("HB_REWRITE_MAX_GROW", _HB_REWRITE_GROW_DEFAULT))
     cap = min(max_items, len(items) + max_grow)
     negs_seen = 0
     trimmed, kept = [], 0

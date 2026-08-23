@@ -242,9 +242,16 @@ def _check_domain(domain: str):
                 "[[RECENT_SCORE]]"):
         assert tok in gs["RUBRIC_GENERATOR_DEFAULT"], tok
     # Non-domain content is untouched: counts, point ranges, difficulty target.
-    for frag in ("WRITE EXACTLY [[N_POSITIVE]] POSITIVE CRITERIA", "+5..+10", "-5..-10",
+    for frag in ("WRITE EXACTLY [[N_POSITIVE]] POSITIVE CRITERIA", "-5..-10",
                  "Target 0.4-0.6", "90-150 characters"):
         assert frag in gs["RUBRIC_GENERATOR_DEFAULT"], frag
+    # Point-scale wording is present in one of its two sanctioned forms: the
+    # medical uniform band, or the full tier ladder a shape-overriding bundle
+    # (PRBench) injects via [[DOMAIN_POINTS_RULE]] / [[DOMAIN_POINTS_INVARIANT]].
+    _tmpl = gs["RUBRIC_GENERATOR_DEFAULT"]
+    assert ("+5..+10" in _tmpl) or all(
+        t in _tmpl for t in ("+9..+10", "+5..+8", "+1..+4")), \
+        "no point-scale instruction in RUBRIC_GENERATOR_DEFAULT"
     assert "length term is 0" in gs["HB_SCORE_FORMULA"]
     # Solver system prompt is the bundle's.
     assert "professional" in gs["RUBRIC_SOLVER_SYSTEM"] or "expert" in gs["RUBRIC_SOLVER_SYSTEM"]

@@ -147,9 +147,66 @@ def _prbench() -> dict:
             "authorities or non-compliant recommendations. Prioritize the professional's real "
             "exposure and obligations."
         ),
+        # ---- v2 rubric-shape / thread overrides (step-134 autopsy, dvd 2026-08-23).
+        # PRBench-Hard: ~17 criteria/task with importance tiers 1-10 plus negatives,
+        # scored as the positive-weight fraction; ~45% of tasks are informal multi-turn
+        # threads with typos whose earlier assistant turns come from a weaker model.
+        # Minted v1 tasks were 99.96% single-turn formal memos with 3.2-criterion
+        # rubrics clumped at 8-10 points: 46% of solver reports were exactly 0 or 1
+        # and zero-variance GRPO groups hit 31% of a batch. 6-12 short tiered
+        # positives restore partial credit and ranking room. NOTE the judge cost:
+        # ~9-positive rubrics roughly TRIPLE per-criterion judge calls per rollout —
+        # accepted, no mitigation needed.
+        N_POSITIVE_DIST=[(6, 20), (8, 45), (10, 25), (12, 10)],
+        NEGATIVE_SHARE_DEFAULT=0.5,
+        THREAD_SHARE=0.45,
+        RUBRIC_MAX_ITEMS=16,
+        RUBRIC_RANGE="6-13",
+        POINTS_TIER_INSTR=(
+            "Assign IMPORTANCE TIERS, not uniform points: the 1-3 criteria that decide the "
+            "case get +9..+10 (critically important); the core supporting facts get +5..+8 "
+            "(important); context/completeness items get +1..+4 (slightly important). "
+            "Negatives are -5..-10 for a specific plausible wrong answer."
+        ),
+        POINTS_RULE=(
+            "    * TIERED point values. Assign IMPORTANCE TIERS, not uniform points: the 1-3 "
+            "criteria that decide the case get +9..+10 (critically important); the core "
+            "supporting facts get +5..+8 (important); context/completeness items get +1..+4 "
+            "(slightly important). Negatives are -5..-10 for a specific plausible wrong "
+            "answer. There is NO requirement that the points sum to any particular total."
+        ),
+        POINTS_INVARIANT=(
+            "- Assign IMPORTANCE TIERS, not uniform points: the 1-3 criteria that decide the "
+            "case get +9..+10 (critically important); the core supporting facts get +5..+8 "
+            "(important); context/completeness items get +1..+4 (slightly important). "
+            "Negatives are -5..-10 for a specific plausible wrong answer."
+        ),
+        COUNT_RATIONALE=(
+            "- Many SHORT ATOMIC criteria is the norm here: 8-12 positives, each naming "
+            "exactly ONE checkable fact, with tiered weights. The reason is mechanical: the "
+            "score is the fraction of positive WEIGHT the answer earns, so a granular rubric "
+            "gives partial credit at every level of answer quality and lets genuinely better "
+            "answers outrank merely adequate ones, which is the only thing the training step "
+            "learns from. A 3-criterion rubric collapses every response onto a handful of "
+            "scores -- visibly different answers grade IDENTICALLY and the task teaches "
+            "nothing. Do not fuse facts to keep the count small: split conjunctions into "
+            "separate one-fact criteria and weight each by how much it decides the case."
+        ),
+        THREAD_SLOT="[[THREAD_INSTR]]",
         REBRAND=[
             # Longest / most specific phrases first: a later generic rule ("clinician" ->
             # "professional") would otherwise rewrite the inside of these before they match.
+            # v2 tiered-rubric coherence: the meta-optimizer's hard constraints state the
+            # medical rubric shape; restate them as the tiered PRBench shape.
+            ("Rubrics stay 1-5 SHORT single-fact criteria at +5..+10 each (modal +8)",
+             "Rubrics stay 6-13 SHORT single-fact criteria with TIERED weights (the 1-3 "
+             "decisive criteria +9..+10, core facts +5..+8, context +1..+4; negatives "
+             "-5..-10)"),
+            ("Negative criteria belong on about a third of tasks",
+             "Negative criteria belong on about half of tasks"),
+            # The medical templates cite HealthBench's measured 2.2 criteria/task as the
+            # "short ones" reference; PRBench's rubrics are many short atomic criteria.
+            ("2.2 short ones", "many short atomic ones"),
             ("care consult, writing & documentation, medical research — NOT diagnosis",
              "finance, law — real professional working questions"),
             ("domains: care consult, writing & documentation, medical research",
@@ -537,6 +594,46 @@ if DOMAIN not in _BUNDLES:
     raise SystemExit(f"SE_DOMAIN={DOMAIN!r} unknown; choose one of {sorted(_BUNDLES)}")
 BUNDLE = _BUNDLES[DOMAIN]()
 IS_MEDICAL = DOMAIN == "medical"
+
+# ---- Domain-overridable rubric shape / thread minting (dvd 2026-08-23) --------
+# String values are [[DOMAIN_*]] template fillers whose defaults reproduce the
+# original medical template BYTES exactly (the byte-identity test covers them),
+# including the space runs left by backslash-continued source lines. Non-string
+# values are read by generation_server as shape overrides; None / 0.0 means
+# "keep the medical shape". Bundles override by carrying the key themselves.
+_SHAPE_DEFAULTS = {
+    "N_POSITIVE_DIST": None,
+    "NEGATIVE_SHARE_DEFAULT": None,
+    "THREAD_SHARE": 0.0,
+    "RUBRIC_MAX_ITEMS": None,
+    "POINTS_TIER_INSTR": "",
+    "RUBRIC_RANGE": "1-5",
+    "POINTS_RULE": (
+        "    * BIG point values. Each positive criterion is worth +5..+10 (8 is typical). "
+        "There is NO       requirement that the positives sum to any particular total."
+    ),
+    "POINTS_INVARIANT": (
+        "- Positive criteria are worth +5..+10 each; there is NO required total."
+    ),
+    "COUNT_RATIONALE": (
+        "- Three positives is the norm, and the reason is mechanical: the score is the "
+        "fraction of available positive points the answer earns, so with one or two criteria "
+        "almost every response lands on the same handful of values, several answers of "
+        "visibly different quality receive IDENTICAL scores, and the training step learns "
+        "nothing from that task. Three positives of differing weight let genuinely better "
+        "answers score higher than merely adequate ones. One is acceptable; four is already "
+        "unusual and five is reserved for a genuinely multi-part deliverable. Measured "
+        "against the real benchmark this generator drifted to 4.0 criteria per task where "
+        "the benchmark averages 2.16, and that drift is not cosmetic: each extra short "
+        "criterion is another independent chance at partial credit, so rubrics of four easy "
+        "criteria push almost every response to a near-perfect score, the GRPO group goes "
+        "zero-variance, and the task teaches nothing. If you are about to write a fourth "
+        "criterion, the honest move is almost always three good ones instead."
+    ),
+    "THREAD_SLOT": "",
+}
+for _k, _v in _SHAPE_DEFAULTS.items():
+    BUNDLE.setdefault(_k, _v)
 # The brief as a LEADING PARAGRAPH: empty for medical (so the template is unchanged),
 # "<brief>\n\n" otherwise. Templates use [[DOMAIN_DATASET_BRIEF_PARA]] at their start.
 BUNDLE["DATASET_BRIEF_PARA"] = (BUNDLE["DATASET_BRIEF"] + "\n\n") if BUNDLE["DATASET_BRIEF"] else ""

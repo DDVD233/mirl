@@ -815,6 +815,7 @@ fi
     +data.self_evolving.spec_gap_swap="${SPEC_GAP_SWAP:-True}" \
     +data.self_evolving.spec_gap_concurrency="${SPEC_GAP_CONCURRENCY:-16}" \
     +data.self_evolving.spec_gap_deadline_s="${SPEC_GAP_DEADLINE_S:-120}" \
+    +data.self_evolving.patch_timeout="${PATCH_TIMEOUT_S:-900}" \
     +data.self_evolving.spec_gap_exploit_margin="${SPEC_GAP_EXPLOIT_MARGIN:-0.15}" \
     data.val_files="$VAL" \
     data.train_batch_size="${TRAIN_BS:-32}" \

@@ -386,7 +386,22 @@ case "$ARM" in
               # with long prior assistant turns; max 40k). 12288 covers all but 26,
               # which are left-truncated (the final user turn survives); max_model_len
               # grows with it (12288 + 8192 response).
-              MAX_PROMPT_LEN=12288 ROLLOUT_MAX_LEN=20480
+              MAX_PROMPT_LEN=16384 ROLLOUT_MAX_LEN=24576
+              # ---- v2 (dvd 2026-08-23, post step-134 autopsy) ----
+              # No train length charge: the one-sided >4000-char term caused the
+              # step-15 val dip (answers 7.7k->4.6k chars) and val acc rises
+              # monotonically with answer length (17-30-criterion rubrics need
+              # coverage). Val has no length term either, so train raw.
+              HB_TRAIN_LENGTH_ADJ=0
+              # Search cap was pinned (mean=max=2.00 from step 35); 2/3 of top-weight
+              # misses are exact-rule/number recall the 9B lacks. Give headroom.
+              VERL_MAX_SEARCHES=4
+              # 26/28 /patch_spec calls hit the server's 600s internal budget; the
+              # repair loop was starved (1.8% of tasks patched, farmer win ~0.99).
+              HB_PATCH_TIMEOUT=1700 PATCH_TIMEOUT_S=1800
+              # Benchmark-shaped minting (see domains.py prbench bundle): multi-turn
+              # thread share, 8-14-criterion tiered rubrics, informal register; and
+              # variance-based pool eviction to stop zero-variance gradient loss.
               HB_KB_ANCHOR_SHARE=0 HB_STYLE_SEED_SHARE=0
               HB_VAL_LENGTH_PENALTY_PER_500=0 HB_LENGTH_CENTER=4000
               REFEREE_SMOKE_SOFT=1
