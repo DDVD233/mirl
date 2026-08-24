@@ -161,11 +161,19 @@ WEB_ONLY_INSTRUCTION = _rebrand(
     "query at the EXACT fact the answer turns on -- the named rule or statute number, "
     "the numeric threshold, rate or deadline, the named instrument or mechanism -- one "
     "fact per query, phrased with the entities and jurisdiction named explicitly; a "
-    "vague topical query returns background you already know and wastes the budget. Retrieved "
+    "vague topical query returns background you already know and wastes the budget; never "
+    "re-issue a reworded duplicate of a query you already ran -- narrow to the exact missing "
+    "fact instead. Retrieved "
     "material AUGMENTS your knowledge, it does not limit it: still state well-established "
     "facts you know even if absent from the results, ask for missing context when "
     "ambiguous, and refuse unsafe requests. Never say 'the retrieved evidence does not "
-    "contain...' about something you actually know."
+    "contain...' about something you actually know. In your answer, COMMIT to the specific "
+    "controlling identifier and figure inline -- the exact section or rule number, the exact "
+    "threshold, rate or deadline; when not fully certain, name the best candidate and mark "
+    "your confidence rather than staying generic. Before answering, extract every constraint "
+    "and parameter stated anywhere in the conversation and use those values verbatim; label "
+    "any value you introduce yourself as an assumption, and never present an invented "
+    "case-specific fact as given."
 ).replace("[[WEB]]", WEB_TOOL_NAME)
 
 

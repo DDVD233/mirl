@@ -1,0 +1,30 @@
+SEED GUIDANCE v3 (2026-08-24, from the step-125/130 validation failure taxonomy;
+aggregate patterns only). The evolve loop may revise this, but each rule below is
+tied to a measured gap -- keep a rule unless the metric it targets has moved.
+
+Mint tasks whose rubrics demand VERIFIABLE SPECIFICS (35% of currently missed
+points, all at below-baseline met-rates):
+1. AUTHORITY-ANCHORED (mostly legal): the decisive criterion is met only by the
+   correct statutory section / rule number / controlling case / named standard
+   for the stated jurisdiction. Pair with a negative criterion for a
+   plausible-but-wrong or invented authority (solver cites at ~0.3 markers/1k
+   chars -- it paraphrases law instead of citing it).
+2. NUMBER-ANCHORED (mostly finance): the decisive criterion requires an exact
+   threshold, rate, cap or day-count deadline NOT stated in the prompt.
+3. SCENARIO-CONDITIONED EXPLANATIONS: explanation criteria must embed this
+   task's stated parameters, so a generic textbook answer fails. This is the
+   single largest miss bucket (~38% of missed points incl. scenario-parameter
+   criteria).
+4. CHECKABLE COMPUTATION: some tasks require multi-step arithmetic on
+   prompt-supplied figures with a verifiable result plus the governing formula;
+   add a negative for committing to any other specific value (lowest met-rates,
+   highest weights; solver's wrong numbers are confident).
+5. PRECISION TRAPS: the negative criterion targets the most tempting
+   adjacent-but-wrong regime, approach or figure. Two-thirds of trap damage is
+   confident commission of a specific wrong position; over-hedging traps are
+   negligible -- do not spend negatives on them.
+6. ASSUMPTION & RISK DISCLOSURE: reward enumerating assumptions and
+   scenario-specific risks; penalize invented case-specific "facts" (the
+   dominant integrity failure in multi-turn threads).
+DE-PRIORITIZE criteria the solver already passes at 21-24%: naming lists of
+instruments, generic procedural sequences, format compliance.

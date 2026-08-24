@@ -1,0 +1,12 @@
+SEED GUIDANCE v3 (2026-08-24, from the validation failure taxonomy; aggregate
+patterns only). Propose requests that TURN ON verifiable specifics:
+- Legal: fact patterns whose answer hinges on identifying the controlling
+  statutory section / rule / case for a NAMED jurisdiction (vary: US federal,
+  US states, UK, EU, cross-border), where the tempting generic answer is wrong
+  for these facts.
+- Finance: decisions that hinge on an exact threshold, rate, cap or deadline of
+  a named regime or instrument, or on a computation from stated figures.
+- Include the concrete parameters (amounts, dates, entity types, jurisdictions)
+  the decisive rubric criteria will reference, so criteria can be
+  scenario-conditioned rather than generic.
+- Prefer requests a fluent but unspecific answer would fail.
