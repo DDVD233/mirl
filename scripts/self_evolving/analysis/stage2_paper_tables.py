@@ -172,10 +172,10 @@ def main():
                r"at the evaluations of Table~\ref{tab:main}.")
     open(os.path.join(T, "hbpro_main_raw.tex"), "w").write(provenance + render_main(table, SEC, cap_raw, "tab:main-raw"))
     cap_abl = (r"Component ablation of SER on Qwen3.5-9B under the GPT grader. The upper group runs with retrieval "
-               r"off, adding meta-prompt evolution and then the admission-time adversary probe to a calibrated fixed "
-               r"prompt. The lower group runs with retrieval and web search, from the untuned fixed prompt through "
-               r"the calibrated prompt, evolution with the admission-time probe, and the full on-policy "
-               r"hack-then-patch loop. Official length-adjusted accuracy, best validation evaluation per row.")
+               r"off, with meta-prompt evolution alone and then evolution with the admission-time adversary probe. "
+               r"The lower group runs with retrieval and web search, from the fixed prompt through evolution with "
+               r"the admission-time probe to the full on-policy hack-then-patch loop. Official length-adjusted "
+               r"accuracy, best validation evaluation per row.")
     open(os.path.join(T, "hbpro_ablation.tex"), "w").write(provenance + render_ablation(table, PRIM, cap_abl, "tab:ablation"))
     cap_sp = (r"Per-specialty accuracy (official length-adjusted score) for the fixed-prompt and SER rows "
               r"of each setting in Table~\ref{tab:main}. $n$ is the number of validation tasks in the specialty.")
