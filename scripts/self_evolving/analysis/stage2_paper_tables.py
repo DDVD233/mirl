@@ -31,6 +31,13 @@ def load(root):
 
 
 def pick(files, row):
+    if row.get("pending"):
+        # A row whose run has not been produced yet: rendered as -- placeholders and
+        # excluded from every bold comparison. `planned` in arms.json records the arm.
+        return {"label": row["label"], "run": "", "ours": False, "untrained": False,
+                "pending": True, "planned": row.get("planned", ""), "_eval_key": None,
+                "n_evals": 0, "overall": {PRIM: None, SEC: None},
+                "category": {}, "difficulty": {}, "specialty": {}, "aux": {}}
     run = files[row["file"]]["runs"][row["run"]]
     ps = run["per_step"]
     if row.get("use") == "step0":
@@ -39,7 +46,7 @@ def pick(files, row):
         key = str(run["summary"]["best"]["step"])
     st = ps[key]
     out = {"label": row["label"], "run": row["run"], "ours": row.get("ours", False),
-           "untrained": row.get("use") == "step0", "_eval_key": key,
+           "untrained": row.get("use") == "step0", "pending": False, "_eval_key": key,
            "n_evals": run["summary"]["n_evals"],
            "overall": {PRIM: st[PRIM], SEC: st[SEC]},
            "category": {k: {PRIM: v[PRIM], SEC: v[SEC], "n": v["n"]} for k, v in st.get("category", {}).items()},
@@ -121,7 +128,8 @@ def render_specialty(table, caption, label):
     specs = sorted({s for b in table["blocks"] for r in b["rows"] for s in r["specialty"]})
     cols = []
     for b in table["blocks"]:
-        fp = next(r for r in b["rows"] if not r["untrained"] and not r["ours"])
+        fp = next(r for r in b["rows"]
+                  if not r["untrained"] and not r["ours"] and not r.get("pending"))
         ours = next(r for r in b["rows"] if r["ours"])
         cols.append((b["key"], fp, ours))
     L = [r"\begin{table}[h]", r"\begin{center}", f"\\caption{{{caption}}}", f"\\label{{{label}}}",
@@ -166,7 +174,10 @@ def main():
                 r"base model and grading protocol; within a setting, \emph{Fixed prompt} and \emph{SER (ours)} share "
                 r"the identical RL recipe, solver tools, grader, and data budget, and differ only in whether the "
                 r"reward is held fixed or allowed to evolve. "
-                r"Each trained row reports its best validation evaluation. Bold marks the better trained row per column.")
+                r"Each trained row reports its best validation evaluation. Bold marks the better trained row per column. "
+                r"The \emph{Evolution only} rows isolate meta-prompt evolution without the adversary; their runs are "
+                r"still in progress and are shown as \texttt{--}. The evolution-only measurement available today is in "
+                r"Table~\ref{tab:ablation}.")
     open(os.path.join(T, "hbpro_main.tex"), "w").write(provenance + render_main(table, PRIM, cap_main, "tab:main"))
     cap_raw = (r"Unadjusted rubric accuracy (fraction of rubric points earned, with the length term omitted) "
                r"at the evaluations of Table~\ref{tab:main}.")
@@ -174,7 +185,8 @@ def main():
     cap_abl = (r"Component ablation of SER on Qwen3.5-9B under the GPT grader. The upper group runs with retrieval "
                r"off, with meta-prompt evolution alone and then evolution with the admission-time adversary probe. "
                r"The lower group runs with retrieval and web search, from the fixed prompt through evolution with "
-               r"the admission-time probe to the full on-policy hack-then-patch loop. Official length-adjusted "
+               r"the admission-time probe to the full on-policy hack-then-patch loop; its evolution-only run is "
+               r"still in progress and is shown as \texttt{--}. Official length-adjusted "
                r"accuracy, best validation evaluation per row.")
     open(os.path.join(T, "hbpro_ablation.tex"), "w").write(provenance + render_ablation(table, PRIM, cap_abl, "tab:ablation"))
     cap_sp = (r"Per-specialty accuracy (official length-adjusted score) for the fixed-prompt and SER rows "
