@@ -294,8 +294,31 @@ if [ "$VAL_SELF_JUDGE" = 1 ]; then
 fi
 EMBED_BASE="${EMBED_BASE:-http://mib.media.mit.edu:18001/v1}"
 MILVUS_URI="${MILVUS_URI:-http://mib.media.mit.edu:19531}"
+# VAL_PARQUET may name SEVERAL held-out sets, comma-separated (e.g. MedXpertQA
+# Text + MM). Each is checked for existence here rather than letting hydra fail
+# thirty seconds into a launch with a path it cannot read, and the list is handed
+# to verl as a hydra list so every set gets its own val-core/<data_source> metrics.
 VAL="$VAL_PARQUET"
-[ -f "$VAL" ] || { echo "FATAL: VAL_PARQUET=$VAL does not exist" >&2; exit 1; }
+# train_files is only ever the tokenizer/seed parquet -- SelfEvolvingDataset replaces
+# the dataframe with server-fetched entries -- so it stays a SINGLE path even when
+# validation spans several sets.
+VAL_SEED="${VAL_PARQUET%%,*}"
+case "$VAL" in
+  *,*)
+    _val_list=""
+    IFS=',' read -r -a _vals <<< "$VAL"
+    for _v in "${_vals[@]}"; do
+        [ -f "$_v" ] || { echo "FATAL: VAL_PARQUET entry $_v does not exist" >&2; exit 1; }
+        _val_list="${_val_list:+$_val_list,}$_v"
+    done
+    VAL="[$_val_list]"
+    echo "val sets: $VAL"
+    ;;
+  *)
+    [ -f "$VAL" ] || { echo "FATAL: VAL_PARQUET=$VAL does not exist" >&2; exit 1; }
+    ;;
+esac
+[ -f "$VAL_SEED" ] || { echo "FATAL: VAL_SEED=$VAL_SEED does not exist" >&2; exit 1; }
 
 export CHAT_PROVIDER="$GEN_CHAT_PROVIDER"
 export HF_HOME=$S/hf_cache
@@ -799,7 +822,7 @@ fi
     algorithm.use_kl_in_reward=False \
     algorithm.kl_ctrl.kl_coef=0.0 \
     algorithm.norm_adv_by_std_in_grpo=False \
-    data.train_files="$VAL" \
+    data.train_files="$VAL_SEED" \
     data.custom_cls.path=scripts/self_evolving/self_evolving_dataset.py \
     data.custom_cls.name=SelfEvolvingDataset \
     +data.self_evolving.gen_server_url="http://localhost:$GEN_PORT" \

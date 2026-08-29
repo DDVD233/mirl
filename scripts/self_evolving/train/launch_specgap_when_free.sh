@@ -469,10 +469,26 @@ case "$ARM" in
               HB_PATCH_MINT_ITEMS=5 HB_REWRITE_MAX_GROW=4 HB_REFINE_BG_MAX=48
               HB_MEMO_MAX_CHARS=2400
               SE_DOMAIN=medxpert
-              VAL_PARQUET=/scratch/sheng/self_evolving/medxpertqa_text_val.parquet
+              # BOTH MedXpertQA splits: Text (2450 x 10 options) and MM (2000 x 5
+              # with images). verl reports them as separate val-core data sources,
+              # so the text and multimodal curves are read independently.
+              VAL_PARQUET=/scratch/sheng/self_evolving/medxpertqa_text_val.parquet,/scratch/sheng/self_evolving/medxpertqa_mm_val.parquet
               SELF_JUDGE=1 ALLOW_EVOLVE_SELF_JUDGE=1 VAL_SELF_JUDGE=0
               HB_KB_ANCHOR_SHARE=0.10 HB_STYLE_SEED_SHARE=0
               HB_VAL_LENGTH_PENALTY_PER_500=0
+              # MULTIMODAL MINTING. 35% of minted tasks are anchored on a real
+              # staged medical image (21.5k images, 8 modalities, balanced -- see
+              # kb/stage_mm_media.py). Not 100%: half the benchmark is text, and a
+              # policy trained only on image tasks would drift off the Text split.
+              # Every role -- proposer, generator, judge, farmer, minter, referee --
+              # sees the image; the path is inert when the manifest is absent.
+              HB_MM_SHARE=0.35
+              HB_MM_MANIFEST=/scratch/sheng/self_evolving/mm_media/manifest.jsonl
+              HB_MM_ROOT=/scratch/sheng/self_evolving/mm_media/images
+              # Image tokens are prompt tokens: one 1024x1024 study runs ~1.2k, and
+              # MedXpertQA MM rows reach ~2.6k prompt tokens before any retrieval
+              # span. 6144 would left-truncate exactly the studies being asked about.
+              MAX_PROMPT_LEN=10240
               REFEREE_SMOKE_SOFT=1
               N_GPUS="${N_GPUS:-4}"
               SUMM_BASE="$SUMM_DEDICATED" SUMM_FALLBACK_BASE=""

@@ -6895,7 +6895,10 @@ async def evolve_retrieval(payload: EvolveRetrievalPayload):
     async with s.evolve_lock:
         return await _evolve_retrieval_reward(s, payload.step, payload.cases)
 
-def main():
+def build_arg_parser() -> argparse.ArgumentParser:
+    """The server CLI, factored out of main() so tests can build a real args
+    namespace without launching a server. main() is the only other caller.
+    """
     parser = argparse.ArgumentParser()
     # --- Rubric mode (HealthBench-Professional task + rubric co-generation) ---
     parser.add_argument("--simple_prompt", action="store_true",
@@ -7029,6 +7032,11 @@ def main():
     )
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=8004)
+    return parser
+
+
+def main():
+    parser = build_arg_parser()
     args = parser.parse_args()
 
     # Validate / default mode-specific args.
