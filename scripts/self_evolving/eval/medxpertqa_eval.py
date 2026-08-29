@@ -140,15 +140,24 @@ async def generate_all(rows, args, images_dir: Path):
                 }
                 try:
                     data = await _post(client, url, payload, headers, args.retries, args.timeout)
-                    text = data["choices"][0]["message"]["content"] or ""
-                    reason = data["choices"][0].get("finish_reason")
+                    choice = data["choices"][0]
+                    msg = choice["message"]
+                    text = msg.get("content") or ""
+                    # Thinking models served by vLLM put the reasoning channel in a
+                    # separate field and leave `content` EMPTY until </think> closes.
+                    # A response truncated mid-thought therefore looks blank; keep the
+                    # reasoning so the parser can still find a committed answer, and so
+                    # a truncation shows up as a long reasoning rather than a mystery.
+                    reasoning = msg.get("reasoning") or msg.get("reasoning_content") or ""
+                    reason = choice.get("finish_reason")
                 except Exception as e:
-                    text, reason = "", f"error:{type(e).__name__}"
+                    text, reasoning, reason = "", "", f"error:{type(e).__name__}"
                 done["n"] += 1
                 if done["n"] % 100 == 0:
                     rate = done["n"] / max(time.time() - t0, 1e-6)
                     print(f"  {done['n']}/{len(rows)} ({rate:.2f}/s)", flush=True)
-                return {"id": ex["id"], "response": text, "finish_reason": reason}
+                return {"id": ex["id"], "response": text, "reasoning": reasoning,
+                        "finish_reason": reason}
 
         return await asyncio.gather(*(one(ex) for ex in rows))
 
@@ -199,7 +208,9 @@ def main():
     ap.add_argument("--split", default="test")
     ap.add_argument("--limit", type=int, default=0)
     ap.add_argument("--concurrency", type=int, default=32)
-    ap.add_argument("--max_tokens", type=int, default=4096)
+    ap.add_argument("--max_tokens", type=int, default=12288,
+                    help="thinking models spend most of this on reasoning; too small "
+                         "returns an EMPTY answer channel, not a short answer")
     ap.add_argument("--temperature", type=float, default=0.0)
     ap.add_argument("--timeout", type=float, default=1800.0)
     ap.add_argument("--retries", type=int, default=4)
@@ -230,7 +241,12 @@ def main():
     for ex in rows:
         g = by_id[ex["id"]]
         valid = "".join(sorted(ex["options"]))
+        # The answer belongs in `content`; fall back to the reasoning channel only
+        # when the answer channel is empty (a response cut off mid-thought), where
+        # a stated conclusion is still the model's answer.
         pred = parse_letter(g["response"], valid)
+        if pred is None and not g["response"]:
+            pred = parse_letter(g.get("reasoning", ""), valid)
         items.append({
             "id": ex["id"],
             "gold": ex["label"],
@@ -238,6 +254,7 @@ def main():
             "pred": pred,
             "correct": bool(pred == ex["label"]),
             "response": g["response"],
+            "reasoning_chars": len(g.get("reasoning", "")),
             "finish_reason": g["finish_reason"],
             "medical_task": ex.get("medical_task"),
             "question_type": ex.get("question_type"),
@@ -256,6 +273,7 @@ def main():
     unparsed = sum(it["pred"] is None for it in items)
     empty = sum(not it["response"] for it in items)
     truncated = sum(it["finish_reason"] == "length" for it in items)
+    errored = sum(str(it["finish_reason"]).startswith("error:") for it in items)
 
     def _breakdown(key):
         agg = defaultdict(lambda: [0, 0])
@@ -274,6 +292,8 @@ def main():
         "unparsed": unparsed,
         "empty_responses": empty,
         "truncated": truncated,
+        "errored": errored,
+        "median_reasoning_chars": sorted(it["reasoning_chars"] for it in items)[len(items) // 2],
         "temperature": args.temperature,
         "max_tokens": args.max_tokens,
         "by_medical_task": _breakdown("medical_task"),
