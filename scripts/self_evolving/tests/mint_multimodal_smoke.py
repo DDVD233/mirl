@@ -161,7 +161,18 @@ async def _run(args) -> int:
             _fail("ingest", "image tokens never expanded into input_ids")
 
         # ------------------------------------------------------------ 4. GRADE
-        # A judge that cannot see the image scores these two the same.
+        # Two questions, deliberately separated:
+        #
+        #  4a. IS THE JUDGE ACTUALLY LOOKING? Grade the SAME criterion and the SAME
+        #      answer against two synthetic images that differ only in colour. The
+        #      image is then the ONLY variable, so a verdict that flips proves the
+        #      pixels reached the judge, and a verdict that does not flip proves they
+        #      did not. Grading a real medical rubric cannot establish this: a
+        #      text-blind judge can often guess a plausible verdict from the prose.
+        #
+        #  4b. Does the real minted rubric grade sanely WITH the image attached?
+        from PIL import Image
+
         from verl.utils.reward_score.healthbench_pro import _row_images
         from verl.utils.reward_score.self_evolving import _call_api
 
@@ -170,32 +181,64 @@ async def _run(args) -> int:
         if judge_imgs != mm["_abs"]:
             _fail("grade", "_row_images did not recover the paths from extra_info")
 
-        async def grade(answer: str) -> int:
-            met = 0
-            for c in crit[:args.max_criteria]:
-                prompt = (f"Conversation:\n{task_text}\n\nAssistant response:\n{answer}\n\n"
-                          f"Rubric item: {c.get('criterion_text')}\n\n"
-                          f"Did the response meet the rubric item? Reply yes or no.")
-                raw = await _call_api(args.judge_base, args.judge_key, args.judge_model,
-                                      "You grade one rubric item. Reply yes or no.",
-                                      prompt, max_tokens=8, provider=args.judge_provider,
-                                      images=judge_imgs)
-                if "yes" in (raw or "").strip().lower()[:6]:
-                    met += 1
-            return met
+        async def judge_one(criterion: str, answer: str, images: list, task: str) -> bool | None:
+            prompt = (f"Conversation:\n{task}\n\nAssistant response:\n{answer}\n\n"
+                      f"Rubric item: {criterion}\n\n"
+                      f"Did the response meet the rubric item? Reply yes or no.")
+            raw = await _call_api(args.judge_base, args.judge_key, args.judge_model,
+                                  "You grade one rubric item against the conversation "
+                                  "and any attached image. Reply yes or no.",
+                                  prompt, max_tokens=8, provider=args.judge_provider,
+                                  images=images)
+            t = (raw or "").strip().lower()
+            if t.startswith("yes"):
+                return True
+            if t.startswith("no"):
+                return False
+            return None
 
-        good = str(mm.get("answer") or "")
-        good_answer = (f"On review of the study, the findings are consistent with "
-                       f"{good}. This is the diagnosis and management should follow "
-                       f"accordingly.")
-        bad_answer = ("The study is entirely normal with no abnormality of any kind. "
-                      "No further action is needed.")
+        colours = {"red": (220, 20, 20), "blue": (20, 20, 220)}
+        probe_paths = {}
+        for name, rgb in colours.items():
+            fp = os.path.join(args.tmp_dir, f"probe_{name}.jpg")
+            Image.new("RGB", (256, 256), rgb).save(fp)
+            probe_paths[name] = fp
+
+        probe_task = "<image>\nA user has attached an image and asks about it."
+        probe_criterion = "The response correctly states that the attached image is predominantly RED."
+        probe_answer = "The attached image is predominantly red."
+        v_red, v_blue = await asyncio.gather(
+            judge_one(probe_criterion, probe_answer, [probe_paths["red"]], probe_task),
+            judge_one(probe_criterion, probe_answer, [probe_paths["blue"]], probe_task),
+        )
+        print(f"[grade 4a] same answer+criterion, red image -> met={v_red}; "
+              f"blue image -> met={v_blue}")
+        if v_red is not True or v_blue is not False:
+            _fail("grade", "the judge's verdict did not track the IMAGE (expected "
+                           f"met=True on red and met=False on blue, got {v_red}/{v_blue}) "
+                           "-- it is not really seeing the pixels")
+
+        # 4b. the real rubric, with the image, on an answer built FROM the criteria
+        # versus one that calls the study normal.
+        ideal = " ".join(str(c.get("criterion_text") or "") for c in crit[:args.max_criteria])
+        ideal_answer = ("Reviewing the attached study: " + ideal.replace("Mentions in some way that", "")
+                        .replace("mentions in some way that", ""))
+        null_answer = ("The attached study is entirely normal. There is no abnormality, "
+                       "no further imaging is required and no follow-up is needed.")
+        met_ideal, met_null = 0, 0
+        for c in crit[:args.max_criteria]:
+            ctext = str(c.get("criterion_text") or "")
+            a, b = await asyncio.gather(
+                judge_one(ctext, ideal_answer, judge_imgs, task_text),
+                judge_one(ctext, null_answer, judge_imgs, task_text),
+            )
+            met_ideal += 1 if a else 0
+            met_null += 1 if b else 0
         n = min(args.max_criteria, len(crit))
-        met_good, met_bad = await asyncio.gather(grade(good_answer), grade(bad_answer))
-        print(f"[grade] criteria={n} met(finding-matching)={met_good} met(wrong)={met_bad}")
-        if met_good <= met_bad:
-            _fail("grade", "the judge did not prefer the finding-matching answer -- it is "
-                           "likely grading without the image")
+        print(f"[grade 4b] criteria={n} met(rubric-derived)={met_ideal} met(normal-study)={met_null}")
+        if met_ideal <= met_null:
+            _fail("grade", "the real rubric did not separate a rubric-derived answer from "
+                           "a 'study is normal' answer")
 
         print("\nPASS: minted -> served -> ingested -> graded, with the image at every step")
         return 0
