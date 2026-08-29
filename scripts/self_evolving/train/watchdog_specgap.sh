@@ -49,10 +49,18 @@ DRY="${DRY:-0}"
 # which inverts every check written for a trainer.
 # 2026-08-21: arm17 (all-9B simple baseline) row REMOVED -- 2336 was reassigned to the
 # PRBench adversary arm (first priority per dvd); arm17 stays parked at ckpt 20.
+# 2026-08-29: 2336 reassigned from ARM=19 (PRBench) to ARM=21 (MedXpertQA) at dvd's
+# direction; arm19 is PARKED at ckpt 420 and its row is gone, because a stale row does
+# not sit still -- it would resurrect PRBench onto a box now running something else the
+# first time the pod bounced.
+#
+# The 2333 ARM=20 row is also gone. That run died on 2026-08-25 at 20:17 and the 27B
+# judge vLLM took its two GPUs in the same minute; the row would now have the watchdog
+# relaunching a trainer into a box whose memory is held by a judge that other arms
+# depend on. Reviving ProfBench is a human decision about what 2333 is for.
 BOXES=("2335:infer:vllm::-"
        "2334:16:arm16:_websearch:specgap_arm16_websearch_launch.log"
-       "2336:19:arm19:_websearch:specgap_arm19_websearch_launch.log"
-       "2333:20:arm20:_websearch:specgap_arm20_websearch_launch.log")
+       "2336:21:arm21:_websearch:specgap_arm21_websearch_launch.log")
 
 # The public endpoint the inference box must keep answering -- the same URL the retrieval
 # arm's SUMM_BASE names. Checked from HERE, not on the box, because what matters is not
