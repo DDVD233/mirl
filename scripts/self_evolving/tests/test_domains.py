@@ -274,11 +274,44 @@ def test_profbench_prompts_are_domain_clean():
     _check_domain("profbench")
 
 
-def test_medxpert_prompts_are_domain_clean():
-    # medxpert is a MEDICAL bundle riding the non-medical code path (it carries its
-    # own taxonomy and brief), so the domain-clean check matters as much here even
-    # though no vocabulary is rebranded.
-    _check_domain("medxpert")
+def test_medxpert_is_medical_with_its_own_taxonomy():
+    """medxpert is the one bundle that KEEPS the clinical vocabulary.
+
+    MedXpertQA is a medical benchmark, so `_check_domain`'s medical-leftover scan is
+    the wrong assertion here -- "physician" surviving in the referee prompt is the
+    intent, not a bug. What must still hold is everything structural: no unfilled
+    [[DOMAIN_ token, a consistent taxonomy, and the brief leading exactly the prompts
+    it leads for every other domain.
+    """
+    tree = _run_dump("tree", "medxpert")
+    assert tree["import_ok"], tree.get("import_error")
+    for key in FILES:
+        assert not tree["errors"][key], f"medxpert extraction ({key}): {tree['errors'][key]}"
+
+    unfilled = [f"{key}.{name}"
+                for key in FILES
+                for name, value in tree["consts"][key].items()
+                for s in _strings(value) if "[[DOMAIN_" in s]
+    assert not unfilled, f"unfilled [[DOMAIN_ tokens: {sorted(set(unfilled))}"
+
+    gs = tree["consts"]["generation_server"]
+    assert set(gs["HB_REF_STATS"]["use_case_mix"]) == set(gs["HB_USE_CASES"])
+    assert set(gs["HB_USE_CASE_DESC"]) == set(gs["HB_USE_CASES"])
+    assert set(gs["HB_USE_CASES"]) == {"diagnosis", "treatment", "basic_science"}
+    assert set(gs["HB_MODE_INSTR"]) == {"good_faith", "red_teaming"}
+
+    brief = tree["brief"]
+    assert brief.startswith("TARGET BENCHMARK") and "MedXpertQA" in brief
+    for name in BRIEF_CARRIERS:
+        assert gs[name].startswith(brief + "\n\n"), f"{name} does not lead with DATASET_BRIEF"
+        assert gs[name].count("TARGET BENCHMARK") == 1, name
+
+    # The brief must describe the benchmark without ever quoting one of its items.
+    for leak in ("Answer Choices:", "(A)", "(J)"):
+        assert leak not in brief, f"brief leaks item shape: {leak}"
+
+    # Clinical vocabulary is retained ON PURPOSE (the opposite of every other domain).
+    assert "physician" in tree["consts"]["spec_gap"]["REFEREE_SYSTEM"]
 
 
 def test_unknown_domain_is_refused():
