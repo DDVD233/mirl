@@ -80,7 +80,11 @@ def main():
             shape = tuple(pv.shape) if pv is not None else None
         else:
             mm_keys, shape = [], None
-        ids = item["input_ids"]
+        print(f"row {i}: keys={keys}")
+        ids = item.get("input_ids")
+        if ids is None:
+            failures.append(f"row {i}: no input_ids in the item")
+            continue
         # The processor expands one <image> placeholder into many image tokens; if
         # that did not happen the model would see a bare text prompt and "solve"
         # an image question blind, which is the silent failure worth catching.
@@ -89,7 +93,6 @@ def main():
             n_img_tok = int((ids == img_tok_id).sum()) if img_tok_id is not None else None
         except Exception:
             n_img_tok = None
-        print(f"row {i}: keys={keys}")
         print(f"    multi_modal_inputs={mm_keys} pixel_values={shape} "
               f"image_tokens_in_input_ids={n_img_tok} prompt_len={int(ids.shape[-1])}")
         if not has_mm:
