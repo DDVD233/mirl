@@ -188,7 +188,12 @@ async def _run(args) -> int:
             raw = await _call_api(args.judge_base, args.judge_key, args.judge_model,
                                   "You grade one rubric item against the conversation "
                                   "and any attached image. Reply yes or no.",
-                                  prompt, max_tokens=8, provider=args.judge_provider,
+                                  # 512, not 8: this deployment spends the small
+                                  # budget before emitting any content and returns an
+                                  # EMPTY string, which reads as "unparseable verdict"
+                                  # rather than "budget too small". The real judge in
+                                  # healthbench_pro uses 512 for the same reason.
+                                  prompt, max_tokens=512, provider=args.judge_provider,
                                   images=images)
             t = (raw or "").strip().lower()
             if args.debug_judge:
@@ -213,8 +218,12 @@ async def _run(args) -> int:
             judge_one(probe_criterion, probe_answer, [probe_paths["red"]], probe_task),
             judge_one(probe_criterion, probe_answer, [probe_paths["blue"]], probe_task),
         )
-        print(f"[grade 4a] same answer+criterion, red image -> met={v_red}; "
-              f"blue image -> met={v_blue}")
+        v_blind = await judge_one(probe_criterion, probe_answer, None, probe_task)
+        print(f"[grade 4a] same answer+criterion: red image -> met={v_red}; "
+              f"blue image -> met={v_blue}; NO image -> met={v_blind}")
+        if v_blind is not True:
+            print("    (note: a text-blind judge did not simply believe the claim here, "
+                  "so the red/blue flip is a weaker signal than usual)")
         if v_red is not True or v_blue is not False:
             _fail("grade", "the judge's verdict did not track the IMAGE (expected "
                            f"met=True on red and met=False on blue, got {v_red}/{v_blue}) "
