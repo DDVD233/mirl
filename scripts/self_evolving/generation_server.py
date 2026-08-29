@@ -81,7 +81,8 @@ import uvicorn
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
-# Domain bundle (env SE_DOMAIN = medical | prbench | profbench; default medical). The
+# Domain bundle (env SE_DOMAIN = medical | prbench | profbench | medxpert; default
+# medical). The
 # medical bundle is the identity: every prompt below is byte-identical to the pre-bundle
 # text, and a test asserts that. Imported by directory so it resolves when this file is
 # launched as a script (sys.path[0] is then this directory already) and under module

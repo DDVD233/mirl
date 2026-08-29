@@ -274,6 +274,13 @@ def test_profbench_prompts_are_domain_clean():
     _check_domain("profbench")
 
 
+def test_medxpert_prompts_are_domain_clean():
+    # medxpert is a MEDICAL bundle riding the non-medical code path (it carries its
+    # own taxonomy and brief), so the domain-clean check matters as much here even
+    # though no vocabulary is rebranded.
+    _check_domain("medxpert")
+
+
 def test_unknown_domain_is_refused():
     env = dict(os.environ, SE_DOMAIN="bogus")
     env["PYTHONPATH"] = os.pathsep.join(p for p in [str(SE_DIR), env.get("PYTHONPATH")] if p)

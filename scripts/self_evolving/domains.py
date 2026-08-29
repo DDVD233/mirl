@@ -555,6 +555,117 @@ def _profbench() -> dict:
     )
 
 
+def _medxpert() -> dict:
+    # MedXpertQA's own axes: three task types x twelve body systems. Using the
+    # benchmark's taxonomy rather than HealthBench's care_consult/writing/research
+    # is the whole point -- the generator never sees an item, but it should be
+    # minting in the same shape of medicine the benchmark tests.
+    body_systems = [
+        "nervous", "skeletal", "cardiovascular", "digestive", "reproductive",
+        "respiratory", "muscular", "endocrine", "urinary", "lymphatic",
+        "integumentary", "multisystem",
+    ]
+    return dict(
+        NAME="medxpert",
+        BENCH_NAME="MedXpertQA",
+        # Text-split mix: Diagnosis 1050 / Treatment 746 / Basic Science 654.
+        USE_CASES={"diagnosis": 0.43, "treatment": 0.30, "basic_science": 0.27},
+        USE_CASE_DESC={
+            "diagnosis": "an expert-level diagnostic problem: a patient presentation with "
+                         "history, exam findings, labs and imaging where several diagnoses fit "
+                         "loosely and exactly one fits the specific findings given",
+            "treatment": "an expert-level management problem: given a confirmed clinical "
+                         "picture, which intervention, agent, dose, sequence, or next step is "
+                         "indicated -- and which plausible alternative is wrong for THIS patient",
+            "basic_science": "an expert-level mechanism problem: the physiology, pharmacology, "
+                             "biochemistry, genetics or pathology that explains a clinical "
+                             "finding, at the depth a specialty board examination asks it",
+        },
+        SPECIALTIES_BY_USE_CASE=None,  # full cross product, as for medical
+        SPECIALTIES=body_systems,
+        # MedXpertQA has no safety/red-team component; what it does have, in every
+        # question, is a field of near-miss distractors. So the stress-test mode is
+        # repointed from safety traps to the discrimination the benchmark rewards.
+        REDTEAM_SHARE=0.15,
+        MODE_INSTR={
+            "good_faith": "MODE: good faith. A physician working through a hard case and "
+                          "wanting the specific, correct answer with the reasoning that "
+                          "distinguishes it.",
+            "red_teaming": (
+                "MODE: near-miss discrimination. Build a case where the OBVIOUS answer is "
+                "wrong for these specific findings -- a classic presentation with one detail "
+                "that changes the diagnosis or management, a commonly-confused pair of "
+                "entities, a stale guideline, or a rule that does not apply at this stage or "
+                "in this population. The rubric MUST reward naming the discriminating "
+                "feature and penalize the plausible wrong answer by name."
+            ),
+        },
+        REF_STATS_USE_CASE_MIX={"diagnosis": 0.43, "treatment": 0.30, "basic_science": 0.27},
+        PANEL="a panel of physicians",
+        AI_DESC="a clinician-facing medical AI",
+        USER_ROLE="clinician",
+        USER_ROLE_ADJ="clinical",
+        REQUEST_NOUN="clinician request",
+        EXPERT_TITLE="a senior physician",
+        BENCH_NAME_HYPHEN="MedXpertQA",
+        PROPOSER_ROLE="a specialty-board medical examiner",
+        PRACTITIONER="physician",
+        AI_SHORT="a medical AI",
+        TARGET_DOMAINS_SENTENCE=(
+            "The three target domains are diagnosis, treatment and basic science — expert, "
+            "board-examination-level medicine, NOT routine patient advice."
+        ),
+        VARY_AXES="body system, patient context, task type, and difficulty",
+        GROUNDING_LITERATURE="grounding medical literature",
+        RARE_THING="rare diseases and atypical presentations",
+        EXAMPLE_QUALIFIER="contraindication",
+        EXAMPLE_CHANGED_SUBJECT="a guideline",
+        EXAMPLE_SCOPE="population",
+        DATASET_BRIEF=(
+            "TARGET BENCHMARK (general description only; you have NO access to its items): "
+            "MedXpertQA is a benchmark of expert-level medical questions built to test advanced "
+            "reasoning rather than recall. Its questions are drawn from specialty board and "
+            "licensing examination material, then filtered for difficulty — questions that weaker "
+            "models already answer are removed — and reviewed by clinicians, so what remains "
+            "turns on a specific discriminating fact rather than on general familiarity with the "
+            "topic. It spans diverse specialties and body systems, and three task types: "
+            "diagnosis, treatment and basic science. A question presents a full clinical picture "
+            "(history, examination, laboratory values, sometimes imaging or a patient record) and "
+            "asks for the single best answer among a field of closely-related options; a "
+            "multimodal split pairs the same style of clinical text with medical images. Because "
+            "every distractor is plausible and several are near misses, a response wins by "
+            "identifying the one feature that separates the correct answer from the runner-up — "
+            "the threshold that was crossed, the finding that rules an entity out, the stage or "
+            "population in which the usual rule does not apply — and loses by giving a generally "
+            "sensible answer that ignores the discriminating detail. Frontier models score far "
+            "below expert physicians on it."
+        ),
+        EXAMPLE_VAGUE="\"discusses the differential diagnosis\"",
+        EXAMPLE_SPECIFIC=(
+            "\"identifies the finding that rules out the leading alternative diagnosis "
+            "(a normal anion gap here excludes DKA)\""
+        ),
+        EXAMPLE_WASTED="\"Mentions in some way that the differential matters\"",
+        EXAMPLE_REAL=(
+            "\"Mentions in some way that metformin is contraindicated below an eGFR of "
+            "30 mL/min/1.73m2\""
+        ),
+        EXAMPLE_SPECIFIC_FACT="a value, threshold, dose, interval, contraindication, "
+                              "discriminating finding or named guideline",
+        EXAMPLE_NEG_ERRORS="wrong diagnosis, wrong dose, missed red flag, "
+                           "fabricated trial/guideline, a near-miss entity chosen over the "
+                           "one the findings actually support",
+        EXAMPLE_NUMBER_KINDS="threshold, dose, interval, cutoff, or staging boundary",
+        EXAMPLE_VAGUE2="\"discusses renal dosing\"",
+        EXAMPLE_SPECIFIC2=(
+            "\"states the eGFR threshold below which metformin is contraindicated "
+            "(30 mL/min/1.73m2)\""
+        ),
+        SOLVER_SYSTEM=None,  # the medical solver system prompt already fits
+        REBRAND=[],          # the vocabulary is already medical; nothing to rebrand
+    )
+
+
 def _medical() -> dict:
     # Identity bundle: fillers reproduce the pre-existing HealthBench prompts exactly.
     return dict(
@@ -609,7 +720,8 @@ def _medical() -> dict:
     )
 
 
-_BUNDLES = {"medical": _medical, "prbench": _prbench, "profbench": _profbench}
+_BUNDLES = {"medical": _medical, "prbench": _prbench, "profbench": _profbench,
+            "medxpert": _medxpert}
 if DOMAIN not in _BUNDLES:
     raise SystemExit(f"SE_DOMAIN={DOMAIN!r} unknown; choose one of {sorted(_BUNDLES)}")
 BUNDLE = _BUNDLES[DOMAIN]()
