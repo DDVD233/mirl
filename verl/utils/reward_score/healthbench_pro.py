@@ -100,7 +100,11 @@ VAL_LENGTH_ADJ_PENALTY_PER_500 = float(
 # (val) judge + grading protocol and keeps them away from the gen server's /report.
 # `healthbench_professional/*` is the original; `prbench/*` and `profbench/*` are the
 # non-medical rubric benchmarks added 2026-08-21 (same row schema, same grader).
-BENCHMARK_DATA_SOURCE_PREFIXES = ("healthbench_professional", "prbench", "profbench")
+# `medxpertqa_text/*` and `medxpertqa_mm/*` (2026-08-29) are multiple choice, folded
+# into the same grader as one-criterion rubrics worth 1 point, so met/positive is 0 or
+# 1 and the split mean is accuracy -- see eval/preprocess_medxpertqa.py.
+BENCHMARK_DATA_SOURCE_PREFIXES = ("healthbench_professional", "prbench", "profbench",
+                                  "medxpertqa")
 
 # TRAINING-ONLY anti-runaway-thinking shaping. The solver always thinks (the chat
 # template opens the reasoning channel), so a response with no ``</think>`` means
