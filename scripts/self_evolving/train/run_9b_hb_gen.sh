@@ -914,6 +914,7 @@ fi
     trainer.test_freq=5 \
     trainer.save_freq=20 \
     trainer.val_before_train=True \
+    ${VAL_ONLY:+trainer.val_only=True} \
     +trainer.max_actor_ckpt_to_keep=1 \
     trainer.resume_mode=auto \
     trainer.default_local_dir="$_CKPT_DIR" \
