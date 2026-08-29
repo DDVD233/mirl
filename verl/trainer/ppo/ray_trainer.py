@@ -1102,8 +1102,14 @@ class RayPPOTrainer:
                 continue
             ex_info = batch[keep[0]].non_tensor_batch.get("extra_info", {}) or {}
             task = _conversation_text_for_spec_gap(ex_info)
+            # An image task ranked from its text alone is ranked on prose: the
+            # referee cannot tell a correct reading of the study from a fluent wrong
+            # one. extra_info carries the paths precisely because the dataset drops
+            # the images column before this point.
+            _imgs = [im for im in (ex_info.get("images") or []) if isinstance(im, str)]
             payload.append({"uid": str(uid), "task": task, "rows": keep,
-                            "answers": answers, "scores": sc, "lens": lens})
+                            "answers": answers, "scores": sc, "lens": lens,
+                            "images": _imgs})
             per_item = _as_list(src.get("rubric_met"))
             for i in keep:
                 if per_item and i < len(per_item):

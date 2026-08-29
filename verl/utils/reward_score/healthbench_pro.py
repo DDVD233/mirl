@@ -334,6 +334,26 @@ def _conversation_text(extra_info: dict, solution_str: str) -> str:
     return "\n\n".join(lines)
 
 
+def _row_images(extra_info: dict) -> list:
+    """Absolute image paths for an image-bearing row, or [].
+
+    They are read from `extra_info`, NOT from the row's `images` column, because
+    RLHFDataset.__getitem__ POPS that column once it has bound the placeholders --
+    by the time the reward runs it is gone. Both producers (the gen server's
+    _build_entry_rubric and eval/preprocess_medxpertqa.py) therefore write the paths
+    in BOTH places on purpose.
+    """
+    if not isinstance(extra_info, dict):
+        return []
+    out = []
+    for im in (extra_info.get("images") or []):
+        if isinstance(im, str):
+            out.append(im)
+        elif isinstance(im, dict) and isinstance(im.get("image"), str):
+            out.append(im["image"])
+    return out
+
+
 def _task_text(extra_info: dict) -> str:
     """The clinician request alone (no model response) — what the coverage judge
     needs to decide whether the retrieved evidence is on target."""
@@ -494,6 +514,7 @@ async def compute_score(
     from verl.utils.reward_score.self_evolving import _call_api
 
     conversation = _conversation_text(extra_info, answer_text)
+    row_images = _row_images(extra_info)
 
     # Per-SAMPLE ungradable-criterion count. Exported as the `judge_fail` reward key
     # so `reward/judge_fail/mean` makes a judge outage one glance instead of a log
@@ -510,7 +531,7 @@ async def compute_score(
         try:
             raw = await _call_api(
                 eff_base, eff_key, eff_model, GRADER_SYSTEM, prompt,
-                max_tokens=512, provider=eff_provider,
+                max_tokens=512, provider=eff_provider, images=row_images,
             )
         except Exception as e:
             # DO NOT silently swallow judge failures — a struggling/misconfigured judge
@@ -530,7 +551,7 @@ async def compute_score(
                     raw = await _call_api(
                         fallback_api_base, fallback_api_key, fallback_model_name,
                         GRADER_SYSTEM, prompt, max_tokens=512,
-                        provider=fallback_provider,
+                        provider=fallback_provider, images=row_images,
                     )
                     logger.warning("judge fallback OK -> %s@%s", fallback_model_name,
                                    fallback_api_base)

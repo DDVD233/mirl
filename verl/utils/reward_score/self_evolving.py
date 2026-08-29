@@ -12,6 +12,7 @@ judged correct, 1 if incorrect).
 """
 
 import asyncio
+import functools
 import logging
 import os
 import random
@@ -275,6 +276,53 @@ def _judge_sem() -> asyncio.Semaphore:
     return sem
 
 
+@functools.lru_cache(maxsize=4096)
+def _image_data_uri(path: str, max_pixels: int = 1048576) -> str:
+    """Local image file -> data URI, downscaled, cached.
+
+    Cached because the SAME image is graded once per rubric criterion (and again for
+    every rollout in the GRPO group), so re-reading and re-encoding it each time
+    would dominate the judge's wall clock.
+    """
+    import base64 as _b64
+    import io as _io
+    import mimetypes as _mt
+
+    try:
+        from PIL import Image
+
+        with Image.open(path) as im:
+            im = im.convert("RGB")
+            w, h = im.size
+            if max_pixels and w * h > max_pixels:
+                scale = (max_pixels / float(w * h)) ** 0.5
+                im = im.resize((max(1, int(w * scale)), max(1, int(h * scale))),
+                               Image.BICUBIC)
+            buf = _io.BytesIO()
+            im.save(buf, format="JPEG", quality=90)
+            raw = buf.getvalue()
+        mime = "image/jpeg"
+    except Exception:
+        with open(path, "rb") as fh:
+            raw = fh.read()
+        mime = _mt.guess_type(path)[0] or "image/jpeg"
+    return f"data:{mime};base64,{_b64.b64encode(raw).decode()}"
+
+
+def _vision_content(user_prompt: str, images: list | None):
+    """OpenAI content for a judge turn: plain string, or image parts + the text.
+
+    An unreadable image raises rather than silently degrading to text: grading an
+    image criterion without the image scores whether the answer SOUNDS right.
+    """
+    if not images:
+        return user_prompt
+    parts: list = [{"type": "image_url", "image_url": {"url": _image_data_uri(p)}}
+                   for p in images]
+    parts.append({"type": "text", "text": user_prompt})
+    return parts
+
+
 async def _call_api(
     api_base: str,
     api_key: str,
@@ -284,6 +332,7 @@ async def _call_api(
     max_tokens: int = 256,
     provider: str = "",
     timeout_s: float | None = None,
+    images: list | None = None,
 ) -> str:
     """Call the chat API with thinking disabled.
 
@@ -312,11 +361,16 @@ async def _call_api(
     # can mix a vllm self-judge (training) and a TRAPI gpt-chat-latest judge
     # (validation) — they need different request shaping.
     provider = (provider or os.environ.get("CHAT_PROVIDER", "vllm")).lower()
+    # A rubric criterion about an image ("the response identifies the left-sided
+    # pleural effusion") is ungradable from text alone: the judge would be scoring
+    # whether the answer SOUNDS right. `images` are local absolute paths (the shared
+    # NFS), attached as data URIs so the judge sees exactly what the solver saw.
+    user_content = _vision_content(user_prompt, images)
     payload: dict = {
         "model": model_name,
         "messages": [
             {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt},
+            {"role": "user", "content": user_content},
         ],
         "max_tokens": max_tokens,
     }

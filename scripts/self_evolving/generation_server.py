@@ -989,7 +989,7 @@ async def _api_call(state: ServerState, system_prompt: str, user_prompt: str,
                     max_tokens: int = 2048, temperature: float = 0.8,
                     label: str = "chat", want_json: bool = False,
                     api_base: str = "", api_key: str = "", model_name: str = "",
-                    provider_override: str = "") -> str:
+                    provider_override: str = "", images: Optional[list] = None) -> str:
     # Provider-specific payload shape (see verl/utils/reward_score/
     # self_evolving.py for the matching judge-side code). The OpenAI HTTP
     # contract is identical; only the "control thinking" extension differs.
@@ -1009,11 +1009,16 @@ async def _api_call(state: ServerState, system_prompt: str, user_prompt: str,
     eff_model = model_name or state.args.model_name
     eff_key = api_key or state.args.api_key
     want_thinking = temperature >= 0.5
+    # A task anchored on an image must be REASONED about with the image, by every
+    # role that touches it: proposer, generator, judge, farmer, minter, rewriter,
+    # memo, gold trace. So vision lives here, at the one chokepoint they all share,
+    # rather than in each of them. `images` are local absolute paths.
+    user_content = _vision_content(user_prompt, images, label)
     payload: dict = {
         "model": eff_model,
         "messages": [
             {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt},
+            {"role": "user", "content": user_content},
         ],
         "max_tokens": max_tokens,
     }
@@ -1726,6 +1731,198 @@ def _seed_leak(seed_text: str, task_text: str, thresh: float = 0.12) -> bool:
     return len(a & b) / len(a | b) >= thresh
 
 
+# ---- Multimodal task minting (dvd 2026-08-29) --------------------------------
+# The proposer and rubric generator can anchor a task on a REAL medical image, so
+# the minted task is one the solver cannot answer without looking.
+#
+# WHERE THE IMAGES COME FROM. A staged slice of the CLIMB corpus on the SHARED NFS
+# (scripts/self_evolving/kb/stage_mm_media.py). The pods cannot see mib's disk, and
+# mib's firewall does not expose the CLIMB file server to them, so images are copied
+# once and referenced by ABSOLUTE PATH -- the same arrangement as the MedXpertQA MM
+# val rows, which are proven end to end. Nothing here depends on mib at run time.
+#
+# HB_MM_SHARE is the fraction of rubric iterations that draw an image; 0 disables the
+# path entirely, which is the default, so a run with no staged media behaves exactly
+# as it did before this existed.
+HB_MM_SHARE = float(os.environ.get("HB_MM_SHARE", "0") or 0)
+HB_MM_MANIFEST = os.environ.get("HB_MM_MANIFEST", "")
+HB_MM_ROOT = os.environ.get("HB_MM_ROOT", "")
+# Cap for what we hand the TEACHER as a data URI. The staged files are already
+# downscaled; this bounds the odd large one rather than re-encoding everything.
+HB_MM_MAX_PIXELS = int(os.environ.get("HB_MM_MAX_PIXELS", "1048576"))
+_MM_ROWS: Optional[list] = None
+
+
+def _mm_rows() -> list:
+    """The staged multimodal manifest, loaded once. Empty list = image minting off.
+
+    Every row is checked for the file actually existing at load time, not at mint
+    time: a manifest that names files the pod cannot see would otherwise mint tasks
+    whose images silently become black placeholders in the trainer.
+    """
+    global _MM_ROWS
+    if _MM_ROWS is not None:
+        return _MM_ROWS
+    rows: list = []
+    if HB_MM_SHARE > 0 and HB_MM_MANIFEST:
+        root = HB_MM_ROOT or os.path.join(os.path.dirname(HB_MM_MANIFEST), "images")
+        missing = 0
+        try:
+            with open(HB_MM_MANIFEST) as fh:
+                for line in fh:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        r = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    paths = [os.path.join(root, rel) for rel in (r.get("images") or [])]
+                    if not paths or not all(os.path.isfile(p) for p in paths):
+                        missing += 1
+                        continue
+                    r["_abs"] = paths
+                    rows.append(r)
+        except OSError as e:
+            logger.error("MM manifest %s unreadable: %s -- image minting DISABLED",
+                         HB_MM_MANIFEST, e)
+            rows = []
+        if rows:
+            logger.info("MM manifest: %d usable rows (%d skipped for missing files) "
+                        "from %s", len(rows), missing, HB_MM_MANIFEST)
+        else:
+            logger.error("MM manifest %s yielded NO usable rows (%d missing) -- "
+                         "HB_MM_SHARE=%.2f will never fire", HB_MM_MANIFEST, missing,
+                         HB_MM_SHARE)
+    _MM_ROWS = rows
+    return _MM_ROWS
+
+
+def _image_data_uri(path: str, max_pixels: int = 0) -> str:
+    """Local image file -> data URI for a vision chat call.
+
+    Downscales above `max_pixels` so one large slide image cannot blow up a request
+    body (and the token bill) by an order of magnitude.
+    """
+    max_pixels = max_pixels or HB_MM_MAX_PIXELS
+    try:
+        from PIL import Image
+
+        with Image.open(path) as im:
+            im = im.convert("RGB")
+            w, h = im.size
+            if max_pixels and w * h > max_pixels:
+                scale = (max_pixels / float(w * h)) ** 0.5
+                im = im.resize((max(1, int(w * scale)), max(1, int(h * scale))),
+                               Image.BICUBIC)
+            buf = io.BytesIO()
+            im.save(buf, format="JPEG", quality=90)
+            raw = buf.getvalue()
+        mime = "image/jpeg"
+    except Exception:
+        # PIL missing or a file we cannot decode: send the bytes as they are and let
+        # the provider decide. Better a provider-side error than a silent text-only
+        # call that mints an image task nobody can answer.
+        with open(path, "rb") as fh:
+            raw = fh.read()
+        mime = mimetypes.guess_type(path)[0] or "image/jpeg"
+    return f"data:{mime};base64,{base64.b64encode(raw).decode()}"
+
+
+def _reconcile_image_placeholders(conv: list, n_images: int) -> list:
+    """Make the conversation carry EXACTLY `n_images` <image> tokens, in a user turn.
+
+    The trainer binds placeholders to images positionally and asserts the counts
+    match (rl_dataset._build_messages), so a generator that wrote two <image> tokens
+    for one image, or none at all, is a mid-rollout crash rather than a bad task. The
+    generator is instructed to emit exactly one; this is the enforcement, because an
+    instruction is not a guarantee.
+
+    Placeholders are stripped from assistant turns unconditionally: an image belongs
+    to what the clinician sent, never to what the assistant replied.
+    """
+    out, seen = [], 0
+    for m in conv:
+        role = m.get("role", "user")
+        content = m.get("content", "") or ""
+        if not isinstance(content, str):
+            out.append(dict(m))
+            continue
+        if role != "user":
+            content = content.replace("<image>", "").strip()
+        else:
+            kept = []
+            for chunk in content.split("<image>"):
+                kept.append(chunk)
+            # Rebuild with at most the remaining budget of placeholders.
+            content = ""
+            for i, chunk in enumerate(kept):
+                if i > 0:
+                    if seen < n_images:
+                        content += "<image>"
+                        seen += 1
+                content += chunk
+            content = content.strip()
+        out.append({**m, "role": role, "content": content})
+
+    if seen < n_images:
+        # Prepend the shortfall to the FIRST user turn: that is where a clinician
+        # attaches a study, and the trainer reads placeholders in message order.
+        for m in out:
+            if m.get("role", "user") == "user":
+                m["content"] = ("<image>" * (n_images - seen)) + "\n" + (m.get("content") or "")
+                break
+        else:
+            out.insert(0, {"role": "user", "content": "<image>" * (n_images - seen)})
+    return out
+
+
+def _vision_content(user_prompt: str, images: Optional[list], label: str = "chat"):
+    """OpenAI content for a user turn: plain string, or image parts + the text.
+
+    Raises rather than dropping an unreadable image. Silently degrading to a
+    text-only call would ask the model about a picture it cannot see and then score
+    the answer as though it could -- the exact failure this whole path exists to
+    avoid.
+    """
+    if not images:
+        return user_prompt
+    parts: list = []
+    for _p in images:
+        try:
+            parts.append({"type": "image_url", "image_url": {"url": _image_data_uri(_p)}})
+        except Exception as _e:
+            logger.error("chat %s: image %s unreadable (%s); refusing the call",
+                         label, _p, type(_e).__name__)
+            raise
+    parts.append({"type": "text", "text": user_prompt})
+    return parts
+
+
+def _mm_draw() -> Optional[dict]:
+    """Draw one staged image row, or None when the multimodal path is off."""
+    rows = _mm_rows()
+    if not rows:
+        return None
+    return random.choice(rows)
+
+
+def _entry_images(entry: dict) -> list:
+    """Absolute image paths carried by a pool entry (empty for a text task).
+
+    Every downstream role -- judge, farmer, minter, rewriter, memo, gold trace --
+    calls this and passes the result to _api_call, so an image task is never reasoned
+    about blind.
+    """
+    out = []
+    for im in (entry.get("images") or []):
+        if isinstance(im, str):
+            out.append(im)
+        elif isinstance(im, dict) and isinstance(im.get("image"), str):
+            out.append(im["image"])
+    return out
+
+
 async def _random_kb_anchor(state: ServerState) -> str:
     """Sample a random curated-KB passage to anchor a proposed task.
 
@@ -1754,7 +1951,8 @@ async def _random_kb_anchor(state: ServerState) -> str:
 
 async def agent_task_proposer(state: ServerState, use_case: str, specialty: str,
                               anchor: str = "", language: str = "",
-                              style_seed: dict | None = None) -> list[str]:
+                              style_seed: dict | None = None,
+                              mm: dict | None = None) -> list[str]:
     """Propose diverse clinician REQUESTS (which double as retrieval queries)
     for a use_case x specialty, using the file-backed (evolvable) proposer.
 
@@ -1797,8 +1995,23 @@ async def agent_task_proposer(state: ServerState, use_case: str, specialty: str,
             "the example: different condition, different drug, different specialty focus. "
             "Reusing its topic or any of its specifics makes the request unusable."
         )
+    if mm:
+        # The image is ATTACHED to this call, so the proposer writes requests about
+        # the study in front of it. The recorded finding is given as grounding (it is
+        # KB metadata, like a retrieved passage) with an explicit instruction not to
+        # state it -- a request that names the answer is not a task.
+        user_prompt += _rebrand(
+            f"\n\nA real {mm.get('modality', 'medical')} image is attached. Every request "
+            f"you propose must be ABOUT THIS IMAGE and must be impossible to answer "
+            f"without looking at it: ask what it shows, what it rules in or out, what to "
+            f"do next given it, or how it changes management. The recorded finding for "
+            f"this study is: {str(mm.get('answer', '')).strip()[:300]}. Do NOT state that "
+            f"finding, or any part of it, in the requests -- the request is the question, "
+            f"not the answer. Do not mention that you were given a finding."
+        )
     response = await _api_call(state, sys_prompt, user_prompt, max_tokens=4096,
-                               temperature=0.9, label="chat_task_proposer", want_json=False)
+                               temperature=0.9, label="chat_task_proposer", want_json=False,
+                               images=(mm or {}).get("_abs"))
     queries = _parse_json(response, expect_array=True)
     if not isinstance(queries, list):
         raise ValueError("task proposer did not return a list")
@@ -1809,7 +2022,8 @@ async def agent_task_proposer(state: ServerState, use_case: str, specialty: str,
 
 
 async def agent_task_rubric_generator(state: ServerState, request: str, use_case: str,
-                                      specialty: str, knowledge: str, mode: str) -> dict:
+                                      specialty: str, knowledge: str, mode: str,
+                                      mm: dict | None = None) -> dict:
     """Generate, in ONE call, a clinician task (conversation) + HealthBench-Pro
     rubric, using the file-backed (evolvable) generator prompt."""
     acc = state.accuracy_stats()
@@ -1845,10 +2059,25 @@ async def agent_task_rubric_generator(state: ServerState, request: str, use_case
         parts.append("Real benchmark rubric criteria — match their leniency, length and "
                      "phrasing style (note the hedged 'in some way' / 'at least one of' forms):\n"
                      + "\n".join(f"- {c}" for c in _crits[:4]))
+    if mm:
+        # The generator sees the image too, so the rubric can demand what is actually
+        # visible in it. Without this the rubric is written from the request text
+        # alone and rewards generic phrasing the image never constrains.
+        parts.append(_rebrand(
+            f"A real {mm.get('modality', 'medical')} image is attached and IS PART OF THE "
+            f"TASK: the conversation you write must include the literal token <image> "
+            f"exactly once, in the first user turn, where the image belongs. The "
+            f"recorded finding for this study is: "
+            f"{str(mm.get('answer', '')).strip()[:300]}. Write criteria that reward "
+            f"reading THIS image correctly -- the specific finding, its location and "
+            f"severity, what it rules out, and the management it implies -- and a "
+            f"negative criterion for the plausible misread. Never restate the finding "
+            f"in the conversation itself."))
     parts.append("Produce the JSON object (conversation + rubric_items).")
     user_prompt = "\n\n".join(parts)
     response = await _api_call(state, sys_prompt, user_prompt, max_tokens=12288,
-                               temperature=0.9, label="chat_task_rubric", want_json=True)
+                               temperature=0.9, label="chat_task_rubric", want_json=True,
+                               images=(mm or {}).get("_abs"))
     obj = _parse_json(response)
     if not isinstance(obj, dict):
         raise ValueError(f"generator did not return an object: {response[:200]!r}")
@@ -1951,17 +2180,22 @@ def _render_conversation_user(conv: list[dict]) -> str:
 
 
 def _build_entry_rubric(state: ServerState, gen: dict, knowledge: str,
-                        retrieval_query: str) -> dict:
+                        retrieval_query: str, mm: dict | None = None) -> dict:
     """Build a verl-shape pool entry for a task+rubric example. data_source
     starts with 'healthbench' so the reward routes to the rubric scorer."""
     state.question_counter += 1
     conv = gen["conversation"]
+    if mm:
+        # The trainer binds one <image> placeholder to one image, in order, and
+        # asserts the counts match -- a mismatch is a hard crash mid-rollout, so it
+        # is reconciled HERE, once, rather than trusted to the generator's JSON.
+        conv = _reconcile_image_placeholders(conv, len(mm["_abs"]))
     qid = uuid.uuid4().hex
     # BARE solver prompt (match the official HealthBench eval, which passes the
     # conversation as-is with NO system message). Send the raw conversation turns.
     prompt = [{"role": m.get("role", "user"), "content": m.get("content", "")}
               for m in conv if m.get("content")]
-    return {
+    entry = {
         "data_source": "healthbench_self",
         "prompt": prompt,
         "reward_model": {"style": "rubric", "ground_truth": ""},
@@ -1980,6 +2214,18 @@ def _build_entry_rubric(state: ServerState, gen: dict, knowledge: str,
             "retrieval_query": retrieval_query,
         },
     }
+    if mm:
+        # Absolute NFS paths: rl_dataset._build_messages binds them to the <image>
+        # placeholders, and every gen-server role reads them back via _entry_images.
+        entry["images"] = list(mm["_abs"])
+        # ALSO in extra_info, deliberately: RLHFDataset pops the top-level `images`
+        # column once it has bound the placeholders, so the reward's judge would
+        # otherwise grade an image criterion with no image (see _row_images in
+        # verl/utils/reward_score/healthbench_pro.py).
+        entry["extra_info"]["images"] = list(mm["_abs"])
+        entry["extra_info"]["mm_modality"] = mm.get("modality", "")
+        entry["extra_info"]["mm_dataset"] = mm.get("dataset", "")
+    return entry
 
 
 async def _rubric_iteration(state: ServerState, worker_id: int) -> None:
@@ -2003,10 +2249,13 @@ async def _rubric_iteration(state: ServerState, worker_id: int) -> None:
     if random.random() < _hb_nonenglish_share():
         language = _weighted_choice(HB_LANGUAGES)
     style_seed = _sample_style_seed()
+    # Multimodal draw. Done BEFORE proposing so the request itself is about the
+    # image; anchoring afterwards would staple a picture onto a text task.
+    mm = _mm_draw() if (HB_MM_SHARE > 0 and random.random() < HB_MM_SHARE) else None
 
     try:
         requests = await agent_task_proposer(
-            state, use_case, specialty, anchor, language, style_seed)
+            state, use_case, specialty, anchor, language, style_seed, mm)
     except Exception as e:
         logger.warning(f"worker {worker_id}: task proposer failed: {type(e).__name__}: {e!r}")
         return
@@ -2046,7 +2295,7 @@ async def _rubric_iteration(state: ServerState, worker_id: int) -> None:
                          f"{web_g.text}").strip()
         try:
             gen = await agent_task_rubric_generator(
-                state, request, use_case, specialty, knowledge, mode)
+                state, request, use_case, specialty, knowledge, mode, mm)
         except Exception as e:
             logger.warning(f"worker {worker_id}: rubric generator failed: {type(e).__name__}: {e!r}")
             state.stats["total_rejected"] += 1
@@ -2061,7 +2310,7 @@ async def _rubric_iteration(state: ServerState, worker_id: int) -> None:
             state.stats["seed_leak_rejected"] = state.stats.get("seed_leak_rejected", 0) + 1
             logger.info("seed-leak reject (full generated conversation)")
             continue
-        entry = _build_entry_rubric(state, gen, knowledge, request)
+        entry = _build_entry_rubric(state, gen, knowledge, request, mm)
         # ADVERSARIAL REFINEMENT: fix the specification before the solver ever sees
         # it. Runs before the SFT gold trace so a dropped spec never pays for one.
         #
@@ -3320,7 +3569,7 @@ async def _mint_patch_items(state: ServerState, case: dict, feedback: str = "",
     try:
         raw = await _api_call(state, HACK_MINT_MULTI_SYSTEM, user, **_evolve_endpoint(state),
                               max_tokens=1536, temperature=0.6, label="patch_mint",
-                              want_json=True)
+                              want_json=True, images=_case_images(state, case))
     except Exception as e:  # noqa: BLE001
         _mint_outcome(state, "call_failed")
         logger.warning("patch mint call failed: %s: %s", type(e).__name__, e)
@@ -3354,6 +3603,25 @@ async def _mint_patch_items(state: ServerState, case: dict, feedback: str = "",
         return mode, []
     _mint_outcome(state, "minted")
     return mode, cands
+
+
+def _case_images(state: ServerState, case: dict) -> list:
+    """Images for a case the TRAINER posted back (probe/patch), via the spec index.
+
+    A case arrives as text plus rubric; it does not carry pixels. Looking the entry
+    up by question_id is what lets the minter and the criterion validator SEE the
+    image they are writing and grading criteria about. Without it the repair loop
+    would judge an image task on its text alone and happily mint criteria the image
+    contradicts.
+    """
+    imgs = _entry_images(case)
+    if imgs:
+        return imgs
+    qid = case.get("question_id") or (case.get("extra_info") or {}).get("question_id")
+    if not qid:
+        return []
+    entry = (state.__dict__.get("spec_index") or {}).get(qid)
+    return _entry_images(entry) if entry else []
 
 
 def _spec_index_put(state: ServerState, entry: dict) -> None:
@@ -3438,8 +3706,10 @@ async def validate_patch_criterion(state: ServerState, case: dict, cand: dict,
     try:
         v_top, v_better = await asyncio.gather(
             _grade_items(state, task, str(case.get("top_response") or ""), [new_item],
+                         images=_case_images(state, case),
                          label="patch_grade", strict=True, votes=votes),
             _grade_items(state, task, str(case.get("better_response") or ""), [new_item],
+                         images=_case_images(state, case),
                          label="patch_grade", strict=True, votes=votes),
         )
     except Exception as e:  # noqa: BLE001
@@ -3474,6 +3744,7 @@ async def validate_patch_criterion(state: ServerState, case: dict, cand: dict,
         if cached and cached.get("honest"):
             try:
                 v_h = await _grade_items(state, task, cached["honest"], [new_item],
+                                         images=_case_images(state, case),
                                          label="patch_grade", strict=True, votes=votes)
                 ev["met_honest"] = v_h[0][1]
                 if not positive and v_h[0][1] is not False:
@@ -3547,7 +3818,7 @@ async def _mint_negative(state: ServerState, case: dict, feedback: str = "") -> 
     try:
         raw = await _api_call(state, HACK_MINT_SYSTEM, user, **_evolve_endpoint(state),
                               max_tokens=1024, temperature=0.6, label="patch_mint",
-                              want_json=True)
+                              want_json=True, images=_case_images(state, case))
     except Exception as e:  # noqa: BLE001
         _mint_outcome(state, "call_failed")
         logger.warning("patch mint call failed: %s: %s", type(e).__name__, e)
@@ -4151,7 +4422,7 @@ async def _rewrite_spec(state: ServerState, entry: dict, verdict: dict,
     try:
         raw = await _api_call(state, HACK_REWRITE_SYSTEM, user, **_evolve_endpoint(state),
                               max_tokens=2048, temperature=0.6, label="spec_rewrite",
-                              want_json=True)
+                              want_json=True, images=_entry_images(entry))
     except Exception as e:  # noqa: BLE001
         _mint_outcome(state, "rewrite_call_failed")
         logger.warning("spec rewrite call failed: %s: %s", type(e).__name__, e)
@@ -4793,7 +5064,8 @@ async def attach_rubric_gold_trace(state: ServerState, entry: dict) -> bool:
         try:
             raw = await _api_call(state, RUBRIC_GOLD_SYSTEM_PROMPT, user_prompt,
                                   max_tokens=state.args.teacher_max_tokens,
-                                  temperature=0.6, label="rubric_gold")
+                                  temperature=0.6, label="rubric_gold",
+                                  images=_entry_images(entry))
         except Exception as e:
             logger.warning(f"rubric gold teacher failed: {type(e).__name__}: {e!r}")
             continue
@@ -4816,7 +5088,8 @@ async def attach_rubric_gold_trace(state: ServerState, entry: dict) -> bool:
         # path's boxed-answer check — a gold target that fails its own rubric
         # would teach the student the wrong thing.
         try:
-            score = await _grade_answer_with_rubric(state, task_text, answer, items)
+            score = await _grade_answer_with_rubric(state, task_text, answer, items,
+                                                    images=_entry_images(entry))
         except Exception as e:
             logger.warning(f"rubric gold self-grade failed: {type(e).__name__}: {e!r}")
             score = None
@@ -4864,7 +5137,7 @@ _GRADER_STRICT_NOTE = _rebrand(
 
 async def _grade_items(state: ServerState, task_text: str, answer: str, items: list,
                        label: str = "gold_grade", strict: bool = False,
-                       votes: int = 1) -> list:
+                       votes: int = 1, images: Optional[list] = None) -> list:
     """Per-criterion verdicts under the training reward's contract.
 
     Returns [(points, met_or_None), ...] positionally aligned with `items`.
@@ -4895,7 +5168,8 @@ async def _grade_items(state: ServerState, task_text: str, answer: str, items: l
         # The trapi branch strips temperature itself, so this only sets that flag.
         try:
             raw = await _api_call(state, sys_prompt, prompt, max_tokens=512,
-                                  temperature=0.6, label=label, want_json=True)
+                                  temperature=0.6, label=label, want_json=True,
+                                  images=images)
         except Exception as e:  # noqa: BLE001 — an unreachable grader is not a False verdict
             logger.warning("grade_items call failed (%s): %s", label, e)
             return None
@@ -4917,10 +5191,10 @@ async def _grade_items(state: ServerState, task_text: str, answer: str, items: l
 
 
 async def _grade_answer_with_rubric(state: ServerState, task_text: str, answer: str,
-                                    items: list) -> float:
+                                    items: list, images: Optional[list] = None) -> float:
     """Grade `answer` against `items` with the same criterion-by-criterion
     contract the training reward uses. Returns achieved/total_positive."""
-    graded = await _grade_items(state, task_text, answer, items)
+    graded = await _grade_items(state, task_text, answer, items, images=images)
     total_pos = sum(p for p, _ in graded if p > 0) or 1.0
     achieved = sum(p for p, met in graded if met)
     return achieved / total_pos
@@ -5048,6 +5322,10 @@ async def _probe_admission(state: ServerState, entry: dict) -> dict:
     items = (entry.get("extra_info") or {}).get("rubric_items") or []
     if not items:
         return {"admit": True, "reason": "no_rubric"}
+    # Both probe answers AND both gradings see whatever the task shows. A farmer that
+    # cannot see the image writes a rubric-farmed answer for a different task, and the
+    # separation it measures is then meaningless.
+    _probe_imgs = _entry_images(entry)
     conv = (entry.get("extra_info") or {}).get("conversation") or entry.get("prompt") or []
     task_text = _render_conversation_user(conv) if conv else ""
     if not task_text.strip():
@@ -5066,9 +5344,9 @@ async def _probe_admission(state: ServerState, entry: dict) -> dict:
             # gpt-chat-latest rejects with HTTP 400.
             raw_farm, raw_honest = await asyncio.gather(
                 _api_call(state, HB_FARMER_SYSTEM_PROMPT, farm_user, max_tokens=2048,
-                          temperature=0.6, label="probe_farm", **ep),
+                          temperature=0.6, label="probe_farm", images=_probe_imgs, **ep),
                 _api_call(state, RUBRIC_SOLVER_SYSTEM, task_text, max_tokens=2048,
-                          temperature=0.6, label="probe_honest", **ep),
+                          temperature=0.6, label="probe_honest", images=_probe_imgs, **ep),
                 return_exceptions=True,
             )
     except Exception as e:  # noqa: BLE001
@@ -5087,9 +5365,9 @@ async def _probe_admission(state: ServerState, entry: dict) -> dict:
     try:
         _votes = max(1, int(os.environ.get("HB_PROBE_VOTES", "3")))
         v_h, v_f = await asyncio.gather(
-            _grade_items(state, task_text, honest, items, label="probe_grade",
+            _grade_items(state, task_text, honest, items, label="probe_grade", images=_probe_imgs,
                          strict=True, votes=_votes),
-            _grade_items(state, task_text, farmed, items, label="probe_grade",
+            _grade_items(state, task_text, farmed, items, label="probe_grade", images=_probe_imgs,
                          strict=True, votes=_votes),
         )
     except Exception as e:  # noqa: BLE001

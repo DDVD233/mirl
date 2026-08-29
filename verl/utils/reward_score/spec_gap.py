@@ -451,7 +451,8 @@ def pick_discordant(uid: str, st: GroupStats, scores: dict, answers: dict,
 async def rank_group(task: str, answers: list, api_base: str, api_key: str,
                      model_name: str, provider: str = "", seed: str = "",
                      answer_chars: int = 6000, max_tokens: int = 3000,
-                     timeout_s: float | None = None) -> tuple[dict, dict, int, str, bool]:
+                     timeout_s: float | None = None,
+                     images: list | None = None) -> tuple[dict, dict, int, str, bool]:
     """(tier_of_local_idx, slot_of_local_idx, n_tiers, notes, judged).
 
     Presentation order is a permutation seeded by `seed` (the trainer passes
@@ -490,7 +491,8 @@ async def rank_group(task: str, answers: list, api_base: str, api_key: str,
         kwargs["timeout_s"] = float(timeout_s)
     try:
         raw = await _call_api(api_base, api_key, model_name, REFEREE_SYSTEM, user,
-                              max_tokens=max_tokens, provider=provider, **kwargs)
+                              max_tokens=max_tokens, provider=provider,
+                              images=images, **kwargs)
     except Exception as e:  # noqa: BLE001 — a referee outage degrades to measure-off
         logger.warning("referee call failed: %s: %s", type(e).__name__, e)
         return {}, {}, 0, "", False
@@ -526,15 +528,18 @@ def measure_groups_sync(payload: list, api_base: str, api_key: str, model_name: 
             rows = list(g["rows"])
             answers = [g["answers"][r] for r in rows]
             async with sem:
+                _imgs = g.get("images") or None
                 tier_of_l, slot_of_l, n_tiers, notes, judged = await rank_group(
                     g["task"], answers, api_base, api_key, model_name, provider=provider,
-                    seed=f"{step}:{uid}", answer_chars=answer_chars, timeout_s=timeout_s)
+                    seed=f"{step}:{uid}", answer_chars=answer_chars, timeout_s=timeout_s,
+                    images=_imgs)
                 swap_l = None
                 if judged and swap:
                     swap_l, _, _, _, ok2 = await rank_group(
                         g["task"], answers, api_base, api_key, model_name,
                         provider=provider, seed=f"{step}:{uid}:swap",
-                        answer_chars=answer_chars, timeout_s=timeout_s)
+                        answer_chars=answer_chars, timeout_s=timeout_s,
+                        images=_imgs)
                     if not ok2:
                         swap_l = None
             if not judged:

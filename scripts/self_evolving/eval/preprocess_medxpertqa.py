@@ -118,6 +118,10 @@ def _to_verl_rows(raw_rows: list[dict], subset: str, split: str, images_dir: Pat
                 "source": source,
                 "gold_label": label,
                 "n_options": len(options),
+                # ALSO here, deliberately: RLHFDataset pops the top-level `images`
+                # column after binding the placeholders, so the judge would grade an
+                # image question with no image without this copy.
+                "images": images,
             },
         }
         if images:
