@@ -191,9 +191,11 @@ async def _run(args) -> int:
                                   prompt, max_tokens=8, provider=args.judge_provider,
                                   images=images)
             t = (raw or "").strip().lower()
-            if t.startswith("yes"):
+            if args.debug_judge:
+                print(f"    [judge raw] {raw!r}")
+            if t.startswith("yes") or " yes" in t[:40]:
                 return True
-            if t.startswith("no"):
+            if t.startswith("no") or " no" in t[:40]:
                 return False
             return None
 
@@ -260,6 +262,7 @@ def main():
     ap.add_argument("--judge_model", default=os.environ.get("SMOKE_JUDGE_MODEL", ""))
     ap.add_argument("--judge_provider", default=os.environ.get("SMOKE_JUDGE_PROVIDER", "trapi"))
     ap.add_argument("--allow_leak", action="store_true")
+    ap.add_argument("--debug_judge", action="store_true", help="print raw judge replies")
     ap.add_argument("--server_args", default="", help="args for the gen server ArgumentParser")
     args = ap.parse_args()
     return asyncio.run(_run(args))
