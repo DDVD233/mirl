@@ -22,7 +22,7 @@ set -euo pipefail
 
 S=/scratch/sheng/self_evolving
 REPO=${REPO:-$S/verl_specgap}
-ARM="${ARM:?set ARM=1 fixed-prompt | 2 refine-loop | 3 evolve-only | 4 v1+selfjudge | 5 v3+selfjudge | 6 v2+selfjudge | 7 full+retrieval | 8 full+retrieval+solver-websearch | 9 fixed-prompt+websearch | 10 adversary-v2 (ship+always-patch+multi-round) | 19 PRBench adversary (web-only) | 20 ProfBench adversary (web-only)}"
+ARM="${ARM:?set ARM=1 fixed-prompt | 2 refine-loop | 3 evolve-only | 4 v1+selfjudge | 5 v3+selfjudge | 6 v2+selfjudge | 7 full+retrieval | 8 full+retrieval+solver-websearch | 9 fixed-prompt+websearch | 10 adversary-v2 (ship+always-patch+multi-round) | 19 PRBench adversary (web-only) | 20 ProfBench adversary (web-only) | 21 MedXpertQA adversary (self train judge, gpt val)}"
 
 # Where the self-judge arms get their 9B grader. server5 already serves Qwen3.5-9B on a
 # dedicated GPU, exposed through frp, so pointing at it keeps all four GPUs on the
@@ -433,7 +433,54 @@ case "$ARM" in
               SUMM_FALLBACK_BASE=""
               SEARCH_SNAPSHOT=/scratch/sheng/self_evolving/kb/search_cache_arm20.sqlite)
      EXP_NAME=profbench9b_specgap_ship ;;   # + EXP_SUFFIX=_websearch from the launcher
-  *) echo "FATAL: ARM must be 1..20" >&2; exit 1 ;;
+  21) # MEDXPERTQA ADVERSARY (dvd 2026-08-29): ARM=16's recipe at 9B, aimed at a
+      # held-out medical benchmark that is NOT rubric-shaped. MedXpertQA is expert
+      # multiple choice -- 2450 text questions, ten options each, filtered so the
+      # easy ones are gone -- so the val parquet encodes each question as a
+      # ONE-CRITERION rubric worth 1 point and the reported val IS accuracy
+      # (eval/preprocess_medxpertqa.py). Nothing about the training loop changes:
+      # the adversary still mints free-form rubric tasks and still repairs them.
+      # What this arm measures is whether that transfers to single-best-answer
+      # discrimination, a format the policy never trains on.
+      #
+      #   SELF_JUDGE=1 + VAL_SELF_JUDGE=0 is the split dvd asked for: the TRAINING
+      #   reward is graded by the frozen 9B on the dedicated box (no API cost on
+      #   ~560 rubric calls a step), while VALIDATION stays on the gpt judge so the
+      #   number is comparable to every other arm in the paper. EVOLVE=1 with a self
+      #   train judge needs ALLOW_EVOLVE_SELF_JUDGE=1 (the run script refuses the
+      #   combination otherwise, since it confounds two deltas -- accepted here
+      #   deliberately: this arm is a transfer measurement, not a single-factor
+      #   ablation of the judge).
+      #
+      #   HB_KB_ANCHOR_SHARE=0.10 is NOT redundant. The medxpert bundle is medical
+      #   but rides the non-medical code path, where KB anchoring defaults to 0; the
+      #   medical KB is exactly the right grounding for this benchmark, so it is
+      #   restored to the medical default by hand. HB_STYLE_SEED_SHARE=0 goes the
+      #   other way: the style seeds are HealthBench clinician-chat and MedXpertQA
+      #   is board-examination vignettes.
+      #
+      #   HB_VAL_LENGTH_PENALTY_PER_500=0 because a length term applied to a 0/1
+      #   accuracy is meaningless.
+     ARM_ENV=(RETRIEVAL=1 EVOLVE=1 SPEC_GAP=1 SPEC_GAP_SHIP=1 PROBE=1 PATCH=1
+              HACK_MEMO=1 HB_PROBE_MODE=gate HB_REFINE_MODE=rewrite
+              HB_PROBE_RATE=1.0 HB_REFINE_ROUNDS=2 HB_REFINE_BACKGROUND=1
+              HB_PATCH_ROUNDS=2 HB_PATCH_ASYNC=1 HB_PATCH_MAX_PER_QID=6
+              HB_PATCH_MIN_MARGIN=0.15 HB_PATCHED_MAX_ITEMS=12
+              HB_PATCH_MINT_ITEMS=5 HB_REWRITE_MAX_GROW=4 HB_REFINE_BG_MAX=48
+              HB_MEMO_MAX_CHARS=2400
+              SE_DOMAIN=medxpert
+              VAL_PARQUET=/scratch/sheng/self_evolving/medxpertqa_text_val.parquet
+              SELF_JUDGE=1 ALLOW_EVOLVE_SELF_JUDGE=1 VAL_SELF_JUDGE=0
+              HB_KB_ANCHOR_SHARE=0.10 HB_STYLE_SEED_SHARE=0
+              HB_VAL_LENGTH_PENALTY_PER_500=0
+              REFEREE_SMOKE_SOFT=1
+              N_GPUS="${N_GPUS:-4}"
+              SUMM_BASE="$SUMM_DEDICATED" SUMM_FALLBACK_BASE=""
+              SUMMARY_CONCURRENCY="${SUMMARY_CONCURRENCY:-320}"
+              SEARCH_SNAPSHOT=/scratch/sheng/self_evolving/kb/search_cache_arm21.sqlite
+              WEB_EVIDENCE=0 WEB_SEARCH_TOOL=1)
+     EXP_NAME=medxpert9b_specgap_ship_retrieval ;;
+  *) echo "FATAL: ARM must be 1..21" >&2; exit 1 ;;
 esac
 
 EXP_NAME="${EXP_NAME}${EXP_SUFFIX}"
