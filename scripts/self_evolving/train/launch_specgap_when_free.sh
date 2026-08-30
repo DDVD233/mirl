@@ -489,6 +489,15 @@ case "$ARM" in
               # MedXpertQA MM rows reach ~2.6k prompt tokens before any retrieval
               # span. 6144 would left-truncate exactly the studies being asked about.
               MAX_PROMPT_LEN=10240
+              # RESPONSE budget, and it is a measurement decision, not a perf knob.
+              # The frozen 9B's median reasoning on this benchmark is ~30k chars, and
+              # even at a 14k-token budget 36% of baseline responses were cut off
+              # mid-thought and scored 0. vLLM leaves `content` EMPTY until </think>
+              # closes, so a truncated rollout is not a short answer -- it is no answer.
+              # At the 8192 default most of the val curve would be measuring verbosity.
+              # 12288 keeps the metric about knowledge; the unclosed-think penalty is
+              # what teaches the policy to bound its reasoning.
+              MAX_RESP_LEN=12288 ROLLOUT_MAX_LEN=22528
               # Validation is 4450 rollouts + 4450 judge calls (2450 Text + 2000 MM),
               # ~8.5x HealthBench-Pro's 525. The rule is the full set, never a sample
               # -- so the cost is paid by validating half as often, not by measuring
