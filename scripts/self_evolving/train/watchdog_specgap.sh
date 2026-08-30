@@ -68,6 +68,12 @@ BOXES=("2335:infer:vllm::-"
 # leaves a perfectly healthy vLLM serving nobody.
 INFER_URL="${INFER_URL:-http://point.dd.works:18186/v1}"
 INFER_SERVE="${INFER_SERVE:-scripts/self_evolving/serve/serve_frozen9b_dp.sh}"
+# Environment prefix for that relaunch. NOT cosmetic: since 2026-08-30 GPU 0 of the
+# inference box carries a ~127 GB allocation belonging to another tenant, with no
+# compute process of ours attached, so a default DP=4 launch fails its own preflight
+# and the watchdog would "revive" the box into a loop. Serve the three GPUs that are
+# actually ours. Set INFER_SERVE_ENV="" once GPU 0 comes back.
+INFER_SERVE_ENV="${INFER_SERVE_ENV:-CUDA_VISIBLE_DEVICES=1,2,3 DP=3}"
 
 # A pod that dies repeatedly is broken in a way relaunching will not fix, and each
 # attempt costs a model load. Stop and leave it for a human.
@@ -215,7 +221,7 @@ revive_infer() {
     sshx "$port" 'pkill -f "vllm[ ]serve" 2>/dev/null; sleep 5; rm -f /dev/shm/vllm* 2>/dev/null; true'
     sshx "$port" "tmux has-session -t hb 2>/dev/null || tmux new-session -d -s hb -n idle 'sleep infinity'
         tmux kill-window -t hb:$win 2>/dev/null
-        tmux new-window -t hb -n $win \"cd $REPO && bash $INFER_SERVE \
+        tmux new-window -t hb -n $win \"cd $REPO && env $INFER_SERVE_ENV bash $INFER_SERVE \
             2>&1 | tee -a $LOGDIR/frozen9b_dp.log\"
         echo relaunched"
     REVIVALS[$port]=$(( ${REVIVALS[$port]} + 1 ))
