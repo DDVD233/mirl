@@ -249,3 +249,46 @@ def test_row_images_reads_extra_info_not_the_popped_column():
     assert hp._row_images({"images": [{"image": "/b.jpg"}]}) == ["/b.jpg"]
     assert hp._row_images({}) == []
     assert hp._row_images(None) == []
+
+
+# ----------------------------------------------------------------- the referee
+def test_referee_forwards_images_to_the_judge(monkeypatch):
+    """A referee ranking image answers on prose is ranking prose.
+
+    The trainer puts the paths on the payload group (ray_trainer) and rank_group
+    must hand them to the chat call; this pins that wiring, which is otherwise only
+    exercised inside a live training step.
+    """
+    import asyncio
+
+    sg = pytest.importorskip("verl.utils.reward_score.spec_gap")
+    seen = {}
+
+    async def fake_call_api(api_base, api_key, model_name, system, user, **kw):
+        seen["images"] = kw.get("images")
+        # a valid single-tier verdict over the two labels the caller generated
+        return '{"tiers": [["A", "B"]], "notes": "n"}'
+
+    import verl.utils.reward_score.self_evolving as se
+    monkeypatch.setattr(se, "_call_api", fake_call_api)
+
+    asyncio.run(sg.rank_group("task text", ["answer one", "answer two"],
+                              "http://x/v1", "k", "m", images=["/img/a.jpg"]))
+    assert seen["images"] == ["/img/a.jpg"], "referee dropped the images"
+
+
+def test_referee_without_images_passes_none(monkeypatch):
+    import asyncio
+
+    sg = pytest.importorskip("verl.utils.reward_score.spec_gap")
+    seen = {}
+
+    async def fake_call_api(api_base, api_key, model_name, system, user, **kw):
+        seen["images"] = kw.get("images")
+        return '{"tiers": [["A", "B"]], "notes": "n"}'
+
+    import verl.utils.reward_score.self_evolving as se
+    monkeypatch.setattr(se, "_call_api", fake_call_api)
+
+    asyncio.run(sg.rank_group("task text", ["a", "b"], "http://x/v1", "k", "m"))
+    assert seen["images"] is None
