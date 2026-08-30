@@ -436,6 +436,23 @@ ROLLOUT_MAX_LEN="${ROLLOUT_MAX_LEN:-14336}"      # 6144 prompt + 8192 response
 # one. Left at a hardcoded 14336 the failure is LATENT: it never fires while
 # sequences happen to stay short, then kills a run mid-training when one does not.
 PPO_MAX_TOKEN_LEN="${PPO_MAX_TOKEN_LEN:-$ROLLOUT_MAX_LEN}"
+# Entropy chunking, ON by default: a correctness-of-memory decision, not a tuning knob.
+# The entropy op materialises (tokens x vocab) floats, and at Qwen's ~152k vocab a
+# 28672-token micro-batch asks for 46-52 GiB in ONE allocation -- which is what OOMed
+# ARM=21 the moment it left step-0 validation. Chunked it is ~2048 rows at a time and
+# numerically identical. Requires the non-rmpad fix in
+# verl/workers/engine/fsdp/transformer_impl.py, without which this flag is accepted,
+# reported as set, and silently ignored for any model that forces
+# use_remove_padding=False (Qwen3.5-9B does: head_dim=256 breaks FA varlen).
+#
+# NB: this comment lives HERE and not beside the hydra argument on purpose. A comment
+# inside the backslash-continued python invocation TERMINATES the command -- bash runs
+# the comment to end of line, taking the continuation with it, so every argument after
+# it is silently dropped. Doing that cost two launches: it swallowed
+# trainer.n_gpus_per_node=4 and verl fell back to its default 8, which surfaced as
+# "Total available GPUs 4.0 is less than total desired GPUs 8".
+ENTROPY_CHUNKING="${ENTROPY_CHUNKING:-True}"
+
 LOGPROB_MAX_TOKEN_LEN="${LOGPROB_MAX_TOKEN_LEN:-$ROLLOUT_MAX_LEN}"
 
 cleanup() { kill ${GEN_PID:-} ${SUMM_PID:-} ${SJUDGE_PID:-} 2>/dev/null || true; }
@@ -910,13 +927,6 @@ fi
     actor_rollout_ref.actor.optim.lr="${LR:-1e-6}" \
     actor_rollout_ref.actor.ppo_mini_batch_size=16 \
     actor_rollout_ref.actor.use_dynamic_bsz=True \
-    # ON by default, and it is a correctness-of-memory decision rather than a tuning
-    # knob: the entropy op materialises (tokens x vocab) floats, and at Qwen's ~152k
-    # vocab a 28672-token micro-batch asks for 46-52 GiB in one allocation. Chunked it
-    # is ~2048 rows at a time, numerically identical. ARM=21 OOMed on exactly this the
-    # moment it left step-0 validation. Needs the non-rmpad fix in
-    # verl/workers/engine/fsdp/transformer_impl.py, without which the flag is silently
-    # ignored for models that force use_remove_padding=False (Qwen3.5-9B does).
     actor_rollout_ref.actor.entropy_from_logits_with_chunking="${ENTROPY_CHUNKING:-True}" \
     actor_rollout_ref.actor.ppo_max_token_len_per_gpu="$PPO_MAX_TOKEN_LEN" \
     actor_rollout_ref.actor.use_torch_compile=False \
