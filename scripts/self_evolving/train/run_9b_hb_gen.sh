@@ -644,6 +644,22 @@ if [ "$WEB_SEARCH_TOOL" = 1 ]; then
         if ! curl -sf -m 5 "$WS_BASE/healthz" >/dev/null 2>&1; then
             echo "starting serper cache service at $WEB_SEARCH_URL"
             WS_PORT="${WS_BASE##*:}"
+            # An UNHEALTHY server may still hold the port. Its event loop blocks
+            # during sqlite snapshots (a ~300k-entry db takes a while), so a probe
+            # can time out on a process that is very much alive and bound -- and the
+            # new server then dies with "address already in use" and takes the whole
+            # launch with it. That cost two launches on 2026-08-30. Probe twice with a
+            # generous timeout before concluding it is wedged, then clear the port.
+            if ! curl -sf -m 30 "$WS_BASE/healthz" >/dev/null 2>&1; then
+                if ss -ltn 2>/dev/null | grep -q ":$WS_PORT[[:space:]]"; then
+                    echo "port $WS_PORT held by an unhealthy serper cache; replacing it"
+                    pkill -f "serper_cache_server.py --port $WS_PORT" 2>/dev/null || true
+                    for _ in $(seq 1 20); do
+                        ss -ltn 2>/dev/null | grep -q ":$WS_PORT[[:space:]]" || break
+                        sleep 1
+                    done
+                fi
+            fi
             nohup /usr/local/bin/python scripts/self_evolving/kb/serper_cache_server.py \
                 --port "$WS_PORT" --db "$SEARCH_CACHE_DB" --restore \
                 --snapshot "$SEARCH_SNAPSHOT" \
