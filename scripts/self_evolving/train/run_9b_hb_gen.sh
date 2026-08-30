@@ -911,7 +911,7 @@ fi
     trainer.nnodes=1 \
     trainer.total_epochs=100 \
     trainer.total_training_steps="${STEPS:-60}" \
-    trainer.test_freq=5 \
+    trainer.test_freq="${TEST_FREQ:-5}" \
     trainer.save_freq=20 \
     trainer.val_before_train=True \
     ${VAL_ONLY:+trainer.val_only=True} \

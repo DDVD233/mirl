@@ -489,6 +489,11 @@ case "$ARM" in
               # MedXpertQA MM rows reach ~2.6k prompt tokens before any retrieval
               # span. 6144 would left-truncate exactly the studies being asked about.
               MAX_PROMPT_LEN=10240
+              # Validation is 4450 rollouts + 4450 judge calls (2450 Text + 2000 MM),
+              # ~8.5x HealthBench-Pro's 525. The rule is the full set, never a sample
+              # -- so the cost is paid by validating half as often, not by measuring
+              # less. EVOLVE_EVERY tracks test_freq, as it does everywhere else.
+              TEST_FREQ=10 EVOLVE_EVERY=10
               REFEREE_SMOKE_SOFT=1
               N_GPUS="${N_GPUS:-4}"
               SUMM_BASE="$SUMM_DEDICATED" SUMM_FALLBACK_BASE=""
