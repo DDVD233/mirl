@@ -659,11 +659,24 @@ if [ "$WEB_SEARCH_TOOL" = 1 ]; then
             if ! curl -sf -m 30 "$WS_BASE/healthz" >/dev/null 2>&1; then
                 if ss -ltn 2>/dev/null | grep -q ":$WS_PORT[[:space:]]"; then
                     echo "port $WS_PORT held by an unhealthy serper cache; replacing it"
+                    # SIGTERM first, then SIGKILL: the wedge is usually a long sqlite
+                    # snapshot, and a process blocked in one does not run its signal
+                    # handler -- a polite kill leaves the port held, the replacement
+                    # fails to bind, and the launch dies on a FATAL 60s later. That is
+                    # exactly how the 2026-08-30 relaunch was lost.
                     pkill -f "serper_cache_server.py --port $WS_PORT" 2>/dev/null || true
-                    for _ in $(seq 1 20); do
+                    for _ in $(seq 1 10); do
                         ss -ltn 2>/dev/null | grep -q ":$WS_PORT[[:space:]]" || break
                         sleep 1
                     done
+                    if ss -ltn 2>/dev/null | grep -q ":$WS_PORT[[:space:]]"; then
+                        echo "still held after SIGTERM; SIGKILL"
+                        pkill -9 -f "serper_cache_server.py --port $WS_PORT" 2>/dev/null || true
+                        for _ in $(seq 1 15); do
+                            ss -ltn 2>/dev/null | grep -q ":$WS_PORT[[:space:]]" || break
+                            sleep 1
+                        done
+                    fi
                 fi
             fi
             nohup /usr/local/bin/python scripts/self_evolving/kb/serper_cache_server.py \
