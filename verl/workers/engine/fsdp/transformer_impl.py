@@ -1198,10 +1198,32 @@ class FSDPEngineWithLMHead(FSDPEngine):
                 logits.div_(temperature.clamp(min=1e-8).to(logits.dtype))
 
                 if calculate_entropy:
+                    # Honor entropy_from_logits_with_chunking on THIS branch too.
+                    #
+                    # This branch runs whenever use_remove_padding=False, which is forced
+                    # for models whose head_dim breaks the FlashAttention varlen kernel
+                    # (Qwen3.5-9B at head_dim=256). On exactly those runs the chunking
+                    # flag was accepted, reported as set, and then ignored -- the
+                    # un-chunked op materialises the whole (bsz, seq, vocab) float tensor
+                    # plus intermediates, which at a ~152k vocab and a 16k-token
+                    # micro-batch is a 52 GiB allocation. That is what OOMed the 9B mimic
+                    # run in the log-prob pass, while the actor update survived the same
+                    # token budget because it takes the chunked path.
+                    #
+                    # It cannot simply call self.compute_entropy_from_logits: the chunking
+                    # helper slices dim 0 assuming the 2-D (tokens, vocab) rmpad layout,
+                    # and this branch holds a 3-D (bsz, seq, vocab) tensor -- passing it
+                    # straight through raises "expand(...): the number of sizes provided
+                    # (1) must be >= the number of dimensions (2)". Flattening to 2-D and
+                    # restoring the shape is numerically identical (verified) and is what
+                    # makes the memory saving available here at all.
+                    _ent_fn = self.compute_entropy_from_logits
+                    _flat = logits.reshape(-1, logits.shape[-1])
                     if not self.engine_config.entropy_checkpointing:
-                        entropy = verl_F.entropy_from_logits(logits)
+                        entropy = _ent_fn(_flat).view(logits.shape[:-1])
                     else:
-                        entropy = torch.utils.checkpoint.checkpoint(verl_F.entropy_from_logits, logits)
+                        entropy = torch.utils.checkpoint.checkpoint(_ent_fn, _flat).view(
+                            logits.shape[:-1])
 
                 if calculate_sum_pi_squared:
                     sum_pi_squared = verl_F.calculate_sum_pi_squared_from_logits(logits)
