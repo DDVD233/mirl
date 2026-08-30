@@ -71,7 +71,8 @@ def _slug(s: str) -> str:
     return str(s or "other").strip().lower().replace(" ", "_")
 
 
-def _to_verl_rows(raw_rows: list[dict], subset: str, split: str, images_dir: Path, stats: dict):
+def _to_verl_rows(raw_rows: list[dict], subset: str, split: str, images_dir: Path,
+                  stats: dict, max_pixels: int = 0):
     _, source = SUBSETS[subset]
     for i, ex in enumerate(raw_rows):
         label = str(ex["label"]).strip()
@@ -120,12 +121,20 @@ def _to_verl_rows(raw_rows: list[dict], subset: str, split: str, images_dir: Pat
                 "n_options": len(options),
                 # ALSO here, deliberately: RLHFDataset pops the top-level `images`
                 # column after binding the placeholders, so the judge would grade an
-                # image question with no image without this copy.
+                # image question with no image without this copy. Always BARE paths --
+                # the judge opens the files itself and does its own downscaling.
                 "images": images,
             },
         }
         if images:
-            row["images"] = images
+            # A per-image `max_pixels` bounds how many PROMPT tokens the study costs.
+            # It matters because the agent loop refuses to truncate a multimodal
+            # prompt (truncation corrupts vision feature alignment), so ONE oversized
+            # row aborts an entire validation -- a 10267-token row did exactly that on
+            # 2026-08-30. qwen_vl_utils honours the key on dict-shaped image entries;
+            # rl_dataset passes them through unchanged.
+            row["images"] = ([{"image": p, "max_pixels": max_pixels} for p in images]
+                             if max_pixels else images)
             stats["with_images"] += 1
         stats["kept"] += 1
         yield row
@@ -141,6 +150,9 @@ def main():
     ap.add_argument("--images_dir", default=None,
                     help="dir holding the unzipped image files (default <raw_dir>/images)")
     ap.add_argument("--limit", type=int, default=0, help="cap rows (0 = all) for a quick smoke")
+    ap.add_argument("--max_pixels", type=int, default=0,
+                    help="per-image pixel cap (0 = native resolution). Bounds prompt "
+                         "tokens; state it as a measurement choice if used.")
     args = ap.parse_args()
 
     raw_dir = Path(args.raw_dir)
@@ -153,7 +165,8 @@ def main():
     images_dir = Path(args.images_dir) if args.images_dir else raw_dir / "images"
     stats = {"kept": 0, "skipped_bad_label": 0, "skipped_no_image": 0,
              "missing_image": 0, "with_images": 0}
-    rows = list(_to_verl_rows(raw_rows, args.subset, args.split, images_dir, stats))
+    rows = list(_to_verl_rows(raw_rows, args.subset, args.split, images_dir, stats,
+                              args.max_pixels))
     if args.limit and args.limit > 0:
         rows = rows[: args.limit]
     if not rows:

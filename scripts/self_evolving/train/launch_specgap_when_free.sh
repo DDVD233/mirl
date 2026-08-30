@@ -488,7 +488,7 @@ case "$ARM" in
               # Image tokens are prompt tokens: one 1024x1024 study runs ~1.2k, and
               # MedXpertQA MM rows reach ~2.6k prompt tokens before any retrieval
               # span. 6144 would left-truncate exactly the studies being asked about.
-              MAX_PROMPT_LEN=10240
+              MAX_PROMPT_LEN=16384
               # RESPONSE budget, and it is a measurement decision, not a perf knob.
               # The frozen 9B's median reasoning on this benchmark is ~30k chars, and
               # even at a 14k-token budget 36% of baseline responses were cut off
@@ -497,7 +497,14 @@ case "$ARM" in
               # At the 8192 default most of the val curve would be measuring verbosity.
               # 12288 keeps the metric about knowledge; the unclosed-think penalty is
               # what teaches the policy to bound its reasoning.
-              MAX_RESP_LEN=12288 ROLLOUT_MAX_LEN=22528
+              # 16384, measured not guessed: the MM val set's prompts are p50 758 /
+              # p90 2289 / MAX 9123 tokens (measure_mm_prompt_tokens.py), the agent
+              # loop adds ~900 for the tool schema, and multi-turn rollouts append
+              # tool responses on top. 10240 was 27 tokens short on one 4256x2144
+              # study and aborted the whole validation -- the agent loop REFUSES to
+              # truncate a multimodal prompt, because truncating corrupts vision
+              # feature alignment. 16384 clears the worst row with room for searches.
+              MAX_RESP_LEN=12288 ROLLOUT_MAX_LEN=28672
               # Validation is 4450 rollouts + 4450 judge calls (2450 Text + 2000 MM),
               # ~8.5x HealthBench-Pro's 525. The rule is the full set, never a sample
               # -- so the cost is paid by validating half as often, not by measuring

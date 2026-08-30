@@ -429,8 +429,14 @@ MAX_RESP_LEN="${MAX_RESP_LEN:-8192}"
 ROLLOUT_MAX_LEN="${ROLLOUT_MAX_LEN:-14336}"      # 6144 prompt + 8192 response
 # HARD RULE: >= max_prompt + max_response, else rearrange_micro_batches asserts on
 # the first long rollout (the assert is on the longest ACTUAL sequence).
-PPO_MAX_TOKEN_LEN="${PPO_MAX_TOKEN_LEN:-14336}"
-LOGPROB_MAX_TOKEN_LEN="${LOGPROB_MAX_TOKEN_LEN:-14336}"
+# DERIVED from ROLLOUT_MAX_LEN, not a free constant. verl asserts
+# `max_token_len >= max_seq_len` in rearrange_micro_batches (seqlen_balancing.py),
+# where max_seq_len is the batch's padded width -- so any arm whose rollout can
+# produce a sequence longer than this dies at the first backward pass that contains
+# one. Left at a hardcoded 14336 the failure is LATENT: it never fires while
+# sequences happen to stay short, then kills a run mid-training when one does not.
+PPO_MAX_TOKEN_LEN="${PPO_MAX_TOKEN_LEN:-$ROLLOUT_MAX_LEN}"
+LOGPROB_MAX_TOKEN_LEN="${LOGPROB_MAX_TOKEN_LEN:-$ROLLOUT_MAX_LEN}"
 
 cleanup() { kill ${GEN_PID:-} ${SUMM_PID:-} ${SJUDGE_PID:-} 2>/dev/null || true; }
 trap cleanup EXIT INT TERM
