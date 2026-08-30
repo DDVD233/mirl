@@ -910,6 +910,14 @@ fi
     actor_rollout_ref.actor.optim.lr="${LR:-1e-6}" \
     actor_rollout_ref.actor.ppo_mini_batch_size=16 \
     actor_rollout_ref.actor.use_dynamic_bsz=True \
+    # ON by default, and it is a correctness-of-memory decision rather than a tuning
+    # knob: the entropy op materialises (tokens x vocab) floats, and at Qwen's ~152k
+    # vocab a 28672-token micro-batch asks for 46-52 GiB in one allocation. Chunked it
+    # is ~2048 rows at a time, numerically identical. ARM=21 OOMed on exactly this the
+    # moment it left step-0 validation. Needs the non-rmpad fix in
+    # verl/workers/engine/fsdp/transformer_impl.py, without which the flag is silently
+    # ignored for models that force use_remove_padding=False (Qwen3.5-9B does).
+    actor_rollout_ref.actor.entropy_from_logits_with_chunking="${ENTROPY_CHUNKING:-True}" \
     actor_rollout_ref.actor.ppo_max_token_len_per_gpu="$PPO_MAX_TOKEN_LEN" \
     actor_rollout_ref.actor.use_torch_compile=False \
     actor_rollout_ref.ref.use_torch_compile=False \
