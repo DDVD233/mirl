@@ -55,15 +55,27 @@ export NVCC_PREPEND_FLAGS="${NVCC_PREPEND_FLAGS:--DCCCL_DISABLE_CTK_COMPATIBILIT
 # Fail before loading 4 replicas if the box cannot supply them. Without this the run
 # starts, three ranks come up, and the fourth dies with a CUDA error 900 lines into a log
 # nobody reads -- while the endpoint answers, so callers see silent 3/4 capacity.
-have=$(nvidia-smi --query-gpu=index --format=csv,noheader | wc -l)
+# Both preflights must look at the GPUs THIS server will actually use, not at every
+# GPU the pod can see. On 2026-08-29 a foreign 127 GB allocation sat on GPU 0 of the
+# inference box with no process of ours attached; the box-wide check then refused to
+# serve on the three FREE GPUs, which is the opposite of what it exists to prevent.
+_vis="${CUDA_VISIBLE_DEVICES:-}"
+if [ -n "$_vis" ]; then
+    _mem=$(nvidia-smi --query-gpu=index,memory.used --format=csv,noheader,nounits \
+           | awk -F', *' -v want=",$_vis," 'index(want, ","$1",") {print $2}')
+else
+    _mem=$(nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits)
+fi
+have=$(printf '%s\n' "$_mem" | grep -c .)
 need=$(( DP * TP ))
 if [ "$have" -lt "$need" ]; then
-    echo "FATAL: DP=$DP x TP=$TP needs $need GPUs, box has $have" >&2; exit 1
+    echo "FATAL: DP=$DP x TP=$TP needs $need GPUs, ${_vis:-the box} offers $have" >&2; exit 1
 fi
-busy=$(nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits | sort -rn | head -1)
+busy=$(printf '%s\n' "$_mem" | sort -rn | head -1)
 if [ "${busy:-0}" -gt "${ALLOW_BUSY_MIB:-4000}" ]; then
-    echo "FATAL: ${busy}MiB already held on a GPU (trainer or orphan vLLM still up)." >&2
-    echo "       Serving on top of it would OOM one replica. Free the box first." >&2
+    echo "FATAL: ${busy}MiB already held on a GPU THIS SERVER WOULD USE (${_vis:-all})." >&2
+    echo "       Serving on top of it would OOM one replica. Free it, or point" >&2
+    echo "       CUDA_VISIBLE_DEVICES at the GPUs that are actually free." >&2
     exit 1
 fi
 
