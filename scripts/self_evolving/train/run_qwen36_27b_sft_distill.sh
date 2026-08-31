@@ -52,7 +52,7 @@ SFT_MAX_LENGTH="${SFT_MAX_LENGTH:-12288}"
 
 /usr/local/bin/python -m verl.trainer.main_sft_evolving \
     data.train_files="${DISTILL_FILE:-$DATA_DIR/distill_sft_train.jsonl}" \
-    data.val_files="$DATA_DIR/test.jsonl" \
+    data.val_files="${SFT_VAL_FILE:-$DATA_DIR/test.jsonl}" \
     data.custom_cls.path=scripts/self_evolving/static_trace_sft_dataset.py \
     data.custom_cls.name=StaticTraceSFTDataset \
     data.train_batch_size="${TRAIN_BATCH_SIZE:-32}" \
