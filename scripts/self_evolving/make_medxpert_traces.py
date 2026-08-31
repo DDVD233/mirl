@@ -194,12 +194,22 @@ def _user_content(row: dict, gt: str, max_pixels: int):
 
 
 async def _call(client, args, messages) -> str:
+    """Return the trace as ``<think>reasoning</think>\n\nanswer``.
+
+    vLLM's reasoning parser moves the model's thinking OUT of ``content`` into a
+    separate ``reasoning`` field, so a thinking teacher returns an answer with no
+    <think> block however the prompt asks for one -- and the mandatory-block gate
+    would then reject every trace it produced. Reassembling from both channels is
+    what makes the teacher's genuine reasoning the imitation target, rather than a
+    second, performed one written for the prompt.
+    """
     payload = {"model": args.model_name, "messages": messages}
     if args.provider == "trapi":
         payload["max_completion_tokens"] = args.max_tokens
     else:
         payload["max_tokens"] = args.max_tokens
         payload["temperature"] = args.temperature
+        payload["chat_template_kwargs"] = {"enable_thinking": True}
     headers = {"Authorization": f"Bearer {args.api_key}"}
     url = args.api_base.rstrip("/") + "/chat/completions"
     last = None
@@ -208,7 +218,15 @@ async def _call(client, args, messages) -> str:
             r = await client.post(url, json=payload, headers=headers, timeout=args.timeout)
             if r.status_code == 200:
                 m = r.json()["choices"][0]["message"]
-                return m.get("content") or m.get("reasoning") or ""
+                content = (m.get("content") or "").strip()
+                reasoning = (m.get("reasoning") or m.get("reasoning_content") or "").strip()
+                if not content and not reasoning:
+                    return ""
+                if "<think>" in content.lower():
+                    return content
+                if reasoning:
+                    return f"<think>\n{reasoning}\n</think>\n\n{content}"
+                return content
             last = f"HTTP {r.status_code}"
         except Exception as e:
             last = f"{type(e).__name__}"
@@ -322,7 +340,8 @@ def main():
     ap.add_argument("--n_per_question", type=int, default=2)
     ap.add_argument("--oversample", type=int, default=3)
     ap.add_argument("--concurrency", type=int, default=24)
-    ap.add_argument("--max_tokens", type=int, default=2000)
+    ap.add_argument("--max_tokens", type=int, default=3500,
+                    help="a thinking teacher spends most of this on reasoning")
     ap.add_argument("--temperature", type=float, default=0.8)
     ap.add_argument("--target_words", type=int, default=350)
     ap.add_argument("--min_words", type=int, default=80)
