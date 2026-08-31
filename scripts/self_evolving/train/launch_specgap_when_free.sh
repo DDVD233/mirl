@@ -22,7 +22,7 @@ set -euo pipefail
 
 S=/scratch/sheng/self_evolving
 REPO=${REPO:-$S/verl_specgap}
-ARM="${ARM:?set ARM=1 fixed-prompt | 2 refine-loop | 3 evolve-only | 4 v1+selfjudge | 5 v3+selfjudge | 6 v2+selfjudge | 7 full+retrieval | 8 full+retrieval+solver-websearch | 9 fixed-prompt+websearch | 10 adversary-v2 (ship+always-patch+multi-round) | 19 PRBench adversary (web-only) | 20 ProfBench adversary (web-only) | 21 MedXpertQA adversary (self train judge, gpt val)}"
+ARM="${ARM:?set ARM=1 fixed-prompt | 2 refine-loop | 3 evolve-only | 4 v1+selfjudge | 5 v3+selfjudge | 6 v2+selfjudge | 7 full+retrieval | 8 full+retrieval+solver-websearch | 9 fixed-prompt+websearch | 10 adversary-v2 (ship+always-patch+multi-round) | 19 PRBench adversary (web-only) | 20 ProfBench adversary (web-only) | 21 MedXpertQA adversary (self train judge, gpt val) | 22 = 21 initialised from the stage-1 SFT checkpoint}"
 
 # Where the self-judge arms get their 9B grader. server5 already serves Qwen3.5-9B on a
 # dedicated GPU, exposed through frp, so pointing at it keeps all four GPUs on the
@@ -517,7 +517,85 @@ case "$ARM" in
               SEARCH_SNAPSHOT=/scratch/sheng/self_evolving/kb/search_cache_arm21.sqlite
               WEB_EVIDENCE=0 WEB_SEARCH_TOOL=1)
      EXP_NAME=medxpert9b_specgap_ship_retrieval ;;
-  *) echo "FATAL: ARM must be 1..21" >&2; exit 1 ;;
+  22) # STAGE 2 of the SFT -> RL line (dvd 2026-08-30). ARM=21's recipe, byte for
+      # byte, differing in ONE thing: the policy starts from the stage-1 SFT
+      # checkpoint instead of the base 9B. That single-factor design is the point --
+      # ARM=21 is the RL-only control, and the gap between the two curves is what
+      # the SFT stage bought.
+      #
+      # ARM=21 saturated at step 70 (overall 0.4265 -> 0.407 by 170) with think_chars
+      # DOUBLING and think_closed pinned at 1.000: the policy learned to reason
+      # longer and ran out of things to say, which is a capability ceiling RL cannot
+      # lift on its own. Same wall the MIMIC-Rare line cleared this way.
+      #
+      # SFT_CKPT must be a MERGED HF dir (verl writes one at
+      # <ckpt>/global_step_N/actor/huggingface); the launch fails loudly if absent
+      # rather than silently training the base model and producing a curve that
+      # looks like a weak ARM=21.
+     _sft="${SFT_CKPT:-/scratch/sheng/self_evolving/checkpoints/self_evolving_medical/medxpert9b_sft_distill/global_step_40/actor/huggingface}"
+     [ -d "$_sft" ] || { echo "FATAL: ARM=22 needs the stage-1 SFT dir; not found: $_sft" >&2; exit 1; }
+     ARM_ENV=(RETRIEVAL=1 EVOLVE=1 SPEC_GAP=1 SPEC_GAP_SHIP=1 PROBE=1 PATCH=1
+              HACK_MEMO=1 HB_PROBE_MODE=gate HB_REFINE_MODE=rewrite
+              HB_PROBE_RATE=1.0 HB_REFINE_ROUNDS=2 HB_REFINE_BACKGROUND=1
+              HB_PATCH_ROUNDS=2 HB_PATCH_ASYNC=1 HB_PATCH_MAX_PER_QID=6
+              HB_PATCH_MIN_MARGIN=0.15 HB_PATCHED_MAX_ITEMS=12
+              HB_PATCH_MINT_ITEMS=5 HB_REWRITE_MAX_GROW=4 HB_REFINE_BG_MAX=48
+              HB_MEMO_MAX_CHARS=2400
+              SE_DOMAIN=medxpert
+              # BOTH MedXpertQA splits: Text (2450 x 10 options) and MM (2000 x 5
+              # with images). verl reports them as separate val-core data sources,
+              # so the text and multimodal curves are read independently.
+              VAL_PARQUET=/scratch/sheng/self_evolving/medxpertqa_text_val.parquet,/scratch/sheng/self_evolving/medxpertqa_mm_val.parquet
+              SELF_JUDGE=1 ALLOW_EVOLVE_SELF_JUDGE=1 VAL_SELF_JUDGE=0
+              HB_KB_ANCHOR_SHARE=0.10 HB_STYLE_SEED_SHARE=0
+              HB_VAL_LENGTH_PENALTY_PER_500=0
+              # MULTIMODAL MINTING. 35% of minted tasks are anchored on a real
+              # staged medical image (21.5k images, 8 modalities, balanced -- see
+              # kb/stage_mm_media.py). Not 100%: half the benchmark is text, and a
+              # policy trained only on image tasks would drift off the Text split.
+              # Every role -- proposer, generator, judge, farmer, minter, referee --
+              # sees the image; the path is inert when the manifest is absent.
+              HB_MM_SHARE=0.35
+              HB_MM_MANIFEST=/scratch/sheng/self_evolving/mm_media/manifest.jsonl
+              HB_MM_ROOT=/scratch/sheng/self_evolving/mm_media/images
+              # Image tokens are prompt tokens: one 1024x1024 study runs ~1.2k, and
+              # MedXpertQA MM rows reach ~2.6k prompt tokens before any retrieval
+              # span. 6144 would left-truncate exactly the studies being asked about.
+              MAX_PROMPT_LEN=16384
+              # RESPONSE budget, and it is a measurement decision, not a perf knob.
+              # The frozen 9B's median reasoning on this benchmark is ~30k chars, and
+              # even at a 14k-token budget 36% of baseline responses were cut off
+              # mid-thought and scored 0. vLLM leaves `content` EMPTY until </think>
+              # closes, so a truncated rollout is not a short answer -- it is no answer.
+              # At the 8192 default most of the val curve would be measuring verbosity.
+              # 12288 keeps the metric about knowledge; the unclosed-think penalty is
+              # what teaches the policy to bound its reasoning.
+              # 16384, measured not guessed: the MM val set's prompts are p50 758 /
+              # p90 2289 / MAX 9123 tokens (measure_mm_prompt_tokens.py), the agent
+              # loop adds ~900 for the tool schema, and multi-turn rollouts append
+              # tool responses on top. 10240 was 27 tokens short on one 4256x2144
+              # study and aborted the whole validation -- the agent loop REFUSES to
+              # truncate a multimodal prompt, because truncating corrupts vision
+              # feature alignment. 16384 clears the worst row with room for searches.
+              MAX_RESP_LEN=12288 ROLLOUT_MAX_LEN=28672
+              # Validation is 4450 rollouts + 4450 judge calls (2450 Text + 2000 MM),
+              # ~8.5x HealthBench-Pro's 525. The rule is the full set, never a sample
+              # -- so the cost is paid by validating half as often, not by measuring
+              # less. EVOLVE_EVERY tracks test_freq, as it does everywhere else.
+              TEST_FREQ=10 EVOLVE_EVERY=10
+              REFEREE_SMOKE_SOFT=1
+              N_GPUS="${N_GPUS:-4}"
+              SUMM_BASE="$SUMM_DEDICATED" SUMM_FALLBACK_BASE=""
+              SUMMARY_CONCURRENCY="${SUMMARY_CONCURRENCY:-320}"
+              SEARCH_SNAPSHOT=/scratch/sheng/self_evolving/kb/search_cache_arm21.sqlite
+              WEB_EVIDENCE=0 WEB_SEARCH_TOOL=1
+              # Own snapshot: inheriting arm21's would have the two arms alternately
+              # overwriting one sqlite file, and each restore would silently drop the
+              # other's cached queries.
+              SEARCH_SNAPSHOT=/scratch/sheng/self_evolving/kb/search_cache_arm22.sqlite
+              ACTOR_MODEL_PATH="$_sft")
+     EXP_NAME=medxpert9b_sft_specgap_ship_retrieval ;;
+  *) echo "FATAL: ARM must be 1..22" >&2; exit 1 ;;
 esac
 
 EXP_NAME="${EXP_NAME}${EXP_SUFFIX}"
