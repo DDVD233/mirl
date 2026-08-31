@@ -114,9 +114,41 @@ def _leaks(text: str) -> str:
     return ""
 
 
+# Refusal boilerplate. OpenAI-family chat deployments decline to emit visible
+# chain-of-thought and answer with a disclaimer plus a short summary ("I can't
+# provide detailed internal chain-of-thought reasoning. Instead, ..."). Those pass
+# every content gate -- the answer is right, nothing leaks -- while teaching the
+# student to REFUSE TO REASON, which is the opposite of the point. Use a teacher
+# that writes reasoning (the MIMIC recipe used a locally served Qwen3.6-27B) and
+# drop these on sight.
+_REFUSAL_RES = [re.compile(p, re.IGNORECASE) for p in (
+    r"\b(i|we)\s+(can'?t|cannot|won'?t|am not able to|will not)\b",
+    r"\bchain[\s-]?of[\s-]?thought\b",
+    r"\b(internal|hidden|private)\s+(reasoning|thought|deliberation)\b",
+    r"\bas an ai\b",
+    r"\binstead,? here is\b",
+)]
+
+
+def _refuses(text: str) -> str:
+    for rx in _REFUSAL_RES:
+        m = rx.search(text)
+        if m:
+            return m.group(0)
+    return ""
+
+
 def _think_words(text: str) -> int:
+    """Words inside <think>...</think>; -1 when the block is absent.
+
+    Absent is a HARD reject, not a fallback: the whole product is a reasoning trace
+    in the shape the student is trained to imitate, and a bare answer with no block
+    teaches the wrong format however good its prose.
+    """
     m = _THINK.search(text)
-    return len((m.group(1) if m else text).split())
+    if not m:
+        return -1
+    return len(m.group(1).split())
 
 
 def _too_similar(a: str, b: str, thr: float) -> bool:
@@ -235,7 +267,13 @@ async def _run(args) -> int:
                     if leak:
                         stats["reject_leak"] += 1
                         continue
+                    if _refuses(text):
+                        stats["reject_refusal"] += 1
+                        continue
                     w = _think_words(text)
+                    if w < 0:
+                        stats["reject_no_think_block"] += 1
+                        continue
                     if w < args.min_words or w > args.max_words:
                         stats["reject_length"] += 1
                         continue
@@ -273,10 +311,14 @@ def main():
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--source", required=True)
     ap.add_argument("--out", required=True)
-    ap.add_argument("--api_base", default=os.environ.get("API_BASE", "http://point.dd.works:18890/v1"))
+    # Teacher defaults to the locally served Qwen3.6-27B, NOT a GPT chat deployment:
+    # those refuse to emit visible chain-of-thought and return a disclaimer plus a
+    # short summary, which is unusable as an imitation target. Same choice the MIMIC
+    # distillation made, for the same reason.
+    ap.add_argument("--api_base", default=os.environ.get("API_BASE", "http://point.dd.works:18188/v1"))
     ap.add_argument("--api_key", default=os.environ.get("API_KEY", "EMPTY"))
-    ap.add_argument("--model_name", default=os.environ.get("MODEL_NAME", "gpt-chat-latest_2026-05-28"))
-    ap.add_argument("--provider", default=os.environ.get("CHAT_PROVIDER", "trapi"))
+    ap.add_argument("--model_name", default=os.environ.get("MODEL_NAME", "Qwen/Qwen3.6-27B"))
+    ap.add_argument("--provider", default=os.environ.get("CHAT_PROVIDER", "vllm"))
     ap.add_argument("--n_per_question", type=int, default=2)
     ap.add_argument("--oversample", type=int, default=3)
     ap.add_argument("--concurrency", type=int, default=24)
