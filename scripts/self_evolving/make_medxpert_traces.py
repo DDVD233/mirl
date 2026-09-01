@@ -250,12 +250,32 @@ async def _run(args) -> int:
     rows = [json.loads(l) for l in open(args.source) if l.strip()]
     if args.max_samples > 0:
         rows = rows[: args.max_samples]
+
+    # RESUME. This job runs for hours against a live teacher, and losing its shell
+    # (a session teardown took the first attempt at 502 traces) must not mean
+    # regenerating everything. Questions already present in the output are skipped
+    # and the file is APPENDED to.
+    done = set()
+    if args.resume and os.path.isfile(args.out):
+        with open(args.out) as fh:
+            for line in fh:
+                try:
+                    qid = (json.loads(line).get("extra_info") or {}).get("question_id")
+                except json.JSONDecodeError:
+                    continue
+                if qid:
+                    done.add(qid)
+        if done:
+            rows = [r for r in rows
+                    if (r.get("extra_info") or {}).get("question_id") not in done]
+            print(f"[resume] {len(done)} questions already done; {len(rows)} remain",
+                  flush=True)
     print(f"[source] {len(rows)} questions", flush=True)
 
     stats = Counter()
     sem = asyncio.Semaphore(args.concurrency)
     out_lock = asyncio.Lock()
-    fout = open(args.out, "w")
+    fout = open(args.out, "a" if args.resume else "w")
 
     async with httpx.AsyncClient(timeout=args.timeout) as client:
         async def one(row):
@@ -273,17 +293,19 @@ async def _run(args) -> int:
                           .replace("{IMAGE_CLAUSE}",
                                    ", and what is visible in the image" if row.get("images") else ""))
             kept: list[str] = []
-            # Built once, in a worker thread: _data_uri decodes, resizes and
-            # re-encodes the image, which is CPU work that must not run on the event
-            # loop -- inline it stalled every other in-flight question, and the retry
-            # loop paid it again on each attempt.
-            try:
-                user_content = await asyncio.to_thread(
-                    _user_content, row, gt_show, args.max_pixels)
-            except Exception:
-                stats["image_error"] += 1
-                return
             async with sem:
+                # INSIDE the semaphore, deliberately. _data_uri decodes, resizes and
+                # re-encodes the image, so it runs in a worker thread rather than on
+                # the event loop -- but building it before acquiring the semaphore put
+                # all 10k coroutines into the default 32-thread pool at once and held
+                # every data URI in memory simultaneously. Bounded here to the 48 in
+                # flight, and built once rather than per retry.
+                try:
+                    user_content = await asyncio.to_thread(
+                        _user_content, row, gt_show, args.max_pixels)
+                except Exception:
+                    stats["image_error"] += 1
+                    return
                 for _ in range(args.oversample):
                     if len(kept) >= args.n_per_question:
                         break
@@ -375,6 +397,9 @@ def main():
     ap.add_argument("--timeout", type=float, default=600.0)
     ap.add_argument("--retries", type=int, default=4)
     ap.add_argument("--max_samples", type=int, default=-1)
+    ap.add_argument("--no_resume", dest="resume", action="store_false",
+                    help="regenerate from scratch instead of appending")
+    ap.set_defaults(resume=True)
     args = ap.parse_args()
     return asyncio.run(_run(args))
 
