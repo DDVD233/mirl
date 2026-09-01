@@ -232,8 +232,19 @@ async def _call(client, args, messages) -> str:
                 reasoning = (m.get("reasoning") or m.get("reasoning_content") or "").strip()
                 if not content and not reasoning:
                     return ""
-                if "<think>" in content.lower():
+                low = content.lower()
+                if "<think>" in low:
                     return content
+                # A thinking model served WITHOUT a reasoning parser returns the raw
+                # generation -- but Qwen's chat template puts the opening <think> in
+                # the PROMPT, so the completion starts already inside the block and
+                # carries only the closing </think>. The opening tag therefore never
+                # appears in content, and a naive <think>...</think> match rejects it.
+                # This was ~97% of the teacher's output (reject_no_think_block 6155 vs
+                # 47 kept per shard), which looked for hours like a throughput problem
+                # rather than what it was: everything generated, almost nothing kept.
+                if "</think>" in low:
+                    return "<think>\n" + content
                 if reasoning:
                     return f"<think>\n{reasoning}\n</think>\n\n{content}"
                 return content

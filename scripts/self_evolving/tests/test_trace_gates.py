@@ -98,3 +98,18 @@ def test_open_answer_matching_is_not_mere_overlap():
     assert mt._answer_ok("open", "Final answer: no  pe", "No PE")
     assert not mt._answer_ok("open", "Final answer: Acute PE", "No PE")
     assert not mt._answer_ok("open", "Final answer: Chronic PE", "Acute PE")
+
+
+def test_completion_that_only_closes_the_think_block_is_recoverable():
+    """Qwen's template puts the opening <think> in the PROMPT.
+
+    Served without a reasoning parser, the completion therefore starts INSIDE the
+    reasoning and carries only `</think>`. Treating that as "no reasoning block"
+    rejected ~97% of the teacher's output and read as a throughput problem for
+    hours. The reconstructed trace must expose a countable think block.
+    """
+    raw = "Here's a thinking process:\nweigh the options\n</think>\n\nFinal answer: (B)"
+    rebuilt = "<think>\n" + raw
+    assert mt._think_words(rebuilt) > 0
+    assert mt._answer_ok("mcq", rebuilt, "B")
+    assert mt._think_words(raw) == -1, "unreconstructed output should still be rejected"
