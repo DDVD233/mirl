@@ -273,6 +273,16 @@ async def _run(args) -> int:
                           .replace("{IMAGE_CLAUSE}",
                                    ", and what is visible in the image" if row.get("images") else ""))
             kept: list[str] = []
+            # Built once, in a worker thread: _data_uri decodes, resizes and
+            # re-encodes the image, which is CPU work that must not run on the event
+            # loop -- inline it stalled every other in-flight question, and the retry
+            # loop paid it again on each attempt.
+            try:
+                user_content = await asyncio.to_thread(
+                    _user_content, row, gt_show, args.max_pixels)
+            except Exception:
+                stats["image_error"] += 1
+                return
             async with sem:
                 for _ in range(args.oversample):
                     if len(kept) >= args.n_per_question:
@@ -280,7 +290,7 @@ async def _run(args) -> int:
                     try:
                         text = await _call(client, args, [
                             {"role": "system", "content": sys_prompt},
-                            {"role": "user", "content": _user_content(row, gt_show, args.max_pixels)},
+                            {"role": "user", "content": user_content},
                         ])
                     except Exception:
                         stats["teacher_error"] += 1
@@ -318,6 +328,10 @@ async def _run(args) -> int:
                     r["reference_response"] = t
                     fout.write(json.dumps(r) + "\n")
                     stats["kept"] += 1
+                # Flush per question. Without it 100 traces sat in the TextIOWrapper
+                # buffer with the file still at 0 bytes -- impossible to monitor, and
+                # a crash hours in would have lost everything generated so far.
+                fout.flush()
                 stats["questions_with_trace"] += 1
                 n = stats["questions_with_trace"]
                 if n % 100 == 0:
