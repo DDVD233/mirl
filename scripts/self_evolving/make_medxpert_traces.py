@@ -65,15 +65,25 @@ SYSTEM = (
     "- Aim for roughly {TARGET} words of reasoning inside <think>."
 )
 
+# A leak is the teacher DISCLOSING that it was handed the answer -- not ordinary
+# clinical connective tissue. The first cut of these patterns rejected 6 of 7 normal
+# sentences ("the most likely diagnosis GIVEN these findings", "AS STATED in the
+# vignette", "WE ARE GIVEN a 40-year-old woman") because it matched the supply-verbs
+# on their own, where "given" is usually a preposition. That threw away ~87% of the
+# teacher's output and, worse, biased the kept corpus toward traces that avoid the
+# ordinary way clinicians write. Each pattern now requires an ANSWER-word adjacent to
+# a disclosure-verb, or vocabulary with no innocent reading at all.
 _LEAK_RES = [re.compile(p, re.IGNORECASE) for p in (
-    r"\b(as|which is|that is)\s+(given|provided|stated|specified|told)\b",
-    r"\b(we|i|you)\s+(are|were|have been)\s+(given|told|provided)\b",
     r"\bground[\s-]?truth\b",
-    r"\bthe\s+(correct|right|true|verified|confirmed|known)\s+(answer|diagnosis|finding|option|label)\b",
-    r"\b(answer|diagnosis|finding|label|option)\s+(is\s+)?(given|provided|supplied|stated)\b",
     r"\bconfidential(ly)?\b",
+    r"\banswer key\b",
+    r"\b(we|i)\s+(are|were|have been)\s+(told|given|provided|shown)\s+(that\s+)?the\s+"
+    r"(answer|diagnosis|finding|label|option|correct)\b",
+    r"\bthe\s+(answer|diagnosis|finding|label|option)\s+(was|is|has been)\s+"
+    r"(given|provided|supplied|revealed|disclosed)\s+(to\s+)?(me|us|above|already|in advance)?\b",
+    r"\bthe\s+(provided|supplied|given|stated)\s+(answer|diagnosis|label|option)\b",
+    r"\bsince\s+(the\s+)?(answer|diagnosis)\s+(is|was)\s+(given|provided|known)\b",
     r"\baccording to the (answer|label|key)\b",
-    r"\bsince the answer\b",
 )]
 
 _FINAL_MCQ = re.compile(r"final answer:\s*\(?\s*([A-Za-z])\s*\)?", re.IGNORECASE)
