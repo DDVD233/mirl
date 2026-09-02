@@ -39,6 +39,16 @@ export LR="${LR:-1e-6}"
 # option and it is cheap insurance).
 export SAVE_FREQ="${SAVE_FREQ:-40}"
 
+# The shared script's judge default is point.dd.works:18184 -- server5, RETIRED since
+# 2026-07-31. Every val judge call failed with ClientConnectorError after 4 retries,
+# so validation burned ~4.5 min a pass and produced nothing. The live 27B is on 2333.
+# It is also 2337's reward judge, which is why TEST_FREQ is raised rather than left at
+# 5: 197 generate+judge prompts every 5 steps over ~302 steps is ~60 validations and
+# roughly five hours, most of a second run's worth of GPU time, for far more curve
+# resolution than a single-epoch SFT needs.
+export TEACHER_BASE="${TEACHER_BASE:-http://point.dd.works:18188/v1}"
+export TEST_FREQ="${TEST_FREQ:-25}"
+
 # Qwen3.5-9B quirks, same as run_qwen35_9b_sft_distill.sh: head_dim=256 breaks
 # FlashAttention's varlen kernel, so sdpa + use_remove_padding=False.
 export USE_REMOVE_PADDING="${USE_REMOVE_PADDING:-False}"
