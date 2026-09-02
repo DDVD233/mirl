@@ -27,6 +27,12 @@ export EXP="${EXP:-medxpert9b_sft_distill}"
 export DISTILL_FILE="${DISTILL_FILE:-$S/medxpert_sft/traces_train.jsonl}"
 export SFT_VAL_FILE="${SFT_VAL_FILE:-$S/medxpert_sft/traces_val.jsonl}"
 export TOTAL_EPOCHS="${TOTAL_EPOCHS:-1}"
+# -1 = derive the step count from the epochs. The shared distill script defaults
+# TOTAL_STEPS to 500, and that OVERRIDES total_epochs: with 9,675 traces at batch 32
+# (~302 steps/epoch) it would quietly run 1.65 epochs, not the one asked for. More
+# epochs memorise the teacher and shrink the exploration the RL stage needs, which is
+# the whole reason stage 1 is a single pass.
+export TOTAL_STEPS="${TOTAL_STEPS:--1}"
 export LR="${LR:-1e-6}"
 # Every ~15% of an epoch, so stage 2 can start from a partial-SFT checkpoint if the
 # full epoch turns out to overshoot (the MIMIC line used exactly that "half distill"
