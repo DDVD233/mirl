@@ -78,6 +78,16 @@ def main():
         if len(think.split()) < 50:
             dropped["think_too_short"] += 1
             continue
+
+        # Images must be DICTS for the SFT path. verl's two datasets disagree:
+        # rl_dataset accepts bare path strings, but the SFT path goes through
+        # vision_utils.process_image(image: dict | Image.Image), which calls
+        # image.get(...) and dies with "'str' object has no attribute 'get'" on a
+        # string. The traces are generated with plain paths (correct for RL), so they
+        # are converted here rather than regenerating the corpus.
+        imgs = r.get("images")
+        if imgs:
+            r["images"] = [{"image": i} if isinstance(i, str) else i for i in imgs]
         uniq.append(r)
 
     qids = sorted({r["extra_info"]["question_id"] for r in uniq})
