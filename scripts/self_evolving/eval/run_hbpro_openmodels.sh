@@ -27,7 +27,7 @@ for spec in "$@"; do
   echo "=== $(date -Is) serving $tag ($model) on GPUs $LANE_GPUS port $PORT"
   CUDA_VISIBLE_DEVICES="$LANE_GPUS" nohup vllm serve "$model" --served-model-name "$tag" \
       --host 0.0.0.0 --port "$PORT" --trust-remote-code --tensor-parallel-size "$TP" \
-      --dtype bfloat16 --gpu-memory-utilization 0.90 --max-model-len "$MAXLEN" --max-num-seqs 64 \
+      --dtype bfloat16 --gpu-memory-utilization "${GPU_UTIL:-0.90}" --max-model-len "$MAXLEN" --max-num-seqs 64 \
       $RP $MMFLAG > "$LOGD/${tag}.log" 2>&1 &
   SPID=$!
   for i in $(seq 1 360); do

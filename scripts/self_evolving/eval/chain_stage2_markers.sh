@@ -6,7 +6,7 @@
 set -u
 S=/scratch/dvdai_mit/self_evolving/checkpoints
 D=/scratch/sheng/self_evolving/checkpoints/hb9b_aicr
-ITEMS="hb9b/hb9b_specgap_ship_noretrieval_sj_aicr/global_step_480 hb9b/hb27b_specgap_simple_retrieval_aicr/global_step_60 hb9b/hb9b_specgap_simple_noretrieval_sj_aicr/global_step_860 self_evolving_medical/gpt56_sft_qwen36_27b"
+ITEMS="${ITEMS:-hb9b/hb9b_specgap_ship_noretrieval_sj_aicr/global_step_480 hb9b/hb27b_specgap_simple_retrieval_aicr/global_step_60 hb9b/hb9b_specgap_simple_noretrieval_sj_aicr/global_step_860 self_evolving_medical/gpt56_sft_qwen36_27b}"
 for p in $ITEMS; do
   while pgrep -f "rsync -a --partial --inplace.* $S/$p/" > /dev/null; do sleep 60; done
   for attempt in $(seq 1 30); do

@@ -55,10 +55,11 @@ def medx(tag):
     if not os.path.exists(p):
         return None
     d = json.load(open(p))
-    keep = {k: v for k, v in d.items() if not isinstance(v, (list, dict))}
+    summ = d.get("summary", d)
+    keep = {k: v for k, v in summ.items() if not isinstance(v, (list, dict))}
     for k in ("by_task", "by_body_system", "by_question_type"):
-        if k in d:
-            keep[k] = d[k]
+        if k in summ:
+            keep[k] = summ[k]
     return keep
 
 

@@ -158,6 +158,101 @@ def render_heldout(data, T):
     open(os.path.join(T, "heldout_arms.tex"), "w").write(PROV + "\n".join(L) + "\n")
 
 
+INCLUDE_MEDX = False  # 2026-09-07: MedXpertQA (MCQ) does not move with rubric training (27B: 0.440 -> 0.420); HB-Hard only
+
+
+def render_transfer(data, T):
+    p = os.path.join(data, "transfer.json")
+    if not os.path.exists(p):
+        return
+    d = json.load(open(p))
+    if not INCLUDE_MEDX:
+        return render_transfer_hbhard(d, T)
+    L = [r"\begin{table}[h]", r"\begin{center}",
+         r"\caption{Transfer of the trained policies to benchmarks never used for training or validation. "
+         r"HealthBench Hard (1,000 tasks, original release) is scored with the in-loop validator, tools on "
+         r"in the 27B setting and off in the no-retrieval setting, gpt-chat-latest grader with three votes, "
+         r"official score (mean per-example clipped rubric fraction, no length term). MedXpertQA text (2,450 "
+         r"questions, 10 options) is exact-match accuracy from a 24k-token greedy budget with no tools. "
+         r"Trained rows use the latest retained checkpoint of each run.}",
+         r"\label{tab:transfer}", r"\small", r"\begin{tabular}{llcc}", r"\toprule",
+         r"Setting & Row & HealthBench Hard & MedXpertQA text \\", r"\midrule"]
+    by_setting = {}
+    for r in d["rows"]:
+        by_setting.setdefault(r["setting"], []).append(r)
+    for setting, rows in by_setting.items():
+        vals = []
+        for r in rows:
+            h = r["hbhard"]["acc_raw"] if r.get("hbhard") else None
+            m = r["medxpertqa_text"].get("accuracy") if r.get("medxpertqa_text") else None
+            vals.append((r, h, m))
+        trained = [v for v in vals if v[0]["label"] != "Untrained"]
+        bh = max((v[1] for v in trained if v[1] is not None), default=None)
+        bm = max((v[2] for v in trained if v[2] is not None), default=None)
+        for r, h, m in vals:
+            ch = "--" if h is None else (f"\\textbf{{{h:.3f}}}" if r["label"] != "Untrained" and bh is not None and h >= bh else f"{h:.3f}")
+            cm = "--" if m is None else (f"\\textbf{{{m:.3f}}}" if r["label"] != "Untrained" and bm is not None and m >= bm else f"{m:.3f}")
+            lab = f"\\textbf{{{r['label']}}}" if r["label"].startswith("SER") else r["label"]
+            L.append(f"{setting} & {lab} & {ch} & {cm} \\\\")
+        L.append(r"\midrule")
+    L[-1] = r"\bottomrule"
+    L += [r"\end{tabular}", r"\end{center}", r"\end{table}"]
+    open(os.path.join(T, "transfer.tex"), "w").write(PROV + "\n".join(L) + "\n")
+
+
+def render_transfer_hbhard(d, T):
+    L = [r"\begin{table}[h]", r"\begin{center}",
+         r"\caption{Transfer to HealthBench Hard, the 1,000 hardest tasks of the original HealthBench "
+         r"release, never used for training or validation. Scored with the in-loop validator (tools on in "
+         r"the 27B setting, off in the no-retrieval setting; gpt-chat-latest grader, three votes) using the "
+         r"benchmark's official score, the mean per-example clipped rubric fraction with no length term. "
+         r"Trained rows use the latest retained checkpoint of each run.}",
+         r"\label{tab:transfer}", r"\small", r"\begin{tabular}{llc}", r"\toprule",
+         r"Setting & Row & HealthBench Hard \\", r"\midrule"]
+    by_setting = {}
+    for r in d["rows"]:
+        by_setting.setdefault(r["setting"], []).append(r)
+    for setting, rows in by_setting.items():
+        vals = [(r, r["hbhard"]["acc_raw"] if r.get("hbhard") else None) for r in rows]
+        trained = [h for r, h in vals if r["label"] != "Untrained" and h is not None]
+        bh = max(trained, default=None)
+        for r, h in vals:
+            ch = "--" if h is None else (f"\\textbf{{{h:.3f}}}" if r["label"] != "Untrained" and bh is not None and h >= bh else f"{h:.3f}")
+            lab = f"\\textbf{{{r['label']}}}" if r["label"].startswith("SER") else r["label"]
+            L.append(f"{setting} & {lab} & {ch} \\\\")
+        L.append(r"\midrule")
+    L[-1] = r"\bottomrule"
+    L += [r"\end{tabular}", r"\end{center}", r"\end{table}"]
+    open(os.path.join(T, "transfer.tex"), "w").write(PROV + "\n".join(L) + "\n")
+
+
+def render_reference(data, T):
+    p = os.path.join(data, "reference_rows.json")
+    if not os.path.exists(p):
+        return
+    # 2026-09-07: our checkpoint under this no-tools protocol is kept in the JSON but not
+    # rendered; the table is external reference points only.
+    rows = [r for r in json.load(open(p))["rows"] if r["kind"] != "ours"]
+    order = {"frontier": 0, "open": 1, "ours": 2, "other": 3}
+    rows.sort(key=lambda r: (order.get(r["kind"], 9), -r["len_adj"]))
+    L = [r"\begin{table}[h]", r"\begin{center}",
+         r"\caption{Reference points on HealthBench Professional under one protocol: the benchmark's "
+         r"official pipeline, no tools, greedy decoding, an 8,192-token answer budget, and the "
+         r"gpt-chat-latest grader used for validation in this paper. Frontier models are served through "
+         r"the same endpoint as the grader; open models and our SER-27B checkpoint are served locally.}",
+         r"\label{tab:reference}", r"\small", r"\begin{tabular}{lcc}", r"\toprule",
+         r"Model & Length-adjusted & Unadjusted \\", r"\midrule"]
+    last = None
+    for r in rows:
+        if last is not None and r["kind"] != last:
+            L.append(r"\midrule")
+        last = r["kind"]
+        name = f"\\textbf{{{r['name']}}}" if r["kind"] == "ours" else r["name"]
+        L.append(f"{name} & {r['len_adj']:.3f} & {r['raw']:.3f} \\\\")
+    L += [r"\bottomrule", r"\end{tabular}", r"\end{center}", r"\end{table}"]
+    open(os.path.join(T, "reference_rows.tex"), "w").write(PROV + "\n".join(L) + "\n")
+
+
 def load_regrade(data, tag):
     out = {}
     for p in glob.glob(os.path.join(data, "regrade", tag, "*.json")):
@@ -256,6 +351,8 @@ def main():
     render_audit(a.data, T)
     render_funnel(a.data, T)
     render_heldout(a.data, T)
+    render_transfer(a.data, T)
+    render_reference(a.data, T)
     table = json.load(open(os.path.join(a.data, "stage2_table.json")))
     print("regrade complete:", render_regrade(a.data, T, table))
     # render_strict(a.data, T)  # 2026-09-07: strict-vs-standard gap is <0.01 on every row; not reported

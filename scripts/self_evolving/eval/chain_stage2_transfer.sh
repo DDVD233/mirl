@@ -21,16 +21,20 @@ cd "$REPO"
 export HF_HOME=$S/hf_cache
 
 wait_file () { until [ -e "$1" ]; do sleep 120; done; }
-wait_no_proc () { while pgrep -f "$1" > /dev/null; do sleep 120; done; }
+# Patterns are anchored to the process's own argv start so that a tmux server or a
+# "bash -c" wrapper whose command line merely CONTAINS the words does not match.
+wait_no_proc () { while pgrep -f "^$1" > /dev/null; do sleep 120; done; }
 
 merge () {  # merge <tag> <fsdp actor dir>
   local tag=$1 actor=$2
   [ -e "$M/$tag/MERGE_DONE" ] && return 0
   echo "=== $(date -u +%FT%TZ) merge $tag from $actor"
   /usr/local/bin/python -m verl.model_merger merge --backend fsdp --local_dir "$actor" \
-      --target_dir "$M/$tag" > "$S/paper_refresh/merge_${tag}.log" 2>&1 \
-      && [ -f "$M/$tag/model.safetensors.index.json" ] && touch "$M/$tag/MERGE_DONE"
-  echo "=== $(date -u +%FT%TZ) merge $tag rc=$? "
+      --target_dir "$M/$tag" > "$S/paper_refresh/merge_${tag}.log" 2>&1
+  rc=$?
+  # The merger can exit non-zero on a teardown warning after writing every shard.
+  ls "$M/$tag"/model*.safetensors >/dev/null 2>&1 && touch "$M/$tag/MERGE_DONE"
+  echo "=== $(date -u +%FT%TZ) merge $tag rc=$rc"
 }
 
 valonly () {  # valonly <exp> <model> <retrieval 0|1>
@@ -49,7 +53,7 @@ CK27_FIX=$A/hb9b/hb27b_specgap_simple_retrieval_aicr/global_step_60
 
 case "${1:?valonly|vllm}" in
   valonly)
-    wait_no_proc "main_ppo.*hb27b_ser200_hbhard"
+    wait_no_proc "/usr/local/bin/python -m verl.trainer.main_ppo.*hb27b_ser200_hbhard"
     valonly base27b_hbhard Qwen/Qwen3.6-27B 1
     wait_file "$CK9_SER/RSYNC_DONE";  merge hb9b_noretr_ser_step480 "$CK9_SER/actor"
     valonly hb9b_noretr_ser480_hbhard "$M/hb9b_noretr_ser_step480" 0
@@ -60,7 +64,7 @@ case "${1:?valonly|vllm}" in
     valonly hb9b_noretr_fixed860_hbhard "$M/hb9b_noretr_fixed_step860" 0
     echo "=== $(date -u +%FT%TZ) VALONLY CHAIN DONE" ;;
   vllm)
-    wait_no_proc "run_medxpertqa_ckpt.sh hb27b_ser_step200"
+    wait_no_proc "bash scripts/self_evolving/eval/run_medxpertqa_ckpt.sh hb27b_ser_step200"
     wait_file "$M/hb9b_noretr_ser_step480/MERGE_DONE"
     GPUS=2,3 TP=2 bash scripts/self_evolving/eval/run_medxpertqa_ckpt.sh \
         hb9b_noretr_ser_step480=$M/hb9b_noretr_ser_step480 base9b=Qwen/Qwen3.5-9B

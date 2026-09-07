@@ -303,10 +303,14 @@ def make_chat_sampler(ccs_module, *, base_url, api_key, model, provider="vllm",
                     response = self.client.chat.completions.create(**kwargs)
                     msg = response.choices[0].message
                     content = msg.content
-                    if not content:
-                        content = getattr(msg, "reasoning_content", None)
-                    if not content:
+                    if not content and is_trapi:
                         raise ValueError("empty response; retrying")
+                    if not content:
+                        # A thinking model that ran out of budget before </think> has
+                        # no answer. Grade it as an empty answer (what the in-loop
+                        # validator does with an unclosed reasoning channel) instead of
+                        # grading its reasoning or retrying forever (2026-09-07).
+                        content = ""
                     return SamplerResponse(
                         response_text=content,
                         response_metadata={"usage": _norm_usage(response.usage)},
