@@ -3,7 +3,7 @@
 
 Inputs (all under paper_data/stage2/):
   arms.json                       paper row -> run mapping (blocks, ablations)
-  hb_pro_results_{msr,aicr}_0821.json   outputs of hb_pro_results_table.py
+  hb_pro_results_{msr,aicr}_0907.json   outputs of hb_pro_results_table.py
 
 Outputs:
   paper_data/stage2/stage2_table.json   best-validation summary per row (keeps the
@@ -25,8 +25,8 @@ DIFF = [("typical", "Typical"), ("difficult", "Difficult")]
 
 def load(root):
     arms = json.load(open(os.path.join(root, "arms.json")))
-    files = {"msr": json.load(open(os.path.join(root, "hb_pro_results_msr_0821.json"))),
-             "aicr": json.load(open(os.path.join(root, "hb_pro_results_aicr_0821.json")))}
+    files = {"msr": json.load(open(os.path.join(root, "hb_pro_results_msr_0907.json"))),
+             "aicr": json.load(open(os.path.join(root, "hb_pro_results_aicr_0907.json")))}
     return arms, files
 
 
@@ -174,10 +174,7 @@ def main():
                 r"base model and grading protocol; within a setting, \emph{Fixed prompt} and \emph{SER (ours)} share "
                 r"the identical RL recipe, solver tools, grader, and data budget, and differ only in whether the "
                 r"reward is held fixed or allowed to evolve. "
-                r"Each trained row reports its best validation evaluation. Bold marks the better trained row per column. "
-                r"The \emph{Evolution only} rows isolate meta-prompt evolution without the adversary; their runs are "
-                r"still in progress and are shown as \texttt{--}. The evolution-only measurement available today is in "
-                r"Table~\ref{tab:ablation}.")
+                r"Each trained row reports its best validation evaluation. Bold marks the better trained row per column.")
     open(os.path.join(T, "hbpro_main.tex"), "w").write(provenance + render_main(table, PRIM, cap_main, "tab:main"))
     cap_raw = (r"Unadjusted rubric accuracy (fraction of rubric points earned, with the length term omitted) "
                r"at the evaluations of Table~\ref{tab:main}.")
@@ -185,8 +182,7 @@ def main():
     cap_abl = (r"Component ablation of SER on Qwen3.5-9B under the GPT grader. The upper group runs with retrieval "
                r"off, with meta-prompt evolution alone and then evolution with the admission-time adversary probe. "
                r"The lower group runs with retrieval and web search, from the fixed prompt through evolution with "
-               r"the admission-time probe to the full on-policy hack-then-patch loop; its evolution-only run is "
-               r"still in progress and is shown as \texttt{--}. Official length-adjusted "
+               r"the admission-time probe to the full on-policy hack-then-patch loop. Official length-adjusted "
                r"accuracy, best validation evaluation per row.")
     open(os.path.join(T, "hbpro_ablation.tex"), "w").write(provenance + render_ablation(table, PRIM, cap_abl, "tab:ablation"))
     cap_sp = (r"Per-specialty accuracy (official length-adjusted score) for the fixed-prompt and SER rows "

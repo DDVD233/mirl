@@ -135,9 +135,12 @@ async def generate_all(rows, args, images_dir: Path):
                 payload = {
                     "model": args.model,
                     "messages": build_messages(ex, args.subset, images_dir, args.system),
-                    "max_tokens": args.max_tokens,
-                    "temperature": args.temperature,
                 }
+                # TRAPI chat deployments (gpt-chat-latest) reject max_tokens and
+                # temperature outright; the proxy is otherwise OpenAI-compatible.
+                if not args.trapi:
+                    payload["max_tokens"] = args.max_tokens
+                    payload["temperature"] = args.temperature
                 try:
                     data = await _post(client, url, payload, headers, args.retries, args.timeout)
                     choice = data["choices"][0]
@@ -214,6 +217,8 @@ def main():
     ap.add_argument("--temperature", type=float, default=0.0)
     ap.add_argument("--timeout", type=float, default=1800.0)
     ap.add_argument("--retries", type=int, default=4)
+    ap.add_argument("--trapi", action="store_true",
+                    help="target a TRAPI deployment: omit max_tokens/temperature from the request")
     ap.add_argument("--system", default=None, help="optional system prompt (default: bare, "
                                                    "matching the val parquet)")
     ap.add_argument("--dump_responses", action="store_true")
