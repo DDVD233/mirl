@@ -257,6 +257,60 @@ def render_reference(data, T):
     open(os.path.join(T, "reference_rows.tex"), "w").write(PROV + "\n".join(L) + "\n")
 
 
+METHOD_NAMES = [("direct", "Direct answer"), ("medrag", "Medical RAG"), ("rag_fusion", "RAG-Fusion"),
+                ("imedrag", "i-MedRAG")]
+
+
+def render_methods(data, T, table):
+    """Inference-time baselines on the frozen base models (stage-1 protocol) next to the
+    trained rows of the same base model from the main table."""
+    rg = {os.path.basename(p)[:-5]: json.load(open(p))
+          for p in glob.glob(os.path.join(data, "regrade", "methods", "*.json")) if not p.endswith(".verdicts.jsonl")}
+    if not rg:
+        return
+    groups = [("qwen35_9b", "A", "Qwen3.5-9B"), ("qwen36_27b", "B", "Qwen3.6-27B")]
+    blocks = {b["key"]: b for b in table["blocks"]}
+    cols = [("use_case", "consult"), ("use_case", "research"), ("use_case", "writing"),
+            ("difficulty", "typical"), ("difficulty", "difficult")]
+    L = [r"\begin{table}[h]", r"\begin{center}",
+         r"\caption{Inference-time methods on the frozen base models next to the trained rows of the same "
+         r"base model (Table~\ref{tab:main}), HealthBench Professional accuracy under the gpt-chat-latest "
+         r"grader with three votes. The frozen-model methods follow the stage-1 protocol: greedy decoding, "
+         r"no reasoning channel, references from the shared medical corpus placed in the prompt (medical RAG "
+         r"retrieves once, RAG-Fusion fuses three generated queries, i-MedRAG asks three rounds of two "
+         r"follow-up questions). The trained rows answer with the solver's own tool calls at the training "
+         r"temperature.}",
+         r"\label{tab:methods}", r"\small", r"\setlength{\tabcolsep}{4.5pt}", r"\begin{tabular}{lcccccc}", r"\toprule",
+         r"& \multicolumn{3}{c}{By category} & \multicolumn{2}{c}{By difficulty} & \\",
+         r"\cmidrule(lr){2-4} \cmidrule(lr){5-6}",
+         r"Model / method & Consult & Research & Writing & Typical & Difficult & Overall \\", r"\midrule"]
+    for tag, block, name in groups:
+        L.append(f"\\multicolumn{{7}}{{l}}{{\\emph{{{name}, frozen}}}} \\\\")
+        for mk, mname in METHOD_NAMES:
+            d = rg.get(f"{tag}_{mk}")
+            if d is None:
+                L.append(f"\\quad {mname} & " + " & ".join(["--"] * 6) + " \\\\")
+                continue
+            v = [d[dim].get(k, {}).get("acc_len_adj_signed") for dim, k in cols] + [d["overall"]["acc_len_adj_signed"]]
+            L.append(f"\\quad {mname} & " + " & ".join("--" if x is None else f"{x:.3f}" for x in v) + " \\\\")
+        b = blocks.get(block)
+        if b:
+            L.append(f"\\multicolumn{{7}}{{l}}{{\\emph{{{name}, trained with tools (Table~\\ref{{tab:main}})}}}} \\\\")
+            for r in b["rows"]:
+                if r["label"] == "Untrained":
+                    continue
+                v = [r["category"].get(k, {}).get("acc_len_adj_signed") for k in ("consult", "research", "writing")]
+                v += [r["difficulty"].get(k, {}).get("acc_len_adj_signed") for k in ("typical", "difficult")]
+                v += [r["overall"]["acc_len_adj_signed"]]
+                lab = f"\\textbf{{{r['label']}}}" if r.get("ours") else r["label"]
+                cells = [f"\\textbf{{{x:.3f}}}" if r.get("ours") else f"{x:.3f}" for x in v]
+                L.append(f"\\quad {lab} & " + " & ".join(cells) + " \\\\")
+        L.append(r"\midrule")
+    L[-1] = r"\bottomrule"
+    L += [r"\end{tabular}", r"\end{center}", r"\end{table}"]
+    open(os.path.join(T, "hbpro_methods.tex"), "w").write(PROV + "\n".join(L) + "\n")
+
+
 def load_regrade(data, tag):
     out = {}
     for p in glob.glob(os.path.join(data, "regrade", tag, "*.json")):
@@ -359,6 +413,7 @@ def main():
     render_reference(a.data, T)
     table = json.load(open(os.path.join(a.data, "stage2_table.json")))
     print("regrade complete:", render_regrade(a.data, T, table))
+    render_methods(a.data, T, table)
     # render_strict(a.data, T)  # 2026-09-07: strict-vs-standard gap is <0.01 on every row; not reported
     print("wrote", sorted(os.listdir(T)))
 
