@@ -1,0 +1,803 @@
+{
+  "grader": "gpt-5.4_2026-03-05",
+  "runs": {
+    "deepseekv4pro_model": {
+      "overall": {
+        "n": 525,
+        "raw": 0.35990487412136996,
+        "length_adjusted": 0.28196945012137
+      },
+      "use/consult": {
+        "n": 236,
+        "raw": 0.3456456390125649,
+        "length_adjusted": 0.2763650373176496
+      },
+      "slice/good_faith__typical": {
+        "n": 256,
+        "raw": 0.6481629637695788,
+        "length_adjusted": 0.5375099770508288
+      },
+      "slice/good_faith__difficult": {
+        "n": 78,
+        "raw": 0.3735942420152947,
+        "length_adjusted": 0.30201692663067925
+      },
+      "slice/red_teaming__difficult": {
+        "n": 191,
+        "raw": 0.0,
+        "length_adjusted": 0.0
+      },
+      "use/research": {
+        "n": 147,
+        "raw": 0.6137803049407748,
+        "length_adjusted": 0.4913697049407749
+      },
+      "use/writing": {
+        "n": 142,
+        "raw": 0.12078861465112685,
+        "length_adjusted": 0.07451032310183106
+      },
+      "provenance": {
+        "paper_data/stage1/healthbench_pro_gpt54/deepseekv4pro_model/result__hbpro-DeepSeek-V4-Pro_2026-04-23.json": "63de4667f3dbf6aa004242979978da3764e75fb8606f74bb95b7546eee9a30d0",
+        "paper_data/stage1/healthbench_pro_gpt54/deepseekv4pro_model/allresults_20260817_231444.json": "52eeb567ab7589100f3720d6092ce942d1e791da9cbd1c711e1b4ddcaa6cdd01",
+        "paper_data/stage1/healthbench_pro_gpt54/deepseekv4pro_model/healthbench_professional_20260817_231444.jsonl": "153e337d34234a56e51babaadfc7fe45c15ef520187c489f94b39dfc2ca0e82c"
+      }
+    },
+    "gemma4_31b_base": {
+      "overall": {
+        "n": 525,
+        "raw": 0.3258512474375208,
+        "length_adjusted": 0.29268575143752074
+      },
+      "use/consult": {
+        "n": 236,
+        "raw": 0.3247636579146714,
+        "length_adjusted": 0.29426601638924765
+      },
+      "slice/good_faith__typical": {
+        "n": 256,
+        "raw": 0.5525291045538518,
+        "length_adjusted": 0.5059266592413518
+      },
+      "slice/good_faith__difficult": {
+        "n": 78,
+        "raw": 0.2480301274805919,
+        "length_adjusted": 0.2150391813267457
+      },
+      "slice/red_teaming__difficult": {
+        "n": 191,
+        "raw": 0.053812063850398835,
+        "length_adjusted": 0.03858501882422082
+      },
+      "use/research": {
+        "n": 147,
+        "raw": 0.47956902356867726,
+        "length_adjusted": 0.4278010235686773
+      },
+      "use/writing": {
+        "n": 142,
+        "raw": 0.1685284167059184,
+        "length_adjusted": 0.15018654346648178
+      },
+      "provenance": {
+        "paper_data/stage1/healthbench_pro_gpt54/gemma4_31b_base/result__hbpro-google_gemma-4-31B-it.json": "f0d8d9134812f88f8e5ddb1752c2f14f9de90cac7a8437ea0e78fb6d68c10a1a",
+        "paper_data/stage1/healthbench_pro_gpt54/gemma4_31b_base/allresults_20260811_192640.json": "af1969e6ccddd20e2b95051938a1b8d27220ee1da75b41e2319f220a4b99cb95",
+        "paper_data/stage1/healthbench_pro_gpt54/gemma4_31b_base/healthbench_professional_20260811_192640.jsonl": "153e337d34234a56e51babaadfc7fe45c15ef520187c489f94b39dfc2ca0e82c"
+      }
+    },
+    "gemma4_31b_selfimprove": {
+      "overall": {
+        "n": 525,
+        "raw": 0.3332976799753669,
+        "length_adjusted": 0.29954138397536695
+      },
+      "use/consult": {
+        "n": 236,
+        "raw": 0.3369422147168256,
+        "length_adjusted": 0.3061696333608934
+      },
+      "slice/good_faith__typical": {
+        "n": 256,
+        "raw": 0.5621010572314119,
+        "length_adjusted": 0.5152360791064119
+      },
+      "slice/good_faith__difficult": {
+        "n": 78,
+        "raw": 0.1504517799022443,
+        "length_adjusted": 0.11549065682532124
+      },
+      "slice/red_teaming__difficult": {
+        "n": 191,
+        "raw": 0.1012993324788018,
+        "length_adjusted": 0.08560481205995361
+      },
+      "use/research": {
+        "n": 147,
+        "raw": 0.46991816325043717,
+        "length_adjusted": 0.41714516325043716
+      },
+      "use/writing": {
+        "n": 142,
+        "raw": 0.18580950222593337,
+        "length_adjusted": 0.16678066278931364
+      },
+      "provenance": {
+        "paper_data/stage1/healthbench_pro_gpt54/gemma4_31b_selfimprove/result__hbpro-ddvd233_mimiciv_rare_gemma4_31b_selfimprove_split.json": "f7b06866d6a9be6486a9e3d3335aae3eeade070566e0f1a6c697f7d560d12598",
+        "paper_data/stage1/healthbench_pro_gpt54/gemma4_31b_selfimprove/allresults_20260811_230720.json": "899eb50a2b5f583e7936eeb5b6a1b64bb3a7f32584cccfaabb72eba2e31414cd",
+        "paper_data/stage1/healthbench_pro_gpt54/gemma4_31b_selfimprove/healthbench_professional_20260811_230720.jsonl": "153e337d34234a56e51babaadfc7fe45c15ef520187c489f94b39dfc2ca0e82c"
+      }
+    },
+    "gpt51_model": {
+      "overall": {
+        "n": 525,
+        "raw": 0.3968744547717837,
+        "length_adjusted": 0.3443520547717837
+      },
+      "use/consult": {
+        "n": 236,
+        "raw": 0.3976611062976964,
+        "length_adjusted": 0.3660529918909168
+      },
+      "slice/good_faith__typical": {
+        "n": 256,
+        "raw": 0.6984648843924215,
+        "length_adjusted": 0.6276843843924216
+      },
+      "slice/good_faith__difficult": {
+        "n": 78,
+        "raw": 0.28723604826546006,
+        "length_adjusted": 0.2346778944193062
+      },
+      "slice/red_teaming__difficult": {
+        "n": 191,
+        "raw": 0.03742233814670497,
+        "length_adjusted": 0.009386128722621196
+      },
+      "use/research": {
+        "n": 147,
+        "raw": 0.6417122705234564,
+        "length_adjusted": 0.5546616705234564
+      },
+      "use/writing": {
+        "n": 142,
+        "raw": 0.14210819649283096,
+        "length_adjusted": 0.09057082466184506
+      },
+      "provenance": {
+        "paper_data/stage1/healthbench_pro_gpt54/gpt51_model/result__hbpro-gpt-5.1_2025-11-13.json": "de0c290e2af695d33d40ec18e81722db2179354d4c7f2109ade36edf76f53182",
+        "paper_data/stage1/healthbench_pro_gpt54/gpt51_model/allresults_20260817_231444.json": "3664828394c20f7e5e04e1bb6b11e206a37c59dd76f820e3616a1f600c78bc6e",
+        "paper_data/stage1/healthbench_pro_gpt54/gpt51_model/healthbench_professional_20260817_231444.jsonl": "153e337d34234a56e51babaadfc7fe45c15ef520187c489f94b39dfc2ca0e82c"
+      }
+    },
+    "gpt55_model": {
+      "overall": {
+        "n": 525,
+        "raw": 0.5236702297607031,
+        "length_adjusted": 0.4697435737607031
+      },
+      "use/consult": {
+        "n": 236,
+        "raw": 0.5215653767189704,
+        "length_adjusted": 0.496991336888462
+      },
+      "slice/good_faith__typical": {
+        "n": 256,
+        "raw": 0.7468205476760061,
+        "length_adjusted": 0.6641469437697562
+      },
+      "slice/good_faith__difficult": {
+        "n": 78,
+        "raw": 0.4414989680082559,
+        "length_adjusted": 0.39200105262364054
+      },
+      "slice/red_teaming__difficult": {
+        "n": 191,
+        "raw": 0.2581355545270554,
+        "length_adjusted": 0.24093024353229098
+      },
+      "use/research": {
+        "n": 147,
+        "raw": 0.6820607331797267,
+        "length_adjusted": 0.5746217331797268
+      },
+      "use/writing": {
+        "n": 142,
+        "raw": 0.3632008024033258,
+        "length_adjusted": 0.3158875066286779
+      },
+      "provenance": {
+        "paper_data/stage1/healthbench_pro_gpt54/gpt55_model/result__hbpro-gpt-5.5_2026-04-24.json": "c7d819d7bc92707c321769978972b5cffd2a5a3b77e548eabee323d30d72fb72",
+        "paper_data/stage1/healthbench_pro_gpt54/gpt55_model/allresults_20260817_231444.json": "78cf231ec58db05446e49b2559c0ca94d7d20fc444266a453bb93bc238974b9a",
+        "paper_data/stage1/healthbench_pro_gpt54/gpt55_model/healthbench_professional_20260817_231444.jsonl": "153e337d34234a56e51babaadfc7fe45c15ef520187c489f94b39dfc2ca0e82c"
+      }
+    },
+    "gpt56_sol": {
+      "overall": {
+        "n": 525,
+        "raw": 0.625667574924954,
+        "length_adjusted": 0.5943611669249539
+      },
+      "use/consult": {
+        "n": 236,
+        "raw": 0.593297468356141,
+        "length_adjusted": 0.5897190149663104
+      },
+      "slice/good_faith__typical": {
+        "n": 256,
+        "raw": 0.7615420179517883,
+        "length_adjusted": 0.7068258617017883
+      },
+      "slice/good_faith__difficult": {
+        "n": 78,
+        "raw": 0.4772267206477733,
+        "length_adjusted": 0.4513483129554656
+      },
+      "slice/red_teaming__difficult": {
+        "n": 191,
+        "raw": 0.5041729635047995,
+        "length_adjusted": 0.5020263017246948
+      },
+      "use/research": {
+        "n": 147,
+        "raw": 0.7424812573447817,
+        "length_adjusted": 0.6686406573447816
+      },
+      "use/writing": {
+        "n": 142,
+        "raw": 0.5585389399568215,
+        "length_adjusted": 0.525181327280765
+      },
+      "provenance": {
+        "paper_data/stage1/healthbench_pro_gpt54/gpt56_sol/result__hbpro-gpt-5.6-sol_2026-07-09.json": "cca70bcafd631639b0113d4de319d83ddc495eac21cf27dc0dc0ae49b03938e7",
+        "paper_data/stage1/healthbench_pro_gpt54/gpt56_sol/allresults_20260811_234034.json": "7b86904be6f516fc49547fe0e67044f2e6c8eb32a0ace72b561c925f10129d74",
+        "paper_data/stage1/healthbench_pro_gpt54/gpt56_sol/healthbench_professional_20260811_234034.jsonl": "153e337d34234a56e51babaadfc7fe45c15ef520187c489f94b39dfc2ca0e82c"
+      }
+    },
+    "grok43_model": {
+      "overall": {
+        "n": 525,
+        "raw": 0.4414527657199431,
+        "length_adjusted": 0.4151296297199431
+      },
+      "use/consult": {
+        "n": 236,
+        "raw": 0.4488541948329151,
+        "length_adjusted": 0.4265106931379999
+      },
+      "slice/good_faith__typical": {
+        "n": 256,
+        "raw": 0.7172333447143426,
+        "length_adjusted": 0.6743703267455926
+      },
+      "slice/good_faith__difficult": {
+        "n": 78,
+        "raw": 0.3457565976582204,
+        "length_adjusted": 0.3205623053505281
+      },
+      "slice/red_teaming__difficult": {
+        "n": 191,
+        "raw": 0.11090026774218437,
+        "length_adjusted": 0.10628477559558751
+      },
+      "use/research": {
+        "n": 147,
+        "raw": 0.6605913567252004,
+        "length_adjusted": 0.6112347567252004
+      },
+      "use/writing": {
+        "n": 142,
+        "raw": 0.20229706044927948,
+        "length_adjusted": 0.19320438580139215
+      },
+      "provenance": {
+        "paper_data/stage1/healthbench_pro_gpt54/grok43_model/result__hbpro-grok-4.3_1.json": "6f6257407e39056c22faebb45600451eae94b45b0227eaa926f59ca6ae3cb3f9",
+        "paper_data/stage1/healthbench_pro_gpt54/grok43_model/allresults_20260817_231444.json": "379a3b2c92304ac84a2d59bb598f9b758047732b1dacb20060ad55a73e168a39",
+        "paper_data/stage1/healthbench_pro_gpt54/grok43_model/healthbench_professional_20260817_231444.jsonl": "153e337d34234a56e51babaadfc7fe45c15ef520187c489f94b39dfc2ca0e82c"
+      }
+    },
+    "kimi_k26_model": {
+      "overall": {
+        "n": 525,
+        "raw": 0.4401917218402342,
+        "length_adjusted": 0.33463743384023426
+      },
+      "use/consult": {
+        "n": 236,
+        "raw": 0.44931266737339964,
+        "length_adjusted": 0.3290424995767895
+      },
+      "slice/good_faith__typical": {
+        "n": 256,
+        "raw": 0.7033762414011803,
+        "length_adjusted": 0.6000346671824303
+      },
+      "slice/good_faith__difficult": {
+        "n": 78,
+        "raw": 0.37003596752582557,
+        "length_adjusted": 0.1436160136796717
+      },
+      "slice/red_teaming__difficult": {
+        "n": 191,
+        "raw": 0.11609178377176144,
+        "length_adjusted": 0.056930517803175054
+      },
+      "use/research": {
+        "n": 147,
+        "raw": 0.6236420699823304,
+        "length_adjusted": 0.4995218699823304
+      },
+      "use/writing": {
+        "n": 142,
+        "raw": 0.23512309984928226,
+        "length_adjusted": 0.17324583083519776
+      },
+      "provenance": {
+        "paper_data/stage1/healthbench_pro_gpt54/kimi_k26_model/result__hbpro-Kimi-K2.6_2026-04-20.json": "45cb0c333d0ecc8fe0553bd1ce6639fe6b63f1543bea9194df1e6d46fd15ca97",
+        "paper_data/stage1/healthbench_pro_gpt54/kimi_k26_model/allresults_20260817_231444.json": "2cc8c292368ffb0ba78cd8ee5aa2c6ad5984df894c1bca1ef31d8f5540275782",
+        "paper_data/stage1/healthbench_pro_gpt54/kimi_k26_model/healthbench_professional_20260817_231444.jsonl": "153e337d34234a56e51babaadfc7fe45c15ef520187c489f94b39dfc2ca0e82c"
+      }
+    },
+    "lingshu_32b": {
+      "overall": {
+        "n": 525,
+        "raw": 0.13043022529117876,
+        "length_adjusted": 0.14453354529117876
+      },
+      "use/consult": {
+        "n": 236,
+        "raw": 0.12837720367598013,
+        "length_adjusted": 0.14553260198106485
+      },
+      "slice/good_faith__typical": {
+        "n": 256,
+        "raw": 0.3286025615359385,
+        "length_adjusted": 0.3410010927859385
+      },
+      "slice/good_faith__difficult": {
+        "n": 78,
+        "raw": 0.10518273653482364,
+        "length_adjusted": 0.11916733653482364
+      },
+      "slice/red_teaming__difficult": {
+        "n": 191,
+        "raw": 0.0,
+        "length_adjusted": 0.0
+      },
+      "use/research": {
+        "n": 147,
+        "raw": 0.2921294378104876,
+        "length_adjusted": 0.3041088378104876
+      },
+      "use/writing": {
+        "n": 142,
+        "raw": 0.0,
+        "length_adjusted": 0.0
+      },
+      "provenance": {
+        "paper_data/stage1/healthbench_pro_gpt54/lingshu_32b/result__hbpro-lingshu-medical-mllm_Lingshu-32B.json": "c1303a67b9a23ae1a41f8d5cd64db8f5898788b5b56f20ada6c04b864e51f974",
+        "paper_data/stage1/healthbench_pro_gpt54/lingshu_32b/allresults_20260811_192257.json": "b01863926ba3321696002a4a8eabe60659850264c5189444c309cc1146563a0b",
+        "paper_data/stage1/healthbench_pro_gpt54/lingshu_32b/healthbench_professional_20260811_192257.jsonl": "153e337d34234a56e51babaadfc7fe45c15ef520187c489f94b39dfc2ca0e82c"
+      }
+    },
+    "lingshu_7b": {
+      "overall": {
+        "n": 525,
+        "raw": 0.061000485553624084,
+        "length_adjusted": 0.06060590955362409
+      },
+      "use/consult": {
+        "n": 236,
+        "raw": 0.0,
+        "length_adjusted": 0.01885445975210299
+      },
+      "slice/good_faith__typical": {
+        "n": 256,
+        "raw": 0.25586423241241524,
+        "length_adjusted": 0.2361394738186652
+      },
+      "slice/good_faith__difficult": {
+        "n": 78,
+        "raw": 0.024076708801006867,
+        "length_adjusted": 0.04189876264716072
+      },
+      "slice/red_teaming__difficult": {
+        "n": 191,
+        "raw": 0.0,
+        "length_adjusted": 0.0
+      },
+      "use/research": {
+        "n": 147,
+        "raw": 0.2558889609869477,
+        "length_adjusted": 0.26794636098694774
+      },
+      "use/writing": {
+        "n": 142,
+        "raw": 0.0,
+        "length_adjusted": 0.0
+      },
+      "provenance": {
+        "paper_data/stage1/healthbench_pro_gpt54/lingshu_7b/result__hbpro-lingshu-medical-mllm_Lingshu-7B.json": "aa18ed3565659f6605300d6599e192648551d65b11ed5ad1000871c3ae89d4d6",
+        "paper_data/stage1/healthbench_pro_gpt54/lingshu_7b/allresults_20260811_191625.json": "cfd10b3b574e851c54e51161a2b9b5834d9078010482dcdba7154b1f330bb289",
+        "paper_data/stage1/healthbench_pro_gpt54/lingshu_7b/healthbench_professional_20260811_191625.jsonl": "153e337d34234a56e51babaadfc7fe45c15ef520187c489f94b39dfc2ca0e82c"
+      }
+    },
+    "medgemma_15_4b": {
+      "overall": {
+        "n": 525,
+        "raw": 0.16066517592598806,
+        "length_adjusted": 0.06936361592598807
+      },
+      "use/consult": {
+        "n": 236,
+        "raw": 0.1210609060848131,
+        "length_adjusted": 0.03399704167803343
+      },
+      "slice/good_faith__typical": {
+        "n": 256,
+        "raw": 0.37045310043817387,
+        "length_adjusted": 0.2692106402819239
+      },
+      "slice/good_faith__difficult": {
+        "n": 78,
+        "raw": 0.05899794225165208,
+        "length_adjusted": 0.0
+      },
+      "slice/red_teaming__difficult": {
+        "n": 191,
+        "raw": 0.0,
+        "length_adjusted": 0.0
+      },
+      "use/research": {
+        "n": 147,
+        "raw": 0.3082931570749753,
+        "length_adjusted": 0.2092447570749753
+      },
+      "use/writing": {
+        "n": 142,
+        "raw": 0.07366020728948218,
+        "length_adjusted": 0.0
+      },
+      "provenance": {
+        "paper_data/stage1/healthbench_pro_gpt54/medgemma_15_4b/result__hbpro-google_medgemma-1.5-4b-it.json": "cdec3ad5e0a81b24fdaa12bfcd6ec3ecc843e29886f78c06f1569718a496d350",
+        "paper_data/stage1/healthbench_pro_gpt54/medgemma_15_4b/allresults_20260811_191725.json": "18d4c567ae5cd249f00377c0844d348a5222c8dd54b8d297a09e460e42876339",
+        "paper_data/stage1/healthbench_pro_gpt54/medgemma_15_4b/healthbench_professional_20260811_191725.jsonl": "153e337d34234a56e51babaadfc7fe45c15ef520187c489f94b39dfc2ca0e82c"
+      }
+    },
+    "ours_evolve_sft_step960": {
+      "overall": {
+        "n": 525,
+        "raw": 0.3494639298899842,
+        "length_adjusted": 0.2804419698899842
+      },
+      "use/consult": {
+        "n": 236,
+        "raw": 0.342868487274652,
+        "length_adjusted": 0.2731179838848215
+      },
+      "slice/good_faith__typical": {
+        "n": 256,
+        "raw": 0.6122006475459096,
+        "length_adjusted": 0.5263559780146597
+      },
+      "slice/good_faith__difficult": {
+        "n": 78,
+        "raw": 0.24627942720047982,
+        "length_adjusted": 0.16570382720047983
+      },
+      "slice/red_teaming__difficult": {
+        "n": 191,
+        "raw": 0.03945236700969317,
+        "length_adjusted": 0.0
+      },
+      "use/research": {
+        "n": 147,
+        "raw": 0.5390439928235385,
+        "length_adjusted": 0.44475599282353856
+      },
+      "use/writing": {
+        "n": 142,
+        "raw": 0.1641699524673497,
+        "length_adjusted": 0.12251450035467365
+      },
+      "provenance": {
+        "paper_data/stage1/healthbench_pro_gpt54/ours_evolve_sft_step960/result__hbpro-ddvd233_mimiciv_rare_qwen36_27b_evolve_from_sft.json": "627ae579b9e3afaf750eaeee58d97eac153cfa6d89e3eee1ec84767b3e97915d",
+        "paper_data/stage1/healthbench_pro_gpt54/ours_evolve_sft_step960/allresults_20260811_203443.json": "6fc51157797f4ec9ebc02e92baa065d5599fd7986dc0578e7d0b26cbf0b1a9f4",
+        "paper_data/stage1/healthbench_pro_gpt54/ours_evolve_sft_step960/healthbench_professional_20260811_203443.jsonl": "153e337d34234a56e51babaadfc7fe45c15ef520187c489f94b39dfc2ca0e82c"
+      }
+    },
+    "ours_rlonly_selfimprove": {
+      "overall": {
+        "n": 525,
+        "raw": 0.376153943414629,
+        "length_adjusted": 0.302871727414629
+      },
+      "use/consult": {
+        "n": 236,
+        "raw": 0.3503768881935033,
+        "length_adjusted": 0.2765831373460457
+      },
+      "slice/good_faith__typical": {
+        "n": 256,
+        "raw": 0.6125304284089403,
+        "length_adjusted": 0.5218842565339403
+      },
+      "slice/good_faith__difficult": {
+        "n": 78,
+        "raw": 0.29845399698340874,
+        "length_adjusted": 0.21177978159879338
+      },
+      "slice/red_teaming__difficult": {
+        "n": 191,
+        "raw": 0.09106606730516026,
+        "length_adjusted": 0.04652599086536968
+      },
+      "use/research": {
+        "n": 147,
+        "raw": 0.5679894684488764,
+        "length_adjusted": 0.46852326844887654
+      },
+      "use/writing": {
+        "n": 142,
+        "raw": 0.22040438603541254,
+        "length_adjusted": 0.1750782818100604
+      },
+      "provenance": {
+        "paper_data/stage1/healthbench_pro_gpt54/ours_rlonly_selfimprove/result__hbpro-ddvd233_mimiciv_rare_qwen36_27b_selfimprove.json": "1e23cd44f3ceffb17591b54d78736d137a6c59188c93a084b628793e07a79ee8",
+        "paper_data/stage1/healthbench_pro_gpt54/ours_rlonly_selfimprove/allresults_20260811_230322.json": "3004cc8471d42f9b88a0d18533604f787aa7ad5e9a2808573767af6bc4d2f231",
+        "paper_data/stage1/healthbench_pro_gpt54/ours_rlonly_selfimprove/healthbench_professional_20260811_230322.jsonl": "153e337d34234a56e51babaadfc7fe45c15ef520187c489f94b39dfc2ca0e82c"
+      }
+    },
+    "qwen35_9b_base": {
+      "overall": {
+        "n": 525,
+        "raw": 0.2552096228932106,
+        "length_adjusted": 0.18691342289321058
+      },
+      "use/consult": {
+        "n": 236,
+        "raw": 0.2627476103693408,
+        "length_adjusted": 0.19105259596256116
+      },
+      "slice/good_faith__typical": {
+        "n": 256,
+        "raw": 0.506670718355162,
+        "length_adjusted": 0.422842590230162
+      },
+      "slice/good_faith__difficult": {
+        "n": 78,
+        "raw": 0.15334046116313652,
+        "length_adjusted": 0.06942419193236728
+      },
+      "slice/red_teaming__difficult": {
+        "n": 191,
+        "raw": 0.0,
+        "length_adjusted": 0.0
+      },
+      "use/research": {
+        "n": 147,
+        "raw": 0.4494857254423142,
+        "length_adjusted": 0.3597579254423142
+      },
+      "use/writing": {
+        "n": 142,
+        "raw": 0.041564889660217846,
+        "length_adjusted": 0.0011036572658516463
+      },
+      "provenance": {
+        "paper_data/stage1/healthbench_pro_gpt54/qwen35_9b_base/result__hbpro-Qwen_Qwen3.5-9B.json": "c48c458dd4168a1805175856129a40408a6cfb38e77db9511c83e65ea7b8e03b",
+        "paper_data/stage1/healthbench_pro_gpt54/qwen35_9b_base/allresults_20260811_191410.json": "85ba3969a98bf3d7ae42fd3d5aba1f1cbb40cb1172fcc708e8ff9ef429103266",
+        "paper_data/stage1/healthbench_pro_gpt54/qwen35_9b_base/healthbench_professional_20260811_191410.jsonl": "153e337d34234a56e51babaadfc7fe45c15ef520187c489f94b39dfc2ca0e82c"
+      }
+    },
+    "qwen36_27b_base": {
+      "overall": {
+        "n": 525,
+        "raw": 0.36313747838513205,
+        "length_adjusted": 0.29082159838513205
+      },
+      "use/consult": {
+        "n": 236,
+        "raw": 0.3338656207512803,
+        "length_adjusted": 0.260811105497043
+      },
+      "slice/good_faith__typical": {
+        "n": 256,
+        "raw": 0.6107656368546507,
+        "length_adjusted": 0.5209817118546507
+      },
+      "slice/good_faith__difficult": {
+        "n": 78,
+        "raw": 0.25954356101414927,
+        "length_adjusted": 0.17405891486030312
+      },
+      "slice/red_teaming__difficult": {
+        "n": 191,
+        "raw": 0.07354332648324662,
+        "length_adjusted": 0.030017934860209965
+      },
+      "use/research": {
+        "n": 147,
+        "raw": 0.5651730571009655,
+        "length_adjusted": 0.46716845710096566
+      },
+      "use/writing": {
+        "n": 142,
+        "raw": 0.20263697366936784,
+        "length_adjusted": 0.15814193704964954
+      },
+      "provenance": {
+        "paper_data/stage1/healthbench_pro_gpt54/qwen36_27b_base/result__hbpro-Qwen_Qwen3.6-27B.json": "c458106c4a7b82b6d6432687f3b9a9996fc83b323e5009cd130ca737d580589f",
+        "paper_data/stage1/healthbench_pro_gpt54/qwen36_27b_base/allresults_20260811_191440.json": "db3d7b7f3584db18127d19f82e477f8b9d47ed6ab0e25efef4218843cac098ee",
+        "paper_data/stage1/healthbench_pro_gpt54/qwen36_27b_base/healthbench_professional_20260811_191440.jsonl": "153e337d34234a56e51babaadfc7fe45c15ef520187c489f94b39dfc2ca0e82c"
+      }
+    },
+    "teacher_deepseekv4pro": {
+      "overall": {
+        "n": 525,
+        "raw": 0.36205407897918757,
+        "length_adjusted": 0.28871692697918755
+      },
+      "use/consult": {
+        "n": 236,
+        "raw": 0.33853631687045493,
+        "length_adjusted": 0.26422856432808206
+      },
+      "slice/good_faith__typical": {
+        "n": 256,
+        "raw": 0.6117878016354054,
+        "length_adjusted": 0.5210032430416554
+      },
+      "slice/good_faith__difficult": {
+        "n": 78,
+        "raw": 0.26766789711836153,
+        "length_adjusted": 0.18185495096451534
+      },
+      "slice/red_teaming__difficult": {
+        "n": 191,
+        "raw": 0.06587758256637433,
+        "length_adjusted": 0.021020263194646584
+      },
+      "use/research": {
+        "n": 147,
+        "raw": 0.5587917384862229,
+        "length_adjusted": 0.45921913848622287
+      },
+      "use/writing": {
+        "n": 142,
+        "raw": 0.19747489524768536,
+        "length_adjusted": 0.15291008538853046
+      },
+      "provenance": {
+        "paper_data/stage1/healthbench_pro_gpt54/teacher_deepseekv4pro/result__hbpro-ddvd233_mimiciv_rare_qwen36_27b_deepseekv4pro.json": "ae82a40a75fe42eb50138cfd3d42a8c0c35242076faaf0f32446af01652755c0",
+        "paper_data/stage1/healthbench_pro_gpt54/teacher_deepseekv4pro/allresults_20260812_002033.json": "3b1f754a4f5b5e9fb7958d443c18752f3bf5ae9b28bca415c9a67012d15e17e2",
+        "paper_data/stage1/healthbench_pro_gpt54/teacher_deepseekv4pro/healthbench_professional_20260812_002033.jsonl": "153e337d34234a56e51babaadfc7fe45c15ef520187c489f94b39dfc2ca0e82c"
+      }
+    },
+    "teacher_gpt55": {
+      "overall": {
+        "n": 525,
+        "raw": 0.36569329311680826,
+        "length_adjusted": 0.2938811891168083
+      },
+      "use/consult": {
+        "n": 236,
+        "raw": 0.34343781976748033,
+        "length_adjusted": 0.2712961994284973
+      },
+      "slice/good_faith__typical": {
+        "n": 256,
+        "raw": 0.6257619820266966,
+        "length_adjusted": 0.5358852632766966
+      },
+      "slice/good_faith__difficult": {
+        "n": 78,
+        "raw": 0.21118013107177191,
+        "length_adjusted": 0.1271820695333104
+      },
+      "slice/red_teaming__difficult": {
+        "n": 191,
+        "raw": 0.08021916892089945,
+        "length_adjusted": 0.037595787769066996
+      },
+      "use/research": {
+        "n": 147,
+        "raw": 0.5786803238431796,
+        "length_adjusted": 0.4806207238431796
+      },
+      "use/writing": {
+        "n": 142,
+        "raw": 0.18219468884684212,
+        "length_adjusted": 0.13810193532571535
+      },
+      "provenance": {
+        "paper_data/stage1/healthbench_pro_gpt54/teacher_gpt55/result__hbpro-ddvd233_mimiciv_rare_qwen36_27b_full_gpt55.json": "639ab7441d8d1a0cf6e5196f4cf4ce9d2e0daa6430c644b416a434a6276eb8f7",
+        "paper_data/stage1/healthbench_pro_gpt54/teacher_gpt55/allresults_20260817_232208.json": "6174b73d6c62f00a58d1ebce6e6182e67d1069a417efbb8eb7cf122e7fd105b3",
+        "paper_data/stage1/healthbench_pro_gpt54/teacher_gpt55/healthbench_professional_20260817_232208.jsonl": "153e337d34234a56e51babaadfc7fe45c15ef520187c489f94b39dfc2ca0e82c"
+      }
+    },
+    "teacher_kimi": {
+      "overall": {
+        "n": 525,
+        "raw": 0.3655335015057128,
+        "length_adjusted": 0.2975870215057128
+      },
+      "use/consult": {
+        "n": 236,
+        "raw": 0.3572042930702301,
+        "length_adjusted": 0.2888786930702301
+      },
+      "slice/good_faith__typical": {
+        "n": 256,
+        "raw": 0.5966935754896219,
+        "length_adjusted": 0.5116336333021219
+      },
+      "slice/good_faith__difficult": {
+        "n": 78,
+        "raw": 0.2489720898830005,
+        "length_adjusted": 0.17003535142146206
+      },
+      "slice/red_teaming__difficult": {
+        "n": 191,
+        "raw": 0.10330738195959145,
+        "length_adjusted": 0.06278648562451293
+      },
+      "use/research": {
+        "n": 147,
+        "raw": 0.5491163246947279,
+        "length_adjusted": 0.45649972469472794
+      },
+      "use/writing": {
+        "n": 142,
+        "raw": 0.1893294041957741,
+        "length_adjusted": 0.14755179715352057
+      },
+      "provenance": {
+        "paper_data/stage1/healthbench_pro_gpt54/teacher_kimi/result__hbpro-ddvd233_mimiciv_rare_qwen36_27b_full_kimi.json": "48cd9cb7e5bc89c2e974c09bf765487264c2e74f6a912ece284c236487ec2124",
+        "paper_data/stage1/healthbench_pro_gpt54/teacher_kimi/allresults_20260812_001107.json": "577bf107997ca1ea5c02b436f092a8b08f53e985b360cb9dce2b4ba119d024ac",
+        "paper_data/stage1/healthbench_pro_gpt54/teacher_kimi/healthbench_professional_20260812_001107.jsonl": "153e337d34234a56e51babaadfc7fe45c15ef520187c489f94b39dfc2ca0e82c"
+      }
+    },
+    "teacher_qwen397b": {
+      "overall": {
+        "n": 525,
+        "raw": 0.3771693390928768,
+        "length_adjusted": 0.3078541070928768
+      },
+      "use/consult": {
+        "n": 236,
+        "raw": 0.3698349681876924,
+        "length_adjusted": 0.29989485971311614
+      },
+      "slice/good_faith__typical": {
+        "n": 256,
+        "raw": 0.6209524548153268,
+        "length_adjusted": 0.5333617009090768
+      },
+      "slice/good_faith__difficult": {
+        "n": 78,
+        "raw": 0.2532448201952846,
+        "length_adjusted": 0.17226214327220765
+      },
+      "slice/red_teaming__difficult": {
+        "n": 191,
+        "raw": 0.10103130165342658,
+        "length_adjusted": 0.06097572573719622
+      },
+      "use/research": {
+        "n": 147,
+        "raw": 0.5543299634358301,
+        "length_adjusted": 0.46016956343583004
+      },
+      "use/writing": {
+        "n": 142,
+        "raw": 0.20596018243942177,
+        "length_adjusted": 0.16340347539716826
+      },
+      "provenance": {
+        "paper_data/stage1/healthbench_pro_gpt54/teacher_qwen397b/result__hbpro-ddvd233_mimiciv_rare_qwen36_27b_full_opd_qwen397b_v2.json": "95aa441192a69fbcf26fff83cf3d7e0ad83f7d3845a700815c9a882673f82c86",
+        "paper_data/stage1/healthbench_pro_gpt54/teacher_qwen397b/allresults_20260811_231024.json": "5fd57757931222924e32a1ad6fc8ba6041c9371d70260b53c1c803f06a197ed1",
+        "paper_data/stage1/healthbench_pro_gpt54/teacher_qwen397b/healthbench_professional_20260811_231024.jsonl": "153e337d34234a56e51babaadfc7fe45c15ef520187c489f94b39dfc2ca0e82c"
+      }
+    }
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "train": {
+    "n": 5719,
+    "source_sha256": "0fde6eade4ac7c570a79dcf8c6cab96417068be998178d7ce6a23a44e443ea8b",
+    "prepared_sha256": "1a33496af5f33bd344a738f87f1e4f34121d789ea19cb4cddf43199d97354b7e",
+    "remapped_image_references": 3359,
+    "unique_images": 4189,
+    "missing_images": 0
+  },
+  "test": {
+    "n": 2452,
+    "source_sha256": "56dbefce4ff0cb611af2171d8b70db73bba64b50dec90eaece10a6b0b4f2b0a5",
+    "prepared_sha256": "c983f7a5f990669d42e0ced0730374e7ca7e99aebb0b0b98030f1fc9059ec095",
+    "remapped_image_references": 1554,
+    "unique_images": 2127,
+    "missing_images": 0
+  }
+}

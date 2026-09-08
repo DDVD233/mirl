@@ -1,0 +1,12 @@
+diff --git a/verl/workers/engine/fsdp/transformer_impl.py b/verl/workers/engine/fsdp/transformer_impl.py
+--- a/verl/workers/engine/fsdp/transformer_impl.py
++++ b/verl/workers/engine/fsdp/transformer_impl.py
+@@ -1200,5 +1200,7 @@
+                 if calculate_entropy:
+                     if not self.engine_config.entropy_checkpointing:
+-                        entropy = verl_F.entropy_from_logits(logits)
++                        entropy = verl_F.entropy_from_logits_with_chunking(
++                            logits.flatten(0, -2)
++                        ).view(logits.shape[:-1])
+                     else:
+                         entropy = torch.utils.checkpoint.checkpoint(verl_F.entropy_from_logits, logits)

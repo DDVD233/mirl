@@ -1,0 +1,21 @@
+{
+  "sample_counts": {
+    "True": {
+      "invalid": 71,
+      "valid": 117,
+      "uncertain": 12
+    },
+    "False": {
+      "valid": 90,
+      "invalid": 67,
+      "uncertain": 43
+    }
+  },
+  "population_counts": {
+    "True": 71519,
+    "False": 839
+  },
+  "accept_precision_decisive": 0.6223404255319148,
+  "valid_task_recall_decisive": 0.9910567433114779,
+  "reference": "Independent gpt-chat-latest assessment; uncertain labels excluded from precision/recall"
+}

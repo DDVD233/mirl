@@ -1,0 +1,25 @@
+{
+  "config": {
+    "repo": "/scratch/sheng/self_evolving/verl",
+    "train": "/scratch/sheng/self_evolving/mimiciv_rare/train.jsonl",
+    "history": "/scratch/sheng/self_evolving/logs_selfimprove_from_sft/gen",
+    "output": "/scratch/sheng/self_evolving/stage1_component_audit/results",
+    "model": "Qwen/Qwen3.6-27B",
+    "base_url": "http://127.0.0.1:8188/v1",
+    "reference_base": "http://point.dd.works:18890/v1",
+    "reference_model": "gpt-chat-latest_2026-05-28",
+    "audit_per_stratum": 200,
+    "seeds": 64,
+    "samples": 8,
+    "seed": 42,
+    "code_sha256": "e6f7c8f0c5ff867361664b21aef0f7d7f28a28e5b11e1c98ad4e5d63a594e46c",
+    "generator_sha256": "14b62130b0e62a5aef325fb88834e6d4b01b76bbf6675b37cad52b220da92476",
+    "reward_sha256": "85a72f0d04c7c6bb89c9a823b8bb3428307fb96243e4ca0c2f363ad131950193",
+    "train_sha256": "0fde6eade4ac7c570a79dcf8c6cab96417068be998178d7ce6a23a44e443ea8b",
+    "historical_sources": {
+      "server_accepted_20260629_162847.jsonl": "1825f8c611c608cd0eef498fd0b35103ede6a822d81a5e84e5564721127ecdc0",
+      "server_rejected_20260629_162847.jsonl": "aae11890a4707dd03b0f4684eb545bdc1ac0afd5441be704feeb83f3a429c3da"
+    }
+  },
+  "config_sha256": "45f4ec4e23f932aeb2fd6b3fb3f0f9ea45eb1d1e1322633cdc6c80a68e31cd6e"
+}

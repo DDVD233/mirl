@@ -1,0 +1,20 @@
+{
+  "ours": {
+    "source": "paper_data/stage1/fig1_scaling/regraded/selfevolving_27b/qwen36_27b_evolve_from_sft__step960.json",
+    "overall": 0.515905383360522
+  },
+  "static_pool": {
+    "source": "paper_data/stage1/fig1_scaling/regraded/staticpool/qwen36_27b_staticpool_aicr__step110.json",
+    "overall": 0.44127243066884175
+  },
+  "teacher_figure": {
+    "Base": 0.3340130505709625,
+    "Kimi-K2.6": 0.30872756933115825,
+    "DeepSeek<br>V4-Pro": 0.3413539967373573,
+    "GPT-5.5": 0.3429853181076672,
+    "Qwen3.5<br>397B": 0.3438009787928222,
+    "Self-generation<br>RL only": 0.34991843393148453,
+    "Static pool<br>SFT + RL": 0.44127243066884175,
+    "Full pipeline<br>SFT + RL": 0.515905383360522
+  }
+}
