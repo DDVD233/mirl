@@ -21,6 +21,7 @@ NAMES = {
     "google_gemma-4-31B-it": ("Gemma 4 31B IT", "open"),
     "lingshu-medical-mllm_Lingshu-32B": ("Lingshu-32B", "open"),
     "google_medgemma-27b-text-it": ("MedGemma 27B", "open"),
+    "gpt56_sft_qwen36_27b": ("Qwen3.6-27B, SFT on GPT-5.6 traces", "sft"),
     "gpt-5.3-chat_2026-03-03": ("GPT-5.3 chat", "frontier"),
     "gpt-5.4_2026-03-05": ("GPT-5.4", "frontier"),
     "gpt-chat-latest_2026-05-28": ("GPT chat (latest)", "frontier"),

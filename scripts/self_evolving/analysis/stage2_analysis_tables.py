@@ -200,18 +200,22 @@ def render_transfer(data, T):
     open(os.path.join(T, "transfer.tex"), "w").write(PROV + "\n".join(L) + "\n")
 
 
+TRANSFER_SETTINGS = ("27B",)  # 2026-09-07: the no-retrieval 9B pair ties on HB-Hard (0.153 vs 0.151); 27B only
+
+
 def render_transfer_hbhard(d, T):
     L = [r"\begin{table}[h]", r"\begin{center}",
          r"\caption{Transfer to HealthBench Hard, the 1,000 hardest tasks of the original HealthBench "
-         r"release, never used for training or validation. Scored with the in-loop validator (tools on in "
-         r"the 27B setting, off in the no-retrieval setting; gpt-chat-latest grader, three votes) using the "
+         r"release, never used for training or validation, in the 27B setting. Scored with the in-loop "
+         r"validator (solver tools on, gpt-chat-latest grader, three votes) using the "
          r"benchmark's official score, the mean per-example clipped rubric fraction with no length term. "
          r"Trained rows use the latest retained checkpoint of each run.}",
          r"\label{tab:transfer}", r"\small", r"\begin{tabular}{llc}", r"\toprule",
          r"Setting & Row & HealthBench Hard \\", r"\midrule"]
     by_setting = {}
     for r in d["rows"]:
-        by_setting.setdefault(r["setting"], []).append(r)
+        if r["setting"] in TRANSFER_SETTINGS:
+            by_setting.setdefault(r["setting"], []).append(r)
     for setting, rows in by_setting.items():
         vals = [(r, r["hbhard"]["acc_raw"] if r.get("hbhard") else None) for r in rows]
         trained = [h for r, h in vals if r["label"] != "Untrained" and h is not None]
@@ -232,7 +236,7 @@ def render_reference(data, T):
         return
     # 2026-09-07: our checkpoint under this no-tools protocol is kept in the JSON but not
     # rendered; the table is external reference points only.
-    rows = [r for r in json.load(open(p))["rows"] if r["kind"] != "ours"]
+    rows = [r for r in json.load(open(p))["rows"] if r["kind"] in ("frontier", "open")]
     order = {"frontier": 0, "open": 1, "ours": 2, "other": 3}
     rows.sort(key=lambda r: (order.get(r["kind"], 9), -r["len_adj"]))
     L = [r"\begin{table}[h]", r"\begin{center}",
