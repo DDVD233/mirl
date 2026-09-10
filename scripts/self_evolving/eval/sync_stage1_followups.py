@@ -39,23 +39,53 @@ paths = {
 }
 print(json.dumps({k: json.loads(p.read_text()) for k,p in paths.items() if p.exists()}))
 """
-    return json.loads(
-        subprocess.check_output(
-            [
-                "ssh",
-                "-o",
-                "BatchMode=yes",
-                "-o",
-                "ConnectTimeout=8",
-                "-p",
-                "2333",
-                "root@point.dd.works",
-                shlex.join(["python", "-c", code]),
-            ],
-            text=True,
-            timeout=90,
-        )
-    )
+    failures = []
+    for port in (2333, 2335):
+        try:
+            output = subprocess.check_output(
+                [
+                    "ssh",
+                    "-o",
+                    "BatchMode=yes",
+                    "-o",
+                    "ConnectTimeout=8",
+                    "-p",
+                    str(port),
+                    "root@point.dd.works",
+                    shlex.join(["python", "-c", code]),
+                ],
+                text=True,
+                stderr=subprocess.PIPE,
+                timeout=90,
+            )
+            result = json.loads(output)
+            if not isinstance(result, dict) or not {"components", "control"}.intersection(result):
+                raise ValueError("No stage-1 summaries on this endpoint")
+            return result
+        except (subprocess.SubprocessError, ValueError) as exc:
+            detail = exc.stderr.strip() if isinstance(exc, subprocess.CalledProcessError) else str(exc)
+            failures.append(f"SSH {port}: {detail}")
+    raise RuntimeError("; ".join(failures))
+
+
+def finish_pending(push):
+    pending = ARCHIVE / "pdf_pending"
+    publication = ARCHIVE / "publish_pending"
+    if pending.exists():
+        with (ARCHIVE / "latexmk.log").open("w") as log:
+            subprocess.run(
+                ["latexmk", "-pdf", "-interaction=nonstopmode", "-halt-on-error", "iclr2026_conference.tex"],
+                cwd=ROOT / "paper",
+                stdout=log,
+                stderr=subprocess.STDOUT,
+                check=True,
+                timeout=180,
+            )
+        pending.unlink()
+    if push and publication.exists():
+        revision = publish(ROOT / "paper")
+        write_json(ARCHIVE / "published.json", {"commit": revision, "published_at": time.time()})
+        publication.unlink()
 
 
 def component_table(summary):
@@ -132,6 +162,8 @@ def refresh(push=False):
     publication = ARCHIVE / "publish_pending"
     if push:
         check_publish_workspace(ROOT / "paper", pending=publication.exists())
+    # Previously collected results must not wait for the next successful SSH fetch.
+    finish_pending(push)
     results = fetch()
     changed = False
     if "components" in results:
@@ -160,21 +192,7 @@ def refresh(push=False):
         pending.touch()
         if push:
             publication.touch()
-    if pending.exists():
-        with (ARCHIVE / "latexmk.log").open("w") as log:
-            subprocess.run(
-                ["latexmk", "-pdf", "-interaction=nonstopmode", "-halt-on-error", "iclr2026_conference.tex"],
-                cwd=ROOT / "paper",
-                stdout=log,
-                stderr=subprocess.STDOUT,
-                check=True,
-                timeout=180,
-            )
-        pending.unlink()
-    if push and publication.exists():
-        revision = publish(ROOT / "paper")
-        write_json(ARCHIVE / "published.json", {"commit": revision, "published_at": time.time()})
-        publication.unlink()
+    finish_pending(push)
     status = {
         "checked_at": time.strftime("%Y-%m-%d %H:%M:%S %z"),
         "paper_changed": changed,

@@ -1,0 +1,214 @@
+{
+  "points": [
+    {
+      "model": "Qwen3.5-9B SFT + curated-data RL (self-judge)",
+      "step": 0,
+      "n": 2452,
+      "overall": 0.367047308319739,
+      "per_cat": {
+        "endocrine_metabolic": 0.2793522267206478,
+        "blood_immune": 0.3901345291479821,
+        "neoplasms": 0.5525179856115108,
+        "nervous_system": 0.42010309278350516,
+        "other": 0.14018691588785046,
+        "digestive": 0.2840909090909091,
+        "circulatory": 0.24822695035460993,
+        "infectious": 0.22549019607843138
+      },
+      "cat_n": {
+        "endocrine_metabolic": 494,
+        "blood_immune": 223,
+        "neoplasms": 695,
+        "nervous_system": 388,
+        "other": 321,
+        "digestive": 88,
+        "circulatory": 141,
+        "infectious": 102
+      },
+      "trace_sha256": "0d8a35d69ac0512824474344a25b2a41f7d2cbf70f60dc94b6c87e67f2bbf2ea",
+      "dataset_sha256": "c983f7a5f990669d42e0ced0730374e7ca7e99aebb0b0b98030f1fc9059ec095",
+      "reward_sha256": "85a72f0d04c7c6bb89c9a823b8bb3428307fb96243e4ca0c2f363ad131950193",
+      "judge_model": "gpt-chat-latest_2026-05-28"
+    },
+    {
+      "model": "Qwen3.5-9B SFT + curated-data RL (self-judge)",
+      "step": 20,
+      "n": 2452,
+      "overall": 0.3833605220228385,
+      "per_cat": {
+        "neoplasms": 0.5798561151079137,
+        "blood_immune": 0.4260089686098655,
+        "endocrine_metabolic": 0.2874493927125506,
+        "circulatory": 0.19858156028368795,
+        "nervous_system": 0.44329896907216493,
+        "other": 0.1557632398753894,
+        "digestive": 0.3068181818181818,
+        "infectious": 0.22549019607843138
+      },
+      "cat_n": {
+        "neoplasms": 695,
+        "blood_immune": 223,
+        "endocrine_metabolic": 494,
+        "circulatory": 141,
+        "nervous_system": 388,
+        "other": 321,
+        "digestive": 88,
+        "infectious": 102
+      },
+      "trace_sha256": "f7c00fe678529ec798ffedd2300a64ed5afdd9aab2d746198bb78f9b58412130",
+      "dataset_sha256": "c983f7a5f990669d42e0ced0730374e7ca7e99aebb0b0b98030f1fc9059ec095",
+      "reward_sha256": "85a72f0d04c7c6bb89c9a823b8bb3428307fb96243e4ca0c2f363ad131950193",
+      "judge_model": "gpt-chat-latest_2026-05-28"
+    },
+    {
+      "model": "Qwen3.5-9B SFT + curated-data RL (self-judge)",
+      "step": 40,
+      "n": 2452,
+      "overall": 0.3772430668841762,
+      "per_cat": {
+        "neoplasms": 0.5453237410071943,
+        "endocrine_metabolic": 0.3076923076923077,
+        "nervous_system": 0.43556701030927836,
+        "other": 0.14330218068535824,
+        "digestive": 0.3181818181818182,
+        "blood_immune": 0.4349775784753363,
+        "circulatory": 0.2127659574468085,
+        "infectious": 0.23529411764705882
+      },
+      "cat_n": {
+        "neoplasms": 695,
+        "endocrine_metabolic": 494,
+        "nervous_system": 388,
+        "other": 321,
+        "digestive": 88,
+        "blood_immune": 223,
+        "circulatory": 141,
+        "infectious": 102
+      },
+      "trace_sha256": "d20e79479901f9b0e0ae9389d1ed5649e6861da42b41114d7d3ed491641224e2",
+      "dataset_sha256": "c983f7a5f990669d42e0ced0730374e7ca7e99aebb0b0b98030f1fc9059ec095",
+      "reward_sha256": "85a72f0d04c7c6bb89c9a823b8bb3428307fb96243e4ca0c2f363ad131950193",
+      "judge_model": "gpt-chat-latest_2026-05-28"
+    },
+    {
+      "model": "Qwen3.5-9B SFT + curated-data RL (self-judge)",
+      "step": 60,
+      "n": 2452,
+      "overall": 0.40089722675367045,
+      "per_cat": {
+        "neoplasms": 0.5553956834532374,
+        "nervous_system": 0.4690721649484536,
+        "other": 0.14641744548286603,
+        "circulatory": 0.23404255319148937,
+        "endocrine_metabolic": 0.34210526315789475,
+        "digestive": 0.36363636363636365,
+        "blood_immune": 0.4798206278026906,
+        "infectious": 0.2647058823529412
+      },
+      "cat_n": {
+        "neoplasms": 695,
+        "nervous_system": 388,
+        "other": 321,
+        "circulatory": 141,
+        "endocrine_metabolic": 494,
+        "digestive": 88,
+        "blood_immune": 223,
+        "infectious": 102
+      },
+      "trace_sha256": "fdce8992c2a1b282be1847bbf6284cab5d44a2ade1976e2dd79136978ad2ad40",
+      "dataset_sha256": "c983f7a5f990669d42e0ced0730374e7ca7e99aebb0b0b98030f1fc9059ec095",
+      "reward_sha256": "85a72f0d04c7c6bb89c9a823b8bb3428307fb96243e4ca0c2f363ad131950193",
+      "judge_model": "gpt-chat-latest_2026-05-28"
+    },
+    {
+      "model": "Qwen3.5-9B SFT + curated-data RL (self-judge)",
+      "step": 80,
+      "n": 2452,
+      "overall": 0.40212071778140296,
+      "per_cat": {
+        "neoplasms": 0.581294964028777,
+        "other": 0.17133956386292834,
+        "endocrine_metabolic": 0.3360323886639676,
+        "circulatory": 0.2127659574468085,
+        "digestive": 0.3409090909090909,
+        "blood_immune": 0.4484304932735426,
+        "nervous_system": 0.44587628865979384,
+        "infectious": 0.27450980392156865
+      },
+      "cat_n": {
+        "neoplasms": 695,
+        "other": 321,
+        "endocrine_metabolic": 494,
+        "circulatory": 141,
+        "digestive": 88,
+        "blood_immune": 223,
+        "nervous_system": 388,
+        "infectious": 102
+      },
+      "trace_sha256": "cdc10cd149a6e4103f266254b1bfecd8d38b1109e8095136e337408180c418da",
+      "dataset_sha256": "c983f7a5f990669d42e0ced0730374e7ca7e99aebb0b0b98030f1fc9059ec095",
+      "reward_sha256": "85a72f0d04c7c6bb89c9a823b8bb3428307fb96243e4ca0c2f363ad131950193",
+      "judge_model": "gpt-chat-latest_2026-05-28"
+    },
+    {
+      "model": "Qwen3.5-9B SFT + curated-data RL (self-judge)",
+      "step": 100,
+      "n": 2452,
+      "overall": 0.41272430668841764,
+      "per_cat": {
+        "blood_immune": 0.4977578475336323,
+        "neoplasms": 0.5827338129496403,
+        "circulatory": 0.19858156028368795,
+        "other": 0.17133956386292834,
+        "endocrine_metabolic": 0.3603238866396761,
+        "nervous_system": 0.47164948453608246,
+        "digestive": 0.32954545454545453,
+        "infectious": 0.22549019607843138
+      },
+      "cat_n": {
+        "blood_immune": 223,
+        "neoplasms": 695,
+        "circulatory": 141,
+        "other": 321,
+        "endocrine_metabolic": 494,
+        "nervous_system": 388,
+        "digestive": 88,
+        "infectious": 102
+      },
+      "trace_sha256": "21688d80f64882364cf9c87d756171f6b2fd2d9232dcad0ab56de8cff295285b",
+      "dataset_sha256": "c983f7a5f990669d42e0ced0730374e7ca7e99aebb0b0b98030f1fc9059ec095",
+      "reward_sha256": "85a72f0d04c7c6bb89c9a823b8bb3428307fb96243e4ca0c2f363ad131950193",
+      "judge_model": "gpt-chat-latest_2026-05-28"
+    }
+  ],
+  "best": {
+    "model": "Qwen3.5-9B SFT + curated-data RL (self-judge)",
+    "step": 100,
+    "n": 2452,
+    "overall": 0.41272430668841764,
+    "per_cat": {
+      "blood_immune": 0.4977578475336323,
+      "neoplasms": 0.5827338129496403,
+      "circulatory": 0.19858156028368795,
+      "other": 0.17133956386292834,
+      "endocrine_metabolic": 0.3603238866396761,
+      "nervous_system": 0.47164948453608246,
+      "digestive": 0.32954545454545453,
+      "infectious": 0.22549019607843138
+    },
+    "cat_n": {
+      "blood_immune": 223,
+      "neoplasms": 695,
+      "circulatory": 141,
+      "other": 321,
+      "endocrine_metabolic": 494,
+      "nervous_system": 388,
+      "digestive": 88,
+      "infectious": 102
+    },
+    "trace_sha256": "21688d80f64882364cf9c87d756171f6b2fd2d9232dcad0ab56de8cff295285b",
+    "dataset_sha256": "c983f7a5f990669d42e0ced0730374e7ca7e99aebb0b0b98030f1fc9059ec095",
+    "reward_sha256": "85a72f0d04c7c6bb89c9a823b8bb3428307fb96243e4ca0c2f363ad131950193",
+    "judge_model": "gpt-chat-latest_2026-05-28"
+  }
+}

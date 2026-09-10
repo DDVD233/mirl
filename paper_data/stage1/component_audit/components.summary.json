@@ -1,0 +1,143 @@
+{
+  "arms": {
+    "ground16_feedback50": {
+      "n": 64,
+      "format_valid": 64,
+      "reference_valid": 52,
+      "reference_labels": {
+        "valid": 52,
+        "uncertain": 6,
+        "invalid": 6
+      },
+      "validator_accepted": 64,
+      "all_formatted_tasks": {
+        "n": 64,
+        "accuracy": 0.857421875,
+        "mixed_reward_groups": 0.296875,
+        "mean_reward_variance": 0.048095703125
+      },
+      "reference_valid_tasks": {
+        "n": 52,
+        "accuracy": 0.8822115384615384,
+        "mixed_reward_groups": 0.28846153846153844,
+        "mean_reward_variance": 0.047776442307692304
+      }
+    },
+    "ground3_feedback50": {
+      "n": 64,
+      "format_valid": 64,
+      "reference_valid": 54,
+      "reference_labels": {
+        "valid": 54,
+        "uncertain": 3,
+        "invalid": 7
+      },
+      "validator_accepted": 63,
+      "all_formatted_tasks": {
+        "n": 64,
+        "accuracy": 0.908203125,
+        "mixed_reward_groups": 0.171875,
+        "mean_reward_variance": 0.024169921875
+      },
+      "reference_valid_tasks": {
+        "n": 54,
+        "accuracy": 0.9722222222222222,
+        "mixed_reward_groups": 0.14814814814814814,
+        "mean_reward_variance": 0.018518518518518517
+      }
+    },
+    "ground0_feedback50": {
+      "n": 64,
+      "format_valid": 64,
+      "reference_valid": 42,
+      "reference_labels": {
+        "valid": 42,
+        "invalid": 16,
+        "uncertain": 6
+      },
+      "validator_accepted": 64,
+      "all_formatted_tasks": {
+        "n": 64,
+        "accuracy": 0.91796875,
+        "mixed_reward_groups": 0.234375,
+        "mean_reward_variance": 0.03466796875
+      },
+      "reference_valid_tasks": {
+        "n": 42,
+        "accuracy": 0.9672619047619048,
+        "mixed_reward_groups": 0.16666666666666666,
+        "mean_reward_variance": 0.0234375
+      }
+    },
+    "ground16_no_feedback": {
+      "n": 64,
+      "format_valid": 64,
+      "reference_valid": 51,
+      "reference_labels": {
+        "valid": 51,
+        "invalid": 7,
+        "uncertain": 6
+      },
+      "validator_accepted": 61,
+      "all_formatted_tasks": {
+        "n": 64,
+        "accuracy": 0.896484375,
+        "mixed_reward_groups": 0.1875,
+        "mean_reward_variance": 0.029052734375
+      },
+      "reference_valid_tasks": {
+        "n": 51,
+        "accuracy": 0.9436274509803921,
+        "mixed_reward_groups": 0.17647058823529413,
+        "mean_reward_variance": 0.024816176470588234
+      }
+    },
+    "ground16_feedback20": {
+      "n": 64,
+      "format_valid": 64,
+      "reference_valid": 50,
+      "reference_labels": {
+        "valid": 50,
+        "uncertain": 4,
+        "invalid": 10
+      },
+      "validator_accepted": 63,
+      "all_formatted_tasks": {
+        "n": 64,
+        "accuracy": 0.865234375,
+        "mixed_reward_groups": 0.1875,
+        "mean_reward_variance": 0.030029296875
+      },
+      "reference_valid_tasks": {
+        "n": 50,
+        "accuracy": 0.9175,
+        "mixed_reward_groups": 0.16,
+        "mean_reward_variance": 0.0296875
+      }
+    },
+    "ground16_feedback80": {
+      "n": 64,
+      "format_valid": 64,
+      "reference_valid": 58,
+      "reference_labels": {
+        "valid": 58,
+        "uncertain": 3,
+        "invalid": 3
+      },
+      "validator_accepted": 63,
+      "all_formatted_tasks": {
+        "n": 64,
+        "accuracy": 0.912109375,
+        "mixed_reward_groups": 0.1875,
+        "mean_reward_variance": 0.033447265625
+      },
+      "reference_valid_tasks": {
+        "n": 58,
+        "accuracy": 0.9418103448275862,
+        "mixed_reward_groups": 0.15517241379310345,
+        "mean_reward_variance": 0.026670258620689655
+      }
+    }
+  },
+  "scope": "Paired generation-level ablations on text-only training seeds; not RL outcome ablations"
+}

@@ -1,5 +1,6 @@
 """Refresh only the stage-1 comparisons and official HealthBench breakdowns."""
 
+import argparse
 import hashlib
 import importlib.util
 import json
@@ -109,7 +110,7 @@ def best_curve(name):
     return max(rows, key=lambda item: item[1]["overall"])
 
 
-def main():
+def refresh_healthbench_ledger():
     hb = {}
     for directory in sorted((ARCHIVE / "healthbench_pro_gpt54").iterdir()):
         if directory.is_dir() and list(directory.glob("result__*.json")):
@@ -117,11 +118,24 @@ def main():
     (ARCHIVE / "healthbench_official_refresh.json").write_text(
         json.dumps({"grader": "gpt-5.4_2026-03-05", "runs": hb}, indent=2) + "\n"
     )
+    return hb
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--healthbench-ledger-only", action="store_true", help="Validate saved runs without redrawing figures"
+    )
+    args = parser.parse_args()
+    hb = refresh_healthbench_ledger()
+    if args.healthbench_ledger_only:
+        print(json.dumps({"official_hb_runs": len(hb), "overall": {k: v["overall"] for k, v in hb.items()}}))
+        return
     series = [
         ("Qwen3.6-27B base", "qwen36_27b_base", PINK),
-        ("Qwen3.6-27B self-evolving", "ours_rlonly_selfimprove", TEAL),
+        ("RSIMed-27B", "ours_rlonly_selfimprove", TEAL),
         ("Gemma-4-31B base", "gemma4_31b_base", "#e8a9d2"),
-        ("Gemma-4-31B self-evolving", "gemma4_31b_selfimprove", "#4f9e86"),
+        ("RSIMed-Gemma4", "gemma4_31b_selfimprove", "#4f9e86"),
         ("GPT-5.6", "gpt56_sol", GOLD),
     ]
     lines = [
@@ -163,7 +177,7 @@ def main():
     for col, metric in enumerate(("length_adjusted", "raw"), 1):
         for label, keys, color in [
             ("Base", ["qwen36_27b_base", "gemma4_31b_base", None], PINK),
-            ("Self-evolving", ["ours_rlonly_selfimprove", "gemma4_31b_selfimprove", None], TEAL),
+            ("RSIMed", ["ours_rlonly_selfimprove", "gemma4_31b_selfimprove", None], TEAL),
             ("Frontier reference", [None, None, "gpt56_sol"], GOLD),
         ]:
             vals = [hb[k]["overall"][metric] if k else None for k in keys]

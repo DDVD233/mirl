@@ -547,6 +547,48 @@
         "paper_data/stage1/healthbench_pro_gpt54/ours_rlonly_selfimprove/healthbench_professional_20260811_230322.jsonl": "153e337d34234a56e51babaadfc7fe45c15ef520187c489f94b39dfc2ca0e82c"
       }
     },
+    "qwen35_397b_fp8_v2": {
+      "overall": {
+        "n": 525,
+        "raw": 0.39700832232199973,
+        "length_adjusted": 0.3255027063219997
+      },
+      "use/consult": {
+        "n": 236,
+        "raw": 0.40784995870345425,
+        "length_adjusted": 0.3371749748051492
+      },
+      "slice/good_faith__typical": {
+        "n": 256,
+        "raw": 0.6378492629018321,
+        "length_adjusted": 0.5494983582143321
+      },
+      "slice/good_faith__difficult": {
+        "n": 78,
+        "raw": 0.3627046972635208,
+        "length_adjusted": 0.2779995280327516
+      },
+      "slice/red_teaming__difficult": {
+        "n": 191,
+        "raw": 0.08821461533835709,
+        "length_adjusted": 0.0446773713592995
+      },
+      "use/research": {
+        "n": 147,
+        "raw": 0.5362174382105812,
+        "length_adjusted": 0.43933223821058126
+      },
+      "use/writing": {
+        "n": 142,
+        "raw": 0.23487898273295216,
+        "length_adjusted": 0.18826611090196624
+      },
+      "provenance": {
+        "paper_data/stage1/healthbench_pro_gpt54/qwen35_397b_fp8_v2/result__hbpro-Qwen_Qwen3.5-397B-A17B-FP8.json": "31d07ebfc2d8f4d998c9e588d1be7b98e05f2aab4151f9034094220ff90bf76f",
+        "paper_data/stage1/healthbench_pro_gpt54/qwen35_397b_fp8_v2/allresults_20260908_115237.json": "68db491acb079db4a868d6e58b6582b21315aa05d74802e365aa9fa9be3d9f0d",
+        "paper_data/stage1/healthbench_pro_gpt54/qwen35_397b_fp8_v2/healthbench_professional_20260908_115237.jsonl": "153e337d34234a56e51babaadfc7fe45c15ef520187c489f94b39dfc2ca0e82c"
+      }
+    },
     "qwen35_9b_base": {
       "overall": {
         "n": 525,
