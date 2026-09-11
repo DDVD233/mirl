@@ -123,6 +123,9 @@ def render_ablation(table, metric, caption, label):
     return "\n".join(L) + "\n"
 
 
+SETTING_NAME = {"A": "9B, GPT", "B": "27B, GPT", "C": "9B, all-self", "D": "9B, no retrieval"}
+
+
 def render_specialty(table, caption, label):
     """Per-specialty accuracy (primary metric) for every block: fixed prompt vs ours."""
     specs = sorted({s for b in table["blocks"] for r in b["rows"] for s in r["specialty"]})
@@ -135,7 +138,7 @@ def render_specialty(table, caption, label):
     L = [r"\begin{table}[h]", r"\begin{center}", f"\\caption{{{caption}}}", f"\\label{{{label}}}",
          r"\footnotesize", r"\setlength{\tabcolsep}{3.5pt}",
          r"\begin{tabular}{lr" + "cc" * len(cols) + "}", r"\toprule",
-         "Specialty & $n$ & " + " & ".join(f"\\multicolumn{{2}}{{c}}{{Block {k}}}" for k, _, _ in cols) + r" \\",
+         "Specialty & $n$ & " + " & ".join(f"\\multicolumn{{2}}{{c}}{{{SETTING_NAME.get(k, 'Block ' + k)}}}" for k, _, _ in cols) + r" \\",
          " ".join(f"\\cmidrule(lr){{{3 + 2 * i}-{4 + 2 * i}}}" for i in range(len(cols))),
          "& & " + " & ".join("Fixed & Ours" for _ in cols) + r" \\", r"\midrule"]
     for s in specs:

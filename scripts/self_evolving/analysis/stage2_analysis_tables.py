@@ -113,8 +113,8 @@ def render_funnel(data, T):
         ("Distinct tasks", lambda d: f"{d['funnel']['tasks_with_case']:,}"),
         ("Accepted criteria", lambda d: f"{d['funnel']['criteria_accepted']:,}"),
         ("\\quad positive share", lambda d: pct(d['funnel']['positive_share']) + "\\%"),
-        ("Margin removed per criterion (mean)", lambda d: f"{d['funnel']['gap_drop_mean']:.2f}"),
-        ("Exploit minus honest score at capture (mean)", lambda d: f"{d['funnel']['exploit_minus_honest_mean']:.2f}"),
+        ("Mean margin removed per criterion", lambda d: f"{d['funnel']['gap_drop_mean']:.2f}"),
+        ("Mean exploit minus honest score at capture", lambda d: f"{d['funnel']['exploit_minus_honest_mean']:.2f}"),
         ("Served score on patched tasks, before $\\to$ after", lambda d: f"{d['patch_effect']['pooled_mean_before']:.2f} $\\to$ {d['patch_effect']['pooled_mean_after']:.2f}"),
         ("\\quad tasks whose score fell", lambda d: pct(d['patch_effect']['share_tasks_score_fell']) + "\\%"),
     ]
@@ -135,8 +135,8 @@ def render_heldout(data, T):
     if not os.path.exists(p):
         return
     d = json.load(open(p))
-    rows = [("prbench9b_specgap_ship_websearch", "PRBench Hard (finance and legal)", 550, "rubric score"),
-            ("profbench9b_specgap_ship_websearch", "ProfBench (PhD and MBA reports)", 40, "rubric score"),
+    rows = [("prbench9b_specgap_ship_websearch", "PRBench Hard, finance and legal", 550, "rubric score"),
+            ("profbench9b_specgap_ship_websearch", "ProfBench, PhD and MBA reports", 40, "rubric score"),
             ("medxpert9b_specgap_ship_retrieval_websearch", "MedXpertQA, text and image", 4450, "accuracy")]
     L = [r"\begin{table}[h]", r"\begin{center}",
          r"\caption{RRIMed on held-out rubric benchmarks outside HealthBench Professional, Qwen3.5-9B, "
@@ -243,7 +243,7 @@ def render_reference(data, T):
          r"\caption{Reference points on HealthBench Professional under one protocol: the benchmark's "
          r"official pipeline, no tools, greedy decoding, an 8,192-token answer budget, and the "
          r"gpt-chat-latest grader used for validation in this paper. Frontier models are served through "
-         r"the same endpoint as the grader; open models and our RRIMed-27B checkpoint are served locally.}",
+         r"the same endpoint as the grader; open models are served locally.}",
          r"\label{tab:reference}", r"\small", r"\begin{tabular}{lcc}", r"\toprule",
          r"Model & Length-adjusted & Unadjusted \\", r"\midrule"]
     last = None
@@ -275,7 +275,7 @@ def render_methods(data, T, table):
     L = [r"\begin{table}[h]", r"\begin{center}",
          r"\caption{Inference-time methods on the frozen base models next to the trained rows of the same "
          r"base model (Table~\ref{tab:main}), HealthBench Professional accuracy under the gpt-chat-latest "
-         r"grader with three votes. The frozen-model methods follow the stage-1 protocol: greedy decoding, "
+         r"grader with three votes. The frozen-model methods follow the stage-1 protocol, greedy decoding, "
          r"no reasoning channel, references from the shared medical corpus placed in the prompt (medical RAG "
          r"retrieves once, RAG-Fusion fuses three generated queries, i-MedRAG asks three rounds of two "
          r"follow-up questions). The trained rows answer with the solver's own tool calls at the training "
