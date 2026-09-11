@@ -21,10 +21,10 @@ ROWS = [
     # (setting, label, hbhard exp, medxpertqa tag)
     ("27B", "Untrained", "base27b_hbhard", "base27b"),
     ("27B", "Fixed prompt", "hb27b_fixed60_hbhard", "hb27b_fixed_step60"),
-    ("27B", "SER (ours)", "hb27b_ser200_hbhard", "hb27b_ser_step200"),
+    ("27B", "RRIMed", "hb27b_ser200_hbhard", "hb27b_ser_step200"),
     ("9B no-retrieval", "Untrained", "base9b_noretr_hbhard", "base9b"),
     ("9B no-retrieval", "Fixed prompt", "hb9b_noretr_fixed860_hbhard", "hb9b_noretr_fixed_step860"),
-    ("9B no-retrieval", "SER (ours)", "hb9b_noretr_ser480_hbhard", "hb9b_noretr_ser_step480"),
+    ("9B no-retrieval", "RRIMed", "hb9b_noretr_ser480_hbhard", "hb9b_noretr_ser_step480"),
 ]
 
 

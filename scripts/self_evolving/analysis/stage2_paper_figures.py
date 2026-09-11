@@ -45,7 +45,7 @@ fig = make_subplots(rows=1, cols=2, horizontal_spacing=0.09,
 
 series_a = [("Untrained", "Untrained", GREY),
             ("Fixed prompt", "Fixed prompt", SLATE),
-            ("SER (ours)", "SER", TEAL)]
+            ("RRIMed", "RRIMed", TEAL)]
 for name, part, color in series_a:
     ys = overall(part)
     fig.add_bar(name=name, x=SETTING, y=ys, marker_color=color, legendgroup=name,

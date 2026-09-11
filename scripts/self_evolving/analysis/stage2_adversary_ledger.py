@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Quantitative anatomy of the hack-then-patch loop for the stage-2 paper.
 
-Reads, per SER run, the gen-server ledgers under logs_hb9b/<run>/ and the trainer
+Reads, per RRIMed run, the gen-server ledgers under logs_hb9b/<run>/ and the trainer
 launch log, and writes one JSON with three views:
 
   funnel      exploit cases by source (referee-shipped vs adversary re-attack), patch
