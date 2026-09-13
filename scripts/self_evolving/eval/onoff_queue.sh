@@ -74,4 +74,14 @@ run medxpert_9b_ship180_notools "$CK/medxpert9b_ship_step180" 0 0 "$NGPU" 4450 R
 # with-tools number needs a run too.
 run medxpert_9b_ship180_tools "$CK/medxpert9b_ship_step180" 1 1 "$POL" 4450 ROLLOUT_TP=1 FROZEN_GPU="$FRZ" \
     "${MEDX_ENV[@]}" SEARCH_SNAPSHOT=$S/kb/search_cache_valonly_medx.sqlite
+# Block C (every role served by the frozen 9B; trained WITH tools) without tools.
+# The merged weights come from merge_blockC_from_hf.sh; skipped until they exist.
+for pair in hb9bC_ser_step200:hbpro_9bC_ser200_notools hb9bC_fixed_step80:hbpro_9bC_fixed80_notools; do
+    ck=${pair%%:*}; exp=${pair##*:}
+    if ls "$CK/$ck"/model*.safetensors >/dev/null 2>&1; then
+        run "$exp" "$CK/$ck" 0 0 "$NGPU" 525 ROLLOUT_TP=1
+    else
+        echo "=== skip $exp (no merged weights at $CK/$ck yet)"
+    fi
+done
 echo "QUEUE_DONE on $(hostname) $(date -u +%FT%TZ)"
