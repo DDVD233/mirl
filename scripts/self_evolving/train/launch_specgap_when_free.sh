@@ -595,7 +595,6 @@ case "$ARM" in
               SEARCH_SNAPSHOT=/scratch/sheng/self_evolving/kb/search_cache_arm22.sqlite
               ACTOR_MODEL_PATH="$_sft")
      EXP_NAME=medxpert9b_sft_specgap_ship_retrieval ;;
-  *) echo "FATAL: ARM must be 1..22" >&2; exit 1 ;;
   23) # GENERAL-DESCRIPTION arm (dvd 2026-09-13): the full RRIMed loop (ARM=10's knobs)
       # trained from a GENERAL description of what a medical AI is for, instead of the
       # HealthBench-worded bundle every HB arm used. Two other things change with it,
@@ -630,6 +629,7 @@ case "$ARM" in
                SEARCH_SNAPSHOT=/scratch/sheng/self_evolving/kb/search_cache_arm23.sqlite
                WEB_EVIDENCE=0 WEB_SEARCH_TOOL=1)
       EXP_NAME=hb9b_general_specgap_ship_retrieval ;;   # + EXP_SUFFIX=_websearch from the launcher
+  *) echo "FATAL: ARM must be 1..23" >&2; exit 1 ;;
 esac
 
 EXP_NAME="${EXP_NAME}${EXP_SUFFIX}"
