@@ -22,7 +22,7 @@ set -euo pipefail
 
 S=/scratch/sheng/self_evolving
 REPO=${REPO:-$S/verl_specgap}
-ARM="${ARM:?set ARM=1 fixed-prompt | 2 refine-loop | 3 evolve-only | 4 v1+selfjudge | 5 v3+selfjudge | 6 v2+selfjudge | 7 full+retrieval | 8 full+retrieval+solver-websearch | 9 fixed-prompt+websearch | 10 adversary-v2 (ship+always-patch+multi-round) | 19 PRBench adversary (web-only) | 20 ProfBench adversary (web-only) | 21 MedXpertQA adversary (self train judge, gpt val) | 22 = 21 initialised from the stage-1 SFT checkpoint | 23 general-description adversary (database-grounded, image tasks)}"
+ARM="${ARM:?set ARM=1 fixed-prompt | 2 refine-loop | 3 evolve-only | 4 v1+selfjudge | 5 v3+selfjudge | 6 v2+selfjudge | 7 full+retrieval | 8 full+retrieval+solver-websearch | 9 fixed-prompt+websearch | 10 adversary-v2 (ship+always-patch+multi-round) | 19 PRBench adversary (web-only) | 20 ProfBench adversary (web-only) | 21 MedXpertQA adversary (self train judge, gpt val) | 22 = 21 initialised from the stage-1 SFT checkpoint | 23 general-description adversary (database-grounded, image tasks) | 24 = 23 at 27B}"
 
 # Where the self-judge arms get their 9B grader. server5 already serves Qwen3.5-9B on a
 # dedicated GPU, exposed through frp, so pointing at it keeps all four GPUs on the
@@ -51,6 +51,28 @@ STEPS="${STEPS:-100000}"
 # which is how you RESTART rather than resume: with the same name, resume_mode=auto
 # would silently continue the previous run from its last checkpoint.
 EXP_SUFFIX="${EXP_SUFFIX:-}"
+
+# Shared by ARM=23 (9B) and ARM=24 (27B): the general-description adversary arm.
+_mmroot=/scratch/sheng/self_evolving/mm_media
+if [ "$ARM" = 23 ] || [ "$ARM" = 24 ]; then
+    [ -f "$_mmroot/manifest.jsonl" ] || { echo "FATAL: ARM=$ARM needs the staged image corpus at $_mmroot" >&2; exit 1; }
+fi
+GENERAL_ENV=(RETRIEVAL=1 EVOLVE=1 SPEC_GAP=1 SPEC_GAP_SHIP=1 PROBE=1 PATCH=1
+               HACK_MEMO=1 HB_PROBE_MODE=gate HB_REFINE_MODE=rewrite
+               HB_PROBE_RATE=1.0 HB_REFINE_ROUNDS=2 HB_REFINE_BACKGROUND=1
+               HB_PATCH_ROUNDS=2 HB_PATCH_ASYNC=1 HB_PATCH_MAX_PER_QID=6
+               HB_PATCH_MIN_MARGIN=0.15 HB_PATCHED_MAX_ITEMS=12
+               HB_PATCH_MINT_ITEMS=5 HB_REWRITE_MAX_GROW=4 HB_REFINE_BG_MAX=48
+               HB_MEMO_MAX_CHARS=2400
+               SE_DOMAIN=general
+               HB_STYLE_SEED_SHARE=0 HB_KB_ANCHOR_SHARE=0.40 HB_NONENGLISH_SHARE=0.10
+               HB_MM_SHARE=0.35 HB_MM_MANIFEST="$_mmroot/manifest.jsonl" HB_MM_ROOT="$_mmroot/images"
+               MAX_PROMPT_LEN=16384 ROLLOUT_MAX_LEN=24576
+               VAL_PARQUET=/scratch/sheng/self_evolving/healthbench_pro_val.parquet
+               SUMM_BASE="${SUMM_BASE:-http://localhost:8199/v1}" SUMM_FALLBACK_BASE=""
+               SUMMARY_CONCURRENCY="${SUMMARY_CONCURRENCY:-64}"
+               SEARCH_SNAPSHOT=/scratch/sheng/self_evolving/kb/search_cache_arm23.sqlite
+               WEB_EVIDENCE=0 WEB_SEARCH_TOOL=1)
 
 case "$ARM" in
   1) ARM_ENV=(RETRIEVAL=0 EVOLVE=0 SPEC_GAP=1)
@@ -613,27 +635,21 @@ case "$ARM" in
       # sequences per step split evenly across data-parallel ranks (256 % 3 != 0),
       # which is how the first launch died after its step-0 validation.
       # MAX_PROMPT_LEN=16384 because image tokens are prompt tokens (~1.2k per study).
-      _mmroot=/scratch/sheng/self_evolving/mm_media
-      [ -f "$_mmroot/manifest.jsonl" ] || { echo "FATAL: ARM=23 needs the staged image corpus at $_mmroot" >&2; exit 1; }
-      ARM_ENV=(RETRIEVAL=1 EVOLVE=1 SPEC_GAP=1 SPEC_GAP_SHIP=1 PROBE=1 PATCH=1
-               HACK_MEMO=1 HB_PROBE_MODE=gate HB_REFINE_MODE=rewrite
-               HB_PROBE_RATE=1.0 HB_REFINE_ROUNDS=2 HB_REFINE_BACKGROUND=1
-               HB_PATCH_ROUNDS=2 HB_PATCH_ASYNC=1 HB_PATCH_MAX_PER_QID=6
-               HB_PATCH_MIN_MARGIN=0.15 HB_PATCHED_MAX_ITEMS=12
-               HB_PATCH_MINT_ITEMS=5 HB_REWRITE_MAX_GROW=4 HB_REFINE_BG_MAX=48
-               HB_MEMO_MAX_CHARS=2400
-               SE_DOMAIN=general
-               HB_STYLE_SEED_SHARE=0 HB_KB_ANCHOR_SHARE=0.40 HB_NONENGLISH_SHARE=0.10
-               HB_MM_SHARE=0.35 HB_MM_MANIFEST="$_mmroot/manifest.jsonl" HB_MM_ROOT="$_mmroot/images"
-               MAX_PROMPT_LEN=16384 ROLLOUT_MAX_LEN=24576
-               VAL_PARQUET=/scratch/sheng/self_evolving/healthbench_pro_val.parquet
-               N_GPUS="${N_GPUS:-4}" ROLLOUT_TP="${ROLLOUT_TP:-2}" FROZEN_GPU="${FROZEN_GPU:-3}"
-               SUMM_BASE="${SUMM_BASE:-http://localhost:8199/v1}" SUMM_FALLBACK_BASE=""
-               SUMMARY_CONCURRENCY="${SUMMARY_CONCURRENCY:-64}"
-               SEARCH_SNAPSHOT=/scratch/sheng/self_evolving/kb/search_cache_arm23.sqlite
-               WEB_EVIDENCE=0 WEB_SEARCH_TOOL=1)
+      ARM_ENV=("${GENERAL_ENV[@]}"
+               N_GPUS="${N_GPUS:-4}" ROLLOUT_TP="${ROLLOUT_TP:-2}" FROZEN_GPU="${FROZEN_GPU:-3}")
       EXP_NAME=hb9b_general_specgap_ship_retrieval ;;   # + EXP_SUFFIX=_websearch from the launcher
-  *) echo "FATAL: ARM must be 1..23" >&2; exit 1 ;;
+  24) # The 27B twin of ARM=23 (dvd's 9B-vs-27B question, 2026-09-13): same bundle,
+      # loop and grounding, base Qwen3.6-27B, TP=2 rollouts, summarizer on GPU 3 as in
+      # 23. Prompt cap 12288 rather than 16384: HealthBench-Pro requests are short and
+      # one staged image is ~1.2k tokens, and the 27B actor update has to hold the full
+      # rollout length per GPU next to a rollout engine sized for the summarizer.
+      ARM_ENV=("${GENERAL_ENV[@]}"
+               ACTOR_MODEL_PATH=Qwen/Qwen3.6-27B
+               MAX_PROMPT_LEN=12288 ROLLOUT_MAX_LEN=20480
+               SUMMARY_CONCURRENCY="${SUMMARY_CONCURRENCY:-320}"
+               N_GPUS="${N_GPUS:-4}" ROLLOUT_TP="${ROLLOUT_TP:-2}" FROZEN_GPU="${FROZEN_GPU:-3}")
+      EXP_NAME=hb27b_general_specgap_ship_retrieval ;;   # + EXP_SUFFIX=_websearch from the launcher
+  *) echo "FATAL: ARM must be 1..24" >&2; exit 1 ;;
 esac
 
 EXP_NAME="${EXP_NAME}${EXP_SUFFIX}"
