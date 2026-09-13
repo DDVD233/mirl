@@ -720,8 +720,143 @@ def _medical() -> dict:
     )
 
 
+def _general() -> dict:
+    # NO benchmark (dvd 2026-09-13). The proposer is told what a medical AI is FOR in
+    # general and nothing about any evaluation set's format, authorship or rubric
+    # shape; every task is grounded only in the database -- a curated-KB passage or a
+    # staged image from the medical corpus -- and never in a public Q&A style seed.
+    # The use-case mix is ours (what clinicians, patients and researchers actually
+    # bring), and the specialty list covers the corpus's imaging modalities
+    # (radiology, dermatology, pathology, ophthalmology) as well as the medicine.
+    specialties = [
+        "cardiology", "pulmonology", "gastroenterology", "nephrology", "endocrinology",
+        "hematology_oncology", "infectious_disease", "rheumatology", "neurology",
+        "psychiatry", "emergency_medicine", "critical_care", "primary_care",
+        "pediatrics", "obstetrics_gynecology", "general_surgery", "orthopedics",
+        "urology", "dermatology", "ophthalmology", "radiology", "pathology",
+        "pharmacology_toxicology", "public_health_preventive",
+    ]
+    mix = {"diagnosis": 0.22, "treatment": 0.22, "patient_education": 0.16,
+           "documentation": 0.14, "research": 0.14, "basic_science": 0.12}
+    return dict(
+        NAME="general",
+        BENCH_NAME="general medical use",
+        USE_CASES=dict(mix),
+        USE_CASE_DESC={
+            "diagnosis": "a diagnostic question: a presentation, findings, results or an image, "
+                         "and what it points to, what it rules out, and what to check next",
+            "treatment": "a management question: what to do for this person now -- agent, dose, "
+                         "procedure, monitoring, escalation, or the choice between options -- and "
+                         "what would be wrong here",
+            "patient_education": "a patient or caregiver asking, in their own words, what a "
+                                 "condition, test, medication or result means for them and what to "
+                                 "do, needing a correct, safe and understandable answer",
+            "documentation": "a clinical writing task: a note, letter, referral, discharge summary, "
+                             "handout, or a structured record built from unstructured facts",
+            "research": "an evidence question: what studies, guidelines or mechanisms say about a "
+                        "specific clinical decision, including limitations and how current it is",
+            "basic_science": "a mechanism question: the physiology, pharmacology, biochemistry, "
+                             "genetics or pathology behind a clinical finding, at professional depth",
+        },
+        SPECIALTIES_BY_USE_CASE=None,  # full cross product
+        SPECIALTIES=specialties,
+        REDTEAM_SHARE=0.15,
+        MODE_INSTR={
+            "good_faith": "MODE: good faith. A clinician, patient or researcher using the AI "
+                          "normally and wanting a correct, specific, useful answer.",
+            "red_teaming": (
+                "MODE: stress test. Build a request with a false or outdated premise, a "
+                "misremembered rule or dose, a finding or image that does not fit the story told, "
+                "a request that needs information the user has not given, or a request whose "
+                "obvious answer is unsafe for THIS person. The rubric MUST reward catching the "
+                "problem and penalize going along with it."
+            ),
+        },
+        REF_STATS_USE_CASE_MIX=dict(mix),
+        PANEL="a panel of physicians and medical educators",
+        AI_DESC="a general-purpose medical AI used by clinicians, patients and researchers",
+        USER_ROLE="user",
+        USER_ROLE_ADJ="medical",
+        REQUEST_NOUN="medical request",
+        EXPERT_TITLE="a senior physician",
+        BENCH_NAME_HYPHEN="general-medical",
+        PROPOSER_ROLE="a physician and medical educator",
+        PRACTITIONER="physician",
+        AI_SHORT="a medical AI",
+        TARGET_DOMAINS_SENTENCE=(
+            "The target is general medical competence -- diagnosis, management, patient "
+            "communication, documentation, evidence and basic science, with and without medical "
+            "images -- NOT any single benchmark's format."
+        ),
+        VARY_AXES="specialty, task type, patient context, imaging modality, document type, and difficulty",
+        GROUNDING_LITERATURE="grounding medical literature",
+        RARE_THING="rare diseases and atypical presentations",
+        EXAMPLE_QUALIFIER="contraindication",
+        EXAMPLE_CHANGED_SUBJECT="a guideline",
+        EXAMPLE_SCOPE="population",
+        DATASET_BRIEF=(
+            "TARGET USE (general description; there is NO benchmark and there are NO example "
+            "items): a medical AI that clinicians, patients and researchers use for real work. It "
+            "must reason through diagnoses and differentials; decide management with specific "
+            "agents, doses, thresholds and next steps; read medical images (radiographs, CT, MRI, "
+            "ultrasound, mammography, dermatology photographs, fundus images, histopathology) and "
+            "say what they show and what follows; explain conditions, tests and results to "
+            "patients safely and plainly; write clinical documents; answer evidence questions with "
+            "current guidance and its limits; and explain the basic science behind findings. "
+            "Requests arrive in any register -- a terse clinician note, a worried patient's "
+            "message, a researcher's precise question, sometimes several turns, sometimes with an "
+            "image attached -- across every specialty and body system. A good answer is correct "
+            "on the specific facts that matter, safe, scoped to what was asked and what is known, "
+            "and honest about uncertainty; a bad answer is generically plausible, misses the "
+            "discriminating detail, or goes along with a false premise."
+        ),
+        EXAMPLE_VAGUE="\"discusses renal dosing\"",
+        EXAMPLE_SPECIFIC=(
+            "\"states the eGFR threshold below which metformin is contraindicated "
+            "(30 mL/min/1.73m2)\""
+        ),
+        EXAMPLE_WASTED="\"Mentions in some way that renal function matters\"",
+        EXAMPLE_REAL=(
+            "\"Mentions in some way that metformin is contraindicated below an eGFR of "
+            "30 mL/min/1.73m2\""
+        ),
+        EXAMPLE_SPECIFIC_FACT="a value, threshold, dose, interval, contraindication, "
+                              "image finding or named guideline",
+        EXAMPLE_NEG_ERRORS="wrong dose, missed red flag, unsafe reassurance, fabricated "
+                           "trial/guideline, a finding read into an image that is not there",
+        EXAMPLE_NUMBER_KINDS="threshold, dose, interval, cutoff, or staging boundary",
+        EXAMPLE_VAGUE2="\"discusses renal dosing\"",
+        EXAMPLE_SPECIFIC2=(
+            "\"states the eGFR threshold below which metformin is contraindicated "
+            "(30 mL/min/1.73m2)\""
+        ),
+        # The medical rubric shape stays (three weighted positives is a training-signal
+        # decision, not a benchmark one), but its rationale must not cite a benchmark.
+        COUNT_RATIONALE=(
+            "- Three positives is the norm, and the reason is mechanical: the score is the "
+            "fraction of available positive points the answer earns, so with one or two criteria "
+            "almost every response lands on the same handful of values, several answers of "
+            "visibly different quality receive IDENTICAL scores, and the training step learns "
+            "nothing from that task. Three positives of differing weight let genuinely better "
+            "answers score higher than merely adequate ones. One is acceptable; four is already "
+            "unusual and five is reserved for a genuinely multi-part deliverable. Each extra short "
+            "criterion is another independent chance at partial credit, so rubrics of four easy "
+            "criteria push almost every response to a near-perfect score, the GRPO group goes "
+            "zero-variance, and the task teaches nothing. If you are about to write a fourth "
+            "criterion, the honest move is almost always three good ones instead."
+        ),
+        SOLVER_SYSTEM=None,  # the medical solver system prompt already fits
+        # The vocabulary is medical; only the benchmark's name must go.
+        REBRAND=[
+            ("HealthBench-Professional", "general medical use"),
+            ("HealthBench Professional", "general medical use"),
+            ("HealthBench", "general medical use"),
+        ],
+    )
+
+
 _BUNDLES = {"medical": _medical, "prbench": _prbench, "profbench": _profbench,
-            "medxpert": _medxpert}
+            "medxpert": _medxpert, "general": _general}
 if DOMAIN not in _BUNDLES:
     raise SystemExit(f"SE_DOMAIN={DOMAIN!r} unknown; choose one of {sorted(_BUNDLES)}")
 BUNDLE = _BUNDLES[DOMAIN]()

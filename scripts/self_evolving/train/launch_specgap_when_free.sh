@@ -22,7 +22,7 @@ set -euo pipefail
 
 S=/scratch/sheng/self_evolving
 REPO=${REPO:-$S/verl_specgap}
-ARM="${ARM:?set ARM=1 fixed-prompt | 2 refine-loop | 3 evolve-only | 4 v1+selfjudge | 5 v3+selfjudge | 6 v2+selfjudge | 7 full+retrieval | 8 full+retrieval+solver-websearch | 9 fixed-prompt+websearch | 10 adversary-v2 (ship+always-patch+multi-round) | 19 PRBench adversary (web-only) | 20 ProfBench adversary (web-only) | 21 MedXpertQA adversary (self train judge, gpt val) | 22 = 21 initialised from the stage-1 SFT checkpoint}"
+ARM="${ARM:?set ARM=1 fixed-prompt | 2 refine-loop | 3 evolve-only | 4 v1+selfjudge | 5 v3+selfjudge | 6 v2+selfjudge | 7 full+retrieval | 8 full+retrieval+solver-websearch | 9 fixed-prompt+websearch | 10 adversary-v2 (ship+always-patch+multi-round) | 19 PRBench adversary (web-only) | 20 ProfBench adversary (web-only) | 21 MedXpertQA adversary (self train judge, gpt val) | 22 = 21 initialised from the stage-1 SFT checkpoint | 23 general-description adversary (database-grounded, image tasks)}"
 
 # Where the self-judge arms get their 9B grader. server5 already serves Qwen3.5-9B on a
 # dedicated GPU, exposed through frp, so pointing at it keeps all four GPUs on the
@@ -596,6 +596,40 @@ case "$ARM" in
               ACTOR_MODEL_PATH="$_sft")
      EXP_NAME=medxpert9b_sft_specgap_ship_retrieval ;;
   *) echo "FATAL: ARM must be 1..22" >&2; exit 1 ;;
+  23) # GENERAL-DESCRIPTION arm (dvd 2026-09-13): the full RRIMed loop (ARM=10's knobs)
+      # trained from a GENERAL description of what a medical AI is for, instead of the
+      # HealthBench-worded bundle every HB arm used. Two other things change with it,
+      # both about where tasks come from: the public Q&A style-seed corpus is OFF
+      # (HB_STYLE_SEED_SHARE=0), and the proposer is grounded only in the database --
+      # curated-KB passages (HB_KB_ANCHOR_SHARE, explicit because the non-medical code
+      # path defaults it to 0) and the staged image corpus (HB_MM_SHARE, every role
+      # image-aware). Validation stays HealthBench-Pro every 5 steps so the curve is
+      # read against blocks A/B; MedXpertQA and the rest are evaluated from saved
+      # checkpoints afterwards.
+      #
+      # GPUs: the dedicated summarizer box (18186) is gone, so the frozen 9B is served
+      # on the last GPU of this pod and the policy takes the others with TP=1.
+      # MAX_PROMPT_LEN=16384 because image tokens are prompt tokens (~1.2k per study).
+      _mmroot=/scratch/sheng/self_evolving/mm_media
+      [ -f "$_mmroot/manifest.jsonl" ] || { echo "FATAL: ARM=23 needs the staged image corpus at $_mmroot" >&2; exit 1; }
+      ARM_ENV=(RETRIEVAL=1 EVOLVE=1 SPEC_GAP=1 SPEC_GAP_SHIP=1 PROBE=1 PATCH=1
+               HACK_MEMO=1 HB_PROBE_MODE=gate HB_REFINE_MODE=rewrite
+               HB_PROBE_RATE=1.0 HB_REFINE_ROUNDS=2 HB_REFINE_BACKGROUND=1
+               HB_PATCH_ROUNDS=2 HB_PATCH_ASYNC=1 HB_PATCH_MAX_PER_QID=6
+               HB_PATCH_MIN_MARGIN=0.15 HB_PATCHED_MAX_ITEMS=12
+               HB_PATCH_MINT_ITEMS=5 HB_REWRITE_MAX_GROW=4 HB_REFINE_BG_MAX=48
+               HB_MEMO_MAX_CHARS=2400
+               SE_DOMAIN=general
+               HB_STYLE_SEED_SHARE=0 HB_KB_ANCHOR_SHARE=0.40 HB_NONENGLISH_SHARE=0.10
+               HB_MM_SHARE=0.35 HB_MM_MANIFEST="$_mmroot/manifest.jsonl" HB_MM_ROOT="$_mmroot/images"
+               MAX_PROMPT_LEN=16384 ROLLOUT_MAX_LEN=24576
+               VAL_PARQUET=/scratch/sheng/self_evolving/healthbench_pro_val.parquet
+               N_GPUS="${N_GPUS:-3}" ROLLOUT_TP="${ROLLOUT_TP:-1}" FROZEN_GPU="${FROZEN_GPU:-3}"
+               SUMM_BASE="${SUMM_BASE:-http://localhost:8199/v1}" SUMM_FALLBACK_BASE=""
+               SUMMARY_CONCURRENCY="${SUMMARY_CONCURRENCY:-64}"
+               SEARCH_SNAPSHOT=/scratch/sheng/self_evolving/kb/search_cache_arm23.sqlite
+               WEB_EVIDENCE=0 WEB_SEARCH_TOOL=1)
+      EXP_NAME=hb9b_general_specgap_ship_retrieval ;;   # + EXP_SUFFIX=_websearch from the launcher
 esac
 
 EXP_NAME="${EXP_NAME}${EXP_SUFFIX}"

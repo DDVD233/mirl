@@ -314,6 +314,39 @@ def test_medxpert_is_medical_with_its_own_taxonomy():
     assert "physician" in tree["consts"]["spec_gap"]["REFEREE_SYSTEM"]
 
 
+def test_general_describes_a_use_not_a_benchmark():
+    """general keeps the medical vocabulary like medxpert, but names NO benchmark.
+
+    Structural guarantees as for medxpert (no unfilled token, consistent taxonomy,
+    the brief leading every carrier), plus the one that is this bundle's point: the
+    brief and every generation-server constant are free of the HealthBench name, and
+    the brief describes a use rather than a benchmark.
+    """
+    tree = _run_dump("tree", "general")
+    assert tree["import_ok"], tree.get("import_error")
+    for key in FILES:
+        assert not tree["errors"][key], f"general extraction ({key}): {tree['errors'][key]}"
+    unfilled = [f"{key}.{name}"
+                for key in FILES
+                for name, value in tree["consts"][key].items()
+                for s in _strings(value) if "[[DOMAIN_" in s]
+    assert not unfilled, f"unfilled [[DOMAIN_ tokens: {sorted(set(unfilled))}"
+    gs = tree["consts"]["generation_server"]
+    assert set(gs["HB_REF_STATS"]["use_case_mix"]) == set(gs["HB_USE_CASES"])
+    assert set(gs["HB_USE_CASE_DESC"]) == set(gs["HB_USE_CASES"])
+    assert set(gs["HB_MODE_INSTR"]) == {"good_faith", "red_teaming"}
+    brief = tree["brief"]
+    assert brief.startswith("TARGET USE") and "benchmark" in brief.lower()
+    for name in BRIEF_CARRIERS:
+        assert gs[name].startswith(brief + "\n\n"), f"{name} does not lead with DATASET_BRIEF"
+    leftovers = [f"{key}.{name}"
+                 for key in FILES
+                 for name, value in tree["consts"][key].items()
+                 for s in _strings(value) if "HealthBench" in s]
+    assert not leftovers, f"benchmark name survives in: {sorted(set(leftovers))}"
+    assert "physician" in tree["consts"]["spec_gap"]["REFEREE_SYSTEM"]
+
+
 def test_unknown_domain_is_refused():
     env = dict(os.environ, SE_DOMAIN="bogus")
     env["PYTHONPATH"] = os.pathsep.join(p for p in [str(SE_DIR), env.get("PYTHONPATH")] if p)
