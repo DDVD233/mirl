@@ -607,7 +607,11 @@ case "$ARM" in
       # checkpoints afterwards.
       #
       # GPUs: the dedicated summarizer box (18186) is gone, so the frozen 9B is served
-      # on the last GPU of this pod and the policy takes the others with TP=1.
+      # on GPU 3 of this pod, SHARED with the policy (N_GPUS=4): the rollout engine
+      # drops to 0.35 of the memory on every GPU to make room, as the first retrieval
+      # arms did. Three policy GPUs is not an option -- verl asserts the 256 rollout
+      # sequences per step split evenly across data-parallel ranks (256 % 3 != 0),
+      # which is how the first launch died after its step-0 validation.
       # MAX_PROMPT_LEN=16384 because image tokens are prompt tokens (~1.2k per study).
       _mmroot=/scratch/sheng/self_evolving/mm_media
       [ -f "$_mmroot/manifest.jsonl" ] || { echo "FATAL: ARM=23 needs the staged image corpus at $_mmroot" >&2; exit 1; }
@@ -623,7 +627,7 @@ case "$ARM" in
                HB_MM_SHARE=0.35 HB_MM_MANIFEST="$_mmroot/manifest.jsonl" HB_MM_ROOT="$_mmroot/images"
                MAX_PROMPT_LEN=16384 ROLLOUT_MAX_LEN=24576
                VAL_PARQUET=/scratch/sheng/self_evolving/healthbench_pro_val.parquet
-               N_GPUS="${N_GPUS:-3}" ROLLOUT_TP="${ROLLOUT_TP:-1}" FROZEN_GPU="${FROZEN_GPU:-3}"
+               N_GPUS="${N_GPUS:-4}" ROLLOUT_TP="${ROLLOUT_TP:-2}" FROZEN_GPU="${FROZEN_GPU:-3}"
                SUMM_BASE="${SUMM_BASE:-http://localhost:8199/v1}" SUMM_FALLBACK_BASE=""
                SUMMARY_CONCURRENCY="${SUMMARY_CONCURRENCY:-64}"
                SEARCH_SNAPSHOT=/scratch/sheng/self_evolving/kb/search_cache_arm23.sqlite
