@@ -640,14 +640,15 @@ case "$ARM" in
       EXP_NAME=hb9b_general_specgap_ship_retrieval ;;   # + EXP_SUFFIX=_websearch from the launcher
   24) # The 27B twin of ARM=23 (dvd's 9B-vs-27B question, 2026-09-13): same bundle,
       # loop and grounding, base Qwen3.6-27B, TP=2 rollouts, summarizer on GPU 3 as in
-      # 23. Prompt cap 8192 (16384 total), not 23's 16384/24576: the 27B actor update
-      # materialises the full-vocabulary logits of one max-length sequence per GPU
-      # next to the sleeping rollout engine, and at a 20480 cap that ran GPU 0 out of
-      # memory on the first update (8.5 GiB short on a B200). HealthBench-Pro requests
-      # are short and one staged image is ~1.2k tokens, so 8192 loses nothing.
+      # 23. Sequence cap = the paper's 27B arm (6144 + 8192 = 14336), the only 27B
+      # configuration proven to train on these pods: the actor update materialises
+      # the full-vocabulary logits of one max-length sequence per GPU next to the
+      # sleeping rollout engine (29 GiB), and the first two launches OOMed on GPU 0 at
+      # 20480 (8.5 GiB short) and 16384 (11.6 GiB short). Images are capped at 256k
+      # pixels (~256 tokens) so a study plus retrieval spans fits a 6144 prompt.
       ARM_ENV=("${GENERAL_ENV[@]}"
                ACTOR_MODEL_PATH=Qwen/Qwen3.6-27B
-               MAX_PROMPT_LEN=8192 ROLLOUT_MAX_LEN=16384
+               MAX_PROMPT_LEN=6144 ROLLOUT_MAX_LEN=14336 HB_MM_MAX_PIXELS=262144
                SUMMARY_CONCURRENCY="${SUMMARY_CONCURRENCY:-320}"
                N_GPUS="${N_GPUS:-4}" ROLLOUT_TP="${ROLLOUT_TP:-2}" FROZEN_GPU="${FROZEN_GPU:-3}")
       EXP_NAME=hb27b_general_specgap_ship_retrieval ;;   # + EXP_SUFFIX=_websearch from the launcher
