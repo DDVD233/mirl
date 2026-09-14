@@ -22,7 +22,7 @@ set -euo pipefail
 
 S=/scratch/sheng/self_evolving
 REPO=${REPO:-$S/verl_specgap}
-ARM="${ARM:?set ARM=1 fixed-prompt | 2 refine-loop | 3 evolve-only | 4 v1+selfjudge | 5 v3+selfjudge | 6 v2+selfjudge | 7 full+retrieval | 8 full+retrieval+solver-websearch | 9 fixed-prompt+websearch | 10 adversary-v2 (ship+always-patch+multi-round) | 19 PRBench adversary (web-only) | 20 ProfBench adversary (web-only) | 21 MedXpertQA adversary (self train judge, gpt val) | 22 = 21 initialised from the stage-1 SFT checkpoint | 23 general-description adversary (database-grounded, image tasks) | 24 = 23 at 27B | 25 = 23 without the adversary (fixed simple prompt) | 26 = 25 at 27B}"
+ARM="${ARM:?set ARM=1 fixed-prompt | 2 refine-loop | 3 evolve-only | 4 v1+selfjudge | 5 v3+selfjudge | 6 v2+selfjudge | 7 full+retrieval | 8 full+retrieval+solver-websearch | 9 fixed-prompt+websearch | 10 adversary-v2 (ship+always-patch+multi-round) | 19 PRBench adversary (web-only) | 20 ProfBench adversary (web-only) | 21 MedXpertQA adversary (self train judge, gpt val) | 22 = 21 initialised from the stage-1 SFT checkpoint | 23 general-description adversary (database-grounded, image tasks) | 24 = 23 at 27B | 25 = 23 without the adversary (fixed simple prompt) | 26 = 25 at 27B | 27 = 23 evolution-only (no adversary) | 28 = 27 at 27B}"
 
 # Where the self-judge arms get their 9B grader. server5 already serves Qwen3.5-9B on a
 # dedicated GPU, exposed through frp, so pointing at it keeps all four GPUs on the
@@ -679,7 +679,26 @@ case "$ARM" in
                SEARCH_SNAPSHOT=/scratch/sheng/self_evolving/kb/search_cache_arm26.sqlite
                N_GPUS="${N_GPUS:-4}" ROLLOUT_TP="${ROLLOUT_TP:-2}" FROZEN_GPU="${FROZEN_GPU:-3}")
       EXP_NAME=hb27b_general_simple_retrieval ;;   # + EXP_SUFFIX=_websearch from the launcher
-  *) echo "FATAL: ARM must be 1..26" >&2; exit 1 ;;
+  27) # Evolution-only twin of ARM=23 (dvd 2026-09-14: "adversary vs no (evolution only)
+      # ... after everything else is done"): the general description with prompt
+      # evolution ON but the adversary OFF -- referee measures, nothing is shipped,
+      # no probe, patch or memo -- and the calibrated (not simple) proposer templates,
+      # so the only difference from ARM=23 is the repair loop. Launch LAST.
+      ARM_ENV=("${GENERAL_ENV[@]}"
+               EVOLVE=1 SPEC_GAP=1 SPEC_GAP_SHIP=0 PROBE=0 PATCH=0 HACK_MEMO=0
+               SEARCH_SNAPSHOT=/scratch/sheng/self_evolving/kb/search_cache_arm27.sqlite
+               N_GPUS="${N_GPUS:-4}" ROLLOUT_TP="${ROLLOUT_TP:-2}" FROZEN_GPU="${FROZEN_GPU:-3}")
+      EXP_NAME=hb9b_general_evolveonly_retrieval ;;   # + EXP_SUFFIX=_websearch from the launcher
+  28) # ARM=27 at 27B, with ARM=24's memory-safe caps. Launch LAST.
+      ARM_ENV=("${GENERAL_ENV[@]}"
+               EVOLVE=1 SPEC_GAP=1 SPEC_GAP_SHIP=0 PROBE=0 PATCH=0 HACK_MEMO=0
+               ACTOR_MODEL_PATH=Qwen/Qwen3.6-27B
+               MAX_PROMPT_LEN=4096 MAX_RESP_LEN=6144 ROLLOUT_MAX_LEN=10240 HB_MM_MAX_PIXELS=262144
+               SUMMARY_CONCURRENCY="${SUMMARY_CONCURRENCY:-320}"
+               SEARCH_SNAPSHOT=/scratch/sheng/self_evolving/kb/search_cache_arm28.sqlite
+               N_GPUS="${N_GPUS:-4}" ROLLOUT_TP="${ROLLOUT_TP:-2}" FROZEN_GPU="${FROZEN_GPU:-3}")
+      EXP_NAME=hb27b_general_evolveonly_retrieval ;;   # + EXP_SUFFIX=_websearch from the launcher
+  *) echo "FATAL: ARM must be 1..28" >&2; exit 1 ;;
 esac
 
 EXP_NAME="${EXP_NAME}${EXP_SUFFIX}"
