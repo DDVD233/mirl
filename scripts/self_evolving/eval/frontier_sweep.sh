@@ -25,12 +25,12 @@ for effort in ${EFFORTS:-low medium high}; do
       echo "=== $(date -u +%FT%TZ) GEN $name"
       SE_DOMAIN=$bench python3 scripts/self_evolving/eval/frontier_tool_eval.py --parquet "$PQ" --tools web \
           --max-searches $MS --model "$MODEL" --effort "$effort" --search-url http://localhost:8057/search \
-          --concurrency "${CONC:-16}" --out "$dump" 2>&1 | grep -v -i "warn" | tail -3
+          --concurrency "${CONC:-8}" --out "$dump" 2>&1 | grep -v -i "warn" | tail -3
     fi
     if [ -f "$dump" ] && [ ! -f "$OUT/grade/$name.json" ]; then
       echo "=== $(date -u +%FT%TZ) GRADE $name"
       python3 scripts/self_evolving/analysis/regrade_hbpro_dumps.py --dump "$dump" --val-parquet "$PQ" \
-          --api-key "$KEY" --model gpt-chat-latest_2026-05-28 --effort omit --votes 1 --concurrency 24 \
+          --api-key "$KEY" --model gpt-chat-latest_2026-05-28 --effort omit --votes 1 --concurrency "${GRADE_CONC:-6}" \
           --out "$OUT/grade/$name.json" 2>&1 | grep -vE "^\s+[0-9]+/[0-9]+ calls" | tail -2
       python3 -c "import json; d=json.load(open('$OUT/grade/$name.json')); o=d['overall']; print('RESULT $name raw_signed=%.3f raw=%.3f join=%s' % (o['acc_raw_signed'], o['acc_raw'], d.get('join_verified')))"
     fi
