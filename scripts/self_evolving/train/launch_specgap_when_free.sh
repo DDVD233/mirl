@@ -650,11 +650,12 @@ case "$ARM" in
       # 248k vocabulary, so a 12k-token micro-batch's logits alone are 6 GiB in bf16
       # and 12 GiB per fp32 copy, and allocator fragmentation grows over steps. Hence
       # 10240 (4096 prompt, 6144 response; a 256k-pixel study is ~256 tokens and the
-      # 27B's answers run ~2k tokens) and the expandable-segments allocator.
+      # 27B's answers run ~2k tokens). NOT the expandable-segments allocator: it breaks
+      # vLLM's custom all-reduce for TP=2 (CUDA IPC handles need plain allocations;
+      # "custom_all_reduce.cuh 'invalid argument'" at engine start, attempt 5).
       ARM_ENV=("${GENERAL_ENV[@]}"
                ACTOR_MODEL_PATH=Qwen/Qwen3.6-27B
                MAX_PROMPT_LEN=4096 MAX_RESP_LEN=6144 ROLLOUT_MAX_LEN=10240 HB_MM_MAX_PIXELS=262144
-               PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
                SUMMARY_CONCURRENCY="${SUMMARY_CONCURRENCY:-320}"
                N_GPUS="${N_GPUS:-4}" ROLLOUT_TP="${ROLLOUT_TP:-2}" FROZEN_GPU="${FROZEN_GPU:-3}")
       EXP_NAME=hb27b_general_specgap_ship_retrieval ;;   # + EXP_SUFFIX=_websearch from the launcher
@@ -674,7 +675,6 @@ case "$ARM" in
                EVOLVE=0 SPEC_GAP=1 SPEC_GAP_SHIP=0 PROBE=0 PATCH=0 HACK_MEMO=0 SIMPLE_PROMPT=1
                ACTOR_MODEL_PATH=Qwen/Qwen3.6-27B
                MAX_PROMPT_LEN=4096 MAX_RESP_LEN=6144 ROLLOUT_MAX_LEN=10240 HB_MM_MAX_PIXELS=262144
-               PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
                SUMMARY_CONCURRENCY="${SUMMARY_CONCURRENCY:-320}"
                SEARCH_SNAPSHOT=/scratch/sheng/self_evolving/kb/search_cache_arm26.sqlite
                N_GPUS="${N_GPUS:-4}" ROLLOUT_TP="${ROLLOUT_TP:-2}" FROZEN_GPU="${FROZEN_GPU:-3}")
