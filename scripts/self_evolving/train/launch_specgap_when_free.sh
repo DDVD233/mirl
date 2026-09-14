@@ -645,12 +645,16 @@ case "$ARM" in
       # the full-vocabulary logits of one max-length sequence per GPU next to the
       # sleeping rollout engine (29 GiB), and the first two launches OOMed on GPU 0 at
       # 20480 (8.5 GiB short), 16384 (11.6 GiB short) and 14336 (0.2 GiB short) --
-      # the image path costs the last gigabyte the paper's cap had spare, so the cap
-      # is 12288 with the response budget kept at 8192 and the prompt at 4096 (a
-      # 256k-pixel study is ~256 tokens; HealthBench-Pro requests are short).
+      # the image path costs the last gigabyte the paper's cap had spare. 12288 then
+      # ran 36 steps and died 1.7 GiB short on one update: this model family has a
+      # 248k vocabulary, so a 12k-token micro-batch's logits alone are 6 GiB in bf16
+      # and 12 GiB per fp32 copy, and allocator fragmentation grows over steps. Hence
+      # 10240 (4096 prompt, 6144 response; a 256k-pixel study is ~256 tokens and the
+      # 27B's answers run ~2k tokens) and the expandable-segments allocator.
       ARM_ENV=("${GENERAL_ENV[@]}"
                ACTOR_MODEL_PATH=Qwen/Qwen3.6-27B
-               MAX_PROMPT_LEN=4096 MAX_RESP_LEN=8192 ROLLOUT_MAX_LEN=12288 HB_MM_MAX_PIXELS=262144
+               MAX_PROMPT_LEN=4096 MAX_RESP_LEN=6144 ROLLOUT_MAX_LEN=10240 HB_MM_MAX_PIXELS=262144
+               PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
                SUMMARY_CONCURRENCY="${SUMMARY_CONCURRENCY:-320}"
                N_GPUS="${N_GPUS:-4}" ROLLOUT_TP="${ROLLOUT_TP:-2}" FROZEN_GPU="${FROZEN_GPU:-3}")
       EXP_NAME=hb27b_general_specgap_ship_retrieval ;;   # + EXP_SUFFIX=_websearch from the launcher
@@ -669,7 +673,8 @@ case "$ARM" in
       ARM_ENV=("${GENERAL_ENV[@]}"
                EVOLVE=0 SPEC_GAP=1 SPEC_GAP_SHIP=0 PROBE=0 PATCH=0 HACK_MEMO=0 SIMPLE_PROMPT=1
                ACTOR_MODEL_PATH=Qwen/Qwen3.6-27B
-               MAX_PROMPT_LEN=4096 MAX_RESP_LEN=8192 ROLLOUT_MAX_LEN=12288 HB_MM_MAX_PIXELS=262144
+               MAX_PROMPT_LEN=4096 MAX_RESP_LEN=6144 ROLLOUT_MAX_LEN=10240 HB_MM_MAX_PIXELS=262144
+               PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
                SUMMARY_CONCURRENCY="${SUMMARY_CONCURRENCY:-320}"
                SEARCH_SNAPSHOT=/scratch/sheng/self_evolving/kb/search_cache_arm26.sqlite
                N_GPUS="${N_GPUS:-4}" ROLLOUT_TP="${ROLLOUT_TP:-2}" FROZEN_GPU="${FROZEN_GPU:-3}")
