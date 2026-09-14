@@ -901,6 +901,15 @@ _SHAPE_DEFAULTS = {
 }
 for _k, _v in _SHAPE_DEFAULTS.items():
     BUNDLE.setdefault(_k, _v)
+# The simple-prompt generator's format contract names the parser's item cap for every
+# domain except medical (whose bytes are pinned). Measured 2026-09-14 on the general
+# bundle: with the use description leading the prompt and no count, gpt-chat-latest
+# wrote 9-13 criteria per task, the parser (cap 6) rejected 97% of generations, and
+# the 3% that passed were the tasks it happened to find simple enough for six --
+# a biased pool and thirty wasted calls per accepted task. Medical had no brief and
+# stayed under the cap 85% of the time, so its text is unchanged ("a list of grading
+# criteria"); other bundles get "a list of <RUBRIC_RANGE> grading criteria".
+BUNDLE.setdefault("SIMPLE_RUBRIC_COUNT", "" if IS_MEDICAL else f" {BUNDLE['RUBRIC_RANGE']}")
 # The brief as a LEADING PARAGRAPH: empty for medical (so the template is unchanged),
 # "<brief>\n\n" otherwise. Templates use [[DOMAIN_DATASET_BRIEF_PARA]] at their start.
 BUNDLE["DATASET_BRIEF_PARA"] = (BUNDLE["DATASET_BRIEF"] + "\n\n") if BUNDLE["DATASET_BRIEF"] else ""

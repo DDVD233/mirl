@@ -327,7 +327,7 @@ for judging an answer to it.
 Output ONLY a JSON object with:
 - "use_case": "[[USE_CASE]]"
 - "conversation": a list of messages [{"role":"user","content":...}] ending in the [[DOMAIN_USER_ROLE]]'s request
-- "rubric_items": a list of grading criteria, each {"criterion_text": str, "points": int} \
+- "rubric_items": a list of[[DOMAIN_SIMPLE_RUBRIC_COUNT]] grading criteria, each {"criterion_text": str, "points": int} \
 (positive points for things a good answer should do, negative points for errors it must avoid)
 - "difficulty": "typical" or "difficult"."""
 

@@ -314,6 +314,18 @@ def test_medxpert_is_medical_with_its_own_taxonomy():
     assert "physician" in tree["consts"]["spec_gap"]["REFEREE_SYSTEM"]
 
 
+def test_simple_generator_states_the_item_cap_outside_medical():
+    """The simple generator's format contract names the parser's item count for every
+    domain but medical, whose bytes are pinned. Measured 2026-09-14: without it,
+    gpt-chat-latest wrote 9-13 criteria per general-domain task, the cap of 6 rejected
+    97% of generations, and the pool was the tasks it found simple enough for six."""
+    med = _run_dump("tree", None)["consts"]["generation_server"]["SIMPLE_GENERATOR_DEFAULT"]
+    assert "a list of grading criteria" in med
+    gen = _run_dump("tree", "general")["consts"]["generation_server"]["SIMPLE_GENERATOR_DEFAULT"]
+    assert "a list of 1-5 grading criteria" in gen, gen
+    assert "[[DOMAIN_" not in gen
+
+
 def test_general_describes_a_use_not_a_benchmark():
     """general keeps the medical vocabulary like medxpert, but names NO benchmark.
 
