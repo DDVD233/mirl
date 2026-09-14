@@ -12,7 +12,12 @@ between strict and standard grading of the same answers is a hollow-credit measu
 
 Protocol (identical to verl/utils/reward_score/healthbench_pro.py, itself the verbatim
 simple-evals template):
-  - answer = dump `output` with tool spans removed, text after the last </think>;
+  - answer = what the in-loop reward graded: for retrieval-agent rollouts the LAST
+    assistant turn's text after its last </think> with tool spans removed (the loop's
+    `graded_answer`, rebuilt from the dump), otherwise the think-stripped response;
+    the dump's 512-char `extracted_answer` prefix decides which, per row. (Before
+    2026-09-14 this script stripped tool spans over the WHOLE response first, and a
+    budget-exhausted rollout's open <tool_call> then swallowed the answer: 0.0 rows.)
   - conversation = clinician turns from the val parquet (row i of the dump is row i of
     the parquet; the join is verified per file and the run aborts below --join-min);
   - one grader call per rubric criterion, "[points] criterion", majority of --votes;
@@ -32,6 +37,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import hashlib
 import json
 import os
 import re
@@ -133,6 +139,47 @@ def strip_thinking(text: str) -> str:
     return text.strip()
 
 
+def final_turn_answer(text: str) -> str:
+    """The retrieval agent loop's `graded_answer`, rebuilt from the dump's decoded
+    response: the LAST assistant turn (after the final tool response's "assistant"
+    marker), minus the chat template's leading <think> that the loop's own decode does
+    not contain, then tool spans removed and the text after the last </think> -- the
+    same steps as _final_answer_of in verl/experimental/agent_loop/retrieval_tool_agent_loop.py.
+    Applying the span regex to the WHOLE response instead is wrong: a rollout whose
+    search budget ran out leaves a bare <tool_call> before the injected error, and the
+    regex's end-of-text fallback then deletes everything after it, answer included."""
+    if not text:
+        return ""
+    seg = text
+    lt = text.rfind("<tool_response>")
+    if lt != -1:
+        la = text.rfind("\nassistant\n", lt)
+        seg = text[la + len("\nassistant\n"):] if la != -1 else text[lt:]
+    seg = seg.lstrip()
+    if seg.startswith("<think>"):
+        seg = seg[len("<think>"):]
+    seg = _TOOL_SPAN_RE.sub("", seg)
+    seg = seg.rsplit("</think>", 1)[-1] if "</think>" in seg else seg
+    return seg.strip()
+
+
+def graded_answer(row: dict) -> tuple:
+    """(answer, source). The in-loop reward graded either the agent loop's final-turn
+    answer or the plain think-stripped response, and the dump keeps the first 512
+    chars of whichever it was as `extracted_answer`; take the candidate that
+    reproduces that prefix. Dumps without the field (written by other scripts) get
+    the plain strip, this script's original behaviour."""
+    out = row.get("output", "")
+    plain = strip_thinking(out)
+    ex = row.get("extracted_answer")
+    if not isinstance(ex, str):
+        return plain, "no_field"
+    for cand in (final_turn_answer(out), plain):
+        if cand[:512] == ex[:512]:
+            return cand, "verified"
+    return plain, "unverified"
+
+
 def conversation_text(conv, answer: str) -> str:
     lines = []
     for m in conv or []:
@@ -227,18 +274,34 @@ async def main_async(args):
         dump_rows, val_rows = dump_rows[:args.limit], val_rows[:args.limit]
 
     os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
+    graded = [graded_answer(dr) for dr in dump_rows]
+    answers = [a for a, _ in graded]
+    sources = Counter(src for _, src in graded)
+    print(f"answer source: {dict(sources)}", flush=True)
+    hashes = [hashlib.sha1(a.encode()).hexdigest()[:12] for a in answers]
+    # What earlier versions of this script graded (no hash in their records): their
+    # verdicts stay valid exactly where that text equals today's answer.
+    legacy = [strip_thinking(dr.get("output", "")) for dr in dump_rows]
+
     vpath = args.out + ".verdicts.jsonl"
     cache = {}
+    invalid = 0
     if os.path.exists(vpath):
         for l in open(vpath):
             if l.strip():
                 v = json.loads(l)
-                cache[(v["row"], v["item"], v["vote"])] = v
-    print(f"cached verdicts: {len(cache)}", flush=True)
+                i = v["row"]
+                if i >= len(answers):
+                    continue
+                h = v.get("h")
+                ok = (legacy[i] == answers[i]) if h is None else (h == hashes[i])
+                if ok:
+                    cache[(i, v["item"], v["vote"])] = v
+                else:
+                    invalid += 1
+    print(f"cached verdicts: {len(cache)} (invalidated {invalid}: graded text changed)", flush=True)
     vfile = open(vpath, "a")
     lock = asyncio.Lock()
-
-    answers = [strip_thinking(dr.get("output", "")) for dr in dump_rows]
     convs = [conversation_text(vr["conversation"], ans) for vr, ans in zip(val_rows, answers)]
     template = GRADER_TEMPLATE + (STRICT_NOTE if args.strict else "")
 
@@ -259,7 +322,7 @@ async def main_async(args):
             err = None if met is not None else "unparseable"
         except Exception as e:
             raw, met, err = "", None, str(e)[:300]
-        rec = {"row": i, "item": j, "vote": v, "met": met, "err": err}
+        rec = {"row": i, "item": j, "vote": v, "met": met, "err": err, "h": hashes[i]}
         async with lock:
             cache[(i, j, v)] = rec
             vfile.write(json.dumps(rec) + "\n"); vfile.flush()
@@ -308,6 +371,7 @@ async def main_async(args):
     out = {"dump": args.dump, "grader": args.model, "effort": args.effort, "votes": args.votes,
            "strict": bool(args.strict), "n": len(per_row), "join_verified": join,
            "ungradable_items": ungradable,
+           "answer_source": dict(sources), "verdicts_invalidated": invalid,
            "overall": {m: mean([r[m] for r in per_row]) for m in metrics},
            "inloop_overall_acc_len_adj_signed": mean([r["inloop_acc_len_adj_signed"] for r in per_row
                                                       if r["inloop_acc_len_adj_signed"] is not None])}
@@ -318,7 +382,7 @@ async def main_async(args):
         out[dim] = {k: {"n": len(v), **{m: mean([r[m] for r in v]) for m in metrics}} for k, v in groups.items()}
     out["per_row"] = per_row
     json.dump(out, open(args.out, "w"), indent=1)
-    print(json.dumps({k: out[k] for k in ("overall", "inloop_overall_acc_len_adj_signed", "ungradable_items")}, indent=1))
+    print(json.dumps({k: out[k] for k in ("overall", "inloop_overall_acc_len_adj_signed", "ungradable_items", "answer_source")}, indent=1))
 
 
 def main():
