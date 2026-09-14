@@ -22,7 +22,7 @@ set -euo pipefail
 
 S=/scratch/sheng/self_evolving
 REPO=${REPO:-$S/verl_specgap}
-ARM="${ARM:?set ARM=1 fixed-prompt | 2 refine-loop | 3 evolve-only | 4 v1+selfjudge | 5 v3+selfjudge | 6 v2+selfjudge | 7 full+retrieval | 8 full+retrieval+solver-websearch | 9 fixed-prompt+websearch | 10 adversary-v2 (ship+always-patch+multi-round) | 19 PRBench adversary (web-only) | 20 ProfBench adversary (web-only) | 21 MedXpertQA adversary (self train judge, gpt val) | 22 = 21 initialised from the stage-1 SFT checkpoint | 23 general-description adversary (database-grounded, image tasks) | 24 = 23 at 27B}"
+ARM="${ARM:?set ARM=1 fixed-prompt | 2 refine-loop | 3 evolve-only | 4 v1+selfjudge | 5 v3+selfjudge | 6 v2+selfjudge | 7 full+retrieval | 8 full+retrieval+solver-websearch | 9 fixed-prompt+websearch | 10 adversary-v2 (ship+always-patch+multi-round) | 19 PRBench adversary (web-only) | 20 ProfBench adversary (web-only) | 21 MedXpertQA adversary (self train judge, gpt val) | 22 = 21 initialised from the stage-1 SFT checkpoint | 23 general-description adversary (database-grounded, image tasks) | 24 = 23 at 27B | 25 = 23 without the adversary (fixed simple prompt) | 26 = 25 at 27B}"
 
 # Where the self-judge arms get their 9B grader. server5 already serves Qwen3.5-9B on a
 # dedicated GPU, exposed through frp, so pointing at it keeps all four GPUs on the
@@ -654,7 +654,27 @@ case "$ARM" in
                SUMMARY_CONCURRENCY="${SUMMARY_CONCURRENCY:-320}"
                N_GPUS="${N_GPUS:-4}" ROLLOUT_TP="${ROLLOUT_TP:-2}" FROZEN_GPU="${FROZEN_GPU:-3}")
       EXP_NAME=hb27b_general_specgap_ship_retrieval ;;   # + EXP_SUFFIX=_websearch from the launcher
-  *) echo "FATAL: ARM must be 1..24" >&2; exit 1 ;;
+  25) # The no-adversary twin of ARM=23 (dvd 2026-09-14, "new experiments once the
+      # current one saturates"): the same general description, database anchors and
+      # staged images, but the paper's fixed-prompt recipe -- the minimal proposer
+      # templates, no prompt evolution, the referee measuring only (SPEC_GAP=1 with
+      # nothing shipped), no probe, patch or memo. The gap to ARM=23 is what the repair
+      # loop buys when the description is general. Launch on the pod ARM=23 vacates.
+      ARM_ENV=("${GENERAL_ENV[@]}"
+               EVOLVE=0 SPEC_GAP=1 SPEC_GAP_SHIP=0 PROBE=0 PATCH=0 HACK_MEMO=0 SIMPLE_PROMPT=1
+               SEARCH_SNAPSHOT=/scratch/sheng/self_evolving/kb/search_cache_arm25.sqlite
+               N_GPUS="${N_GPUS:-4}" ROLLOUT_TP="${ROLLOUT_TP:-2}" FROZEN_GPU="${FROZEN_GPU:-3}")
+      EXP_NAME=hb9b_general_simple_retrieval ;;   # + EXP_SUFFIX=_websearch from the launcher
+  26) # ARM=25 at 27B: the no-adversary twin of ARM=24, with ARM=24's memory-safe caps.
+      ARM_ENV=("${GENERAL_ENV[@]}"
+               EVOLVE=0 SPEC_GAP=1 SPEC_GAP_SHIP=0 PROBE=0 PATCH=0 HACK_MEMO=0 SIMPLE_PROMPT=1
+               ACTOR_MODEL_PATH=Qwen/Qwen3.6-27B
+               MAX_PROMPT_LEN=4096 MAX_RESP_LEN=8192 ROLLOUT_MAX_LEN=12288 HB_MM_MAX_PIXELS=262144
+               SUMMARY_CONCURRENCY="${SUMMARY_CONCURRENCY:-320}"
+               SEARCH_SNAPSHOT=/scratch/sheng/self_evolving/kb/search_cache_arm26.sqlite
+               N_GPUS="${N_GPUS:-4}" ROLLOUT_TP="${ROLLOUT_TP:-2}" FROZEN_GPU="${FROZEN_GPU:-3}")
+      EXP_NAME=hb27b_general_simple_retrieval ;;   # + EXP_SUFFIX=_websearch from the launcher
+  *) echo "FATAL: ARM must be 1..26" >&2; exit 1 ;;
 esac
 
 EXP_NAME="${EXP_NAME}${EXP_SUFFIX}"
