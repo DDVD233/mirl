@@ -70,7 +70,8 @@ def load_tool_schemas(tools: str) -> list[dict]:
         for p in props.values():           # OpenAI needs `items` on array params
             if p.get("type") == "array" and "items" not in p:
                 p["items"] = {"type": "string"}
-        out.append({"type": "function", "function": fn})
+        out.append({"type": "function", "name": fn["name"], "description": fn.get("description", ""),
+                    "parameters": fn.get("parameters", {"type": "object", "properties": {}})})
     return out
 
 
@@ -93,11 +94,11 @@ def build_conversation(row, images_root: str) -> list[dict]:
             for k, seg in enumerate(content.split("<image>")):
                 if k:
                     try:
-                        parts.append({"type": "image_url", "image_url": {"url": _data_uri(next(it))}})
+                        parts.append({"type": "input_image", "image_url": _data_uri(next(it))})
                     except StopIteration:
                         pass
                 if seg.strip():
-                    parts.append({"type": "text", "text": seg})
+                    parts.append({"type": "input_text", "text": seg})
             msgs.append({"role": role, "content": parts})
         else:
             msgs.append({"role": role, "content": content})
@@ -111,7 +112,7 @@ def last_user_text(msgs: list[dict]) -> str:
         c = m["content"]
         if isinstance(c, str):
             return c
-        return " ".join(p.get("text", "") for p in c if p.get("type") == "text")
+        return " ".join(p.get("text", "") for p in c if p.get("type") in ("text", "input_text"))
     return ""
 
 
@@ -122,22 +123,26 @@ class Runner:
         self.client = httpx.AsyncClient(timeout=httpx.Timeout(a.timeout, connect=30))
         self.headers = {"Authorization": f"Bearer {a.api_key}", "Content-Type": "application/json"}
 
-    async def chat(self, messages, tools, tool_choice=None):
-        body = {"model": self.a.model, "messages": messages, "max_completion_tokens": self.a.max_tokens}
+    async def respond(self, body: dict) -> dict:
+        """One /v1/responses call with retries. Function tools together with a reasoning
+        effort are only accepted on this endpoint (chat completions refuses them)."""
+        req = {"model": self.a.model, "max_output_tokens": self.a.max_tokens, **body}
         if self.a.effort != "omit":
-            body["reasoning_effort"] = self.a.effort
-        if tools:
-            body["tools"] = tools
-            if tool_choice:
-                body["tool_choice"] = tool_choice
+            req["reasoning"] = {"effort": self.a.effort}
         delay = 3.0
         for attempt in range(self.a.retries):
             try:
-                r = await self.client.post(f"{self.a.api_base}/chat/completions", headers=self.headers, json=body)
+                r = await self.client.post(f"{self.a.api_base}/responses", headers=self.headers, json=req)
                 if r.status_code in (429, 500, 502, 503, 504):
                     raise httpx.HTTPStatusError(f"{r.status_code}: {r.text[:200]}", request=r.request, response=r)
-                r.raise_for_status()
-                return r.json()
+                if r.status_code >= 400:
+                    raise RuntimeError(f"{r.status_code}: {r.text[:300]}")
+                d = r.json()
+                if d.get("error"):
+                    raise RuntimeError(str(d["error"])[:300])
+                return d
+            except RuntimeError:
+                raise
             except Exception as e:  # noqa: BLE001
                 if attempt == self.a.retries - 1:
                     raise
@@ -175,43 +180,49 @@ class Runner:
     async def episode(self, idx: int, row) -> dict:
         system, exhausted, hard = self.instr
         conv = build_conversation(row, self.a.images_root)
-        messages = [{"role": "system", "content": system}] + conv
         question = last_user_text(conv)
-        n_search = n_web = 0; calls = []; usage = {"prompt": 0, "completion": 0, "reasoning": 0}
-        output, finish = "", "none"
+        n_search = n_web = 0; calls = []; usage = {"input": 0, "output": 0, "reasoning": 0}
+        output, finish, prev = "", "none", None
+        pending: list[dict] = list(conv)      # input items for the next request
         async with self.sem:
             for _turn in range(self.a.max_searches + 3):
                 open_ = n_search < self.a.max_searches
-                resp = await self.chat(messages, self.tool_schemas if open_ else None,
-                                       tool_choice=None if open_ else "none")
-                ch = resp["choices"][0]; msg = ch["message"]
+                body = {"input": pending, "instructions": system}
+                if prev:
+                    body["previous_response_id"] = prev
+                if self.tool_schemas:
+                    body["tools"] = self.tool_schemas
+                    body["tool_choice"] = "auto" if open_ else "none"
+                resp = await self.respond(body)
+                prev = resp.get("id")
                 u = resp.get("usage") or {}
-                usage["prompt"] += u.get("prompt_tokens") or 0; usage["completion"] += u.get("completion_tokens") or 0
-                usage["reasoning"] += ((u.get("completion_tokens_details") or {}).get("reasoning_tokens") or 0)
-                tcs = msg.get("tool_calls") or []
-                if tcs and open_:
-                    messages.append({"role": "assistant", "content": msg.get("content") or "", "tool_calls": tcs})
-                    for tc in tcs:
-                        fn = tc["function"]; name = fn["name"]
+                usage["input"] += u.get("input_tokens") or 0; usage["output"] += u.get("output_tokens") or 0
+                usage["reasoning"] += ((u.get("output_tokens_details") or {}).get("reasoning_tokens") or 0)
+                items = resp.get("output") or []
+                fcs = [o for o in items if o.get("type") == "function_call"]
+                texts = [c.get("text", "") for o in items if o.get("type") == "message"
+                         for c in (o.get("content") or []) if c.get("type") == "output_text"]
+                if fcs:
+                    pending = []
+                    for fc in fcs:
                         try:
-                            args = json.loads(fn.get("arguments") or "{}")
+                            args = json.loads(fc.get("arguments") or "{}")
                         except Exception:  # noqa: BLE001
-                            args = {"query": fn.get("arguments")}
+                            args = {"query": fc.get("arguments")}
                         if n_search >= self.a.max_searches:
                             text, meta = exhausted, {"over_budget": 1}
                         else:
-                            text, meta = await self.tool(name, args, question)
-                            n_search += 1; n_web += int(name == "web_search")
-                        calls.append({"name": name, "args": args, "meta": meta, "chars": len(text)})
-                        messages.append({"role": "tool", "tool_call_id": tc["id"], "content": text})
+                            text, meta = await self.tool(fc["name"], args, question)
+                            n_search += 1; n_web += int(fc["name"] == "web_search")
+                        calls.append({"name": fc["name"], "args": args, "meta": meta, "chars": len(text)})
+                        pending.append({"type": "function_call_output", "call_id": fc["call_id"], "output": text})
+                    if not open_:   # over budget: the solver's refusal, then a forced answer turn
+                        pending.append({"role": "user", "content": hard})
                     continue
-                if tcs:  # over budget: the solver's refusal, then a forced answer turn
-                    messages.append({"role": "assistant", "content": msg.get("content") or "", "tool_calls": tcs})
-                    for tc in tcs:
-                        messages.append({"role": "tool", "tool_call_id": tc["id"], "content": exhausted})
-                    messages.append({"role": "user", "content": hard})
-                    continue
-                output, finish = (msg.get("content") or ""), ch.get("finish_reason")
+                output = "\n".join(t for t in texts if t)
+                finish = resp.get("status") or "completed"
+                if (resp.get("incomplete_details") or {}).get("reason"):
+                    finish = "incomplete:" + resp["incomplete_details"]["reason"]
                 break
         return {"index": idx, "question_id": (row["extra_info"] or {}).get("question_id"),
                 "output": output, "n_search": n_search, "n_web": n_web, "tool_calls": calls,
