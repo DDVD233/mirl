@@ -224,7 +224,8 @@ class Runner:
                 if (resp.get("incomplete_details") or {}).get("reason"):
                     finish = "incomplete:" + resp["incomplete_details"]["reason"]
                 break
-        return {"index": idx, "question_id": (row["extra_info"] or {}).get("question_id"),
+        # `input` = the last user turn: the regrade script verifies its row join on it.
+        return {"index": idx, "question_id": (row["extra_info"] or {}).get("question_id"), "input": question,
                 "output": output, "n_search": n_search, "n_web": n_web, "tool_calls": calls,
                 "usage": usage, "finish_reason": finish, "model": self.a.model, "effort": self.a.effort}
 
@@ -288,7 +289,10 @@ async def main() -> None:
     await asyncio.gather(*(one(i) for i in todo))
     with open(a.out, "w") as f:
         for i in range(len(df)):
-            f.write(json.dumps(done[i], ensure_ascii=False) + "\n")
+            r = done[i]
+            if not r.get("input"):   # rows from an older partial file
+                r["input"] = last_user_text(build_conversation(df.iloc[i], a.images_root))
+            f.write(json.dumps(r, ensure_ascii=False) + "\n")
     errs = sum(1 for r in done.values() if r.get("error"))
     ns = sum(r.get("n_search", 0) for r in done.values()) / max(1, len(done))
     print(f"wrote {a.out}: {len(done)} rows, errors={errs}, mean searches={ns:.2f}", flush=True)
