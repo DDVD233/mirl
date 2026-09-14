@@ -31,7 +31,8 @@ while :; do
     echo "=== $(date -u +%FT%TZ) backup pass"
     pull paper_refresh --exclude '*.lock'
     pull logs_hb9b/val_generations --include 'hbpro_*/' --include 'prbench_9b_*/' --include 'profbench_9b_*/' --include 'medxpert_9b_ship180_*/' --include '*general*/' --exclude '/*/' --include '*'
-    for exp in hb9b_general_specgap_ship_retrieval_websearch hb27b_general_specgap_ship_retrieval_websearch; do
+    for exp in hb9b_general_specgap_ship_retrieval_websearch hb27b_general_specgap_ship_retrieval_websearch \
+               hb9b_general_simple_retrieval_websearch hb27b_general_simple_retrieval_websearch; do
         pull "logs_hb9b/$exp"
         pull "logs_hb9b/rollouts/$exp"
         # Latest full checkpoint only: verl rotates the NFS copy; a shell dir (data.pt
@@ -44,7 +45,7 @@ while :; do
             ls -d "$B/checkpoints/hb9b/$exp"/global_step_* 2>/dev/null | sort -t_ -k3 -n | head -n -2 | xargs -r rm -rf
         done
     done
-    pull logs_hb9b --include 'launch_arm2*.log' --include 'gen_server_*general*.log' --include 'frozen9b_*general*.log' --exclude '*' --no-recursive 2>/dev/null || true
+    pull logs_hb9b --include 'launch_arm2*.log' --include 'launch_arm2*.attempt*.log' --include 'gen_server_*general*.log' --include 'frozen9b_*general*.log' --exclude '*' --no-recursive 2>/dev/null || true
     pull kb/search_cache_arm23.sqlite
     echo "=== $(date -u +%FT%TZ) pass done; used: $(du -sh $B 2>/dev/null | cut -f1)"
     sleep "$INTERVAL"

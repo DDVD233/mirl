@@ -18,7 +18,8 @@ import wandb
 
 AICR = "dvdai_mit@login.aicr.ai"
 B = "/scratch/dvdai_mit/msr_backup_2026-09-11/checkpoints/hb9b"
-ARMS = ["hb9b_general_specgap_ship_retrieval_websearch", "hb27b_general_specgap_ship_retrieval_websearch"]
+ARMS = ["hb9b_general_specgap_ship_retrieval_websearch", "hb27b_general_specgap_ship_retrieval_websearch",
+        "hb9b_general_simple_retrieval_websearch", "hb27b_general_simple_retrieval_websearch"]
 VAL = "val-core/healthbench_professional/acc/mean@1"
 
 
