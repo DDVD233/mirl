@@ -32,7 +32,8 @@ while :; do
     pull paper_refresh --exclude '*.lock'
     pull logs_hb9b/val_generations --include 'hbpro_*/' --include 'prbench_9b_*/' --include 'profbench_9b_*/' --include 'medxpert_9b_ship180_*/' --include '*general*/' --exclude '/*/' --include '*'
     for exp in hb9b_general_specgap_ship_retrieval_websearch hb27b_general_specgap_ship_retrieval_websearch \
-               hb9b_general_simple_retrieval_websearch hb27b_general_simple_retrieval_websearch; do
+               hb9b_general_simple_retrieval_websearch hb27b_general_simple_retrieval_websearch \
+               hb9b_general_specgap_ship_retrieval_websearch2 hb9b_general_simple_retrieval_websearch2; do
         pull "logs_hb9b/$exp"
         pull "logs_hb9b/rollouts/$exp"
         # Latest full checkpoint only: verl rotates the NFS copy; a shell dir (data.pt
