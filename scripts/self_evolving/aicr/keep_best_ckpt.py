@@ -30,8 +30,11 @@ def ssh(cmd: str) -> str:
 
 
 def main() -> None:
-    api = wandb.Api(timeout=120)
     while True:
+        # A fresh Api per pass: wandb.Api caches the result of runs() per query, so a
+        # long-lived object keeps returning the run list from its first call and never
+        # sees an arm's later attempts (2026-09-15: pinned step 10 with attempt 1's score).
+        api = wandb.Api(timeout=120)
         for exp in ARMS:
             try:
                 runs = sorted(api.runs("ddavid233/self_evolving_medical", filters={"display_name": exp}),
