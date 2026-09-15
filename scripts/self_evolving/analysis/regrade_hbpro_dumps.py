@@ -180,6 +180,18 @@ def graded_answer(row: dict) -> tuple:
     return plain, "unverified"
 
 
+def dump_signature(path: str) -> dict:
+    """Identity of a dump file: size plus a hash of its first and last 64 KB."""
+    st = os.stat(path)
+    h = hashlib.sha1()
+    with open(path, "rb") as f:
+        h.update(f.read(65536))
+        if st.st_size > 65536:
+            f.seek(max(65536, st.st_size - 65536))
+            h.update(f.read(65536))
+    return {"size": st.st_size, "sha1_ends": h.hexdigest()}
+
+
 def conversation_text(conv, answer: str) -> str:
     lines = []
     for m in conv or []:
@@ -287,6 +299,23 @@ async def main_async(args):
     legacy = [strip_thinking(dr.get("output", "")) for dr in dump_rows]
 
     vpath = args.out + ".verdicts.jsonl"
+    # The cache belongs to one dump FILE. A dump re-generated in place (2026-09-15: the
+    # live-web reruns of the outage-era tool-loop runs) must not inherit verdicts graded
+    # on the old rows, and the per-record text hash cannot catch that for legacy records
+    # without one, so the dump's signature is kept beside the verdicts and a mismatch
+    # retires the whole cache.
+    spath = args.out + ".dumpsig"
+    sig = dump_signature(args.dump)
+    if os.path.exists(vpath) and os.path.exists(spath):
+        try:
+            old_sig = json.load(open(spath))
+        except Exception:
+            old_sig = None
+        if old_sig != sig:
+            stale = vpath + ".stale." + time.strftime("%Y%m%dT%H%M%S")
+            os.rename(vpath, stale)
+            print(f"dump changed since the cached verdicts were graded; retired them to {stale}", flush=True)
+    json.dump(sig, open(spath, "w"))
     cache = {}
     invalid = 0
     if os.path.exists(vpath):
