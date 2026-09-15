@@ -30,7 +30,7 @@ pull() {  # pull <relative path> [extra rsync args]
 while :; do
     echo "=== $(date -u +%FT%TZ) backup pass"
     pull paper_refresh --exclude '*.lock'
-    pull logs_hb9b/val_generations --include 'hbpro_*/' --include 'prbench_9b_*/' --include 'profbench_9b_*/' --include 'medxpert_9b_ship180_*/' --include '*general*/' --exclude '/*/' --include '*'
+    pull logs_hb9b/val_generations --include 'hbpro_*/' --include 'prbench_9b_*/' --include 'profbench_9b_*/' --include 'medxpert_9b_ship180_*/' --include 'xdom_*/' --include '*_deadweb/' --include '*general*/' --exclude '/*/' --include '*'
     for exp in hb9b_general_specgap_ship_retrieval_websearch hb27b_general_specgap_ship_retrieval_websearch \
                hb9b_general_simple_retrieval_websearch hb27b_general_simple_retrieval_websearch \
                hb9b_general_specgap_ship_retrieval_websearch2 hb9b_general_simple_retrieval_websearch2; do
