@@ -7,7 +7,7 @@
 # pod once its gen server answers (e.g. restart evaluation sweeps that share the pod).
 #
 #   POD_MATCH=evolving3-opp PORT=2336 ARM=24 EXP_SUFFIX=_websearch ATTEMPT=8 \
-#       EXTRA='SAVE_FREQ=10' AFTER_CMD='...' bash scripts/self_evolving/train/resume_arm_when_pod_returns.sh
+#       EXTRA='SAVE_FREQ=10' AFTER_CMD='...' [ATTACHED=1] bash scripts/self_evolving/train/resume_arm_when_pod_returns.sh
 set -uo pipefail
 S=/scratch/sheng/self_evolving
 POD_MATCH="${POD_MATCH:?}"; PORT="${PORT:?}"; ARM="${ARM:?}"; EXP_SUFFIX="${EXP_SUFFIX:-}"; ATTEMPT="${ATTEMPT:?}"
@@ -16,6 +16,11 @@ AFTER_CMD="${AFTER_CMD:-}"  # run on the pod after the gen server is healthy
 LOG=launch_arm${ARM}_${PORT}.log
 SSH="ssh -o ConnectTimeout=20 -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -p $PORT root@point.dd.works"
 pod_state() { kubectl get pods -n bonete52 --no-headers 2>/dev/null | awk -v m="$POD_MATCH" '$0 ~ m {print $3}' | head -1; }
+if [ "${ATTACHED:-0}" = 1 ]; then   # the arm is already running on the pod: only take over after its next eviction
+    echo "$(date -u +%FT%TZ) attached to a running arm on port $PORT; waiting for the pod to leave Running"
+    while [ "$(pod_state)" = Running ]; do sleep 120; done
+    echo "$(date -u +%FT%TZ) pod $POD_MATCH left Running; waiting for it to return"
+fi
 while :; do
     st=$(pod_state)
     echo "$(date -u +%FT%TZ) pod $POD_MATCH: ${st:-unknown}"
