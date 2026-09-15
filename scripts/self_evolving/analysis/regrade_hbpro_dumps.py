@@ -201,7 +201,10 @@ def parse_met(text: str):
 
 
 def norm(s: str) -> str:
-    return re.sub(r"\s+", " ", s or "").strip().lower()
+    # Image placeholders (<image> in the parquet, vision tokens in the decoded prompt) are
+    # not text; drop them so the join check works on the multimodal splits too.
+    s = re.sub(r"<image>|<\|[a-z_]+\|>", " ", s or "")
+    return re.sub(r"\s+", " ", s).strip().lower()
 
 
 def load_parquet(path):
