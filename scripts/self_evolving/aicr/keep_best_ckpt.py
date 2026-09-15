@@ -1,32 +1,39 @@
 #!/usr/bin/env python3
-"""Pin the best-validation checkpoint of each general arm on AICR.
+"""Pin the best-validation checkpoint of each general arm where the checkpoints live.
 
-verl keeps one checkpoint on the NFS and the hourly backup keeps the last two on AICR,
-so a run whose validation peaks and then declines would lose its best weights. This
-loop reads each arm's HealthBench-Pro validation curve from wandb, finds the best
-checkpointed step among the copies present on AICR, and hard-links that directory to
-best_global_step_<N> (same filesystem, instant, no extra quota beyond the link tree).
-Older best_* pins are removed when a better one appears. Runs anywhere with wandb and
-ssh to AICR; started on mib in tmux `main:keeper`.
+verl keeps one checkpoint per run (max_actor_ckpt_to_keep=1), so a run whose validation
+peaks and then declines loses its best weights. This loop reads each arm's HealthBench-Pro
+validation curve from wandb, finds the best step among the COMPLETE checkpoints present,
+and hard-links that directory to best_global_step_<N> on the same filesystem (instant; the
+link tree keeps the blocks alive when verl rotates the original). Older best_* pins are
+removed when a better one appears.
+
+Default target is the MSR NFS through pod 2333 (2026-09-15: David asked for no continuous
+checkpoint transfer to AICR; the one-time transfer at the end of an arm is
+scripts/self_evolving/aicr/msr_backup_once.sh). CKPT_SSH / CKPT_ROOT switch the target.
+Started on mib in tmux `main:keeper`:
 
     /home/dvd/miniconda3/envs/new2/bin/python scripts/self_evolving/aicr/keep_best_ckpt.py
 """
+import os
+import shlex
 import subprocess
 import time
 
 import wandb
 
-AICR = "dvdai_mit@login.aicr.ai"
-B = "/scratch/dvdai_mit/msr_backup_2026-09-11/checkpoints/hb9b"
-ARMS = ["hb9b_general_specgap_ship_retrieval_websearch", "hb27b_general_specgap_ship_retrieval_websearch",
-        "hb9b_general_simple_retrieval_websearch", "hb27b_general_simple_retrieval_websearch",
-        "hb9b_general_specgap_ship_retrieval_websearch2", "hb9b_general_simple_retrieval_websearch2"]
+SSH_CMD = shlex.split(os.environ.get(
+    "CKPT_SSH", "ssh -o ConnectTimeout=30 -o BatchMode=yes -o StrictHostKeyChecking=no "
+                "-o UserKnownHostsFile=/dev/null -p 2333 root@point.dd.works"))
+B = os.environ.get("CKPT_ROOT", "/scratch/sheng/self_evolving/checkpoints/hb9b")
+ARMS = ["hb27b_general_specgap_ship_retrieval_websearch", "hb27b_general_simple_retrieval_websearch",
+        "hb9b_general_specgap_ship_retrieval_websearch2", "hb9b_general_simple_retrieval_websearch2",
+        "hb9b_general_evolveonly_retrieval_websearch", "hb27b_general_evolveonly_retrieval_websearch"]
 VAL = "val-core/healthbench_professional/acc/mean@1"
 
 
 def ssh(cmd: str) -> str:
-    return subprocess.run(["ssh", "-o", "ConnectTimeout=30", "-o", "BatchMode=yes", AICR, cmd],
-                          capture_output=True, text=True, timeout=300).stdout
+    return subprocess.run(SSH_CMD + [cmd], capture_output=True, text=True, timeout=300).stdout
 
 
 def main() -> None:
@@ -47,7 +54,12 @@ def main() -> None:
                         vals[int(row["_step"])] = float(row[VAL])
                 present = [int(d.split("_")[-1]) for d in
                            ssh(f"ls -d {B}/{exp}/global_step_* 2>/dev/null").split() if d.split("_")[-1].isdigit()]
-                complete = [s for s in present if ssh(f"[ -f {B}/{exp}/global_step_{s}/data.pt ] && echo ok").strip() == "ok"]
+                # verl writes latest_checkpointed_iteration.txt after a save completes; a
+                # directory above that mark is still being written.
+                latest_txt = ssh(f"cat {B}/{exp}/latest_checkpointed_iteration.txt 2>/dev/null").strip()
+                latest = int(latest_txt) if latest_txt.isdigit() else -1
+                complete = [s for s in present if s <= latest
+                            and ssh(f"ls {B}/{exp}/global_step_{s}/actor/*.pt >/dev/null 2>&1 && echo ok").strip() == "ok"]
                 scored = [(vals[s], s) for s in complete if s in vals]
                 if not scored:
                     print(time.strftime("%FT%TZ", time.gmtime()), exp, "no scored checkpoint on AICR yet", flush=True)
