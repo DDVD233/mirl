@@ -23,20 +23,21 @@ EFFORTS = ["low", "medium", "high"]
 OURS = [
     ("Qwen3.5-9B, untrained, same tools",
      {"profbench": "ours_profbench_9b_untrained", "prbench": "ours_prbench_9b_untrained",
-      "medx": "ours_medx_9b_untrained"}),
+      "medx": "ours_medx_9b_untrained", "medxmm": "ours_medxmm_9b_untrained"}),
     ("Qwen3.5-9B, RRIMed on the benchmark's own description",
      {"profbench": "ours_profbench_9b_rrimed170", "prbench": "ours_prbench_9b_rrimed350",
-      "medx": "ours_medx_9b_rrimed180"}),
+      "medx": "ours_medx_9b_rrimed180", "medxmm": "ours_medxmm_9b_rrimed180"}),
     ("Qwen3.6-27B, RRIMed on the medical description, zero-shot",
      {"profbench": "xdom_profbench_27b_ser200", "prbench": "xdom_prbench_27b_ser200"}),
 ]
-BENCH_COLS = [("profbench", "ProfBench"), ("prbench", "PRBench Hard"), ("medx", "MedXpertQA, text")]
+BENCH_COLS = [("profbench", "ProfBench"), ("prbench", "PRBench Hard"), ("medx", "MedXpertQA, text"),
+              ("medxmm", "MedXpertQA, image")]
 
 CAPTION = (r"\caption{Frontier models against our checkpoints on the held-out benchmarks under one "
            r"grader (gpt-chat-latest, one vote per criterion). The GPT-5.6 models answer through "
            r"the same tool loop as our models, with native tools disabled, the same search budget, "
            r"and the same forced-answer rule when the budget runs out. Rubric score on ProfBench and "
-           r"PRBench Hard, exact-match accuracy on MedXpertQA (text split).}")
+           r"PRBench Hard, exact-match accuracy on the two MedXpertQA splits.}")
 
 
 def load(data):
@@ -61,12 +62,12 @@ def main():
     a = ap.parse_args()
     vals = load(a.data)
     L = [r"\begin{table}[h]", r"\begin{center}", CAPTION, r"\label{tab:frontier}", r"\small",
-         r"\begin{tabular}{llrrr}", r"\toprule",
+         r"\begin{tabular}{llrrrr}", r"\toprule",
          "Model & Reasoning effort & " + " & ".join(c for _, c in BENCH_COLS) + r" \\", r"\midrule"]
     for short, label in MODELS:
         for e in EFFORTS:
             cells = [cell(vals, f"profbench_{short}_{e}"), cell(vals, f"prbench_{short}_{e}"),
-                     cell(vals, f"medxtext_{short}_{e}")]
+                     cell(vals, f"medxtext_{short}_{e}"), cell(vals, f"medxmm_{short}_{e}")]
             L.append(f"{label} & {e} & " + " & ".join(cells) + r" \\")
     L.append(r"\midrule")
     for label, keys in OURS:
