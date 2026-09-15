@@ -62,7 +62,7 @@ def main() -> None:
                             and ssh(f"ls {B}/{exp}/global_step_{s}/actor/*.pt >/dev/null 2>&1 && echo ok").strip() == "ok"]
                 scored = [(vals[s], s) for s in complete if s in vals]
                 if not scored:
-                    print(time.strftime("%FT%TZ", time.gmtime()), exp, "no scored checkpoint on AICR yet", flush=True)
+                    print(time.strftime("%FT%TZ", time.gmtime()), exp, "no scored checkpoint yet", flush=True)
                     continue
                 best_val, best = max(scored)
                 pinned = ssh(f"ls -d {B}/{exp}/best_global_step_* 2>/dev/null").split()
