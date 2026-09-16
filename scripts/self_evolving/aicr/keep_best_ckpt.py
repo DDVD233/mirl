@@ -60,18 +60,24 @@ def main() -> None:
                 latest = int(latest_txt) if latest_txt.isdigit() else -1
                 complete = [s for s in present if s <= latest
                             and ssh(f"ls {B}/{exp}/global_step_{s}/actor/*.pt >/dev/null 2>&1 && echo ok").strip() == "ok"]
-                scored = [(vals[s], s) for s in complete if s in vals]
+                # An existing pin is a candidate too: on the NFS verl keeps only the latest
+                # checkpoint, so once the true best is rotated the pin is its only copy
+                # (2026-09-16: the pin of the 27B's step 70 was dropped for a worse step 80).
+                pinned = ssh(f"ls -d {B}/{exp}/best_global_step_* 2>/dev/null").split()
+                pinned_steps = [int(p.split("_")[-1]) for p in pinned if p.split("_")[-1].isdigit()]
+                scored = [(vals[s], s) for s in set(complete) | set(pinned_steps) if s in vals]
                 if not scored:
                     print(time.strftime("%FT%TZ", time.gmtime()), exp, "no scored checkpoint yet", flush=True)
                     continue
                 best_val, best = max(scored)
-                pinned = ssh(f"ls -d {B}/{exp}/best_global_step_* 2>/dev/null").split()
-                pinned_steps = [int(p.split("_")[-1]) for p in pinned]
-                if best in pinned_steps and len(pinned_steps) == 1:
+                if best in pinned_steps:
                     print(time.strftime("%FT%TZ", time.gmtime()), exp, f"best stays step {best} ({best_val:.3f})", flush=True)
                     continue
-                if best not in pinned_steps:
-                    ssh(f"cp -al {B}/{exp}/global_step_{best} {B}/{exp}/best_global_step_{best}")
+                # Only a strictly better complete checkpoint replaces the pin.
+                ssh(f"cp -al {B}/{exp}/global_step_{best} {B}/{exp}/best_global_step_{best}")
+                if ssh(f"ls {B}/{exp}/best_global_step_{best}/actor/*.pt >/dev/null 2>&1 && echo ok").strip() != "ok":
+                    print(time.strftime("%FT%TZ", time.gmtime()), exp, f"pin of step {best} incomplete; keeping old pins", flush=True)
+                    continue
                 for p in pinned:
                     if int(p.split("_")[-1]) != best:
                         ssh(f"rm -rf {p}")
