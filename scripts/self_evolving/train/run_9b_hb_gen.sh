@@ -923,6 +923,8 @@ fi
     actor_rollout_ref.model.use_remove_padding=False \
     +actor_rollout_ref.model.override_config.attn_implementation=sdpa \
     actor_rollout_ref.model.enable_gradient_checkpointing=True \
+    actor_rollout_ref.actor.entropy_from_logits_with_chunking="${ENTROPY_CHUNKING:-False}" \
+    actor_rollout_ref.actor.entropy_checkpointing="${ENTROPY_CKPT:-False}" \
     actor_rollout_ref.actor.strategy=fsdp2 \
     actor_rollout_ref.actor.optim.lr="${LR:-1e-6}" \
     actor_rollout_ref.actor.ppo_mini_batch_size=16 \
