@@ -952,6 +952,7 @@ fi
     actor_rollout_ref.rollout.top_k=-1 \
     actor_rollout_ref.rollout.tensor_model_parallel_size="${ROLLOUT_TP:-2}" \
     actor_rollout_ref.rollout.gpu_memory_utilization="$VLLM_GPU_UTIL" \
+    actor_rollout_ref.rollout.enforce_eager="${ROLLOUT_ENFORCE_EAGER:-False}" \
     actor_rollout_ref.rollout.max_model_len="$ROLLOUT_MAX_LEN" \
     actor_rollout_ref.rollout.max_num_batched_tokens=8192 \
     actor_rollout_ref.rollout.val_kwargs.n="${VAL_N:-1}" \
