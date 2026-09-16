@@ -15,6 +15,11 @@ EXTRA="${EXTRA:-}"          # extra VAR=val pairs for the launcher
 AFTER_CMD="${AFTER_CMD:-}"  # run on the pod after the gen server is healthy
 LOG=launch_arm${ARM}_${PORT}.log
 SSH="ssh -o ConnectTimeout=20 -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -p $PORT root@point.dd.works"
+# Every GPU must accept a CUDA context: on 2026-09-16 a rescheduled pod landed on a node
+# whose GPU 1 answered "CUDA-capable device(s) is/are busy or unavailable" and three
+# launches died at model init. A pod with a bad GPU is deleted so Volcano moves it.
+gpus_ok() { $SSH 'ok=0; for i in 0 1 2 3; do CUDA_VISIBLE_DEVICES=$i timeout 90 /usr/local/bin/python -c "import torch; torch.ones(1, device=\"cuda\")" >/dev/null 2>&1 && ok=$((ok+1)); done; [ $ok = 4 ]' 2>/dev/null; }
+pod_name() { kubectl get pods -n bonete52 --no-headers 2>/dev/null | awk -v m="$POD_MATCH" '$0 ~ m {print $1}' | head -1; }
 arm_alive() { $SSH "tmux has-session -t main 2>/dev/null" 2>/dev/null; }   # the launcher lives in tmux main
 pod_state() { kubectl get pods -n bonete52 --no-headers 2>/dev/null | awk -v m="$POD_MATCH" '$0 ~ m {print $3}' | head -1; }
 if [ "${ATTACHED:-0}" = 1 ]; then   # the arm is already running on the pod: only take over after its next eviction
@@ -30,6 +35,11 @@ while :; do
     echo "$(date -u +%FT%TZ) pod $POD_MATCH: ${st:-unknown}"
     if [ "$st" = Running ]; then
         gpus=$($SSH 'test -d /scratch/sheng/self_evolving/verl_specgap && nvidia-smi -L | grep -c B200' 2>/dev/null)
+        if [ "${gpus:-0}" = 4 ] && ! gpus_ok; then
+            echo "$(date -u +%FT%TZ) a GPU on $(pod_name) rejects CUDA contexts; deleting the pod so it is rescheduled"
+            kubectl delete pod -n bonete52 "$(pod_name)" --wait=false >/dev/null 2>&1
+            sleep 300; continue
+        fi
         if [ "${gpus:-0}" = 4 ]; then
             $SSH "S=$S; mv \$S/logs_hb9b/$LOG \$S/logs_hb9b/launch_arm${ARM}_${PORT}.attempt$((ATTEMPT-1)).log 2>/dev/null; tmux new-session -d -s main -n arm$ARM \"cd \$S/verl_specgap && ARM=$ARM EXP_SUFFIX=$EXP_SUFFIX $EXTRA bash scripts/self_evolving/train/launch_specgap_when_free.sh > \$S/logs_hb9b/$LOG 2>&1\"; sleep 5; tmux list-windows; hostname"
             echo "$(date -u +%FT%TZ) RELAUNCHED ARM=$ARM attempt $ATTEMPT on port $PORT"
