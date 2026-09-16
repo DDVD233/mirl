@@ -15,11 +15,15 @@ EXTRA="${EXTRA:-}"          # extra VAR=val pairs for the launcher
 AFTER_CMD="${AFTER_CMD:-}"  # run on the pod after the gen server is healthy
 LOG=launch_arm${ARM}_${PORT}.log
 SSH="ssh -o ConnectTimeout=20 -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -p $PORT root@point.dd.works"
+arm_alive() { $SSH "tmux has-session -t main 2>/dev/null" 2>/dev/null; }   # the launcher lives in tmux main
 pod_state() { kubectl get pods -n bonete52 --no-headers 2>/dev/null | awk -v m="$POD_MATCH" '$0 ~ m {print $3}' | head -1; }
 if [ "${ATTACHED:-0}" = 1 ]; then   # the arm is already running on the pod: only take over after its next eviction
     echo "$(date -u +%FT%TZ) attached to a running arm on port $PORT; waiting for the pod to leave Running"
-    while [ "$(pod_state)" = Running ]; do sleep 120; done
-    echo "$(date -u +%FT%TZ) pod $POD_MATCH left Running; waiting for it to return"
+    while [ "$(pod_state)" = Running ]; do
+        sleep 120
+        if ! arm_alive; then $SSH true 2>/dev/null && { echo "$(date -u +%FT%TZ) arm session gone on a Running pod; relaunching"; break; }; fi
+    done
+    echo "$(date -u +%FT%TZ) pod $POD_MATCH left Running or the arm died; waiting/relaunching"
 fi
 while :; do
     st=$(pod_state)
@@ -40,9 +44,14 @@ while :; do
                     fi
                 done
             fi
-            # Stay attached until the pod leaves Running, then wait for the next return.
-            while [ "$(pod_state)" = Running ]; do sleep 120; done
-            echo "$(date -u +%FT%TZ) pod $POD_MATCH left Running; waiting for it to return"
+            # Stay attached until the pod leaves Running or the arm's tmux session is gone
+            # (the launcher exited: e.g. a CUDA "device busy" crash at init on 2026-09-16).
+            sleep 600   # let the launcher start before judging it
+            while [ "$(pod_state)" = Running ]; do
+                sleep 120
+                if ! arm_alive; then $SSH true 2>/dev/null && { echo "$(date -u +%FT%TZ) arm session gone on a Running pod; relaunching"; break; }; fi
+            done
+            echo "$(date -u +%FT%TZ) pod $POD_MATCH left Running or the arm died; waiting/relaunching"
             continue
         fi
         echo "$(date -u +%FT%TZ) pod Running but not reachable/ready yet (gpus=${gpus:-none})"
