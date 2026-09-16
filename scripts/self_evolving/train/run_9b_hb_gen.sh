@@ -921,6 +921,8 @@ fi
     reward.reward_manager.name=dapo \
     actor_rollout_ref.model.path="${ACTOR_MODEL_PATH:-Qwen/Qwen3.5-9B}" \
     actor_rollout_ref.model.use_remove_padding=False \
+    actor_rollout_ref.model.use_fused_kernels="${USE_FUSED_KERNELS:-False}" \
+    actor_rollout_ref.model.fused_kernel_options.impl_backend="${FUSED_BACKEND:-torch}" \
     +actor_rollout_ref.model.override_config.attn_implementation=sdpa \
     actor_rollout_ref.model.enable_gradient_checkpointing=True \
     actor_rollout_ref.actor.entropy_from_logits_with_chunking="${ENTROPY_CHUNKING:-False}" \
