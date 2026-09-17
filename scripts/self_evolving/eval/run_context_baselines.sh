@@ -16,8 +16,11 @@ TASKS="${TASKS:-hbpro mimic}"; METHODS="${METHODS:-gepa ace}"; MODELS="${MODELS:
 BUDGET="${BUDGET:-2000}"; TRAIN_SIZE="${TRAIN_SIZE:-300}"; EPOCHS="${EPOCHS:-2}"; LIMIT="${LIMIT:-0}"
 
 # A relaunch replaces the learners but reuses the servers (also ones that are still loading).
-pkill -f "[c]ontext_evolving_baselines.py" 2>/dev/null; sleep 2
-[ "${FRESH:-0}" = 1 ] && { echo "FRESH=1: dropping earlier learner state"; rm -rf "$OUT"/*_*_qwen3*; }
+# Only the tasks named in TASKS are touched, so one task can be redone while the other keeps running.
+for t in $TASKS; do
+  pkill -f "[c]ontext_evolving_baselines.py .*--task $t " 2>/dev/null
+  [ "${FRESH:-0}" = 1 ] && { echo "FRESH=1: dropping earlier $t learner state"; rm -rf "$OUT"/*_"$t"_qwen3*; }
+done; sleep 2
 
 serve () { # tag model gpus tp dp port
   curl -sf -m 5 "http://localhost:$6/v1/models" >/dev/null 2>&1 && return 0

@@ -191,9 +191,25 @@ class MimicTrain:
         self.reward = stage1.load_module("stage1_reward", args.reward_file)
 
     def load_pool(self, path=None):
-        rows = []
+        """The jsonl files point at /scratch/self_evolving_datasets/..., where a pod may hold only
+        part of the images; the same files live under --image-fallback. A case whose image cannot
+        be found at either place is left out (never scored as a wrong answer)."""
+        rows, remapped, dropped = [], 0, 0
         for e in self.stage1.read_rows(Path(path or self.args.train_file)):
-            rows.append({"id": str(e["extra_info"]["hadm_id"]), "entry": e})
+            ok = True
+            for im in e.get("images") or []:
+                if isinstance(im, dict) and im.get("image") and not os.path.exists(im["image"]):
+                    alt = os.path.join(self.args.image_fallback, os.path.basename(im["image"]))
+                    if os.path.exists(alt):
+                        im["image"], remapped = alt, remapped + 1
+                    else:
+                        ok = False
+            if ok:
+                rows.append({"id": str(e["extra_info"]["hadm_id"]), "entry": e})
+            else:
+                dropped += 1
+        print(f"[mimic] {len(rows)} cases, {remapped} image paths remapped, {dropped} cases dropped "
+              f"for an image found nowhere", flush=True)
         return rows
 
     def describe(self, inst):
@@ -619,6 +635,7 @@ def parse_args():
     p.add_argument("--pool-dir", default=f"{S}/logs_hb9b/hb9b_specgap_simple_retrieval_websearch",
                    help="hbpro: accepted tasks of the fixed-prompt generator (HealthBench Pro description)")
     p.add_argument("--train-file", default=f"{S}/mimiciv_rare/train.jsonl")
+    p.add_argument("--image-fallback", default=f"{S}/mimiciv_rare/ecg_images")
     p.add_argument("--train-size", type=int, default=300)
     # GEPA
     p.add_argument("--pareto-size", type=int, default=100)
