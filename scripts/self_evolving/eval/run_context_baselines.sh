@@ -38,7 +38,7 @@ job () { # method task model
       || { echo "LEARN FAILED $1 $2 $3"; return 1; }
   fi
   python3 "$PYS" eval --task "$2" --model "$3" --base-url "$url" --context-file "$o/context.txt" --out "$o" \
-    --out-prefix "hbpro_ctx_${3}_${1}" --limit "$LIMIT" "${extra[@]}" >> "$LOGD/eval_${1}_${2}_${3}.log" 2>&1 \
+    --out-prefix "hbpro_methods_${3}_${1}" --limit "$LIMIT" "${extra[@]}" >> "$LOGD/eval_${1}_${2}_${3}.log" 2>&1 \
     || { echo "EVAL FAILED $1 $2 $3"; return 1; }
   echo "=== $(date -u +%FT%TZ) done $1 $2 $3: $(tr -d '\n ' < "$o/eval_summary.json" | cut -c1-200)"
 }

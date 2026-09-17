@@ -540,16 +540,23 @@ async def eval_mimic(args, stage1, session, context, out):
             res = await task.run(inst, context, keep_response=True)
         if "verdict" not in res:      # infrastructure failure: leave it missing and retryable
             return
-        rec = {"id": inst["id"], "score": res["score"], "extracted": res["extracted"], "verdict": res["verdict"]}
+        rec = {"id": inst["id"], "category": str(inst["entry"].get("data_source", "")).split("/")[-1],
+               "score": res["score"], "extracted": res["extracted"], "verdict": res["verdict"]}
         async with lock:
             done[inst["id"]] = rec
             cache.write(json.dumps(rec) + "\n"); cache.flush()
     await asyncio.gather(*(one(c) for c in cases))
     cache.close()
     acc = sum(done[c["id"]]["score"] for c in cases if c["id"] in done) / len(cases)   # missing counts as wrong
+    by_cat = {}
+    for c in cases:                                # per ICD chapter, as in the stage-1 main table
+        cat = str(c["entry"].get("data_source", "")).split("/")[-1]
+        n, tot = by_cat.get(cat, (0, 0.0))
+        by_cat[cat] = (n + 1, tot + (done[c["id"]]["score"] if c["id"] in done else 0.0))
     (out / "eval_summary.json").write_text(json.dumps(
         {"cases": len(cases), "answered": sum(1 for c in cases if c["id"] in done),
-         "judge_acc_lenient": acc, "context_chars": len(context)}, indent=1))
+         "judge_acc_lenient": acc, "by_category": {k: {"n": n, "acc": t / n} for k, (n, t) in sorted(by_cat.items())},
+         "context_chars": len(context)}, indent=1))
     print(f"[eval mimic] {len(cases)} cases, lenient accuracy {acc:.4f}", flush=True)
 
 
