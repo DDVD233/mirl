@@ -15,8 +15,13 @@ PYS=scripts/self_evolving/eval/context_evolving_baselines.py
 TASKS="${TASKS:-hbpro mimic}"; METHODS="${METHODS:-gepa ace}"; MODELS="${MODELS:-qwen35_9b qwen36_27b}"
 BUDGET="${BUDGET:-2000}"; TRAIN_SIZE="${TRAIN_SIZE:-300}"; EPOCHS="${EPOCHS:-2}"; LIMIT="${LIMIT:-0}"
 
+# A relaunch replaces the learners but reuses the servers (also ones that are still loading).
+pkill -f "[c]ontext_evolving_baselines.py" 2>/dev/null; sleep 2
+[ "${FRESH:-0}" = 1 ] && { echo "FRESH=1: dropping earlier learner state"; rm -rf "$OUT"/*_*_qwen3*; }
+
 serve () { # tag model gpus tp dp port
   curl -sf -m 5 "http://localhost:$6/v1/models" >/dev/null 2>&1 && return 0
+  pgrep -f "served-model-name $1 " >/dev/null || \
   CUDA_VISIBLE_DEVICES="$3" nohup vllm serve "$2" --served-model-name "$1" --host 0.0.0.0 --port "$6" --trust-remote-code \
     --tensor-parallel-size "$4" --data-parallel-size "$5" --dtype bfloat16 --gpu-memory-utilization 0.85 \
     --max-model-len 32768 --max-num-seqs 64 --reasoning-parser qwen3 --mm-encoder-attn-backend TORCH_SDPA \
