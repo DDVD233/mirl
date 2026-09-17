@@ -66,6 +66,19 @@ SEED_PROMPT = {
 }
 
 
+async def patient(call, what, waits=40, pause=60):
+    """The judge sits behind a shared tunnel host that stalls for minutes at a time. An outage
+    must never be read as "criterion not met" / "wrong diagnosis": wait and ask again."""
+    for attempt in range(waits):
+        try:
+            return await call()
+        except Exception as e:
+            print(f"[judge] {what} failed ({type(e).__name__}: {str(e)[:120]}); retry {attempt + 1}/{waits} "
+                  f"in {pause}s", flush=True)
+            await asyncio.sleep(pause)
+    raise RuntimeError(f"judge unreachable for {waits * pause}s ({what})")
+
+
 def load(name, path):
     spec = importlib.util.spec_from_file_location(name, path)
     mod = importlib.util.module_from_spec(spec)
@@ -143,11 +156,14 @@ class HBProGenerated:
         async def one(it):
             prompt = (self.rg.GRADER_TEMPLATE.replace("<<conversation>>", conv)
                       .replace("<<rubric_item>>", f"[{it['points']:g}] {it['criterion']}"))
-            try:
-                raw = await self.rg.call_grader(self.session, self.judge_sem, self.judge_args, prompt)
-                return bool(self.rg.parse_met(self.rg.strip_thinking(raw)))
-            except Exception:
+            async def ask():
+                for _ in range(3):        # an unparseable verdict is re-asked, then counts as not met
+                    raw = await self.rg.call_grader(self.session, self.judge_sem, self.judge_args, prompt)
+                    met = self.rg.parse_met(self.rg.strip_thinking(raw))
+                    if met is not None:
+                        return met
                 return False
+            return await patient(ask, "rubric criterion")
         met = await asyncio.gather(*(one(it) for it in inst["items"]))
         pos = sum(it["points"] for it in inst["items"] if it["points"] > 0)
         raw_score = sum(it["points"] for it, m in zip(inst["items"], met) if m) / pos if pos > 0 else 0.0
@@ -195,12 +211,12 @@ class MimicTrain:
             return {"answer": "", "score": 0.0, "feedback": f"No answer was produced ({type(e).__name__})."}
         gt = entry["reward_model"]["ground_truth"]
         row = {"extracted_answer": self.reward.extract_final_answer(response) or "", "ground_truth": gt}
-        try:
-            verdict = await self.stage1.grade(row, entry, self.session, self.args, self.reward)
-        except Exception as e:
-            if keep_response:     # evaluation: a judge outage is not a wrong answer; leave the case retryable
-                return {"answer": response[-1500:], "score": 0.0, "feedback": f"judge failed ({type(e).__name__})"}
-            verdict = {"verdict": "incorrect", "judge_acc_lenient": 0.0}
+        async def ask():
+            try:
+                return await self.stage1.grade(row, entry, self.session, self.args, self.reward)
+            except ValueError:            # the judge answered, unparseably, on every attempt
+                return {"verdict": "incorrect", "judge_acc_lenient": 0.0}
+        verdict = await patient(ask, "diagnosis verdict")
         out = {"answer": response[-1500:], "used": split_used(response)[1], "score": float(verdict["judge_acc_lenient"]),
                "feedback": f"The assistant's final answer was '{row['extracted_answer'] or '(none extracted)'}'. "
                            f"The correct diagnosis is '{gt}'. Judged {verdict['verdict']}."}
