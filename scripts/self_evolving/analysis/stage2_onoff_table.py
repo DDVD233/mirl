@@ -55,10 +55,10 @@ GROUPS = [
 
 CAPTION = (r"\caption{Methods that use no training data, on the HealthBench Professional "
            r"validation set, length-adjusted score under two graders applied to the same "
-           r"answers. Frozen rows follow the stage-1 inference protocol (medical RAG retrieves "
-           r"once, RAG-Fusion fuses three generated queries, i-MedRAG asks three rounds of "
-           r"follow-up questions) or answer through the solver's tool loop (clinical corpus "
-           r"retrieval and web search). Trained rows are the surviving checkpoint of each run, "
+           r"answers. Frozen rows either follow the stage-1 inference protocol, where medical RAG "
+           r"retrieves once, RAG-Fusion fuses three generated queries, and i-MedRAG asks three "
+           r"rounds of follow-up questions, or answer through the solver's tool loop with clinical "
+           r"corpus retrieval and web search. Trained rows are the surviving checkpoint of each run, "
            r"answering once with the tool loop and once with no tools. Generated-data training "
            r"is the fixed proposer prompt without the adversary.}")
 
@@ -107,9 +107,9 @@ def main():
 
 
 HELDOUT_CAPTION = (r"\caption{The held-out arms' surviving checkpoints with and without their tool at "
-                   r"test time, Qwen3.5-9B, in-loop validation metric (rubric score for PRBench and "
-                   r"ProfBench, exact-match accuracy for MedXpertQA), gpt-chat-latest grader. Untrained "
-                   r"is the base model answering with the same tool.}")
+                   r"test time, Qwen3.5-9B, gpt-chat-latest grader. The in-loop validation metric is "
+                   r"the rubric score for PRBench and ProfBench and exact-match accuracy for "
+                   r"MedXpertQA. Untrained is the base model answering with the same tool.}")
 
 
 def render_heldout(a):

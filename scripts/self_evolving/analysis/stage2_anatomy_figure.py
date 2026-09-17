@@ -15,6 +15,8 @@ Run from the repo root; writes into paper_stage2/figures/.
 import json
 import os
 
+import plotly.io as _pio
+_pio.kaleido.scope.mathjax = None  # no "Loading [MathJax]" box in the exported PDF
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
@@ -59,7 +61,7 @@ fig.add_scatter(x=vx, y=vy, mode="lines", name="validation accuracy, 9B setting"
 pt = R9["patch_effect"]["per_task"]
 before = [r["mean_before"] for r in pt]
 after = [r["mean_after"] for r in pt]
-fig.add_scatter(x=before, y=after, mode="markers", name="patched task (9B setting)",
+fig.add_scatter(x=before, y=after, mode="markers", name="patched task, 9B setting",
                 marker=dict(color=TEAL, size=6, opacity=0.65, line=dict(color=DARK, width=0.4)),
                 row=1, col=2)
 fig.add_scatter(x=[0, 1.05], y=[0, 1.05], mode="lines", showlegend=False,
@@ -85,7 +87,7 @@ fig.update_layout(barmode="overlay", template="plotly_white", width=1500, height
                               font=dict(size=13)),
                   margin=dict(l=60, r=30, t=70, b=60), paper_bgcolor="white", plot_bgcolor="white")
 fig.update_xaxes(title_text="(a) training step", row=1, col=1, gridcolor=GRID)
-fig.update_yaxes(title_text="accepted criteria (cumulative)", row=1, col=1, gridcolor=GRID, secondary_y=False)
+fig.update_yaxes(title_text="cumulative accepted criteria", row=1, col=1, gridcolor=GRID, secondary_y=False)
 fig.update_yaxes(title_text="validation accuracy", row=1, col=1, secondary_y=True, showgrid=False, range=[0.3, 0.6])
 fig.update_xaxes(title_text="(b) served score before patch", row=1, col=2, gridcolor=GRID, range=[0, 1.05])
 fig.update_yaxes(title_text="served score after patch", row=1, col=2, gridcolor=GRID, range=[0, 1.05])
