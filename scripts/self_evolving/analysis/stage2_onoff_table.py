@@ -28,6 +28,8 @@ GROUPS = [
         ("Frozen, medical RAG", "one retrieval", "hbpro_methods_qwen36_27b_medrag_0"),
         ("Frozen, RAG-Fusion", "fused queries", "hbpro_methods_qwen36_27b_rag_fusion_0"),
         ("Frozen, i-MedRAG", "iterative", "hbpro_methods_qwen36_27b_imedrag_0"),
+        ("Frozen, GEPA evolved prompt", "none", "hbpro_methods_qwen36_27b_gepa_0"),
+        ("Frozen, ACE evolved playbook", "none", "hbpro_methods_qwen36_27b_ace_0"),
         ("Frozen, tool loop", "solver tool calls", "hb27b_specgap_ship_retrieval_websearch_0"),
         ("Frozen, no tools", "none", "hbpro_27b_base_notools_0"),
         ("Generated-data training, no tools", "none", "hbpro_27b_fixed60_notools_0"),
@@ -40,6 +42,8 @@ GROUPS = [
         ("Frozen, medical RAG", "one retrieval", "hbpro_methods_qwen35_9b_medrag_0"),
         ("Frozen, RAG-Fusion", "fused queries", "hbpro_methods_qwen35_9b_rag_fusion_0"),
         ("Frozen, i-MedRAG", "iterative", "hbpro_methods_qwen35_9b_imedrag_0"),
+        ("Frozen, GEPA evolved prompt", "none", "hbpro_methods_qwen35_9b_gepa_0"),
+        ("Frozen, ACE evolved playbook", "none", "hbpro_methods_qwen35_9b_ace_0"),
         ("Frozen, no tools", "none", "hb9b_specgap_ship_noretrieval_sj_aicr_0"),
         ("Frozen, tool loop", "solver tool calls", "hb9b_specgap_ship_retrieval_websearch_0"),
         ("Generated-data training without tools, no tools", "none", "hb9b_specgap_simple_noretrieval_sj_aicr_860"),
@@ -58,7 +62,8 @@ CAPTION = (r"\caption{Methods that use no training data, on the HealthBench Prof
            r"answers. Frozen rows either follow the stage-1 inference protocol, where medical RAG "
            r"retrieves once, RAG-Fusion fuses three generated queries, and i-MedRAG asks three "
            r"rounds of follow-up questions, or answer through the solver's tool loop with clinical "
-           r"corpus retrieval and web search. Trained rows are the surviving checkpoint of each run, "
+           r"corpus retrieval and web search. GEPA and ACE evolve the prompt or a playbook of the frozen model on "
+           r"generated tasks only and answer the validation set once with the frozen result. Trained rows are the surviving checkpoint of each run, "
            r"answering once with the tool loop and once with no tools. Generated-data training "
            r"is the fixed proposer prompt without the adversary.}")
 
