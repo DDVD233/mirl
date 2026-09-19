@@ -185,7 +185,7 @@ def main():
     cap_abl = (r"Component ablation of RRIMed on Qwen3.5-9B under the GPT grader. The upper group runs with retrieval "
                r"off, comparing the untrained model with prompt evolution and admission-time adversary probing. "
                r"The lower group runs with retrieval and web search, from the fixed prompt through evolution with "
-               r"the admission-time probe to the full on-policy hack-then-patch loop. Official length-adjusted "
+               r"the admission-time probe to the full hack-then-patch loop. Official length-adjusted "
                r"accuracy for each reported row.")
     open(os.path.join(T, "hbpro_ablation.tex"), "w").write(provenance + render_ablation(table, PRIM, cap_abl, "tab:ablation"))
     cap_sp = (r"Per-specialty accuracy using the official length-adjusted score for the fixed-prompt and RRIMed rows "

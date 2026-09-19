@@ -53,7 +53,7 @@ RUNS = [("hb9b", "9B setting"), ("hb27b", "27B setting")]
 # regenerating never silently reverts a copy-edit. Keys are table labels.
 CAPTIONS = {
     "tab:audit": r'''\caption{Audit of accepted criteria by an LLM auditor shown the task, the original rubric, and the criterion alone, on a stratified sample per run, reporting the share of criteria answered \emph{yes}. A criterion is \emph{correct} when the clinical content is accurate, \emph{relevant} when it bears on what the task asks, and \emph{specific} when it requires a checkable claim rather than a topic mention.}''',
-    "tab:taxonomy": r'''\caption{Mechanism of the on-policy exploits caught by the referee, labeled by an LLM auditor shown the task, the original rubric, the exploit answer, the better answer, and the accepted repair; the primary label and its share of cases are shown, with $n=540$ for the 9B run and $n=500$ for the 27B sample.}''',
+    "tab:taxonomy": r'''\caption{Mechanism of the exploits repaired by the loop, labeled by an LLM auditor shown the task, the original rubric, the exploit answer, the better answer, and the accepted repair; the primary label and its share of cases are shown, with $n=540$ for the 9B run and $n=500$ for the 27B sample.}''',
     "tab:methods": r'''\caption{Inference-time methods on the frozen base models next to the trained rows of the same base model from Table~\ref{tab:main}, HealthBench Professional accuracy under the gpt-chat-latest grader with three votes. The frozen-model methods follow the stage-1 protocol, greedy decoding, no reasoning channel, references from the shared medical corpus placed in the prompt; medical RAG retrieves once, RAG-Fusion fuses three generated queries, and i-MedRAG asks three rounds of two follow-up questions. GEPA and ACE evolve the prompt or a playbook of the frozen model on generated tasks only and answer the validation set once with the frozen result. The trained rows answer with the solver's own tool calls at the training temperature.}''',
     "tab:regrade": r'''\caption{HealthBench Professional accuracy of the rows of Table~\ref{tab:main} re-graded from the same answers with the benchmark's official grader, GPT-5.4 at reasoning effort low with one vote per criterion. The official length-adjusted signed score and the unadjusted rubric fraction are shown.}''',
     "tab:reference": r'''\caption{Reference points on HealthBench Professional under one protocol, the benchmark's official pipeline, no tools, greedy decoding, an 8,192-token answer budget, and the gpt-chat-latest grader used for validation in this paper. Frontier models are served through the same endpoint as the grader; open models are served locally.}''',
@@ -87,7 +87,7 @@ def render_taxonomy(data, T):
         return
     keys = sorted(LABELS, key=lambda k: -max(t["primary_share"].get(k, 0) for t in tax.values()))
     L = [r"\begin{table}[h]", r"\begin{center}",
-         r"\caption{Mechanism of the on-policy exploits caught by the referee, labeled by an LLM auditor "
+         r"\caption{Mechanism of the exploits repaired by the loop, labeled by an LLM auditor "
          r"shown the task, the original rubric, the exploit answer, the better answer, and the accepted "
          r"repair (primary label, share of cases). " +
          " ".join(f"{t['run'].split('_')[0].replace('hb', '')}: $n={t['n_labeled']}$" for t in tax.values()) + ".}",
@@ -136,8 +136,8 @@ def render_funnel(data, T):
     cols = list(led)
     rows = [
         ("Exploit cases", lambda d: f"{d['funnel']['cases']:,}"),
-        ("\\quad shipped by the referee", lambda d: f"{d['funnel']['cases_by_source'].get('on_policy_exploit', 0):,}"),
-        ("\\quad raised by re-attack", lambda d: f"{d['funnel']['cases_by_source'].get('reattack_round', 0):,}"),
+        
+        
         ("Distinct tasks", lambda d: f"{d['funnel']['tasks_with_case']:,}"),
         ("Accepted criteria", lambda d: f"{d['funnel']['criteria_accepted']:,}"),
         ("\\quad positive share", lambda d: pct(d['funnel']['positive_share']) + "\\%"),
