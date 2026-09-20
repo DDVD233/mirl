@@ -24,10 +24,10 @@ OURS = [
     ("Qwen3.5-9B, untrained, same tools",
      {"profbench": "ours_profbench_9b_untrained", "prbench": "ours_prbench_9b_untrained",
       "medx": "ours_medx_9b_untrained", "medxmm": "ours_medxmm_9b_untrained"}),
-    ("Qwen3.5-9B, RRIMed on the benchmark's own description",
+    ("Qwen3.5-9B, RRI on the benchmark's own description",
      {"profbench": "ours_profbench_9b_rrimed170", "prbench": "ours_prbench_9b_rrimed350",
       "medx": "ours_medx_9b_rrimed180", "medxmm": "ours_medxmm_9b_rrimed180"}),
-    ("Qwen3.6-27B, RRIMed on the medical description, zero-shot",
+    ("Qwen3.6-27B, RRI on the medical description, zero-shot",
      {"profbench": "xdom_profbench_27b_ser200", "prbench": "xdom_prbench_27b_ser200"}),
 ]
 BENCH_COLS = [("profbench", "ProfBench"), ("prbench", "PRBench Hard"), ("medx", "MedXpertQA, text"),

@@ -3,7 +3,7 @@
 tools, greedy, gpt-chat-latest grader) into one JSON for the paper's reference table.
 
 Sources (all on the shared NFS):
-  $S/logs/hbpro_eval_stage2/result__hbpro-<tag>.json   open models + our merged RRIMed-27B
+  $S/logs/hbpro_eval_stage2/result__hbpro-<tag>.json   open models + our merged RRI-27B
   $S/logs/hbpro_eval/result__hbpro-<model>.json         TRAPI-served frontier models
 
 Run on any MSR pod; copy the output to paper_data/stage2/reference_rows.json.
@@ -15,7 +15,7 @@ import sys
 
 S = "/scratch/sheng/self_evolving"
 NAMES = {
-    "hb27b_ser_step200": ("RRIMed, Qwen3.6-27B", "ours"),
+    "hb27b_ser_step200": ("RRI, Qwen3.6-27B", "ours"),
     "Qwen_Qwen3.6-27B": ("Qwen3.6-27B", "open"),
     "Qwen_Qwen3.5-9B": ("Qwen3.5-9B", "open"),
     "google_gemma-4-31B-it": ("Gemma 4 31B IT", "open"),

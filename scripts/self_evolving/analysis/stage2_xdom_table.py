@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
-"""Zero-shot transfer of the HealthBench-trained checkpoints to the held-out report
-benchmarks (paper_data/stage2/xdom_zeroshot.json, from the cross-domain val-only queue
-scripts/self_evolving/eval/xdomain_queue.sh: live web search, in-loop grader). Renders
-paper_stage2/tables/xdom.tex; not yet \\input into the paper.
+"""Zero-shot transfer table: checkpoints trained on the HealthBench Pro description,
+evaluated on PRBench Hard and ProfBench with per-category columns.
+
+Data: paper_data/stage2/xdom_category_scores.json (per-row in-loop scores of the
+cross-domain val-only runs, scripts/self_evolving/eval/xdomain_queue.sh, live web search,
+joined to each task's category). Renders paper_stage2/tables/xdom.tex.
 
 Usage: python3 scripts/self_evolving/analysis/stage2_xdom_table.py [--data ...] [--paper ...]
 """
@@ -10,9 +12,23 @@ import argparse
 import json
 import os
 
-CAPTION = (r"\caption{Zero-shot transfer: the HealthBench-trained checkpoints on the two report "
-           r"benchmarks, answering through the web-search tool loop, in-loop grader. No checkpoint "
-           r"saw a task from either benchmark.}")
+ROWS = [  # (group, label, tag)
+    ("Qwen3.6-27B", "Untrained", "27b_base"),
+    ("Qwen3.6-27B", "Fixed prompt", "27b_fixed60"),
+    ("Qwen3.6-27B", "RRI", "27b_ser200"),
+    ("Qwen3.5-9B", "Untrained", "9b_base"),
+    ("Qwen3.5-9B", "Fixed prompt, no tools in training", "9bD_fixed860"),
+    ("Qwen3.5-9B", "RRI, no tools in training", "9bD_ser480"),
+    ("Qwen3.5-9B", "Fixed prompt, tools in training", "9bC_fixed80"),
+    ("Qwen3.5-9B", "RRI, tools in training", "9bC_ser200"),
+]
+PR = [("overall", "All"), ("finance", "Finance"), ("legal", "Legal")]
+PF = [("overall", "All"), ("chemistry_phd", "Chem."), ("physics_phd", "Phys."), ("finance_mba", "Fin."), ("consulting_mba", "Cons.")]
+
+CAPTION = (r"\caption{Zero-shot transfer. Every trained row was trained on the HealthBench Pro "
+           r"description and saw no task from either benchmark; all rows answer through the "
+           r"web-search tool loop, in-loop grader. PRBench Hard: 550 tasks (300 finance, 250 legal). "
+           r"ProfBench: 40 tasks, 10 per domain (chemistry PhD, physics PhD, finance MBA, consulting MBA).}")
 
 
 def main():
@@ -20,17 +36,39 @@ def main():
     ap.add_argument("--data", default="paper_data/stage2")
     ap.add_argument("--paper", default="paper_stage2")
     a = ap.parse_args()
-    rows = json.load(open(os.path.join(a.data, "xdom_zeroshot.json")))["rows"]
-    L = [r"\begin{table}[h]", r"\begin{center}", CAPTION, r"\label{tab:xdom}", r"\small",
-         r"\begin{tabular}{llrr}", r"\toprule", r"Model & Training & ProfBench & PRBench Hard \\", r"\midrule"]
-    last_model = None
-    for r in rows:
-        if last_model and r["model"] != last_model:
+    d = json.load(open(os.path.join(a.data, "xdom_category_scores.json")))
+    L = [r"\begin{table}[t]", r"\begin{center}", CAPTION, r"\label{tab:xdom}", r"\footnotesize",
+         r"\setlength{\tabcolsep}{4pt}",
+         r"\begin{tabular}{ll" + "r" * (len(PR) + len(PF)) + "}", r"\toprule",
+         r"\multicolumn{2}{l}{} & \multicolumn{%d}{c}{PRBench Hard} & \multicolumn{%d}{c}{ProfBench} \\" % (len(PR), len(PF)),
+         r"\cmidrule(lr){3-%d} \cmidrule(lr){%d-%d}" % (2 + len(PR), 3 + len(PR), 2 + len(PR) + len(PF)),
+         "Model & Training & " + " & ".join(c for _, c in PR + PF) + r" \\", r"\midrule"]
+    last = None
+    for group, label, tag in ROWS:
+        if last and group != last:
             L.append(r"\midrule")
-        last_model = r["model"]
-        L.append(f"{r['model']} & {r['training']} & {r['profbench']:.3f} & {r['prbench']:.3f} \\\\")
+        last = group
+        pr = d[f"prbench/{tag}"]; pf = d[f"profbench/{tag}"]
+        cells = [f"{pr[k]:.3f}" for k, _ in PR] + [f"{pf[k]:.3f}" for k, _ in PF]
+        # bold the best of each column within the model group
+        L.append(f"{group} & {label} & " + " & ".join(cells) + r" \\")
     L += [r"\bottomrule", r"\end{tabular}", r"\end{center}", r"\end{table}"]
+    # bold best per column within each group
     out = os.path.join(a.paper, "tables", "xdom.tex")
+    text = "\n".join(L)
+    for group in ("Qwen3.6-27B", "Qwen3.5-9B"):
+        rows = [r for r in ROWS if r[0] == group]
+        for j, (bench, key) in enumerate([("prbench", k) for k, _ in PR] + [("profbench", k) for k, _ in PF]):
+            best = max(d[f"{bench}/{t}"][key] for _, _, t in rows)
+            for _, label, tag in rows:
+                v = d[f"{bench}/{tag}"][key]
+                if abs(v - best) < 1e-12:
+                    line_prefix = f"{group} & {label} & "
+                    for i, line in enumerate(L):
+                        if line.startswith(line_prefix):
+                            parts = line[len(line_prefix):-3].split(" & ")
+                            parts[j] = r"\textbf{%s}" % parts[j]
+                            L[i] = line_prefix + " & ".join(parts) + r" \\"
     open(out, "w").write("% GENERATED by scripts/self_evolving/analysis/stage2_xdom_table.py. Do not edit by hand.\n" + "\n".join(L) + "\n")
     print("wrote", out)
 

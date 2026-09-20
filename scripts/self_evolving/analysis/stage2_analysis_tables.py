@@ -61,7 +61,7 @@ CAPTIONS = {
 }
 TEXT_FIXES = [
     ("trained with tools (Table~\\ref{tab:main})", "trained with tools, from Table~\\ref{tab:main}"),
-    ("\\textbf{RRIMed-9B}", "\\textbf{RRIMed}"), ("\\textbf{RRIMed-27B}", "\\textbf{RRIMed}"),
+    ("\\textbf{RRI-9B}", "\\textbf{RRI}"), ("\\textbf{RRI-27B}", "\\textbf{RRI}"),
     ("GPT chat (latest)", "GPT chat latest"),
 ]
 
@@ -147,7 +147,7 @@ def render_funnel(data, T):
         ("\\quad tasks whose score fell", lambda d: pct(d['patch_effect']['share_tasks_score_fell']) + "\\%"),
     ]
     L = [r"\begin{table}[h]", r"\begin{center}",
-         r"\caption{Anatomy of the hack-then-patch loop per RRIMed run, measured from the repair ledger. "
+         r"\caption{Anatomy of the hack-then-patch loop per RRI run, measured from the repair ledger. "
          r"Served score is the training grader's score of rollouts served on the task before and after "
          r"its first patch.}", r"\label{tab:funnel}", r"\small",
          r"\begin{tabular}{l" + "r" * len(cols) + "}", r"\toprule",
@@ -167,13 +167,13 @@ def render_heldout(data, T):
             ("profbench9b_specgap_ship_websearch", "ProfBench, PhD and MBA reports", 40, "rubric score"),
             ("medxpert9b_specgap_ship_retrieval_websearch", "MedXpertQA, text and image", 4450, "accuracy")]
     L = [r"\begin{table}[h]", r"\begin{center}",
-         r"\caption{RRIMed on held-out rubric benchmarks outside HealthBench Professional, Qwen3.5-9B, "
+         r"\caption{RRI on held-out rubric benchmarks outside HealthBench Professional, Qwen3.5-9B, "
          r"gpt-chat-latest grader. Each benchmark is used only for validation; the proposer sees a "
          r"paper-level description of the benchmark and no items. Untrained is the base model under "
-         r"the same validator; RRIMed is the best validation evaluation of the run. MedXpertQA is scored "
+         r"the same validator; RRI is the best validation evaluation of the run. MedXpertQA is scored "
          r"as a one-criterion rubric, so its score is exact-match accuracy, shown for the text and "
          r"image splits.}", r"\label{tab:heldout}", r"\small", r"\begin{tabular}{lrlcc}", r"\toprule",
-         r"Benchmark & $n$ & Metric & Untrained & RRIMed \\", r"\midrule"]
+         r"Benchmark & $n$ & Metric & Untrained & RRI \\", r"\midrule"]
     for run, name, n, metric in rows:
         v = d.get(run)
         if not v:
@@ -220,7 +220,7 @@ def render_transfer(data, T):
         for r, h, m in vals:
             ch = "--" if h is None else (f"\\textbf{{{h:.3f}}}" if r["label"] != "Untrained" and bh is not None and h >= bh else f"{h:.3f}")
             cm = "--" if m is None else (f"\\textbf{{{m:.3f}}}" if r["label"] != "Untrained" and bm is not None and m >= bm else f"{m:.3f}")
-            lab = f"\\textbf{{{r['label']}}}" if r["label"].startswith(("SER", "RRIMed")) else r["label"]
+            lab = f"\\textbf{{{r['label']}}}" if r["label"].startswith(("SER", "RRI")) else r["label"]
             L.append(f"{setting} & {lab} & {ch} & {cm} \\\\")
         L.append(r"\midrule")
     L[-1] = r"\bottomrule"
@@ -250,7 +250,7 @@ def render_transfer_hbhard(d, T):
         bh = max(trained, default=None)
         for r, h in vals:
             ch = "--" if h is None else (f"\\textbf{{{h:.3f}}}" if r["label"] != "Untrained" and bh is not None and h >= bh else f"{h:.3f}")
-            lab = f"\\textbf{{{r['label']}}}" if r["label"].startswith(("SER", "RRIMed")) else r["label"]
+            lab = f"\\textbf{{{r['label']}}}" if r["label"].startswith(("SER", "RRI")) else r["label"]
             L.append(f"{setting} & {lab} & {ch} \\\\")
         L.append(r"\midrule")
     L[-1] = r"\bottomrule"
@@ -393,7 +393,7 @@ def render_regrade(data, T, table):
             else:
                 cells = [(f"\\textbf{{{x:.3f}}}" if (r["label"] != "Untrained" and best[j] is not None and x >= best[j]) else f"{x:.3f}")
                          for j, x in enumerate(v)]
-            lab = f"\\textbf{{{r['label']}}}" if r["label"].startswith(("SER", "RRIMed")) else r["label"]
+            lab = f"\\textbf{{{r['label']}}}" if r["label"].startswith(("SER", "RRI")) else r["label"]
             L.append(f"\\quad {lab} & " + " & ".join(cells) + r" \\")
         L.append(r"\midrule")
     L[-1] = r"\bottomrule"

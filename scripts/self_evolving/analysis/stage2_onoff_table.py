@@ -6,7 +6,7 @@ retrieval at test time, under one grader per column.
 Rows come from regrade outputs (scripts/self_evolving/analysis/regrade_hbpro_dumps.py)
 in paper_data/stage2/regrade/<tag>/<run>_<step>.json, so a frozen model with an
 inference-time RAG method, a frozen model with the solver's tool loop, a model trained
-on generated tasks with the fixed proposer prompt, and RRIMed are all scored by the
+on generated tasks with the fixed proposer prompt, and RRI are all scored by the
 same instrument on the same answers format. "Tool loop" rows of checkpoints trained
 with tools are their in-loop validation dumps at the same step; the other cells are
 val-only runs of the same weights (scripts/self_evolving/eval/onoff_queue.sh).
@@ -34,8 +34,8 @@ GROUPS = [
         ("Frozen, no tools", "none", "hbpro_27b_base_notools_0"),
         ("Generated-data training, no tools", "none", "hbpro_27b_fixed60_notools_0"),
         ("Generated-data training, tool loop", "solver tool calls", "hb27b_specgap_simple_retrieval_aicr_60"),
-        ("RRIMed, no tools", "none", "hbpro_27b_ser200_notools_0"),
-        ("RRIMed, tool loop", "solver tool calls", "hb27b_specgap_ship_retrieval_websearch_200"),
+        ("RRI, no tools", "none", "hbpro_27b_ser200_notools_0"),
+        ("RRI, tool loop", "solver tool calls", "hb27b_specgap_ship_retrieval_websearch_200"),
     ]),
     ("Qwen3.5-9B", [
         ("Frozen, direct answer", "none", "hbpro_methods_qwen35_9b_direct_0"),
@@ -48,12 +48,12 @@ GROUPS = [
         ("Frozen, tool loop", "solver tool calls", "hb9b_specgap_ship_retrieval_websearch_0"),
         ("Generated-data training without tools, no tools", "none", "hb9b_specgap_simple_noretrieval_sj_aicr_860"),
         ("Generated-data training without tools, tool loop", "solver tool calls", "hbpro_9bD_fixed860_tools_0"),
-        ("RRIMed trained without tools, no tools", "none", "hb9b_specgap_ship_noretrieval_sj_aicr_480"),
-        ("RRIMed trained without tools, tool loop", "solver tool calls", "hbpro_9bD_ser480_tools_0"),
+        ("RRI trained without tools, no tools", "none", "hb9b_specgap_ship_noretrieval_sj_aicr_480"),
+        ("RRI trained without tools, tool loop", "solver tool calls", "hbpro_9bD_ser480_tools_0"),
         ("Generated-data training with tools, no tools", "none", "hbpro_9bC_fixed80_notools_0"),
         ("Generated-data training with tools, tool loop", "solver tool calls", "hb9b_specgap_simple_retrieval_self9b_websearch_80"),
-        ("RRIMed trained with tools, no tools", "none", "hbpro_9bC_ser200_notools_0"),
-        ("RRIMed trained with tools, tool loop", "solver tool calls", "hb9b_specgap_ship_retrieval_self9b_websearch_200"),
+        ("RRI trained with tools, no tools", "none", "hbpro_9bC_ser200_notools_0"),
+        ("RRI trained with tools, tool loop", "solver tool calls", "hb9b_specgap_ship_retrieval_self9b_websearch_200"),
     ]),
 ]
 
@@ -128,7 +128,7 @@ def render_heldout(a):
             ("MedXpertQA, text and image", "retrieval and web search", d["medxpertqa"])]
     L = [r"\begin{table}[h]", r"\begin{center}", HELDOUT_CAPTION, r"\label{tab:onoff_heldout}", r"\small",
          r"\begin{tabular}{llrrr}", r"\toprule",
-         r"Benchmark & Tool & Untrained, tool & RRIMed, tool & RRIMed, no tool \\", r"\midrule"]
+         r"Benchmark & Tool & Untrained, tool & RRI, tool & RRI, no tool \\", r"\midrule"]
     for name, tool, r in rows:
         vals = [r["untrained_with_tool"], r["trained_with_tool"], r["trained_without_tool"]]
         best = max(vals)
