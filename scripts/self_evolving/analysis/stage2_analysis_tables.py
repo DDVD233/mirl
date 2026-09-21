@@ -60,9 +60,7 @@ CAPTIONS = {
     "tab:transfer": r'''\caption{Transfer to HealthBench Hard, the 1,000 hardest tasks of the original HealthBench release, never used for training or validation, in the 27B setting. Scored with the in-loop validator, with solver tools on, the gpt-chat-latest grader, and three votes, using the benchmark's official score, the mean per-example clipped rubric fraction with no length term. Trained rows use the latest retained checkpoint of each run.}''',
 }
 TEXT_FIXES = [
-    ("trained with tools (Table~\\ref{tab:main})", "trained with tools, from Table~\\ref{tab:main}"),
     ("\\textbf{RRI-9B}", "\\textbf{RRI}"), ("\\textbf{RRI-27B}", "\\textbf{RRI}"),
-    ("GPT chat (latest)", "GPT chat latest"),
 ]
 
 

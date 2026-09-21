@@ -82,7 +82,7 @@ def render_block_rows(rows, metric, bold_best=True):
     for i, r in enumerate(rows):
         name = r["label"]
         if r["ours"]:
-            name = f"\\textbf{{{name}}}"
+            name = f"\\textbf{{{name} (ours)}}"
         cells = [cell(vals[i][j], bold_best and not r["untrained"] and vals[i][j] is not None and vals[i][j] == best[j])
                  for j in range(len(cols))]
         # order: categories, difficulty, overall last (matches the stage-1 table convention)
