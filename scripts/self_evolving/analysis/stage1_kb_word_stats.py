@@ -208,7 +208,7 @@ def render(out_dir, path):
         r"\label{tab:kb-sources}",
         r"\setlength{\tabcolsep}{4pt}",
         r"\resizebox{\textwidth}{!}{%",
-        r"\begin{tabular}{@{}l p{0.52\textwidth} rrr@{}}",
+        r"\begin{tabular}{@{}l p{0.65\textwidth} rrr@{}}",  # content width set by David in Overleaf
         r"\toprule",
         r"Source & Content & Entries & Words & \hd{Images and}{videos} \\",
         r"\midrule",
