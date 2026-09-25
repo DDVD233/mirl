@@ -116,23 +116,23 @@ def merge(out_dir):
     print(f"{'total':16s} {all_entries:>12,d} {all_words:>15,d}")
 
 
-ROWS = [  # source, name, citation, one-sentence content description
+ROWS = [  # source, name, citation, content description that fits one table line (David 2026-09-25)
     ("medrag_pubmed", "PubMed abstracts", "",
-     "Abstracts of biomedical research, including clinical trials, case reports, and reviews."),
+     "Abstracts of clinical trials, case reports, and reviews"),
     ("medrag_wiki", "Wikipedia", "",
-     "Encyclopedic articles on diseases, drugs, and procedures, along with general topics."),
+     "Articles on medicine and general topics"),
     ("medrag_textbook", "Medical textbooks", "",
-     "Passages from textbooks of the medical curriculum, such as anatomy, pathology, and pharmacology."),
+     "Curriculum textbooks such as anatomy and pathology"),
     ("wikidoc", "WikiDoc", "",
-     "A clinician-written medical encyclopedia, indexed mostly by section titles such as causes or differential diagnosis."),
+     "Clinician-written encyclopedia, mostly section titles"),
     ("pmc_vqa", "PMC-VQA", "zhang2023pmc",
-     "Questions and answers about figures in PubMed Central articles."),
-    ("mirage", "MIRAGE", "",
-     "Medical exam and research questions with their answers."),
+     "PubMed Central figure questions"),
+    ("mirage", "MIRAGE", "xiong2024benchmarking",
+     "Exam and research questions"),
     ("pubmedqa", "PubMedQA", "jin2019pubmedqa",
-     "Yes-or-no research questions with the abstracts that answer them."),
+     "Yes-or-no questions with abstracts"),
     ("climb", "CLIMB", "dai2025climb",
-     "Multimodal clinical questions with answers over medical images and videos, such as X-ray diagnoses and CT sequences."),
+     "Clinical image and video questions"),
 ]
 ARCHIVE = Path(__file__).resolve().parents[3] / "paper_data/stage1/followups_2026-09-23/archive/archive_summary.json"
 
@@ -201,23 +201,20 @@ def render(out_dir, path):
         "% stage-1 source families). Images and videos: paper_data/stage1/kb_word_stats/media.json.",
         r"\begin{table*}[t]",
         r"\centering\footnotesize",
-        r"\newcommand{\hd}[2]{\begin{tabular}[b]{@{}c@{}}#1\\#2\end{tabular}}",
         r"\caption{Sources of the medical knowledge base. Entries and words count the indexed text that a",
-        "retrieval returns. Images and videos counts the distinct media files that the multimodal entries",
+        "retrieval returns. Img./vid. counts the distinct image and video files that the multimodal entries",
         "link to. These entries are retrieved by their text and bring their image or video with them.}",
         r"\label{tab:kb-sources}",
-        r"\setlength{\tabcolsep}{4pt}",
-        r"\resizebox{\textwidth}{!}{%",
-        r"\begin{tabular}{@{}l p{0.65\textwidth} rrr@{}}",  # content width set by David in Overleaf
+        r"\setlength{\tabcolsep}{3pt}",
+        r"\begin{tabular*}{\textwidth}{@{\extracolsep{\fill}}llrrr@{}}",  # one line per source (David 2026-09-25)
         r"\toprule",
-        r"Source & Content & Entries & Words & \hd{Images and}{videos} \\",
+        r"Source & Content & Entries & Words & Img./vid. \\",
         r"\midrule",
     ]
     total_media = 0
     for source, name, cite, desc in ROWS:
         t = summary["sources"][source]
-        text = f"{desc[:-1]} \\citep{{{cite}}}." if cite else desc
-        text = "\\raggedright " + text
+        text = f"{desc} \\citep{{{cite}}}" if cite else desc
         m = media_counts.get(source)
         n_media = m["images"] + m["videos"] if m else 0
         total_media += n_media
@@ -228,7 +225,7 @@ def render(out_dir, path):
         r"\midrule",
         f"Total & & {num(summary['entries'])} & {words_fmt(words)} & {num(total_media)} \\\\",
         r"\bottomrule",
-        r"\end{tabular}}",
+        r"\end{tabular*}",
         r"\end{table*}",
         "",
     ]
