@@ -168,7 +168,7 @@ def render_heldout(data, T):
          r"\caption{RRI on held-out rubric benchmarks outside HealthBench Professional, Qwen3.5-9B, "
          r"gpt-chat-latest grader. Each benchmark is used only for validation; the proposer sees a "
          r"paper-level description of the benchmark and no items. Untrained is the base model under "
-         r"the same validator; RRI is the best validation evaluation of the run. MedXpertQA is scored "
+         r"the same validator; RRI is the last checkpoint of the run. MedXpertQA is scored "
          r"as a one-criterion rubric, so its score is exact-match accuracy, shown for the text and "
          r"image splits.}", r"\label{tab:heldout}", r"\small", r"\begin{tabular}{lrlcc}", r"\toprule",
          r"Benchmark & $n$ & Metric & Untrained & RRI \\", r"\midrule"]
